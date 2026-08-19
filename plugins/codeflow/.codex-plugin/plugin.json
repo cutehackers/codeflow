@@ -1,0 +1,19 @@
+{
+  "name": "codeflow",
+  "version": "0.1.0",
+  "description": "Evidence-first CodeFlow workflow delegated to the local Core.",
+  "author": {
+    "name": "Local developer"
+  },
+  "skills": "./skills/",
+  "interface": {
+    "displayName": "Codeflow",
+    "shortDescription": "Review current code flow and unknowns.",
+    "longDescription": "Delegates current, diff, unknown, refresh, and requested FlowView work to CodeFlow Core.",
+    "developerName": "Local developer",
+    "category": "Productivity",
+    "capabilities": [],
+    "defaultPrompt": "Use CodeFlow evidence and preserve all unknowns."
+  },
+  "mcpServers": "./.mcp.json"
+}

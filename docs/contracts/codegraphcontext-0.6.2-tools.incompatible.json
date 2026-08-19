@@ -1,0 +1,7 @@
+{
+  "capture": "same-name tool must not pass by name alone",
+  "tools": [{
+    "name": "analyze_code_relationships",
+    "inputSchema": {"properties": {"query": {"type": "string"}}}
+  }]
+}

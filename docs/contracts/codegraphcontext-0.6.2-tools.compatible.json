@@ -1,0 +1,11 @@
+{
+  "capture": "CodeGraphContext 0.6.2 relationship-tool compatibility shape",
+  "tools": [{
+    "name": "analyze_code_relationships",
+    "inputSchema": {"properties": {
+      "query_type": {"type": "string"},
+      "target": {"type": "string"},
+      "context": {"type": "string"}
+    }}
+  }]
+}

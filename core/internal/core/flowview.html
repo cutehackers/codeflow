@@ -1,0 +1,243 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>CodeFlow · {{.Document.Current.FlowKey}}</title>
+  <style>
+    :root { color-scheme: light; --ink: #111; --muted: #666; --line: #aaa; --soft: #f4f4f4; --paper: #fff; --radius-sm: 4px; --radius-md: 6px; }
+    * { box-sizing: border-box; }
+    body { margin: 0; overflow-x: hidden; background: var(--paper); color: var(--ink); font: 14px/1.55 ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+    main { display: grid; gap: 16px; min-width: 0; width: min(1180px, 100%); margin: auto; padding: 28px 22px 56px; }
+    h1, h2, h3, p { margin-top: 0; }
+    h1 { margin-bottom: 4px; font-size: 24px; }
+    h2 { margin-bottom: 10px; font-size: 16px; }
+    code, pre, .mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+    .snapshot-line, .architecture-line, .legend, .step-meta, .navigation, .call-path, .branch-row, .evidence-actions { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
+    .snapshot-line { padding-bottom: 14px; border-bottom: 3px solid var(--ink); }
+    .architecture-line { padding: 10px 0; border-bottom: 1px solid var(--line); }
+    .architecture-map { min-width: 0; max-width: 100%; overflow: hidden; border: 1px solid var(--ink); border-radius: var(--radius-md); background: var(--paper); }
+    .architecture-map-header { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; padding: 11px 13px; border-bottom: 1px solid var(--ink); }
+    .architecture-map-header h2 { margin: 0; }
+    .architecture-scroll { max-width: 100%; overflow-x: auto; overscroll-behavior-inline: contain; }
+    .architecture-lane { display: grid; grid-template-columns: 150px minmax(max-content, 1fr); min-width: max-content; border-bottom: 1px solid var(--line); }
+    .architecture-lane:last-child { border-bottom: 0; }
+    .architecture-lane-label { position: sticky; left: 0; z-index: 3; width: 150px; padding: 12px; border-right: 1px solid var(--ink); background: var(--paper); font-size: 11px; font-weight: 700; }
+    .architecture-track { display: grid; grid-template-columns: repeat(var(--architecture-columns), minmax(152px, 1fr)); gap: 8px; min-width: calc(var(--architecture-columns) * 160px); padding: 8px; background-image: linear-gradient(to right, transparent calc(100% - 1px), #e5e5e5 0); background-size: 160px 100%; }
+    .architecture-node { position: relative; display: grid; align-content: start; min-height: 64px; padding: 8px 9px; border: 1px solid var(--ink); border-radius: var(--radius-md); background: var(--paper); text-align: left; font-size: 11px; }
+    .architecture-node::before { content: attr(data-incoming); color: var(--muted); font-size: 9px; text-transform: uppercase; }
+    .architecture-node[aria-selected="true"] { background: var(--ink); color: var(--paper); box-shadow: 3px 3px 0 #bbb; }
+    .architecture-node[aria-selected="true"]::before { color: #ddd; }
+    .architecture-node[data-status="unknown"] { border-style: dashed; }
+    .branches { display: grid; gap: 8px; }
+    .branch-row { align-items: stretch; padding: 8px; border: 1px solid var(--line); border-radius: var(--radius-md); }
+    .branch-label { display: grid; align-content: center; flex: 0 1 260px; min-width: 190px; color: var(--muted); }
+    .branch-label strong { color: var(--ink); }
+    .branch-label small, .branch-jump small { display: block; color: var(--muted); font-size: 10px; }
+    .branch-outcomes { display: flex; flex: 1 1 420px; flex-wrap: wrap; gap: 6px; }
+    .branch-jump { display: grid; flex: 1 1 180px; min-width: 180px; gap: 2px; padding: 7px 9px; text-align: left; }
+    .branch-jump[aria-current="step"] { background: var(--ink); color: var(--paper); }
+    .branch-jump[aria-current="step"] small { color: #ddd; }
+    .badge { display: inline-block; border: 1px solid var(--ink); padding: 1px 7px; font-size: 11px; text-transform: uppercase; letter-spacing: .04em; }
+    .status::before { content: "○ "; }
+    .status[data-status="observed"]::before { content: "● "; }
+    .status[data-status="unknown"]::before { content: "? "; font-weight: 800; }
+    .status[data-status="mixed"]::before { content: "◐ "; }
+    .navigation { justify-content: space-between; gap: 16px; padding: 12px 0 4px; }
+    .navigation-current { display: flex; align-items: baseline; min-width: 0; gap: 10px; }
+    .navigation-current strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 16px; }
+    .navigation-controls { display: flex; align-items: center; gap: 8px; }
+    button { appearance: none; border: 1px solid var(--ink); border-radius: var(--radius-sm); background: var(--paper); color: var(--ink); padding: 8px 11px; font: inherit; cursor: pointer; }
+    button:hover:not(:disabled), button:focus-visible { background: var(--ink); color: var(--paper); outline: none; }
+    button:disabled { border-color: var(--line); color: var(--line); cursor: default; }
+    .editor-link { display: inline-flex; align-items: center; border: 1px solid var(--ink); border-radius: var(--radius-sm); background: var(--ink); color: var(--paper); padding: 6px 9px; text-decoration: none; font-size: 12px; }
+    .editor-link:hover, .editor-link:focus-visible { background: var(--paper); color: var(--ink); outline: none; }
+    .timeline-shell { position: relative; overflow: hidden; border-top: 1px solid var(--ink); border-bottom: 1px solid var(--ink); }
+    .timeline { display: flex; gap: 0; margin: 0; padding: 18px 10px 16px; overflow-x: auto; list-style: none; scroll-snap-type: x proximity; scrollbar-width: thin; }
+    .timeline li { position: relative; flex: 0 0 176px; scroll-snap-align: center; }
+    .timeline li:not(:last-child)::after { content: ""; position: absolute; z-index: 0; top: 15px; left: 34px; right: -4px; border-top: 1px solid var(--ink); }
+    .timeline li[data-break-after="true"]::after { display: none; }
+    .timeline li[data-alternative="true"] { margin-left: 34px; }
+    .timeline li[data-alternative="true"]::before { content: "또는"; position: absolute; top: 5px; left: -31px; z-index: 2; padding: 1px 4px; border: 1px solid var(--line); border-radius: 999px; background: var(--paper); color: var(--muted); font-size: 9px; }
+    .timeline button { position: relative; z-index: 1; display: grid; grid-template-columns: 32px minmax(0, 1fr); gap: 8px; width: 100%; min-height: 76px; padding: 0 13px 0 0; border: 0; background: transparent; text-align: left; overflow-wrap: anywhere; }
+    .timeline button:hover:not(:disabled), .timeline button:focus-visible { background: transparent; color: var(--ink); }
+    .timeline-marker { display: grid; place-items: center; width: 30px; height: 30px; border: 1px solid var(--ink); border-radius: 50%; background: var(--paper); font: 11px/1 ui-monospace, SFMono-Regular, Menlo, monospace; }
+    .timeline button[data-status="observed"] .timeline-marker { background: var(--ink); color: var(--paper); }
+    .timeline button[data-status="unknown"] .timeline-marker { border-style: dashed; font-weight: 800; }
+    .timeline button[data-status="mixed"] .timeline-marker { border-width: 2px; }
+    .timeline button[data-state-change="true"] .timeline-marker { box-shadow: 0 0 0 3px var(--paper), 0 0 0 5px var(--ink); }
+    .timeline-copy { display: block; min-width: 0; padding-top: 1px; }
+    .timeline-copy strong { display: block; margin-top: 5px; font-size: 13px; line-height: 1.35; }
+    .timeline button[aria-selected="true"] .timeline-copy { border-bottom: 3px solid var(--ink); padding-bottom: 7px; }
+    .timeline button[aria-selected="true"] .timeline-copy strong { font-size: 14px; }
+    .step-number { display: block; color: var(--muted); font-size: 10px; font-weight: 400; text-transform: uppercase; letter-spacing: .03em; }
+    .impact-chain { display: grid; grid-template-columns: minmax(0, 1fr) 24px minmax(0, 1fr) 24px minmax(0, 1fr); align-items: stretch; margin-bottom: 16px; border: 1px solid var(--ink); }
+    .impact-cell { display: grid; align-content: center; gap: 4px; min-height: 74px; padding: 10px 12px; background: var(--paper); }
+    .impact-cell[data-impact="state"] { background: var(--ink); color: var(--paper); }
+    .impact-cell small { color: var(--muted); font-size: 10px; font-weight: 800; letter-spacing: .09em; }
+    .impact-cell[data-impact="state"] small { color: #ccc; }
+    .impact-arrow { display: grid; place-items: center; border-left: 1px solid var(--ink); border-right: 1px solid var(--ink); font-size: 18px; }
+    .impact-chain[data-state-change="false"] .impact-cell[data-impact="state"] { background: var(--soft); color: var(--ink); }
+    .impact-chain[data-state-change="false"] .impact-cell[data-impact="state"] small { color: var(--muted); }
+    .card { border: 1px solid var(--ink); border-radius: var(--radius-md); padding: 18px; box-shadow: 4px 4px 0 var(--soft); }
+    .step-meta { justify-content: space-between; border-bottom: 1px solid var(--line); padding-bottom: 10px; margin-bottom: 14px; }
+    .detail-grid { display: grid; grid-template-columns: minmax(0, .95fr) minmax(0, 1.35fr); gap: 18px; align-items: start; }
+    .facts { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 8px 12px; margin: 0; }
+    .facts dt { color: var(--muted); }
+    .facts dd { margin: 0; }
+    .facts .state-delta { padding: 7px 9px; border-left: 3px solid var(--ink); background: var(--soft); font-weight: 650; }
+    .causal-column { min-width: 0; }
+    .call-path { margin-bottom: 10px; font-size: 12px; }
+    .call-path code { overflow-wrap: anywhere; }
+    pre { max-width: 100%; max-height: 420px; margin: 0; padding: 13px; overflow: auto; border: 1px solid var(--line); background: #fafafa; white-space: pre-wrap; font-size: 12px; }
+    .evidence-actions { justify-content: space-between; margin-top: 8px; color: var(--muted); font-size: 12px; }
+    .branch { margin-top: 12px; border-left: 4px double var(--ink); padding: 8px 10px; background: var(--soft); }
+    .unknowns { margin: 0; padding-left: 20px; }
+    .unknowns li + li { margin-top: 9px; }
+    .debt-detail { display: block; color: var(--muted); font-size: 12px; }
+    .delta { border: 1px solid var(--ink); padding: 12px 14px; }
+    .delta-grid { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 8px; }
+    .delta-grid div { border-left: 1px solid var(--line); padding-left: 8px; }
+    .sr-only { position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0; overflow: hidden; clip: rect(0,0,0,0); white-space: nowrap; border: 0; }
+    [hidden] { display: none !important; }
+    @media (max-width: 760px) { main { padding: 18px 13px 40px; } .detail-grid, .delta-grid { grid-template-columns: 1fr; } .navigation { align-items: flex-start; } .navigation-current { display: grid; gap: 2px; } .navigation-controls { flex: 0 0 100%; justify-content: space-between; } .facts { grid-template-columns: 1fr; } .timeline li { flex-basis: 158px; } .architecture-lane { grid-template-columns: 112px minmax(max-content, 1fr); } .architecture-lane-label { width: 112px; } .impact-chain { grid-template-columns: 1fr; } .impact-arrow { min-height: 24px; border: 0; border-top: 1px solid var(--ink); border-bottom: 1px solid var(--ink); transform: rotate(90deg); } .branch-label { min-width: 100%; } .branch-jump { min-width: min(180px, 100%); } }
+    @media (prefers-reduced-motion: reduce) { .timeline { scroll-behavior: auto; } }
+  </style>
+</head>
+<body>
+<main id="codeflow-flowview" data-flowview-version="1" aria-label="{{.Document.Current.FlowKey}} 코드 흐름">
+  <div class="snapshot-line" data-region="snapshot">
+    <span class="badge">ArchitectureSnapshot</span>
+    <code>{{.Document.Current.FlowKey}}@{{.Document.Basis.HeadRevision}}</code>
+    <span>worktree {{if .Document.Basis.Dirty}}dirty{{else}}clean{{end}}</span>
+    <strong class="status" data-status="{{.Document.Current.Status}}">{{if eq .Document.Current.Status "observed"}}코드 흐름 확인됨{{else if eq .Document.Current.Status "mixed"}}일부 연결 미확정{{else}}다음 동작 미확정{{end}}</strong>
+  </div>
+  <dl class="sr-only"><dt>Analysis status</dt><dd>{{.Status}}</dd><dt>Worktree fingerprint</dt><dd>{{.Document.Basis.WorktreeFingerprint}}</dd></dl>
+
+  <div class="architecture-line" aria-label="관찰된 아키텍처 경계">
+    <span class="badge">BehaviorFlow</span>
+    {{range $index, $component := .Architecture}}{{if $index}}<span aria-hidden="true">→</span>{{end}}<code data-boundary="{{$component}}">{{$component}}</code>{{end}}
+  </div>
+
+  <section class="architecture-map" data-region="architecture" aria-label="아키텍처 인과 흐름">
+    <div class="architecture-map-header"><h2>Architecture causal map</h2><span>단계를 선택하면 아래 타임라인과 코드 근거가 함께 이동합니다.</span></div>
+    <div class="architecture-scroll">
+      {{range .ArchitectureFlow.Lanes}}<div class="architecture-lane" data-layer="{{.ID}}"><div class="architecture-lane-label">{{.Label}}</div><div class="architecture-track" style="--architecture-columns: {{$.ArchitectureFlow.Columns}}">{{range .Nodes}}<button class="architecture-node" type="button" style="grid-column: {{.Column}}" data-architecture-step="{{.StepIndex}}" data-status="{{.Status}}" data-incoming="{{if .Incoming}}{{index .Incoming 0}}{{else}}flow entry{{end}}" aria-selected="false"><strong>{{.Label}}</strong><span>{{.StateAfter}}</span><span>{{.Change}}</span></button>{{end}}</div></div>{{end}}
+    </div>
+  </section>
+
+  <div class="branches" aria-label="조건 분기">
+    {{range .Timeline}}{{range .Branches}}<div class="branch-row" aria-label="Branch" data-branch-id="{{.ID}}"><span class="branch-label"><strong>{{.Condition}}</strong><small>{{if eq .Status "observed"}}모든 경로를 코드에서 확인함{{else}}일부 경로는 아직 미확정{{end}}</small></span><span class="branch-outcomes">{{range .Outcomes}}<button class="branch-jump" type="button" data-jump-step="{{.StepIndex}}" aria-current="false"><small>{{.PathLabel}}</small><strong>{{.Title}}</strong></button>{{end}}</span></div>{{end}}{{end}}
+  </div>
+
+  <div class="legend" aria-label="신뢰 및 변경 상태 범례">
+    <span class="status" data-status="observed">확인됨: 현재 코드에서 직접 연결</span>
+    <span class="status" data-status="mixed">일부 미확정: 확인된 경로와 빠진 연결이 함께 있음</span>
+    <span class="status" data-status="unknown">미확정: 다음 코드 동작과 연결되지 않음</span>
+    <span class="badge">변경: 현재 / 유지 / 변경 / 추가</span>
+  </div>
+
+  {{if .Resolved.Selector}}<section class="card" aria-label="Entry point resolution"><strong>Entry point · {{.Resolved.Selector}}</strong><p data-resolution-state="{{.Resolved.State}}">{{if .Resolved.EntryPoint}}{{.Resolved.EntryPoint.FlowID}} — {{.Resolved.EntryPoint.Anchor.Path}}:{{index .Resolved.EntryPoint.Anchor.LineRange 0}}{{else}}{{.Resolved.Unknown.Code}} · {{.Resolved.Unknown.Message}}{{end}}</p></section>{{end}}
+
+  {{if .Comparison}}<section class="delta" aria-label="Behavior delta" data-baseline="{{.Comparison.Delta.BaselineRevision}}"><h2>Baseline delta</h2><div class="delta-grid"><div>Added<br><strong>{{len .Comparison.Delta.AddedSteps}}</strong></div><div>Removed<br><strong>{{len .Comparison.Delta.RemovedSteps}}</strong></div><div>State changes<br><strong>{{len .Comparison.Delta.ChangedStates}}</strong></div><div>Causal changes<br><strong>{{len .Comparison.Delta.ChangedCausalEdges}}</strong></div><div>New unknowns<br><strong>{{len .Comparison.Delta.NewUnknowns}}</strong></div></div></section>{{end}}
+
+  <div class="navigation" data-region="timeline-navigation" aria-label="타임라인 이동">
+    <div class="navigation-current"><span id="flow-position" class="mono">01 / {{len .Timeline}}</span><strong id="flow-current-title">{{if .Timeline}}{{(index .Timeline 0).Title}}{{end}}</strong></div>
+    <div class="navigation-controls">
+      <button id="flow-prev" type="button">← 이전 단계</button>
+      <button id="flow-next" type="button">다음 단계 →</button>
+    </div>
+  </div>
+
+  <div class="timeline-shell" data-region="timeline">
+    <ol class="timeline" aria-label="Flow timeline">
+      {{range $index, $item := .Timeline}}<li data-break-after="{{.BreakAfter}}" data-alternative="{{.Alternative}}"><button type="button" data-step="{{$index}}" data-status="{{.Step.Status}}" data-state-change="{{.HasStateChange}}" aria-selected="{{if eq $index 0}}true{{else}}false{{end}}"><span class="timeline-marker">{{if eq .Step.Status "unknown"}}?{{else}}{{printf "%02d" .Step.Order}}{{end}}</span><span class="timeline-copy"><span class="step-number">{{if .BranchPath}}{{.BranchPath}} · {{end}}{{if eq .Step.Status "observed"}}코드에서 확인됨{{else if eq .Step.Status "mixed"}}일부 연결 미확정{{else}}다음 동작 미확정{{end}} · {{.ChangeLabel}}{{if .HasStateChange}} · 상태 변경{{end}}</span><strong>{{.Title}}</strong></span></button></li>{{end}}
+    </ol>
+  </div>
+
+  {{range $index, $item := .Timeline}}
+  <article class="card" data-region="step-detail" data-step-panel="{{$index}}" data-source-state="{{.SourceState}}" data-change="{{.Change}}" aria-live="polite" {{if ne $index 0}}hidden{{end}}>
+    <div class="step-meta"><strong>{{.Title}}</strong><span>{{if .BranchPath}}<span class="badge">{{.BranchPath}}</span> {{end}}<span class="badge" data-trust="{{.Step.Status}}">{{.TrustLabel}}</span> <span class="badge" data-change="{{.Change}}">{{.ChangeLabel}}</span></span></div>
+    <div class="impact-chain" data-region="impact-chain" data-state-change="{{.HasStateChange}}" aria-label="코드 변경에서 상태와 사용자 결과까지의 영향">
+      <div class="impact-cell" data-impact="code"><small>코드 변경</small><strong>{{.CodeImpact}}</strong></div><div class="impact-arrow" aria-hidden="true">→</div>
+      <div class="impact-cell" data-impact="state"><small>상태 변화</small><strong>{{.StateBefore}} → {{.StateAfter}}</strong></div><div class="impact-arrow" aria-hidden="true">→</div>
+      <div class="impact-cell" data-impact="result"><small>화면 결과</small><strong>{{.ResultImpact}}</strong></div>
+    </div>
+    <div class="detail-grid">
+      <dl class="facts">
+        <dt>코드 상태</dt><dd>{{.SourceState}} · {{.ChangeLabel}}</dd>
+        <dt>상태 입력</dt><dd>{{.StateBefore}}</dd>
+        <dt>상태 변화</dt><dd class="state-delta"><span>{{.StateBefore}}</span> <span aria-hidden="true">→</span> <strong>{{.StateAfter}}</strong></dd>
+        <dt>상태 근거</dt><dd>{{.StateProof}}</dd>
+        <dt>이전 원인</dt><dd>{{if .Incoming}}{{range .Incoming}}<span>{{.Kind}} · {{.Label}}</span><br>{{end}}{{else}}flow entry{{end}}</dd>
+        <dt>다음 결과</dt><dd>{{if .Outgoing}}{{range .Outgoing}}<span>{{.Kind}} · {{.Label}}</span><br>{{end}}{{else}}terminal 또는 unresolved{{end}}</dd>
+        <dt>검증 상태</dt><dd>{{.TrustLabel}} · 코드 근거 {{if eq .Lens.Status "ready"}}확인됨{{else}}재확인 필요{{end}}</dd>
+      </dl>
+      <section class="causal-column" data-region="code-lens" aria-label="선택 단계 코드 근거">
+        <div class="call-path">{{range .Incoming}}<code>{{.Label}}</code><span aria-hidden="true">→</span>{{end}}<code>{{.Title}}</code>{{range .Outgoing}}<span aria-hidden="true">→</span><code>{{.Label}}</code>{{end}}</div>
+        <pre><code>{{.Lens.Code}}</code></pre>
+        {{if .Step.PrimaryEvidence}}<div class="evidence-actions"><span class="mono">{{(index .Step.PrimaryEvidence 0).Path}}:{{index (index .Step.PrimaryEvidence 0).LineRange 0}}-{{index (index .Step.PrimaryEvidence 0).LineRange 1}}</span>{{if .EditorURL}}<a class="editor-link" href="{{.EditorURL}}" aria-label="현재 코드 근거를 VS Code에서 열기">↗ VS Code에서 열기</a>{{end}}</div>{{end}}
+      </section>
+    </div>
+    {{range .Branches}}<div class="branch" aria-label="Branch" data-branch-id="{{.ID}}"><strong>{{.Condition}}</strong><br><span class="branch-outcomes">{{range .Outcomes}}<button class="branch-jump" type="button" data-jump-step="{{.StepIndex}}" aria-current="false"><small>{{.PathLabel}}</small><strong>{{.Title}}</strong></button>{{end}}</span><br><small>{{if eq .Status "observed"}}현재 코드에서 모든 선택지를 확인했습니다.{{else}}아직 연결되지 않은 선택지가 있습니다.{{end}}</small></div>{{end}}
+  </article>
+  {{end}}
+
+  {{if .Debt}}<section data-region="cognitive-debt" aria-label="Cognitive debt"><h2>아직 타임라인에 연결되지 않은 동작</h2><p>현재 코드에서 확인된 내용과 빠진 연결을 함께 표시합니다.</p><ul class="unknowns">{{range .Debt}}<li data-unknown-reason="{{.Reason}}" data-debt-state="{{.State}}"><strong>{{.Title}}</strong><span class="debt-detail"><b>아직 남은 이유:</b> {{.Cause}}</span><span class="debt-detail"><b>현재까지 확인:</b> {{.Confirmed}}</span><span class="debt-detail"><b>빠진 연결:</b> {{.Missing}}</span><span class="debt-detail"><b>코드에서 확인할 것:</b> {{.NextAction}}</span>{{if .Location}}<span class="debt-detail"><b>확인 위치:</b> <code>{{.Location}}</code></span>{{end}}</li>{{end}}</ul></section>{{end}}
+  {{if .ResolvedDebt}}<section aria-label="Resolved cognitive debt"><h2>코드 증거로 해결된 인과 부채</h2><ul class="unknowns">{{range .ResolvedDebt}}<li data-debt-state="resolved"><strong>{{.Question}}</strong><span class="debt-detail">{{.Reason}} · resolved · {{.ReviewedAt}}</span></li>{{end}}</ul></section>{{end}}
+
+  {{if .Overlays}}<section class="card" aria-label="Inferred semantic overlays"><h2>Inferred meaning · requires approval</h2><ul>{{range .Overlays}}<li data-overlay-status="{{.Status}}">{{.Text}}</li>{{end}}</ul></section>{{end}}
+</main>
+<script>
+(() => {
+  const root = document.getElementById('codeflow-flowview');
+  if (!root) return;
+  const buttons = Array.from(root.querySelectorAll('[data-step]'));
+  const panels = Array.from(root.querySelectorAll('[data-step-panel]'));
+  const branchJumps = Array.from(root.querySelectorAll('[data-jump-step]'));
+  const architectureNodes = Array.from(root.querySelectorAll('[data-architecture-step]'));
+  const architectureScroll = root.querySelector('.architecture-scroll');
+  const timelineScroll = root.querySelector('.timeline');
+  const prev = root.querySelector('#flow-prev');
+  const next = root.querySelector('#flow-next');
+  const position = root.querySelector('#flow-position');
+  const currentTitle = root.querySelector('#flow-current-title');
+  let selected = 0;
+  function render(index, shouldScroll = true) {
+    selected = Math.max(0, Math.min(buttons.length - 1, index));
+    buttons.forEach((button, i) => button.setAttribute('aria-selected', String(i === selected)));
+    panels.forEach((panel, i) => panel.hidden = i !== selected);
+    branchJumps.forEach((jump) => jump.setAttribute('aria-current', Number(jump.dataset.jumpStep) === selected ? 'step' : 'false'));
+    architectureNodes.forEach((node) => node.setAttribute('aria-selected', String(Number(node.dataset.architectureStep) === selected)));
+    if (position) position.textContent = `${String(selected + 1).padStart(2, '0')} / ${buttons.length}`;
+    if (currentTitle) currentTitle.textContent = buttons[selected].querySelector('.timeline-copy strong').textContent;
+    if (prev) prev.disabled = selected === 0;
+    if (next) next.disabled = selected === buttons.length - 1;
+    if (shouldScroll && timelineScroll && buttons[selected]) {
+      const buttonRect = buttons[selected].getBoundingClientRect();
+      const scrollRect = timelineScroll.getBoundingClientRect();
+      timelineScroll.scrollTo({
+        left: timelineScroll.scrollLeft + buttonRect.left + buttonRect.width / 2 - scrollRect.left - scrollRect.width / 2,
+        behavior: 'smooth'
+      });
+    }
+    const architectureNode = architectureNodes.find((node) => Number(node.dataset.architectureStep) === selected);
+    if (shouldScroll && architectureScroll && architectureNode) {
+      const nodeRect = architectureNode.getBoundingClientRect();
+      const scrollRect = architectureScroll.getBoundingClientRect();
+      architectureScroll.scrollTo({
+        left: architectureScroll.scrollLeft + nodeRect.left + nodeRect.width / 2 - scrollRect.left - scrollRect.width / 2,
+        behavior: 'smooth'
+      });
+    }
+  }
+  buttons.forEach((button, i) => button.addEventListener('click', () => render(i)));
+  branchJumps.forEach((jump) => jump.addEventListener('click', () => render(Number(jump.dataset.jumpStep))));
+  architectureNodes.forEach((node) => node.addEventListener('click', () => render(Number(node.dataset.architectureStep))));
+  if (prev) prev.addEventListener('click', () => render(selected - 1));
+  if (next) next.addEventListener('click', () => render(selected + 1));
+  if (buttons.length > 0) render(0, false);
+})();
+</script>
+</body>
+</html>

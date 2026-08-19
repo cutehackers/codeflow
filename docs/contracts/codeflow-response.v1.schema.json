@@ -1,0 +1,14 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://codeflow.local/contracts/codeflow-response.v1.schema.json",
+  "title": "CodeFlowResponse v1",
+  "type": "object",
+  "required": ["basis", "status", "data", "unknowns", "view_url"],
+  "properties": {
+    "basis": {"anyOf": [{"$ref": "flowir.v1.schema.json#/$defs/basis"}, {"type": "null"}]},
+    "status": {"enum": ["ready", "analyzing", "unavailable"]},
+    "data": {"$ref": "flowir.v1.schema.json"},
+    "unknowns": {"type": "array"},
+    "view_url": {"type": "string"}
+  }
+}

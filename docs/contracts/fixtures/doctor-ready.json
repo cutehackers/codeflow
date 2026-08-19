@@ -1,0 +1,12 @@
+{
+  "repository": "/work/demo",
+  "ready": true,
+  "checks": [
+    {"name": "git", "state": "ready", "message": "Git worktree detected", "details": {"root": "/work/demo", "head": "unborn"}},
+    {"name": "configuration", "state": "unconfigured", "message": "No codeflow.yaml; unique-only feature discovery remains available"},
+    {"name": "codegraph", "state": "ready", "message": "CodeGraph HTTP discovery profile is compatible", "details": {"profile": "codeflow.codegraph-discovery.v1"}},
+    {"name": "dart_flutter", "state": "ready", "message": "Dart SDK detected", "details": {"version": "3.12.0", "source": "PATH dart"}},
+    {"name": "dart_adapter", "state": "ready", "message": "Dart adapter probe is compatible", "details": {"protocol": "1"}}
+  ],
+  "warnings": ["codeflow.yaml is not present; unique-only feature discovery will be used"]
+}

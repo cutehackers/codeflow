@@ -1,0 +1,1 @@
+{"result":{"relationships":[{"kind":"call","from":{"path":"lib/signup.dart","symbol":"SignupPage._submit","byte_start":10,"byte_end":20,"file_hash":"sha256:example","revision":"HEAD"},"to":{"path":"lib/signup.dart","symbol":"SignupPage._navigate","byte_start":30,"byte_end":40,"file_hash":"sha256:example","revision":"HEAD"}}]}}

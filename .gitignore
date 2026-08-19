@@ -1,0 +1,34 @@
+# macOS and local editors
+.DS_Store
+.idea/
+.vscode/
+*.swp
+
+# Local agent/context state
+.brv/
+
+# Secrets and local overrides
+.env*
+!.env.example
+*.log
+
+# CodeFlow runtime output
+.codeflow/
+
+# Go build and test output
+/bin/
+/dist/
+/codeflow
+/coverage/
+*.test
+*.out
+
+# Dart and Flutter generated state
+.dart_tool/
+.flutter-plugins
+.flutter-plugins-dependencies
+build/
+
+# Web dependencies and generated bundles
+node_modules/
+/view/dist/

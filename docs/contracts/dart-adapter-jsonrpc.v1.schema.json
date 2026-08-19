@@ -1,0 +1,33 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "CodeFlow Dart adapter JSON-RPC v1",
+  "description": "One JSON object per stdin/stdout line. Requests and responses are correlated by integer id.",
+  "oneOf": [
+    {"$ref":"#/$defs/request"}, {"$ref":"#/$defs/response"}
+  ],
+  "$defs": {
+    "request": {"type":"object","required":["jsonrpc","method"],"properties":{"jsonrpc":{"const":"2.0"},"id":{"type":"integer"},"method":{"enum":["initialize","discoverEntryPoints","refineRouteFlow","cancel","shutdown"]},"params":{"type":"object"}}},
+    "semantic_fact": {
+      "type":"object",
+      "required":["kind","subject","object","proof","anchor"],
+      "properties":{
+        "kind":{"type":"string"},
+        "subject":{"type":"string","minLength":1},
+        "object":{"type":"string"},
+        "proof":{"enum":["resolved_ast","framework_rule_v1","contract_v1"]},
+        "symbol_id":{"type":"string"},
+        "anchor":{"type":"object","required":["path","line_start","line_end","byte_start","byte_end","semantic_fingerprint"]}
+      }
+    },
+    "response": {
+      "type":"object",
+      "required":["jsonrpc","id"],
+      "properties":{
+        "jsonrpc":{"const":"2.0"},
+        "id":{"type":"integer"},
+        "result":{"type":"object","properties":{"facts":{"type":"array","items":{"$ref":"#/$defs/semantic_fact"}}}},
+        "error":{"type":"object","required":["code","message"],"properties":{"code":{"enum":["ADAPTER_MALFORMED","ADAPTER_INCOMPATIBLE","ADAPTER_UNAVAILABLE","ADAPTER_TIMEOUT","METHOD_NOT_FOUND"]},"message":{"type":"string"}}}
+      }
+    }
+  }
+}

@@ -1,0 +1,85 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://codeflow.local/contracts/flowir.v1.schema.json",
+  "title": "CodeFlow deterministic FlowIR v1",
+  "type": "object",
+  "required": ["schema_version", "basis", "facts", "current"],
+  "$defs": {
+    "manifest_entry": {
+      "type": "object",
+      "required": ["path", "type", "mode", "git_state", "generated"],
+      "properties": {
+        "path": {"type": "string", "pattern": "^(?!/).+"},
+        "type": {"enum": ["file", "symlink", "other", "missing"]},
+        "mode": {"type": "string"},
+        "file_hash": {"type": "string", "pattern": "^sha256:"},
+        "git_state": {"enum": ["clean", "added", "modified", "deleted", "renamed", "untracked"]},
+        "generated": {"type": "boolean"},
+        "excluded": {"type": "boolean"}
+      }
+    },
+    "basis": {"type": "object", "required": ["repository", "head_revision", "worktree_fingerprint", "dirty", "manifest"], "properties": {"manifest": {"type": "array", "items": {"$ref": "#/$defs/manifest_entry"}}}},
+    "fact": {
+      "type":"object",
+      "required":["id","kind","subject","evidence","status"],
+      "properties":{
+        "id":{"type":"string","pattern":"^sha256:"},
+        "kind":{"type":"string"},
+        "subject":{"type":"string","minLength":1},
+        "object":{"type":"string"},
+        "proof":{"enum":["resolved_ast","framework_rule_v1","contract_v1"]},
+        "symbol_id":{"type":"string"},
+        "evidence":{"type":"array","minItems":1},
+        "status":{"enum":["observed","unknown","mixed","stale"]}
+      }
+    },
+    "branch": {
+      "type": "object",
+      "required": ["id", "condition_fact", "outcome_step_ids", "evidence", "status"],
+      "properties": {
+        "id": {"type": "string", "pattern": "^sha256:"},
+        "condition_fact": {"type": "string"},
+        "outcome_step_ids": {"type": "array", "minItems": 1, "items": {"type": "string"}},
+        "evidence": {"type": "array", "minItems": 1},
+        "status": {"enum": ["observed", "unknown"]}
+      }
+    },
+    "unknown": {
+      "type": "object",
+      "required": ["id", "question", "reason", "related_steps", "evidence"],
+      "properties": {
+        "id": {"type": "string", "pattern": "^sha256:"},
+        "question": {"type": "string"},
+        "reason": {"type": "string"},
+        "related_steps": {"type": "array", "minItems": 1, "items": {"type": "string"}},
+        "evidence": {"type": "array", "minItems": 1},
+        "related_edges": {"type": "array", "items": {"type": "string"}},
+        "debt_state": {"enum": ["open", "accepted", "resolved"]},
+        "resolution_criteria": {"type": "array", "items": {"type": "string"}},
+        "suggested_evidence": {"type": "array", "items": {"type": "string"}},
+        "impact": {"type": "array", "items": {"type": "string"}}
+      }
+    },
+    "causal_edge": {
+      "type": "object",
+      "required": ["id", "from_fact", "to_fact", "kind", "evidence", "status"],
+      "properties": {
+        "id": {"type": "string", "pattern": "^sha256:"},
+        "from_fact": {"type": "string"},
+        "to_fact": {"type": "string"},
+        "kind": {"type": "string"},
+        "conditions": {"type": "array", "items": {"type": "string"}},
+        "evidence": {"type": "array", "minItems": 1},
+        "status": {"enum": ["observed", "unknown", "mixed"]}
+      }
+    }
+  },
+  "properties": {
+    "schema_version": {"const": "1"},
+    "basis": {"$ref": "#/$defs/basis"},
+    "facts": {"type": "array", "items":{"$ref":"#/$defs/fact"}},
+    "causal_edges": {"type": "array", "items": {"$ref": "#/$defs/causal_edge"}},
+    "current": {"type": "object", "required": ["id", "flow_key", "entry_point_fact", "steps", "status"], "properties": {"steps": {"type": "array", "items": {"type": "object", "properties": {"branches": {"type": "array", "items": {"$ref": "#/$defs/branch"}}}}}}},
+    "unknowns": {"type": "array", "items": {"$ref": "#/$defs/unknown"}}
+  }
+}
