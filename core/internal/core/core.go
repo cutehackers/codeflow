@@ -94,10 +94,11 @@ type workspaceDocument struct {
 // shares snapshot identity once and never repeats the repository manifest in
 // every flow document.
 type workspaceDocumentV2 struct {
-	SchemaVersion string                    `json:"schema_version"`
-	FlowIDs       []string                  `json:"flow_ids"`
-	Flows         []workspaceFlowDocumentV2 `json:"flows"`
-	Edges         []workspaceFlowEdge       `json:"screen_flow_edges"`
+	SchemaVersion string                     `json:"schema_version"`
+	FlowIDs       []string                   `json:"flow_ids"`
+	Flows         []workspaceFlowDocumentV2  `json:"flows"`
+	Edges         []workspaceFlowEdge        `json:"screen_flow_edges"`
+	Journeys      []ontology.BusinessJourney `json:"business_journeys,omitempty"`
 }
 
 type workspaceFlowDocumentV2 struct {
@@ -177,6 +178,7 @@ type flowViewModel struct {
 	Debt             []debtItem
 	ResolvedDebt     []store.DebtReview
 	Workspace        workspaceNavigation
+	Journeys         journeyNavigation
 	Scenarios        scenarioNavigation
 	Publication      string
 	Export           bool
@@ -676,6 +678,7 @@ func (c *Core) routes() http.Handler {
 	mux.HandleFunc("/api/v1/overlay/import", c.importOverlay)
 	mux.HandleFunc("/api/v1/overlay/approve", c.approveOverlay)
 	mux.HandleFunc("/api/v1/domain-labels", c.domainLabels)
+	mux.HandleFunc("/api/v1/business-journeys", c.businessJourneys)
 	mux.HandleFunc("/api/v1/export", c.export)
 	mux.HandleFunc("/api/v1/debt", c.debt)
 	mux.HandleFunc("/api/v1/debt/review", c.reviewDebt)
@@ -913,6 +916,51 @@ func domainLabelTargetExists(documents []flowir.Document, label ontology.DomainL
 	return false
 }
 
+// businessJourneys exposes only reviewer-confirmed business meaning. A PUT
+// validates every referenced scenario and cross-screen transition against the
+// current same-Basis workspace before that meaning is allowed into FlowView.
+func (c *Core) businessJourneys(w http.ResponseWriter, r *http.Request) {
+	if !c.authorized(r) {
+		writeJSON(w, http.StatusUnauthorized, envelope{Status: "unavailable", Unknowns: []any{}, Error: &apiError{Code: "UNAUTHORIZED", Message: "a valid CodeFlow runtime token is required"}})
+		return
+	}
+	c.domainMu.Lock()
+	defer c.domainMu.Unlock()
+	switch r.Method {
+	case http.MethodGet:
+		journeys, err := ontology.LoadBusinessJourneys(c.repo)
+		if err != nil {
+			writeJSON(w, http.StatusInternalServerError, envelope{Status: "unavailable", Unknowns: []any{}, Error: &apiError{Code: "BUSINESS_JOURNEYS_UNAVAILABLE", Message: err.Error()}})
+			return
+		}
+		writeJSON(w, http.StatusOK, envelope{Status: "ready", Data: journeys, Unknowns: []any{}, ViewURL: c.URL + "/"})
+	case http.MethodPut:
+		var journey ontology.BusinessJourney
+		if err := json.NewDecoder(io.LimitReader(r.Body, 64*1024)).Decode(&journey); err != nil {
+			writeJSON(w, http.StatusBadRequest, envelope{Status: "unknown", Unknowns: []any{}, Error: &apiError{Code: "BUSINESS_JOURNEY_MALFORMED", Message: "id, title, and scenario segments are required"}})
+			return
+		}
+		documents, _, _, err := c.store.GetBatch(r.Context())
+		if err != nil {
+			writeJSON(w, http.StatusServiceUnavailable, envelope{Status: "unavailable", Unknowns: []any{}, Error: &apiError{Code: "BUSINESS_JOURNEYS_UNAVAILABLE", Message: "current flow workspace is unavailable"}})
+			return
+		}
+		workspace, err := buildWorkspace(documents)
+		if err != nil || !businessJourneyTargetExists(workspace, journey) {
+			writeJSON(w, http.StatusBadRequest, envelope{Status: "unknown", Unknowns: []any{}, Error: &apiError{Code: "BUSINESS_JOURNEY_TARGET_INVALID", Message: "every journey segment must exist in the current workspace, and each sequential segment requires an observed transition to a different flow"}})
+			return
+		}
+		stored, err := ontology.SaveBusinessJourney(c.repo, journey)
+		if err != nil {
+			writeJSON(w, http.StatusBadRequest, envelope{Status: "unknown", Unknowns: []any{}, Error: &apiError{Code: "BUSINESS_JOURNEY_INVALID", Message: err.Error()}})
+			return
+		}
+		writeJSON(w, http.StatusOK, envelope{Status: "ready", Data: stored, Unknowns: []any{}, ViewURL: c.URL + "/?journey=" + url.QueryEscape(stored.ID)})
+	default:
+		writeJSON(w, http.StatusMethodNotAllowed, envelope{Status: "unavailable", Unknowns: []any{}, Error: &apiError{Code: "METHOD_NOT_ALLOWED", Message: "GET or PUT is required"}})
+	}
+}
+
 // export writes a self-contained review document that is safe to attach to a
 // pull request. It contains the captured basis and evidence snippets, but no
 // local runtime polling, auth token, or vscode:// link that would be invalid
@@ -955,7 +1003,7 @@ func (c *Core) ExportHTML(ctx context.Context, flowID, scenarioID string) ([]byt
 		if document.Current.ID != flowID {
 			continue
 		}
-		model, err := c.flowViewModel(ctx, document, status, workspace, publishedAt, scenarioID, entrypoint.Result{Candidates: []entrypoint.EntryPoint{}}, true)
+		model, err := c.flowViewModel(ctx, document, status, workspace, publishedAt, scenarioID, "", entrypoint.Result{Candidates: []entrypoint.EntryPoint{}}, true)
 		if err != nil {
 			return nil, err
 		}
@@ -1115,6 +1163,14 @@ func (c *Core) workspaceV2(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	basis := documents[0].Basis
+	c.domainMu.Lock()
+	journeys, journeyErr := ontology.LoadBusinessJourneys(c.repo)
+	c.domainMu.Unlock()
+	if journeyErr != nil {
+		writeJSON(w, http.StatusInternalServerError, workspaceEnvelopeV2{Status: "unavailable", Unknowns: []any{}, Error: &apiError{Code: "BUSINESS_JOURNEYS_UNAVAILABLE", Message: journeyErr.Error()}})
+		return
+	}
+	workspace.Journeys = journeys
 	viewURL := c.URL + "/"
 	writeJSON(w, http.StatusOK, workspaceEnvelopeV2{
 		Basis:  workspaceBasisV2{Repository: basis.Repository, HeadRevision: basis.HeadRevision, BaselineRevision: basis.BaselineRevision, WorktreeFingerprint: basis.WorktreeFingerprint, Dirty: basis.Dirty, ManifestCount: len(basis.Manifest)},
@@ -1191,10 +1247,19 @@ func buildWorkspaceV2(documents []flowir.Document) (workspaceDocumentV2, error) 
 	return workspaceDocumentV2{SchemaVersion: "2", FlowIDs: workspace.FlowIDs, Flows: flows, Edges: workspace.Edges}, nil
 }
 
-func buildWorkspaceNavigation(workspace workspaceDocument, selected string) workspaceNavigation {
+func buildWorkspaceNavigation(workspace workspaceDocument, selected string, journey *journeyNavigationItem) workspaceNavigation {
 	flows := make([]workspaceNavigationFlow, 0, len(workspace.Flows))
 	for _, document := range workspace.Flows {
-		flows = append(flows, workspaceNavigationFlow{ID: document.Current.ID, URL: "/?flow=" + url.QueryEscape(document.Current.ID), Status: document.Current.Status, Steps: len(document.Current.Steps), Unknowns: len(document.Unknowns), Selected: document.Current.ID == selected})
+		flowURL := "/?flow=" + url.QueryEscape(document.Current.ID)
+		if journey != nil {
+			for _, segment := range journey.Segments {
+				if segment.FlowID == document.Current.ID && segment.URL != "" {
+					flowURL = segment.URL
+					break
+				}
+			}
+		}
+		flows = append(flows, workspaceNavigationFlow{ID: document.Current.ID, URL: flowURL, Status: document.Current.Status, Steps: len(document.Current.Steps), Unknowns: len(document.Unknowns), Selected: document.Current.ID == selected})
 	}
 	return workspaceNavigation{Flows: flows, Edges: workspace.Edges}
 }
@@ -1207,6 +1272,17 @@ func scenarioTitle(document flowir.Document, scenario flowir.Scenario, labels ma
 		if fact.ID != scenario.InteractionFact {
 			continue
 		}
+		if fact.Kind == "system_event" {
+			switch fact.Object {
+			case "push-token":
+				return "푸시 토큰을 갱신합니다"
+			case "session":
+				return "세션을 갱신합니다"
+			case "lifecycle":
+				return "앱 생명주기 처리를 시작합니다"
+			}
+			return "시스템 이벤트를 처리합니다"
+		}
 		if fact.Object != "" {
 			return fact.Object
 		}
@@ -1215,7 +1291,7 @@ func scenarioTitle(document flowir.Document, scenario flowir.Scenario, labels ma
 	return "사용자 경로"
 }
 
-func buildScenarioNavigation(document flowir.Document, selected string, labels map[string]ontology.DomainLabel) scenarioNavigation {
+func buildScenarioNavigation(document flowir.Document, selected string, labels map[string]ontology.DomainLabel, journey *journeyNavigationItem) scenarioNavigation {
 	items := make([]scenarioNavigationItem, 0, len(document.Scenarios))
 	for _, scenario := range document.Scenarios {
 		unknowns := 0
@@ -1231,7 +1307,16 @@ func buildScenarioNavigation(document flowir.Document, selected string, labels m
 				}
 			}
 		}
-		item := scenarioNavigationItem{ID: scenario.ID, URL: "/?flow=" + url.QueryEscape(document.Current.ID) + "&scenario=" + url.QueryEscape(scenario.ID), Title: scenarioTitle(document, scenario, labels), Status: scenario.Status, Steps: len(scenario.StepIDs), Unknowns: unknowns, Selected: scenario.ID == selected}
+		scenarioURL := "/?flow=" + url.QueryEscape(document.Current.ID) + "&scenario=" + url.QueryEscape(scenario.ID)
+		if journey != nil {
+			for _, segment := range journey.Segments {
+				if segment.FlowID == document.Current.ID && segment.ScenarioID == scenario.ID && segment.URL != "" {
+					scenarioURL = segment.URL
+					break
+				}
+			}
+		}
+		item := scenarioNavigationItem{ID: scenario.ID, URL: scenarioURL, Title: scenarioTitle(document, scenario, labels), Status: scenario.Status, Steps: len(scenario.StepIDs), Unknowns: unknowns, Selected: scenario.ID == selected}
 		items = append(items, item)
 	}
 	if selected == "" && len(items) > 0 {
@@ -2064,6 +2149,42 @@ func (c *Core) view(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	selected := r.URL.Query().Get("flow")
+	requestedJourney := r.URL.Query().Get("journey")
+	requestedScenario := r.URL.Query().Get("scenario")
+	if requestedJourney != "" {
+		c.domainMu.Lock()
+		journeys, journeyErr := ontology.LoadBusinessJourneys(c.repo)
+		c.domainMu.Unlock()
+		if journeyErr != nil {
+			http.Error(w, "business journeys unavailable", http.StatusInternalServerError)
+			return
+		}
+		journeyNavigation := buildJourneyNavigation(workspace, nil, journeys, requestedJourney)
+		if journeyNavigation.Selected == nil || journeyNavigation.Selected.Stale || len(journeyNavigation.Selected.Segments) == 0 {
+			http.Error(w, "business journey needs review against the current workspace", http.StatusConflict)
+			return
+		}
+		if selected != "" {
+			matched := false
+			for _, segment := range journeyNavigation.Selected.Segments {
+				if segment.FlowID == selected && (requestedScenario == "" || segment.ScenarioID == requestedScenario) {
+					matched = true
+					if requestedScenario == "" {
+						requestedScenario = segment.ScenarioID
+					}
+					break
+				}
+			}
+			if !matched {
+				http.Error(w, "selected flow is not part of this business journey", http.StatusBadRequest)
+				return
+			}
+		}
+		if selected == "" {
+			selected = journeyNavigation.Selected.Segments[0].FlowID
+			requestedScenario = journeyNavigation.Selected.Segments[0].ScenarioID
+		}
+	}
 	if selected == "" {
 		selected = documents[0].Current.ID
 	}
@@ -2084,7 +2205,7 @@ func (c *Core) view(w http.ResponseWriter, r *http.Request) {
 	if selector := r.URL.Query().Get("selector"); selector != "" {
 		resolved = entrypoint.Resolve(r.Context(), c.repo, selector, c.adapterCommand)
 	}
-	model, err := c.flowViewModel(r.Context(), document, status, workspace, publishedAt, r.URL.Query().Get("scenario"), resolved, false)
+	model, err := c.flowViewModel(r.Context(), document, status, workspace, publishedAt, requestedScenario, requestedJourney, resolved, false)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -2097,7 +2218,7 @@ func (c *Core) view(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func (c *Core) flowViewModel(ctx context.Context, document flowir.Document, status string, workspace workspaceDocument, publishedAt, requestedScenario string, resolved entrypoint.Result, exported bool) (flowViewModel, error) {
+func (c *Core) flowViewModel(ctx context.Context, document flowir.Document, status string, workspace workspaceDocument, publishedAt, requestedScenario, requestedJourney string, resolved entrypoint.Result, exported bool) (flowViewModel, error) {
 	c.overlayMu.Lock()
 	overlays := append([]ontology.Candidate(nil), c.overlays...)
 	c.overlayMu.Unlock()
@@ -2108,7 +2229,16 @@ func (c *Core) flowViewModel(ctx context.Context, document flowir.Document, stat
 		return flowViewModel{}, fmt.Errorf("domain labels unavailable: %w", domainErr)
 	}
 	labelIndex := domainLabelMap(domainLabels)
-	scenarios := buildScenarioNavigation(document, requestedScenario, labelIndex)
+	journeys, journeyErr := ontology.LoadBusinessJourneys(c.repo)
+	if journeyErr != nil {
+		return flowViewModel{}, fmt.Errorf("business journeys unavailable: %w", journeyErr)
+	}
+	journeyNavigation := buildJourneyNavigation(workspace, labelIndex, journeys, requestedJourney)
+	var journeyContext *journeyNavigationItem
+	if requestedJourney != "" {
+		journeyContext = journeyNavigation.Selected
+	}
+	scenarios := buildScenarioNavigation(document, requestedScenario, labelIndex, journeyContext)
 	if requestedScenario != "" && scenarios.Selected == nil {
 		return flowViewModel{}, fmt.Errorf("scenario %q is not present in flow %q", requestedScenario, document.Current.ID)
 	}
@@ -2131,5 +2261,5 @@ func (c *Core) flowViewModel(ctx context.Context, document flowir.Document, stat
 			timelineItems[i].EditorURL = ""
 		}
 	}
-	return flowViewModel{Document: document, Status: status, Resolved: resolved, Comparison: c.comparison, Overlays: overlays, Lenses: stepLenses(document), FactLabels: factLabels(document), Timeline: timelineItems, Architecture: architecturePath(document), ArchitectureFlow: architectureFlowView(document, timelineItems), Debt: actionableDebt(document), ResolvedDebt: resolvedDebt(reviews, document), Workspace: buildWorkspaceNavigation(workspace, document.Current.ID), Scenarios: scenarios, Publication: publishedAt + "|" + status, Export: exported}, nil
+	return flowViewModel{Document: document, Status: status, Resolved: resolved, Comparison: c.comparison, Overlays: overlays, Lenses: stepLenses(document), FactLabels: factLabels(document), Timeline: timelineItems, Architecture: architecturePath(document), ArchitectureFlow: architectureFlowView(document, timelineItems), Debt: actionableDebt(document), ResolvedDebt: resolvedDebt(reviews, document), Workspace: buildWorkspaceNavigation(workspace, document.Current.ID, journeyContext), Journeys: journeyNavigation, Scenarios: scenarios, Publication: publishedAt + "|" + status, Export: exported}, nil
 }

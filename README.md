@@ -33,8 +33,11 @@ Codex가 새 MCP 도구를 읽는 경계다.
 
 ## 실행
 
-Codex MCP는 첫 `current` 또는 `open` 요청에서 요청된 `route:/...` 화면 기준으로
-Core를 자동 시작한다. FlowView를 검토하는 동안 별도 터미널을 열 필요가 없다.
+Codex MCP는 첫 `current` 또는 `open` 요청에서 요청된 `route:/...` 또는
+`system:...` 진입점 기준으로 Core를 자동 시작한다. BusinessJourney를 만들 때는
+LLM이 `entry_points`와 `prepare_workspace`로 필요한 흐름을 함께 준비한 뒤,
+`upsert_business_journey`로 안전하게 등록한다. 사용자가 토큰·포트·scenario ID를
+직접 다룰 필요는 없다. FlowView를 검토하는 동안 별도 터미널을 열 필요가 없다.
 터미널에서 오래 유지할 runtime이 필요할 때만 다음 명령을 사용한다.
 
 ```sh
@@ -54,7 +57,9 @@ unknown은 추측하지 말고 따로 알려줘.
 ```
 
 MCP는 실행 중인 Core를 재사용하고, 없으면 첫 요청에 필요한 Core 하나만 시작한다.
-제공 도구는 `workspace`, `current`, `step`, `unknowns`, `refresh`, `diff`, `open`입니다.
+제공 도구는 `entry_points`, `prepare_workspace`, `workspace`, `business_journeys`,
+`upsert_business_journey`, `current`, `step`, `unknowns`, `refresh`, `diff`, `open`,
+`open_business_journey`입니다.
 
 관련된 여러 화면을 같은 코드 기준으로 검토하려면 `--flow`를 최대 세 번
 반복합니다.
@@ -67,7 +72,8 @@ HOME/workspace/codeflow/bin/codeflow serve \
   --flow route:/auth
 ```
 
-FlowView의 화면 흐름 지도에서 flow를 선택하면 해당 화면의 Architecture,
+승인된 비즈니스 여정이 있으면 FlowView는 이를 먼저 보여 주고, 여정을 구성한
+사용자 또는 시스템 경로로 이동합니다. 화면 흐름 지도에서 flow를 선택하면 해당 화면의 Architecture,
 수직 타임라인, 코드·상태·화면 결과와 `VS Code에서 열기`가 함께 바뀝니다.
 화면 안에 여러 사용자 행동이 있으면 `이 화면에서 선택할 수 있는 경로`에서
 이메일·전화번호·소셜 가입처럼 하나의 경로를 먼저 선택합니다. 기본 단계는
@@ -106,4 +112,5 @@ export 파일은 분석 당시 Basis와 코드 근거를 보존하지만 로컬 
 - [로컬 명령과 캐시 관리](./docs/local-usage.md)
 - [LLM과 MCP 사용 규칙](./docs/llm-usage.md)
 - [Multi-flow Workspace 계약](./docs/contracts/multi-flow-workspace-v1.md)
+- [Business Journey 계약](./docs/contracts/business-journeys-v1.md)
 - [CodeFlow 설계 명세](./docs/codeflow-production-design-ko.md)

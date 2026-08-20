@@ -18,6 +18,7 @@ import (
 	"codeflow/core/internal/delta"
 	"codeflow/core/internal/flowir"
 	"codeflow/core/internal/manifest"
+	"codeflow/core/internal/ontology"
 	"codeflow/core/internal/store"
 	"golang.org/x/net/html"
 )
@@ -38,7 +39,7 @@ func TestFlowViewTemplateV1IsFlowAgnosticAndKeepsStableRegions(t *testing.T) {
 		}
 	}
 	previous := -1
-	for _, region := range []string{"snapshot", "workspace-map", "domain-scenarios", "timeline-navigation", "timeline", "step-detail", "impact-chain", "code-lens", "architecture", "cognitive-debt"} {
+	for _, region := range []string{"snapshot", "business-journeys", "workspace-map", "domain-scenarios", "timeline-navigation", "timeline", "step-detail", "impact-chain", "code-lens", "architecture", "cognitive-debt"} {
 		position := strings.Index(flowViewSource, `data-region="`+region+`"`)
 		if position < 0 || position <= previous {
 			t.Fatalf("missing or reordered stable region %q", region)
@@ -90,13 +91,16 @@ func TestFlowViewTemplateV1IsFlowAgnosticAndKeepsStableRegions(t *testing.T) {
 }
 
 func TestStaticExportLeavesWorkspaceCardsNonNavigable(t *testing.T) {
-	model := flowViewModel{Export: true, Workspace: workspaceNavigation{Flows: []workspaceNavigationFlow{{ID: "route:/join", Selected: true}, {ID: "route:/sign-in"}}}}
+	model := flowViewModel{Export: true, Journeys: journeyNavigation{Journeys: []journeyNavigationItem{{ID: "complete-signup", Segments: []journeySegmentNavigation{{FlowID: "route:/join", ScenarioID: "scenario:one"}}}}}, Workspace: workspaceNavigation{Flows: []workspaceNavigationFlow{{ID: "route:/join", Selected: true}, {ID: "route:/sign-in"}}}}
 	var exported bytes.Buffer
 	if err := exportPage.Execute(&exported, model); err != nil {
 		t.Fatal(err)
 	}
 	if strings.Contains(exported.String(), `href="/?flow=`) {
 		t.Fatal("static export retained workspace navigation links")
+	}
+	if strings.Contains(exported.String(), `href="/?journey=`) || strings.Contains(exported.String(), `data-business-journey="complete-signup" href=`) {
+		t.Fatal("static export retained business journey navigation links")
 	}
 }
 
@@ -215,7 +219,7 @@ func TestScenarioSelectionScopesTimelineToOneUserJourney(t *testing.T) {
 	if len(items) != 2 || strings.Contains(items[0].Title+items[1].Title, "전화번호") {
 		t.Fatalf("timeline mixed independent sign-up methods: %#v", items)
 	}
-	navigation := buildScenarioNavigation(document, scenario.ID, nil)
+	navigation := buildScenarioNavigation(document, scenario.ID, nil, nil)
 	if navigation.Selected == nil || navigation.Selected.Title != "이메일로 가입" {
 		t.Fatalf("scenario navigation lost source-backed user label: %#v", navigation)
 	}
@@ -562,6 +566,119 @@ func TestDomainLabelAndStaticExportKeepFlowIRImmutable(t *testing.T) {
 	exportResponse.Body.Close()
 	if exportResponse.StatusCode != http.StatusOK || !strings.Contains(exportResponse.Header.Get("Content-Disposition"), "attachment") || strings.Contains(string(exportBody), "vscode://") {
 		t.Fatalf("export endpoint did not serve a safe attachment: status=%d headers=%v", exportResponse.StatusCode, exportResponse.Header)
+	}
+}
+
+func TestBusinessJourneyRequiresCurrentScenarioAndRendersBeforeScreenNavigation(t *testing.T) {
+	repo := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(repo, "lib"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(repo, "lib", "signup.dart"), []byte("void signup() {}\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	c, err := StartFixture(context.Background(), repo)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer c.Close(context.Background())
+	document, err := c.Document(context.Background())
+	if err != nil || len(document.Scenarios) != 1 {
+		t.Fatalf("fixture scenario unavailable: %#v %v", document.Scenarios, err)
+	}
+	journey := fmt.Sprintf(`{"id":"complete-signup","title":"가입을 완료합니다","outcome":"가입 완료 상태가 준비됩니다","segments":[{"flow_id":%q,"scenario_id":%q}]}`, document.Current.ID, document.Scenarios[0].ID)
+	request, _ := http.NewRequest(http.MethodPut, c.URL+"/api/v1/business-journeys", strings.NewReader(journey))
+	request.Header.Set("X-CodeFlow-Token", c.Token)
+	response, err := http.DefaultClient.Do(request)
+	if err != nil || response.StatusCode != http.StatusOK {
+		if response != nil {
+			response.Body.Close()
+		}
+		t.Fatalf("business journey approval=%v", err)
+	}
+	response.Body.Close()
+	workspaceRequest, _ := http.NewRequest(http.MethodGet, c.URL+"/api/v2/workspace", nil)
+	workspaceRequest.Header.Set("X-CodeFlow-Token", c.Token)
+	workspaceResponse, err := http.DefaultClient.Do(workspaceRequest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	workspaceBody, _ := io.ReadAll(workspaceResponse.Body)
+	workspaceResponse.Body.Close()
+	if workspaceResponse.StatusCode != http.StatusOK || !strings.Contains(string(workspaceBody), `"business_journeys"`) || !strings.Contains(string(workspaceBody), "complete-signup") {
+		t.Fatalf("workspace API did not expose approved business journey: status=%d body=%s", workspaceResponse.StatusCode, workspaceBody)
+	}
+	view, err := http.Get(c.URL + "/?journey=complete-signup")
+	if err != nil {
+		t.Fatal(err)
+	}
+	body, _ := io.ReadAll(view.Body)
+	view.Body.Close()
+	text := string(body)
+	journeyAt, screenAt := strings.Index(text, `data-region="business-journeys"`), strings.Index(text, `data-region="domain-scenarios"`)
+	if view.StatusCode != http.StatusOK || journeyAt < 0 || screenAt < 0 || journeyAt >= screenAt || !strings.Contains(text, "가입을 완료합니다") {
+		t.Fatalf("FlowView did not put current business journey before screen details: status=%d html=%s", view.StatusCode, body)
+	}
+	invalid := `{"id":"stale-flow","title":"잘못된 경로","segments":[{"flow_id":"route:/missing","scenario_id":"missing"}]}`
+	request, _ = http.NewRequest(http.MethodPut, c.URL+"/api/v1/business-journeys", strings.NewReader(invalid))
+	request.Header.Set("X-CodeFlow-Token", c.Token)
+	response, err = http.DefaultClient.Do(request)
+	if err != nil || response.StatusCode != http.StatusBadRequest {
+		if response != nil {
+			response.Body.Close()
+		}
+		t.Fatalf("invalid journey target was accepted: %v", err)
+	}
+	response.Body.Close()
+}
+
+func TestBusinessJourneyRejectsIndependentScenariosFromTheSameFlow(t *testing.T) {
+	flow := flowir.Document{
+		Current: flowir.Flow{ID: "route:/signup"},
+		Scenarios: []flowir.Scenario{
+			{ID: "email", Status: flowir.Observed},
+			{ID: "phone", Status: flowir.Observed},
+		},
+	}
+	workspace := workspaceDocument{Flows: []flowir.Document{flow}}
+	journey := ontology.BusinessJourney{
+		ID:       "complete-signup",
+		Title:    "가입을 완료합니다",
+		Segments: []ontology.JourneySegment{{FlowID: flow.Current.ID, ScenarioID: "email"}, {FlowID: flow.Current.ID, ScenarioID: "phone"}},
+	}
+	if businessJourneyTargetExists(workspace, journey) {
+		t.Fatal("independent scenarios in the same flow were accepted as a sequential business journey")
+	}
+	navigation := buildJourneyNavigation(workspace, nil, []ontology.BusinessJourney{journey}, journey.ID)
+	if navigation.Selected == nil || !navigation.Selected.Stale || navigation.Selected.Status != flowir.Unknown {
+		t.Fatalf("same-flow journey was presented as a supported path: %#v", navigation)
+	}
+}
+
+func TestJourneyNavigationPreservesOnlyVerifiedJourneySegments(t *testing.T) {
+	flow := flowir.Document{
+		Current: flowir.Flow{ID: "route:/signup"},
+		Scenarios: []flowir.Scenario{
+			{ID: "email", Status: flowir.Observed},
+			{ID: "phone", Status: flowir.Observed},
+		},
+	}
+	workspace := workspaceDocument{Flows: []flowir.Document{flow, flowir.Document{Current: flowir.Flow{ID: "route:/home"}}}}
+	journey := &journeyNavigationItem{
+		ID: "complete-signup",
+		Segments: []journeySegmentNavigation{{
+			FlowID:     flow.Current.ID,
+			ScenarioID: "email",
+			URL:        "/?journey=complete-signup&flow=route%3A%2Fsignup&scenario=email",
+		}},
+	}
+	mapNavigation := buildWorkspaceNavigation(workspace, flow.Current.ID, journey)
+	if mapNavigation.Flows[0].URL != journey.Segments[0].URL || mapNavigation.Flows[1].URL != "/?flow=route%3A%2Fhome" {
+		t.Fatalf("workspace map did not preserve journey only for its verified segment: %#v", mapNavigation.Flows)
+	}
+	scenarios := buildScenarioNavigation(flow, "email", nil, journey)
+	if scenarios.Flows[0].URL != journey.Segments[0].URL || scenarios.Flows[1].URL != "/?flow=route%3A%2Fsignup&scenario=phone" {
+		t.Fatalf("scenario navigation did not preserve journey only for its verified segment: %#v", scenarios.Flows)
 	}
 }
 

@@ -133,14 +133,24 @@ func (s *Session) CompileMany(ctx context.Context, selectors []string, suppliedB
 			}
 			return nil, &Problem{"ENTRY_POINT_UNKNOWN", selectorProblem(selector, "entry point is unavailable")}, nil
 		}
-		rels, err := s.graph.Relationships(ctx, basis.Repository, resolved.EntryPoint.FlowID)
-		if err != nil {
-			f := asGraph(err)
-			return nil, &Problem{f.Code, selectorProblem(selector, f.Message)}, nil
-		}
-		paths, err := validateRelationships(basis, rels)
-		if err != nil {
-			return nil, &Problem{"STALE_GRAPH", selectorProblem(selector, err.Error())}, nil
+		var paths []string
+		if strings.HasPrefix(resolved.EntryPoint.FlowID, "system:") {
+			// A system callback's entry anchor is itself direct current-source
+			// evidence. Its semantic facts remain Analyzer-resolved; unlike a
+			// route it has no GoRoute structural relationship to ask from the
+			// fallback graph bridge.
+			paths = []string{resolved.EntryPoint.Anchor.Path}
+		} else {
+			rels, err := s.graph.Relationships(ctx, basis.Repository, resolved.EntryPoint.FlowID)
+			if err != nil {
+				f := asGraph(err)
+				return nil, &Problem{f.Code, selectorProblem(selector, f.Message)}, nil
+			}
+			var validationErr error
+			paths, validationErr = validateRelationships(basis, rels)
+			if validationErr != nil {
+				return nil, &Problem{"STALE_GRAPH", selectorProblem(selector, validationErr.Error())}, nil
+			}
 		}
 		for _, path := range paths {
 			analysisPathSet[path] = true
@@ -435,13 +445,13 @@ func assembleActionSet(basis flowir.Basis, entry entrypoint.EntryPoint, entryFac
 func assemble(basis flowir.Basis, entry entrypoint.EntryPoint, values []semanticFact, backend string) (flowir.Document, error) {
 	entryFact := flowir.Fact{ID: flowir.Hash(flowir.SchemaVersion, "entry_point", entry.FlowID, "", entry.Anchor.Fingerprint), Kind: "entry_point", Subject: entry.FlowID, Proof: "framework_rule_v1", Evidence: []flowir.Anchor{entry.Anchor}, Status: flowir.Observed}
 	facts := []flowir.Fact{entryFact}
-	var action, call, transition, condition, dynamic, dependency, operation, state, unknownState, repository, external, externalResult, externalUnknown, confirmation, terminalResult, eventDispatch, notifierState, listenerCondition, listenerRoute *flowir.Fact
+	var action, systemEvent, call, transition, condition, dynamic, dependency, operation, state, unknownState, repository, external, externalResult, externalUnknown, confirmation, terminalResult, eventDispatch, notifierState, listenerCondition, listenerRoute *flowir.Fact
 	actions := []*flowir.Fact{}
 	calls := []*flowir.Fact{}
 	transitions := []*flowir.Fact{}
 	for _, v := range values {
 		kind := v.kind
-		if kind != "user_action" && kind != "call" && kind != "route_transition" && kind != "condition" && kind != "dynamic_dispatch" && kind != "provider_dependency" && kind != "notifier_operation" && kind != "state_transition" && kind != "unknown_state" && kind != "repository_access" && kind != "external_call" && kind != "external_result" && kind != "external_boundary_unknown" && kind != "confirmation_condition" && kind != "terminal_result" && kind != "event_dispatch" && kind != "notifier_state_transition" && kind != "listener_condition" {
+		if kind != "user_action" && kind != "system_event" && kind != "call" && kind != "route_transition" && kind != "condition" && kind != "dynamic_dispatch" && kind != "provider_dependency" && kind != "notifier_operation" && kind != "state_transition" && kind != "unknown_state" && kind != "repository_access" && kind != "external_call" && kind != "external_result" && kind != "external_boundary_unknown" && kind != "confirmation_condition" && kind != "terminal_result" && kind != "event_dispatch" && kind != "notifier_state_transition" && kind != "listener_condition" {
 			continue
 		}
 		f := flowir.Fact{ID: flowir.Hash(flowir.SchemaVersion, kind, v.subject, v.object, v.anchor.Fingerprint), Kind: kind, Subject: v.subject, Object: v.object, Proof: v.proof, SymbolID: v.symbolID, Evidence: []flowir.Anchor{v.anchor}, Status: v.status}
@@ -451,6 +461,10 @@ func assemble(basis flowir.Basis, entry entrypoint.EntryPoint, values []semantic
 			actions = append(actions, &facts[len(facts)-1])
 			if action == nil {
 				action = &facts[len(facts)-1]
+			}
+		case "system_event":
+			if systemEvent == nil {
+				systemEvent = &facts[len(facts)-1]
 			}
 		case "call":
 			calls = append(calls, &facts[len(facts)-1])
@@ -529,6 +543,13 @@ func assemble(basis flowir.Basis, entry entrypoint.EntryPoint, values []semantic
 			listenerRoute = listenerTransitions[0]
 		}
 	}
+	if action == nil && systemEvent != nil {
+		action = systemEvent
+	}
+	actionActor := "user"
+	if systemEvent != nil && action == systemEvent {
+		actionActor = "system"
+	}
 	if action == nil {
 		entryView := flowir.Fact{ID: flowir.Hash(flowir.SchemaVersion, "screen_entry", entry.FlowID, entry.Anchor.Fingerprint), Kind: "screen_entry", Subject: entry.FlowID, Proof: "framework_rule_v1", Evidence: []flowir.Anchor{entry.Anchor}, Status: flowir.Observed}
 		facts = append(facts, entryView)
@@ -548,7 +569,7 @@ func assemble(basis flowir.Basis, entry entrypoint.EntryPoint, values []semantic
 			call = path[0]
 		}
 	} else if len(matched) > 1 {
-		step := flowir.Step{ID: flowir.Hash(entry.FlowID, entryFact.ID, action.ID), BehaviorKey: entry.FlowID + ":user:" + action.Subject, Order: 1, Actor: "user", TriggerFact: entryFact.ID, BehaviorFacts: []string{action.ID}, PrimaryEvidence: []flowir.Anchor{action.Evidence[0]}, Status: flowir.Unknown}
+		step := flowir.Step{ID: flowir.Hash(entry.FlowID, entryFact.ID, action.ID), BehaviorKey: entry.FlowID + ":entry:" + action.Subject, Order: 1, Actor: actionActor, TriggerFact: entryFact.ID, BehaviorFacts: []string{action.ID}, PrimaryEvidence: []flowir.Anchor{action.Evidence[0]}, Status: flowir.Unknown}
 		doc := flowir.Document{SchemaVersion: flowir.SchemaVersion, Basis: basis, Facts: facts, Architecture: flowir.ArchitectureSlice{EntryPoints: []string{entry.FlowID}, Boundaries: []string{"ui", "application", "graph:" + backend}, Components: []string{entry.Anchor.Path, action.Subject}, Relations: []string{"call", "transition"}}, Current: flowir.Flow{ID: entry.FlowID, FlowKey: entry.FlowID, EntryPointFact: entryFact.ID, Steps: []flowir.Step{step}, Status: flowir.Unknown}, Unknowns: []flowir.UnknownDetail{{ID: flowir.Hash("unknown", "ambiguous_route_transition", action.ID), Question: "Which observed route transition is the result of this action?", Reason: "ambiguous_route_transition", RelatedSteps: []string{step.ID}, Evidence: []flowir.Anchor{action.Evidence[0]}}}}
 		doc.CausalEdges = causalEdges(doc)
 		attachDebtGuidance(&doc)
@@ -559,7 +580,7 @@ func assemble(basis flowir.Basis, entry entrypoint.EntryPoint, values []semantic
 		if completeEventChain {
 			return assembleEventListenerFlow(basis, entry, entryFact, facts, action, confirmation, terminalResult, eventDispatch, notifierState, listenerCondition, listenerRoute, backend)
 		}
-		step := flowir.Step{ID: flowir.Hash(entry.FlowID, entryFact.ID, action.ID), BehaviorKey: entry.FlowID + ":user:" + action.Subject, Order: 1, Actor: "user", TriggerFact: entryFact.ID, BehaviorFacts: []string{action.ID}, PrimaryEvidence: []flowir.Anchor{action.Evidence[0]}, Status: flowir.Unknown}
+		step := flowir.Step{ID: flowir.Hash(entry.FlowID, entryFact.ID, action.ID), BehaviorKey: entry.FlowID + ":entry:" + action.Subject, Order: 1, Actor: actionActor, TriggerFact: entryFact.ID, BehaviorFacts: []string{action.ID}, PrimaryEvidence: []flowir.Anchor{action.Evidence[0]}, Status: flowir.Unknown}
 		doc := flowir.Document{SchemaVersion: flowir.SchemaVersion, Basis: basis, Facts: facts, Architecture: flowir.ArchitectureSlice{EntryPoints: []string{entry.FlowID}, Boundaries: []string{"ui", "application", "graph:" + backend}, Components: []string{entry.Anchor.Path, action.Subject}, Relations: []string{"call"}}, Current: flowir.Flow{ID: entry.FlowID, FlowKey: entry.FlowID, EntryPointFact: entryFact.ID, Steps: []flowir.Step{step}, Status: flowir.Unknown}, Unknowns: []flowir.UnknownDetail{{ID: flowir.Hash("unknown", "missing_route_transition", action.ID), Question: "Which visible route or UI result follows this action?", Reason: "missing_relation", RelatedSteps: []string{step.ID}, Evidence: []flowir.Anchor{action.Evidence[0]}}}}
 		doc.CausalEdges = causalEdges(doc)
 		attachDebtGuidance(&doc)
@@ -567,7 +588,7 @@ func assemble(basis flowir.Basis, entry entrypoint.EntryPoint, values []semantic
 	}
 	visible := flowir.Fact{ID: flowir.Hash(flowir.SchemaVersion, "visible_result", transition.Subject, transition.Object, transition.Evidence[0].Fingerprint), Kind: "visible_result", Subject: transition.Subject, Object: transition.Object, Proof: transition.Proof, SymbolID: transition.SymbolID, Evidence: transition.Evidence, Status: flowir.Observed}
 	facts = append(facts, visible)
-	step1 := flowir.Step{ID: flowir.Hash(entry.FlowID, entryFact.ID, action.ID), BehaviorKey: entry.FlowID + ":user:" + action.Subject, Order: 1, Actor: "user", TriggerFact: entryFact.ID, BehaviorFacts: []string{action.ID}, PrimaryEvidence: []flowir.Anchor{action.Evidence[0]}, Status: flowir.Observed}
+	step1 := flowir.Step{ID: flowir.Hash(entry.FlowID, entryFact.ID, action.ID), BehaviorKey: entry.FlowID + ":entry:" + action.Subject, Order: 1, Actor: actionActor, TriggerFact: entryFact.ID, BehaviorFacts: []string{action.ID}, PrimaryEvidence: []flowir.Anchor{action.Evidence[0]}, Status: flowir.Observed}
 	behavior := []string{transition.ID}
 	anchors := []flowir.Anchor{transition.Evidence[0]}
 	if call != nil {

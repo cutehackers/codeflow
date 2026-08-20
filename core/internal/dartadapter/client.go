@@ -177,8 +177,8 @@ func (c *Client) Discover(ctx context.Context, repo string) ([]EntryPoint, error
 	for _, p := range result.EntryPoints {
 		// The adapter supplies structural location only. Core attaches and
 		// verifies the authoritative manifest hash for the same observation.
-		if !strings.HasPrefix(p.FlowID, "route:/") || p.Anchor.Path == "" || p.Anchor.LineStart < 1 {
-			return nil, &Failure{"ADAPTER_MALFORMED", "adapter returned an invalid route entry point"}
+		if (!strings.HasPrefix(p.FlowID, "route:/") && !strings.HasPrefix(p.FlowID, "system:")) || p.Anchor.Path == "" || p.Anchor.LineStart < 1 {
+			return nil, &Failure{"ADAPTER_MALFORMED", "adapter returned an invalid route or system entry point"}
 		}
 	}
 	return result.EntryPoints, nil

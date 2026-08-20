@@ -15,8 +15,10 @@ make local
 ./bin/codeflow install
 ```
 
-설치가 끝나면 새 Codex task에서 정확한 `route:/...` flow를 요청한다. MCP는 기존
-Core가 있으면 재사용하고, 없으면 첫 요청의 flow 기준으로 Core를 시작한다.
+설치가 끝나면 새 Codex task에서 정확한 `route:/...` 또는 `system:...` flow를
+요청한다. MCP는 기존 Core가 있으면 재사용하고, 없으면 첫 요청의 flow 기준으로
+Core를 시작한다. BusinessJourney를 다룰 때는 먼저 `entry_points`로 후보를
+확인한 다음 `prepare_workspace`로 필요한 flow를 함께 준비한다.
 따라서 adapter 경로, PATH, 별도 MCP 등록, 사전 `serve` 명령은 필요 없다.
 
 ```sh
@@ -37,13 +39,44 @@ MCP를 사용할 수 없는 LLM은 아래 CLI 명령의 JSON을 읽어도 된다
 
 | 목적 | 도구 | 입력 | 사용 시점 |
 | --- | --- | --- | --- |
-| 여러 화면 관계 이해 | `workspace` | 없음 | 둘 이상의 flow가 게시됐을 때 가장 먼저 |
-| 현재 흐름 이해 | `current` | `flow_id: route:/join` | 단일 flow일 때 첫 번째 |
+| 지원 진입점 찾기 | `entry_points` | 없음 | BusinessJourney 또는 시스템 이벤트 분석 전 |
+| 분석 범위 준비 | `prepare_workspace` | `flow_ids` (1–3개) | 여러 route/system entry를 같은 Basis로 묶기 전 |
+| 여러 화면 관계 이해 | `workspace` | 없음 | `prepare_workspace` 후 여러 flow 관계를 읽을 때 |
+| 현재 흐름 이해 | `current` | `flow_id: route:/join` 또는 `system:...` | 준비된 단일 flow를 상세히 읽을 때 |
 | 한 단계 상세 확인 | `step` | `flow_id`, `step_id` | 특정 상태·호출·화면 결과를 설명할 때 |
 | 미확정 경계 확인 | `unknowns` | `flow_id` | 설명에 추론이 필요해지는 즉시 |
 | 코드 변경 반영 | `refresh` | 없음 | 파일이 바뀌었거나 basis가 오래됐을 때 |
 | FlowView URL 취득 | `open` | `flow_id` | 사용자가 화면 확인을 요청했을 때만 |
+| BusinessJourney 목록 | `business_journeys` | 없음 | 준비된 workspace의 등록 여정 확인 |
+| BusinessJourney 저장·수정 | `upsert_business_journey` | 여정 정의 | 사용자가 저장·수정을 명시했을 때만 |
+| BusinessJourney FlowView | `open_business_journey` | `id` | 사용자가 특정 여정을 화면으로 요청했을 때만 |
 | 기준선 비교 | `diff` | 없음 | Core에 baseline 비교가 이미 게시됐을 때 |
+
+### BusinessJourney 등록
+
+사용자가 “여정을 만들어줘”, “등록해줘”, “수정해줘”처럼 **저장 의사**를 명시하면
+LLM은 인증 토큰, 포트, HTTP API, scenario hash를 사용자에게 요구하지 않는다.
+다음 MCP 순서를 사용한다.
+
+1. `entry_points`로 지원되는 `route:/...`와 `system:...` 후보를 찾는다.
+2. `prepare_workspace(flow_ids)`로 필요한 1–3개의 정확한 entry point를 하나의
+   동일 Basis workspace로 준비한다.
+3. `workspace`와 필요한 `current(flow_id)`에서 실제 `flow_id`와 `scenario_id`를
+   읽는다.
+4. 사용자가 말한 제목·결과·목적에 맞는 exact segment만
+   `upsert_business_journey`로 저장한다.
+5. 사용자가 화면을 요청한 경우에만 `open_business_journey(id)`를 호출한다.
+
+예를 들어 “푸시 토큰 등록 여정을 만들어줘”라는 요청은 route를 억지로 출발점으로
+선택하지 않는다. `entry_points`에서 `system:push-token:...` 후보를 확인하고,
+그 시스템 entry point가 포함된 workspace의 scenario만 등록한다. Core가 현재
+scenario, 같은 Basis, 그리고 화면 간 observed edge를 검증한다. 같은 flow의 독립
+scenario는 대체 경로이므로 순차 여정으로 저장할 수 없다.
+
+`prepare_workspace`가 `WORKSPACE_SCOPE_MISMATCH`를 반환하면 다른 활성 분석을
+교체하지 않는다. 사용자에게 현재 workspace 범위를 설명하고 새 분석 task에서
+다시 요청하도록 안내한다. `upsert_business_journey`가 `unknown`을 반환하면
+저장 실패 이유를 그대로 설명하며 추측으로 segment를 바꾸지 않는다.
 
 여러 화면은 다음처럼 하나의 Core에 함께 요청한다. 각 flow는 독립된 FlowIR을
 유지하며 `workspace`는 동일한 Basis에서 확인된 화면 이동만 연결한다.

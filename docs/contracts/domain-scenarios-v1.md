@@ -12,7 +12,8 @@
 
 ## 결정적 시나리오 projection
 
-`Document.scenarios[]`는 현재 화면의 `user_action` Fact 하나마다 생성한다.
+`Document.scenarios[]`는 현재 화면의 `user_action` 또는 지원되는 system entry의
+`system_event` Fact 하나마다 생성한다.
 
 ```text
 Scenario
@@ -26,7 +27,7 @@ Scenario
 - 한 scenario의 조건 결과는 기존 `Branch`로 표현한다.
 - 공통 helper나 service가 여러 scenario에서 관찰되면, 각 scenario는 같은 Fact와
   evidence를 참조할 수 있다. 근거를 복제하거나 새 사실을 만들지 않는다.
-- action이 없는 화면에는 scenario projection을 만들지 않는다.
+- 지원되는 사용자 또는 시스템 entry가 없는 화면에는 scenario projection을 만들지 않는다.
 
 ## 사용자 문구의 출처
 

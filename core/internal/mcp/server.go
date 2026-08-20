@@ -4,17 +4,20 @@ package mcp
 
 import (
 	"bufio"
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"strings"
 	"sync"
 	"time"
 
 	"codeflow/core/internal/compiler"
 	flowcore "codeflow/core/internal/core"
+	"codeflow/core/internal/entrypoint"
 	"codeflow/core/internal/runtime"
 )
 
@@ -24,13 +27,18 @@ const (
 )
 
 var tools = []map[string]any{
-	{"name": "workspace", "description": "Read the current same-basis screen-flow workspace before inspecting individual flows", "inputSchema": noArguments()},
+	{"name": "entry_points", "description": "Discover exact supported route and system entry points before preparing a business journey workspace", "inputSchema": noArguments()},
+	{"name": "prepare_workspace", "description": "Compile one to three exact route or system entry points into the same current-basis workspace for review or BusinessJourney registration", "inputSchema": workspaceArguments()},
+	{"name": "workspace", "description": "Read the current same-basis workspace, including route and system-entry flows, before inspecting individual flows", "inputSchema": noArguments()},
+	{"name": "business_journeys", "description": "List reviewer-approved BusinessJourney definitions in the prepared workspace", "inputSchema": noArguments()},
+	{"name": "upsert_business_journey", "description": "Create or update one explicitly user-approved BusinessJourney using exact current flow and scenario IDs; Core rejects unsupported paths", "inputSchema": businessJourneyArguments()},
 	{"name": "current", "description": "Read one current CodeFlow document", "inputSchema": flowArguments()},
 	{"name": "diff", "description": "Read the current baseline delta", "inputSchema": noArguments()},
 	{"name": "step", "description": "Read one causal step from one flow", "inputSchema": stepArguments()},
 	{"name": "unknowns", "description": "Read the unresolved boundaries for one flow", "inputSchema": flowArguments()},
 	{"name": "refresh", "description": "Reconcile the complete current flow set against one new Basis", "inputSchema": noArguments()},
 	{"name": "open", "description": "Get the FlowView URL focused on one flow from the current workspace", "inputSchema": flowArguments()},
+	{"name": "open_business_journey", "description": "Get the FlowView URL focused on one registered BusinessJourney", "inputSchema": businessJourneyIDArguments()},
 }
 
 func noArguments() map[string]any {
@@ -40,7 +48,7 @@ func noArguments() map[string]any {
 func flowArguments() map[string]any {
 	return map[string]any{
 		"type":                 "object",
-		"properties":           map[string]any{"flow_id": map[string]any{"type": "string", "pattern": `^route:/`}},
+		"properties":           map[string]any{"flow_id": map[string]any{"type": "string", "pattern": `^(route:/|system:)`}},
 		"required":             []string{"flow_id"},
 		"additionalProperties": false,
 	}
@@ -53,10 +61,57 @@ func stepArguments() map[string]any {
 	return schema
 }
 
+func workspaceArguments() map[string]any {
+	return map[string]any{
+		"type": "object",
+		"properties": map[string]any{
+			"flow_ids": map[string]any{
+				"type": "array", "minItems": 1, "maxItems": 3, "uniqueItems": true,
+				"items": map[string]any{"type": "string", "pattern": `^(route:/|system:)`},
+			},
+		},
+		"required": []string{"flow_ids"}, "additionalProperties": false,
+	}
+}
+
+func businessJourneyIDArguments() map[string]any {
+	return map[string]any{
+		"type": "object",
+		"properties": map[string]any{
+			"id": map[string]any{"type": "string", "pattern": `^[a-z][a-z0-9-]{0,63}$`},
+		},
+		"required": []string{"id"}, "additionalProperties": false,
+	}
+}
+
+func businessJourneyArguments() map[string]any {
+	return map[string]any{
+		"type": "object",
+		"properties": map[string]any{
+			"id":      map[string]any{"type": "string", "pattern": `^[a-z][a-z0-9-]{0,63}$`},
+			"title":   map[string]any{"type": "string", "minLength": 1, "maxLength": 140},
+			"outcome": map[string]any{"type": "string", "maxLength": 200},
+			"segments": map[string]any{
+				"type": "array", "minItems": 1, "maxItems": 20,
+				"items": map[string]any{
+					"type": "object",
+					"properties": map[string]any{
+						"flow_id":     map[string]any{"type": "string", "pattern": `^(route:/|system:)`},
+						"scenario_id": map[string]any{"type": "string", "minLength": 1},
+					},
+					"required": []string{"flow_id", "scenario_id"}, "additionalProperties": false,
+				},
+			},
+		},
+		"required": []string{"id", "title", "segments"}, "additionalProperties": false,
+	}
+}
+
 type Server struct {
-	Repo  string
-	HTTP  *http.Client
-	Start func(context.Context, []string) (*flowcore.Core, *compiler.Problem, error)
+	Repo     string
+	HTTP     *http.Client
+	Start    func(context.Context, []string) (*flowcore.Core, *compiler.Problem, error)
+	Discover func(context.Context) entrypoint.Result
 
 	startMu sync.Mutex
 	started *flowcore.Core
@@ -135,10 +190,22 @@ func write(out io.Writer, v response) { b, _ := json.Marshal(v); _, _ = out.Writ
 func (s *Server) call(ctx context.Context, req request) response {
 	name, _ := req.Params["name"].(string)
 	args, _ := req.Params["arguments"].(map[string]any)
+	if args == nil {
+		args = map[string]any{}
+	}
+	if name == "entry_points" {
+		return s.entryPoints(ctx, req.ID)
+	}
+	if name == "prepare_workspace" {
+		return s.prepareWorkspace(ctx, req.ID, args)
+	}
+	if name == "business_journeys" || name == "upsert_business_journey" || name == "open_business_journey" {
+		return s.businessJourney(ctx, req.ID, name, args)
+	}
 	flowID, _ := args["flow_id"].(string)
 	if name == "current" || name == "unknowns" || name == "step" || name == "open" {
-		if !strings.HasPrefix(flowID, "route:/") {
-			return errorResponse(req.ID, -32602, "FLOW_ID_REQUIRED", "pass the exact route:/... flow_id from workspace")
+		if !strings.HasPrefix(flowID, "route:/") && !strings.HasPrefix(flowID, "system:") {
+			return errorResponse(req.ID, -32602, "FLOW_ID_REQUIRED", "pass the exact route:/... or system:... flow_id from workspace")
 		}
 	}
 	stepID, _ := args["step_id"].(string)
@@ -172,28 +239,9 @@ func (s *Server) call(ctx context.Context, req request) response {
 	if startup := s.ensureCore(ctx, selectors); startup != nil {
 		return errorResponse(req.ID, -32010, startup.Code, startup.Message)
 	}
-	state, err := runtime.ReadState(s.Repo)
-	if err != nil {
-		return errorResponse(req.ID, -32010, "CORE_UNAVAILABLE", err.Error())
-	}
-	h := s.HTTP
-	if h == nil {
-		h = http.DefaultClient
-	}
-	r, _ := http.NewRequestWithContext(ctx, method, fmt.Sprintf("http://127.0.0.1:%d%s", state.Port, endpoint), nil)
-	r.Header.Set("X-CodeFlow-Token", state.AuthToken)
-	res, err := h.Do(r)
-	if err != nil {
-		return errorResponse(req.ID, -32010, "CORE_UNAVAILABLE", err.Error())
-	}
-	defer res.Body.Close()
-	raw, err := io.ReadAll(res.Body)
-	if err != nil {
-		return errorResponse(req.ID, -32010, "CORE_UNAVAILABLE", err.Error())
-	}
-	var envelope map[string]any
-	if json.Unmarshal(raw, &envelope) != nil {
-		return errorResponse(req.ID, -32011, "CORE_RESPONSE", "Core returned malformed response")
+	envelope, failure := s.coreRequest(ctx, method, endpoint, nil)
+	if failure != nil {
+		return errorResponse(req.ID, -32010, failure.Code, failure.Message)
 	}
 	// Core's typed unavailable/unknown envelope is still useful MCP data. Only
 	// a transport failure above becomes a JSON-RPC failure.
@@ -208,6 +256,158 @@ func (s *Server) call(ctx context.Context, req request) response {
 	}
 	compactMCPEnvelope(envelope)
 	return response{JSONRPC: "2.0", ID: req.ID, Result: map[string]any{"content": []map[string]string{{"type": "text", "text": mcpSummary(name, envelope)}}, "structuredContent": envelope}}
+}
+
+func (s *Server) entryPoints(ctx context.Context, id any) response {
+	if s.Discover == nil {
+		return errorResponse(id, -32010, "ENTRY_POINTS_UNAVAILABLE", "this MCP server cannot discover entry points")
+	}
+	result := s.Discover(ctx)
+	status := string(result.State)
+	unknowns := []any{}
+	if result.Unknown != nil {
+		unknowns = append(unknowns, result.Unknown)
+	}
+	data := map[string]any{"entry_points": result.Candidates}
+	if result.EntryPoint != nil {
+		data["entry_points"] = []entrypoint.EntryPoint{*result.EntryPoint}
+	}
+	envelope := map[string]any{"status": status, "data": data, "unknowns": unknowns}
+	return toolResponse(id, "entry_points", envelope)
+}
+
+func (s *Server) prepareWorkspace(ctx context.Context, id any, args map[string]any) response {
+	flowIDs, err := exactFlowIDs(args["flow_ids"])
+	if err != nil {
+		return errorResponse(id, -32602, "FLOW_IDS_REQUIRED", err.Error())
+	}
+	if _, err := runtime.ReadState(s.Repo); err != nil {
+		if startup := s.ensureCore(ctx, flowIDs); startup != nil {
+			return errorResponse(id, -32010, startup.Code, startup.Message)
+		}
+	}
+	envelope, failure := s.coreRequest(ctx, http.MethodGet, "/api/v2/workspace", nil)
+	if failure != nil {
+		return errorResponse(id, -32010, failure.Code, failure.Message)
+	}
+	if !sameFlowScope(envelope, flowIDs) {
+		return errorResponse(id, -32012, "WORKSPACE_SCOPE_MISMATCH", "the running Core has a different workspace scope; do not replace another active analysis")
+	}
+	compactMCPEnvelope(envelope)
+	return toolResponse(id, "prepare_workspace", envelope)
+}
+
+func (s *Server) businessJourney(ctx context.Context, id any, name string, args map[string]any) response {
+	if _, err := runtime.ReadState(s.Repo); err != nil {
+		return errorResponse(id, -32010, "WORKSPACE_REQUIRED", "call prepare_workspace with exact flow_ids before working with BusinessJourneys")
+	}
+	endpoint, method := "/api/v1/business-journeys", http.MethodGet
+	var body io.Reader
+	if name == "upsert_business_journey" {
+		payload, err := json.Marshal(args)
+		if err != nil {
+			return errorResponse(id, -32602, "BUSINESS_JOURNEY_INVALID", "BusinessJourney arguments could not be encoded")
+		}
+		endpoint, method, body = "/api/v1/business-journeys", http.MethodPut, bytes.NewReader(payload)
+	}
+	envelope, failure := s.coreRequest(ctx, method, endpoint, body)
+	if failure != nil {
+		return errorResponse(id, -32010, failure.Code, failure.Message)
+	}
+	if name == "open_business_journey" {
+		journeyID, _ := args["id"].(string)
+		if !journeyExists(envelope, journeyID) {
+			return errorResponse(id, -32602, "BUSINESS_JOURNEY_NOT_FOUND", "pass an id returned by business_journeys")
+		}
+		envelope["data"] = map[string]any{"view_url": journeyViewURL(envelope, journeyID)}
+	}
+	compactMCPEnvelope(envelope)
+	return toolResponse(id, name, envelope)
+}
+
+func (s *Server) coreRequest(ctx context.Context, method, endpoint string, body io.Reader) (map[string]any, *startupFailure) {
+	state, err := runtime.ReadState(s.Repo)
+	if err != nil {
+		return nil, &startupFailure{Code: "CORE_UNAVAILABLE", Message: err.Error()}
+	}
+	h := s.HTTP
+	if h == nil {
+		h = http.DefaultClient
+	}
+	r, err := http.NewRequestWithContext(ctx, method, fmt.Sprintf("http://127.0.0.1:%d%s", state.Port, endpoint), body)
+	if err != nil {
+		return nil, &startupFailure{Code: "CORE_UNAVAILABLE", Message: err.Error()}
+	}
+	r.Header.Set("X-CodeFlow-Token", state.AuthToken)
+	if body != nil {
+		r.Header.Set("Content-Type", "application/json")
+	}
+	res, err := h.Do(r)
+	if err != nil {
+		return nil, &startupFailure{Code: "CORE_UNAVAILABLE", Message: err.Error()}
+	}
+	defer res.Body.Close()
+	raw, err := io.ReadAll(res.Body)
+	if err != nil {
+		return nil, &startupFailure{Code: "CORE_UNAVAILABLE", Message: err.Error()}
+	}
+	var envelope map[string]any
+	if json.Unmarshal(raw, &envelope) != nil {
+		return nil, &startupFailure{Code: "CORE_RESPONSE", Message: "Core returned malformed response"}
+	}
+	return envelope, nil
+}
+
+func exactFlowIDs(value any) ([]string, error) {
+	items, ok := value.([]any)
+	if !ok || len(items) == 0 || len(items) > 3 {
+		return nil, fmt.Errorf("pass one to three exact route:/... or system:... flow_ids")
+	}
+	seen := map[string]bool{}
+	flowIDs := make([]string, 0, len(items))
+	for _, item := range items {
+		flowID, ok := item.(string)
+		if !ok || (!strings.HasPrefix(flowID, "route:/") && !strings.HasPrefix(flowID, "system:")) || seen[flowID] {
+			return nil, fmt.Errorf("pass one to three unique exact route:/... or system:... flow_ids")
+		}
+		seen[flowID] = true
+		flowIDs = append(flowIDs, flowID)
+	}
+	return flowIDs, nil
+}
+
+func sameFlowScope(envelope map[string]any, expected []string) bool {
+	data, _ := envelope["data"].(map[string]any)
+	actual, _ := data["flow_ids"].([]any)
+	if len(actual) != len(expected) {
+		return false
+	}
+	for i, flowID := range expected {
+		if actual[i] != flowID {
+			return false
+		}
+	}
+	return true
+}
+
+func journeyExists(envelope map[string]any, id string) bool {
+	data, _ := envelope["data"].([]any)
+	for _, item := range data {
+		journey, _ := item.(map[string]any)
+		if journey["id"] == id {
+			return true
+		}
+	}
+	return false
+}
+
+func journeyViewURL(envelope map[string]any, id string) string {
+	viewURL, _ := envelope["view_url"].(string)
+	return viewURL + "?journey=" + url.QueryEscape(id)
+}
+
+func toolResponse(id any, name string, envelope map[string]any) response {
+	return response{JSONRPC: "2.0", ID: id, Result: map[string]any{"content": []map[string]string{{"type": "text", "text": mcpSummary(name, envelope)}}, "structuredContent": envelope}}
 }
 
 type startupFailure struct {

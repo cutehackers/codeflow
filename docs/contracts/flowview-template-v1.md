@@ -9,16 +9,18 @@ The root declares `data-flowview-version="1"`. Every rendered flow uses these
 stable regions in this reading order:
 
 1. `snapshot` — repository revision, worktree state, and overall trust.
-2. The optional multi-flow screen map and compact current-code path.
-3. `domain-scenarios` when a screen has more than one observed `user_action`.
+2. `business-journeys` when the reviewer has approved one or more current
+   scenario references. It is the primary business-purpose navigation layer.
+3. The optional multi-flow screen map and compact current-code path.
+4. `domain-scenarios` when a screen has more than one observed `user_action`.
    It selects one user-facing path before a causal timeline is shown.
-4. `timeline-navigation` and `timeline` — previous/next controls and ordered
+5. `timeline-navigation` and `timeline` — previous/next controls and ordered
    causal steps.
-5. `step-detail` — a selected step containing `impact-chain` and `code-lens`.
-6. `architecture` — a secondary, collapsible UI/application/state/data/external
+6. `step-detail` — a selected step containing `impact-chain` and `code-lens`.
+7. `architecture` — a secondary, collapsible UI/application/state/data/external
    causal map whose nodes select the corresponding timeline step. Opening the
    map scrolls to the already-selected timeline step.
-7. `cognitive-debt` when current unknowns exist.
+8. `cognitive-debt` when current unknowns exist.
 
 The impact chain always reads `코드 변경 → 상태 변화 → 화면 결과`. A missing
 baseline is presented as `비교 기준 없음` or `baseline 미선택`, never as “no

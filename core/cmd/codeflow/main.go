@@ -427,9 +427,15 @@ func mcpServe(args []string, stdout, stderr io.Writer) int {
 		return 2
 	}
 	adapterCommand := resolvedAdapter(*adapterPath)
-	server := mcp.Server{Repo: *repo, Start: func(ctx context.Context, selectors []string) (*flowcore.Core, *compiler.Problem, error) {
-		return flowcore.StartAnalysis(ctx, *repo, flowcore.AnalysisOptions{Selectors: selectors, CodeGraphURL: *graph, AdapterCommand: adapterCommand})
-	}}
+	server := mcp.Server{
+		Repo: *repo,
+		Start: func(ctx context.Context, selectors []string) (*flowcore.Core, *compiler.Problem, error) {
+			return flowcore.StartAnalysis(ctx, *repo, flowcore.AnalysisOptions{Selectors: selectors, CodeGraphURL: *graph, AdapterCommand: adapterCommand})
+		},
+		Discover: func(ctx context.Context) entrypoint.Result {
+			return entrypoint.Resolve(ctx, *repo, "", adapterCommand)
+		},
+	}
 	if err := server.Serve(context.Background(), os.Stdin, stdout); err != nil {
 		fmt.Fprintln(stderr, "mcp:", err)
 		return 1
@@ -770,7 +776,7 @@ func reuseRuntimeFor(repo string, selectors []string) (bool, string, error) {
 			available[flowID] = true
 		}
 		for _, selector := range selectors {
-			if !strings.HasPrefix(selector, "route:/") || !available[selector] {
+			if (!strings.HasPrefix(selector, "route:/") && !strings.HasPrefix(selector, "system:")) || !available[selector] {
 				return false, "", fmt.Errorf("CORE_FLOW_SET_MISMATCH: stop the existing runtime before requesting %s", selector)
 			}
 		}

@@ -193,8 +193,8 @@ func ScenarioID(flowID, interactionFactID string) string {
 	return Hash("scenario", flowID, interactionFactID)
 }
 
-// DeriveScenarios projects a screen's causal steps into one scenario per
-// observed user_action. A step joins its action when it either contains that
+// DeriveScenarios projects a route or system flow into one scenario per
+// observed user_action or system_event. A step joins its entry event when it either contains that
 // action or is triggered by a fact already owned by the action's path. This
 // follows the existing FlowIR causal shape and deliberately does not infer a
 // relationship from source ordering.
@@ -210,7 +210,7 @@ func DeriveScenarios(document *Document) {
 	seenActions := map[string]bool{}
 	for _, step := range document.Current.Steps {
 		for _, id := range step.BehaviorFacts {
-			if fact, ok := facts[id]; ok && fact.Kind == "user_action" && fact.Status != Stale && !seenActions[id] {
+			if fact, ok := facts[id]; ok && (fact.Kind == "user_action" || fact.Kind == "system_event") && fact.Status != Stale && !seenActions[id] {
 				actionIDs = append(actionIDs, id)
 				seenActions[id] = true
 			}
@@ -441,7 +441,7 @@ func Validate(document Document) error {
 			return fmt.Errorf("scenario %s has non-deterministic identity", scenario.ID)
 		}
 		action, ok := facts[scenario.InteractionFact]
-		if !ok || action.Kind != "user_action" || action.Status == Stale {
+		if !ok || (action.Kind != "user_action" && action.Kind != "system_event") || action.Status == Stale {
 			return fmt.Errorf("scenario %s references an invalid interaction", scenario.ID)
 		}
 		seenSteps := map[string]bool{}

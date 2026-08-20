@@ -84,7 +84,7 @@ func ResolveDiscovered(repo, selector string, entries []dartadapter.EntryPoint, 
 		}
 		return Result{State: Unknown, Selector: selector, Candidates: candidates, Unknown: &Problem{"SELECTOR_REQUIRED", "multiple routes are available; choose one exact route:/... identifier from candidates"}}
 	}
-	if strings.HasPrefix(exact, "route:/") {
+	if strings.HasPrefix(exact, "route:/") || strings.HasPrefix(exact, "system:") {
 		matches := filterFlow(candidates, exact)
 		if len(matches) == 1 {
 			return Result{State: Ready, Selector: selector, EntryPoint: &matches[0], Candidates: []EntryPoint{}}
@@ -92,7 +92,7 @@ func ResolveDiscovered(repo, selector string, entries []dartadapter.EntryPoint, 
 		if len(matches) > 1 {
 			return ambiguous(selector, matches)
 		}
-		return Result{State: Unknown, Selector: selector, Candidates: candidates, Unknown: &Problem{"ENTRY_POINT_NOT_FOUND", fmt.Sprintf("%s is not present in the current supported go_router declarations", exact)}}
+		return Result{State: Unknown, Selector: selector, Candidates: candidates, Unknown: &Problem{"ENTRY_POINT_NOT_FOUND", fmt.Sprintf("%s is not present in the current supported route or system declarations", exact)}}
 	}
 	matches := filterAlias(candidates, selector)
 	if len(matches) == 1 {
@@ -101,7 +101,7 @@ func ResolveDiscovered(repo, selector string, entries []dartadapter.EntryPoint, 
 	if len(matches) > 1 {
 		return ambiguous(selector, matches)
 	}
-	return Result{State: Unknown, Selector: selector, Candidates: candidates, Unknown: &Problem{"ENTRY_POINT_NOT_FOUND", "no supported go_router entry point matches this selector"}}
+	return Result{State: Unknown, Selector: selector, Candidates: candidates, Unknown: &Problem{"ENTRY_POINT_NOT_FOUND", "no supported route or system entry point matches this selector"}}
 }
 func ambiguous(selector string, candidates []EntryPoint) Result {
 	return Result{State: Unknown, Selector: selector, Candidates: candidates, Unknown: &Problem{"AMBIGUOUS_ENTRY_POINT", "multiple entry points match; choose an exact route:/... identifier"}}

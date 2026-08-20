@@ -84,6 +84,40 @@ func TestCompileBuildsEvidenceBackedRouteAndRejectsStaleGraph(t *testing.T) {
 	}
 }
 
+func TestCompileStartsPushTokenRegistrationAtVerifiedSystemEvent(t *testing.T) {
+	repo, adapter := fixture(t)
+	source := "class PushRegistration { void start() { FirebaseMessaging.instance.onTokenRefresh.listen(_registerToken); } void _registerToken(String token) { _persistToken(token); } void _persistToken(String token) { DeviceRepository.register(token); } }\n"
+	if err := os.WriteFile(filepath.Join(repo, "lib", "signup.dart"), []byte(source), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if out, err := exec.Command("git", "-C", repo, "add", ".").CombinedOutput(); err != nil {
+		t.Fatalf("git add %s: %v", out, err)
+	}
+	if out, err := exec.Command("git", "-C", repo, "-c", "user.email=x@y.z", "-c", "user.name=x", "commit", "-qm", "system entry").CombinedOutput(); err != nil {
+		t.Fatalf("git commit %s: %v", out, err)
+	}
+	selector := "system:push-token:lib/signup.dart:PushRegistration:_registerToken"
+	doc, problem, err := Compile(context.Background(), Options{Repo: repo, Selector: selector, AdapterCommand: adapter})
+	if err != nil || problem != nil {
+		t.Fatalf("system entry compilation failed: err=%v problem=%#v", err, problem)
+	}
+	if doc.Current.ID != selector || len(doc.Current.Steps) != 1 || doc.Current.Steps[0].Actor != "system" || len(doc.Scenarios) != 1 {
+		t.Fatalf("push registration was not modeled as a system-rooted scenario: %#v", doc)
+	}
+	if len(doc.Unknowns) != 1 || doc.Unknowns[0].Reason != "missing_relation" {
+		t.Fatalf("unsupported token result must remain explicit rather than guessed: %#v", doc.Unknowns)
+	}
+	foundHelperBoundary := false
+	for _, fact := range doc.Facts {
+		if fact.Kind == "repository_access" && strings.Contains(fact.Object, "DeviceRepository.register") {
+			foundHelperBoundary = true
+		}
+	}
+	if !foundHelperBoundary {
+		t.Fatalf("system entry did not analyze the direct helper body: %#v", doc.Facts)
+	}
+}
+
 func TestAssembleNeverBorrowsAnUnrelatedRouteTransition(t *testing.T) {
 	basis, entry, anchor := assembleFixture()
 	routeAnchor := anchor

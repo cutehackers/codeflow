@@ -178,6 +178,9 @@ Future<List<Map<String, Object>>> _refine(
     if (result.unit != null) units[result.relative] = result.unit!;
   }
   final causality = _ResolvedCausality(sources, units);
+  if (flowId.startsWith('system:')) {
+    return _refineSystem(flowId, sources, units, causality, contracts);
+  }
   final selectedOwners = _selectedRouteOwners(flowId, sources, units);
   for (final entry in units.entries) {
     final relative = entry.key;
@@ -300,6 +303,96 @@ Future<List<Map<String, Object>>> _refine(
     ),
   );
   return result;
+}
+
+// System entries are deliberately narrow framework shapes. They are not
+// inferred from method names alone: discovery has already anchored either a
+// Flutter lifecycle override or a concrete session/FCM stream subscription.
+// The selected method must resolve uniquely inside its declared owner in the
+// same current source slice. A file may legitimately contain several State
+// classes with the same lifecycle method name.
+List<Map<String, Object>> _refineSystem(
+  String flowId,
+  Map<String, String> sources,
+  Map<String, CompilationUnit> units,
+  _ResolvedCausality causality,
+  Map<String, _ExternalContract> contracts,
+) {
+  final parts = flowId.split(':');
+  if (parts.length < 5) return [];
+  final kind = parts[1];
+  final methodName = parts.last;
+  final owner = parts[parts.length - 2];
+  final relative = parts.sublist(2, parts.length - 2).join(':');
+  final unit = units[relative];
+  final source = sources[relative];
+  if (unit == null || source == null) return [];
+  final methods = _namedMethods(unit, source, owner, methodName);
+  if (methods.length != 1) return [];
+  final method = methods.single;
+  final facts = <Map<String, Object>>[
+    _fact(
+      'system_event',
+      method.symbol,
+      kind,
+      relative,
+      source,
+      method.start,
+      method.end,
+      'resolved_ast:system_entry:$kind:${method.symbol}',
+      proof: 'resolved_ast',
+      symbolId: method.symbol,
+    ),
+  ];
+  facts.addAll(
+    causality.routeTransitions(method.symbol, relative, source, method.body),
+  );
+  facts.addAll(
+    causality.eventChainFacts(method.symbol, relative, source, method.body),
+  );
+  facts.addAll(
+    _riverpodFacts(source, relative, method.owner, method.symbol, method.body),
+  );
+  facts.addAll(
+    _boundaryFacts(source, relative, method.symbol, method.body, contracts),
+  );
+  for (final call in _directMethodCalls(
+    source,
+    method.body,
+    resolvedUnit: unit,
+  )) {
+    if (call.name == methodName || call.symbol == null) continue;
+    facts.add(
+      _fact(
+        'call',
+        method.symbol,
+        call.symbol!,
+        relative,
+        source,
+        call.start,
+        call.end,
+        'resolved_ast:call:${method.symbol}:${call.symbol}',
+        proof: 'resolved_ast',
+        symbolId: call.symbol,
+      ),
+    );
+    final targetBody = _resolvedMethodBody(unit, call.element!, source);
+    if (targetBody == null) continue;
+    facts.addAll(
+      causality.routeTransitions(call.symbol!, relative, source, targetBody),
+    );
+    facts.addAll(
+      causality.eventChainFacts(call.symbol!, relative, source, targetBody),
+    );
+    facts.addAll(
+      _riverpodFacts(source, relative, method.owner, method.symbol, targetBody),
+    );
+    facts.addAll(
+      _boundaryFacts(source, relative, call.symbol!, targetBody, contracts),
+    );
+    facts.addAll(_controlFacts(call.symbol!, relative, source, targetBody));
+  }
+  return facts;
 }
 
 class _ResolvedSource {
@@ -1534,6 +1627,61 @@ class _ResolvedCallback {
   );
 }
 
+class _ResolvedSystemMethod {
+  final String symbol, owner;
+  final int start, end;
+  final _Body body;
+  _ResolvedSystemMethod(
+    this.symbol,
+    this.owner,
+    this.start,
+    this.end,
+    this.body,
+  );
+}
+
+List<_ResolvedSystemMethod> _namedMethods(
+  CompilationUnit unit,
+  String source,
+  String owner,
+  String name,
+) {
+  final matches = <_ResolvedSystemMethod>[];
+  for (final declaration in unit.declarations) {
+    if (declaration is ClassDeclaration && declaration.name.lexeme == owner) {
+      for (final method in declaration.members.whereType<MethodDeclaration>()) {
+        if (method.name.lexeme != name) continue;
+        final element = method.declaredFragment?.element;
+        if (element == null) continue;
+        matches.add(
+          _ResolvedSystemMethod(
+            _canonicalSymbol(element),
+            _displayOwner(element),
+            method.offset,
+            method.end,
+            _functionBody(source, method.body),
+          ),
+        );
+      }
+    } else if (owner == 'top-level' &&
+        declaration is FunctionDeclaration &&
+        declaration.name.lexeme == name) {
+      final element = declaration.declaredFragment?.element;
+      if (element == null) continue;
+      matches.add(
+        _ResolvedSystemMethod(
+          _canonicalSymbol(element),
+          _displayOwner(element),
+          declaration.offset,
+          declaration.end,
+          _functionBody(source, declaration.functionExpression.body),
+        ),
+      );
+    }
+  }
+  return matches;
+}
+
 // This identity contains semantic scope, not display prose or source
 // coordinates. Equal method names in different packages/classes are distinct.
 String _canonicalSymbol(Element element) {
@@ -1890,6 +2038,9 @@ Future<List<Map<String, Object>>> _discover(String root) async {
         entity.path.contains(
           '${Platform.pathSeparator}.dart_tool${Platform.pathSeparator}',
         ) ||
+        entity.path.contains(
+          '${Platform.pathSeparator}build${Platform.pathSeparator}',
+        ) ||
         (!rootIsCodeflowMirror && entity.path.contains(codeflowSegment)) ||
         entity.path.contains(
           '${Platform.pathSeparator}.git${Platform.pathSeparator}',
@@ -1901,37 +2052,141 @@ Future<List<Map<String, Object>>> _discover(String root) async {
     if (relative.startsWith('test/') || relative.contains('/test/')) continue;
     final raw = await entity.readAsBytes();
     final source = utf8.decode(raw);
-    // Route discovery still uses the Dart parser, but files without any
-    // go_router constructor or annotation cannot contain a supported route.
-    // This exact lexical precondition avoids parsing unrelated package code.
-    if (!source.contains('GoRoute')) continue;
-    for (final declaration in _routeDeclarations(source)) {
-      final route = declaration.path;
-      final prefix = source.substring(0, declaration.start);
-      final fragment = source.substring(declaration.start, declaration.end);
-      final segments = route.split('/').where((value) => value.isNotEmpty);
-      final alias = segments.isEmpty ? 'root' : segments.last;
-      entries.add({
-        'flow_id': 'route:$route',
-        'alias': alias,
-        'anchor': {
-          'path': relative,
-          'line_start': '\n'.allMatches(prefix).length + 1,
-          'line_end':
-              '\n'.allMatches(prefix).length +
-              '\n'.allMatches(fragment).length +
-              1,
-          'byte_start': utf8.encode(prefix).length,
-          'byte_end': utf8.encode(prefix + fragment).length,
-          'semantic_fingerprint': 'go_router:GoRoute:path:$route',
-        },
-      });
+    // Route discovery uses the Dart parser. System discovery is limited to
+    // exact lifecycle overrides and concrete session/FCM `.listen(method)`
+    // subscriptions, so unrelated methods never become entry points.
+    if (source.contains('GoRoute'))
+      for (final declaration in _routeDeclarations(source)) {
+        final route = declaration.path;
+        final prefix = source.substring(0, declaration.start);
+        final fragment = source.substring(declaration.start, declaration.end);
+        final segments = route.split('/').where((value) => value.isNotEmpty);
+        final alias = segments.isEmpty ? 'root' : segments.last;
+        entries.add({
+          'flow_id': 'route:$route',
+          'alias': alias,
+          'anchor': {
+            'path': relative,
+            'line_start': '\n'.allMatches(prefix).length + 1,
+            'line_end':
+                '\n'.allMatches(prefix).length +
+                '\n'.allMatches(fragment).length +
+                1,
+            'byte_start': utf8.encode(prefix).length,
+            'byte_end': utf8.encode(prefix + fragment).length,
+            'semantic_fingerprint': 'go_router:GoRoute:path:$route',
+          },
+        });
+      }
+    for (final system in _systemEntries(source, relative)) {
+      entries.add(system);
     }
   }
   entries.sort(
     (a, b) => (a['flow_id']! as String).compareTo(b['flow_id']! as String),
   );
   return entries;
+}
+
+List<Map<String, Object>> _systemEntries(String source, String relative) {
+  final unit = parseString(content: source, throwIfDiagnostics: false).unit;
+  final entries = <Map<String, Object>>[];
+  void add(String kind, String owner, String name, AstNode node) {
+    final prefix = source.substring(0, node.offset);
+    final fragment = source.substring(node.offset, node.end);
+    entries.add({
+      'flow_id': 'system:$kind:$relative:$owner:$name',
+      'alias': kind == 'push-token'
+          ? '푸시 토큰 갱신'
+          : kind == 'session'
+          ? '세션 갱신'
+          : '앱 생명주기',
+      'anchor': {
+        'path': relative,
+        'line_start': '\n'.allMatches(prefix).length + 1,
+        'line_end':
+            '\n'.allMatches(prefix).length +
+            '\n'.allMatches(fragment).length +
+            1,
+        'byte_start': utf8.encode(prefix).length,
+        'byte_end': utf8.encode(prefix + fragment).length,
+        'semantic_fingerprint': 'system_entry:$kind:$relative:$owner:$name',
+      },
+    });
+  }
+
+  for (final declaration in unit.declarations.whereType<ClassDeclaration>()) {
+    if (!_isLifecycleOwner(declaration)) continue;
+    for (final method in declaration.members.whereType<MethodDeclaration>()) {
+      if (method.name.lexeme == 'initState' ||
+          method.name.lexeme == 'didChangeAppLifecycleState') {
+        add('lifecycle', declaration.name.lexeme, method.name.lexeme, method);
+      }
+    }
+  }
+  final subscriptions = _SystemSubscriptionVisitor();
+  unit.accept(subscriptions);
+  for (final subscription in subscriptions.subscriptions) {
+    add(
+      subscription.kind,
+      subscription.owner,
+      subscription.callback,
+      subscription.node,
+    );
+  }
+  final unique = <String, Map<String, Object>>{};
+  for (final entry in entries) unique[entry['flow_id']! as String] = entry;
+  return unique.values.toList();
+}
+
+bool _isLifecycleOwner(ClassDeclaration declaration) {
+  final superclass = declaration.extendsClause?.superclass.toSource() ?? '';
+  final normalized = superclass.replaceAll(RegExp(r'\s+'), '');
+  if (normalized == 'State' ||
+      normalized.startsWith('State<') ||
+      normalized == 'ConsumerState' ||
+      normalized.startsWith('ConsumerState<')) {
+    return true;
+  }
+  return declaration.withClause?.mixinTypes.any(
+        (type) =>
+            type.toSource().replaceAll(RegExp(r'\s+'), '') ==
+            'WidgetsBindingObserver',
+      ) ??
+      false;
+}
+
+class _SystemSubscription {
+  final String kind, owner, callback;
+  final MethodInvocation node;
+  _SystemSubscription(this.kind, this.owner, this.callback, this.node);
+}
+
+class _SystemSubscriptionVisitor extends RecursiveAstVisitor<void> {
+  final List<_SystemSubscription> subscriptions = [];
+  @override
+  void visitMethodInvocation(MethodInvocation node) {
+    if (node.methodName.name == 'listen' &&
+        node.argumentList.arguments.length == 1) {
+      final callback = node.argumentList.arguments.single;
+      if (callback is SimpleIdentifier) {
+        final receiver = node.target?.toSource() ?? '';
+        final owner =
+            node.thisOrAncestorOfType<ClassDeclaration>()?.name.lexeme ??
+            'top-level';
+        if (receiver.contains('onTokenRefresh')) {
+          subscriptions.add(
+            _SystemSubscription('push-token', owner, callback.name, node),
+          );
+        } else if (receiver.toLowerCase().contains('session')) {
+          subscriptions.add(
+            _SystemSubscription('session', owner, callback.name, node),
+          );
+        }
+      }
+    }
+    super.visitMethodInvocation(node);
+  }
 }
 
 class _RouteDeclaration {

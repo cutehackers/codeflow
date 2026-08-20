@@ -16,7 +16,22 @@
     code, .mono { overflow-wrap: anywhere; }
     .snapshot-line, .architecture-line, .legend, .step-meta, .navigation, .call-path, .branch-row, .evidence-actions { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
     .snapshot-line { padding-bottom: 14px; border-bottom: 3px solid var(--ink); }
-    .workspace-map { display: grid; min-width: 0; gap: 9px; padding: 12px 0; border-bottom: 1px solid var(--line); }
+    .journey-map, .workspace-map { display: grid; min-width: 0; gap: 9px; padding: 12px 0; border-bottom: 1px solid var(--line); }
+    .journey-map { border-top: 1px solid var(--ink); }
+    .journey-map-header { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }
+    .journey-map-header h2, .journey-map-header p { margin: 0; }
+    .journey-map-header p { color: var(--muted); font-size: 12px; }
+    .journey-list, .journey-segments { display: grid; gap: 7px; }
+    .journey-list { grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); }
+    .journey-card { display: grid; gap: 7px; min-width: 0; padding: 12px; border: 1px solid var(--line); border-radius: var(--radius-md); background: var(--paper); color: var(--ink); }
+    .journey-card-title { color: inherit; text-decoration: none; }
+    .journey-card-title:hover, .journey-card-title:focus-visible { text-decoration: underline; outline: none; }
+    .journey-card[aria-current="page"] { border-color: var(--ink); box-shadow: inset 4px 0 0 var(--ink); }
+    .journey-card[data-stale="true"] { border-style: dashed; background: var(--soft); }
+    .journey-card small { color: var(--muted); }
+    .journey-segments { grid-template-columns: repeat(auto-fit, minmax(155px, 1fr)); }
+    .journey-segment { display: grid; gap: 2px; padding: 7px 8px; border-left: 2px solid var(--ink); background: var(--soft); color: var(--ink); text-decoration: none; font-size: 12px; }
+    .journey-segment[data-status="unknown"] { border-left-style: dashed; }
     .workspace-map-header { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }
     .workspace-map-header h2 { margin: 0; }
     .workspace-flows { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 7px; }
@@ -150,6 +165,11 @@
     <strong class="status" data-status="{{.Document.Current.Status}}">{{if eq .Document.Current.Status "observed"}}코드 흐름 확인됨{{else if eq .Document.Current.Status "mixed"}}일부 연결 미확정{{else}}다음 동작 미확정{{end}}</strong>
   </div>
   <dl class="sr-only"><dt>Analysis status</dt><dd>{{.Status}}</dd><dt>Worktree fingerprint</dt><dd>{{.Document.Basis.WorktreeFingerprint}}</dd></dl>
+
+  {{if .Journeys.Journeys}}<section class="journey-map" data-region="business-journeys" aria-label="비즈니스 여정">
+    <div class="journey-map-header"><div><h2>비즈니스 여정</h2><p>승인된 업무 목적에서 시작해, 검증된 사용자·시스템 경로와 코드 근거를 확인합니다.</p></div><span>현재 코드 기준</span></div>
+    <nav class="journey-list" aria-label="비즈니스 여정 선택">{{range .Journeys.Journeys}}<div class="journey-card" data-business-journey="{{.ID}}" data-stale="{{.Stale}}" aria-current="{{if .Selected}}page{{else}}false{{end}}">{{if $.Export}}<strong>{{.Title}}</strong>{{else}}<a class="journey-card-title" href="/?journey={{.ID}}"><strong>{{.Title}}</strong></a>{{end}}{{if .Outcome}}<small>사용자 결과 · {{.Outcome}}</small>{{end}}<span class="status" data-status="{{.Status}}">{{if .Stale}}현재 코드와 다시 연결해야 합니다{{else if eq .Status "observed"}}모든 연결 확인됨{{else if eq .Status "mixed"}}일부 연결 미확정{{else}}연결을 다시 확인해야 합니다{{end}}</span><span class="journey-segments" aria-label="여정을 구성하는 경로">{{range .Segments}}{{if $.Export}}<span class="journey-segment" data-status="{{.Status}}">{{else}}<a class="journey-segment" href="{{.URL}}" data-status="{{.Status}}">{{end}}<strong>{{.Title}}</strong><small>{{.FlowID}} · {{.Steps}}단계{{if .Unknowns}} · {{.Unknowns}}개 미확정{{end}}</small>{{if $.Export}}</span>{{else}}</a>{{end}}{{end}}</span></div>{{end}}</nav>
+  </section>{{end}}
 
   {{if gt (len .Workspace.Flows) 1}}<section class="workspace-map" data-region="workspace-map" aria-label="화면 흐름 지도">
     <div class="workspace-map-header"><h2>화면 흐름 지도</h2><span>같은 코드 기준 · {{len .Workspace.Flows}}개 flow</span></div>

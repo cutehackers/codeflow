@@ -26,12 +26,15 @@ It installs the paired Core and adapter under `HOME/.codeflow`, registers the
 included local CodeFlow marketplace, and activates its plugin. No adapter
 environment variable, PATH edit, manual MCP entry, or separate `serve` process
 is required. Start a new Codex task after it finishes; the first `current` or
-`open` request starts a Core for its exact `route:/...` flow automatically.
+`open` request starts a Core for its exact `route:/...` or `system:...` flow
+automatically. For a BusinessJourney, the MCP flow starts with `entry_points`
+and `prepare_workspace` so all referenced entries share one Basis.
 
 `open` uses the owned Dart adapter beside this source checkout, uses the owned
 Dart structural graph when no CodeGraph URL is supplied, publishes one current
-snapshot, and opens its loopback FlowView. Keep the command running while
-reviewing; `Ctrl-C` releases the local runtime.
+snapshot, and opens its loopback FlowView. It accepts both a screen entry
+(`route:/...`) and a supported system entry (`system:...`). Keep the command
+running while reviewing; `Ctrl-C` releases the local runtime.
 
 To keep the browser launch manual or hold a persistent local Core:
 
@@ -56,6 +59,38 @@ The first output line is the review URL. If the current repository has exactly
 one supported route, the selector may be omitted. If it has multiple routes,
 CodeFlow fails closed and returns exact `route:/...` candidates instead of
 guessing.
+
+System events are first-class entry points for flows that do not begin with a
+screen action. The Dart adapter currently discovers bounded lifecycle,
+session-listener, and FCM token-refresh callbacks. Discover the exact selector
+from the MCP `entry_points` tool (or `codeflow resolve`), then use that selector
+with `open`, `serve`, or `analyze`; do not replace it with `route:/auth` merely
+because the callback eventually changes authentication state.
+
+## BusinessJourney를 로컬에서 등록하기
+
+BusinessJourney는 route 이름이나 코드 추측으로 생성되지 않고, 현재 동일
+Basis에서 검증된 scenario를 참조하는 명시적 정의입니다. 일반적인 사용자는
+MCP에서 다음 순서로 등록합니다.
+
+1. `entry_points`로 필요한 `route:/...`와 `system:...` 후보를 확인합니다.
+2. `prepare_workspace`에 정확한 `flow_ids`를 1–3개 전달해 하나의 분석 범위를
+   준비합니다.
+3. `workspace`와 `current`에서 실제 scenario ID를 확인합니다.
+4. 사용자가 저장을 명시한 경우에만 `upsert_business_journey`를 호출합니다.
+5. 화면 검토가 필요할 때만 `open_business_journey`를 호출합니다.
+
+MCP가 runtime 포트와 인증 토큰을 내부적으로 처리하므로 사용자가 토큰,
+`.codeflow/runtime.json`, HTTP 요청을 직접 다룰 필요는 없습니다. 이미 다른
+범위의 Core가 실행 중이면 `prepare_workspace`는 이를 교체하지 않고
+`WORKSPACE_SCOPE_MISMATCH`를 반환합니다. 기존 분석을 중단하거나 덮어쓰지
+말고, 현재 범위를 확인한 뒤 별도 분석 task에서 다시 준비합니다.
+
+CLI만 사용하는 경우에는 `serve`/`open`으로 시스템 entry와 화면 entry를 함께
+게시할 수 있지만, BusinessJourney 저장·검증은 현재 MCP 또는 인증된 Core API
+경계에서 수행됩니다. 수동 JSON 편집으로 scenario ID를 만들거나 갱신하지
+마십시오. 소스 변경 후에는 기존 여정이 stale/unknown으로 표시될 수 있으며,
+먼저 `refresh` 후 현재 scenario와 관찰된 화면 간 전이를 다시 확인해야 합니다.
 
 Useful local commands:
 

@@ -93,8 +93,8 @@ func Load(repo string) (Result, error) {
 }
 
 func validLogicalEntryPoint(value string) bool {
-	if strings.HasPrefix(value, "route:/") {
-		return len(value) > len("route:/") && !strings.ContainsAny(value, " \t\n")
+	if strings.HasPrefix(value, "route:/") || strings.HasPrefix(value, "system:") {
+		return !strings.ContainsAny(value, " \t\n") && ((strings.HasPrefix(value, "route:/") && len(value) > len("route:/")) || (strings.HasPrefix(value, "system:") && len(value) > len("system:")))
 	}
 	// Symbol and handler entry points are exact canonical identifiers, not aliases.
 	for _, prefix := range []string{"symbol:", "handler:"} {

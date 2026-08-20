@@ -14,6 +14,8 @@ import (
 
 	"codeflow/core/internal/compiler"
 	flowcore "codeflow/core/internal/core"
+	"codeflow/core/internal/entrypoint"
+	"codeflow/core/internal/flowir"
 )
 
 func TestBothProtocolErasReturnTheSameCoreEnvelope(t *testing.T) {
@@ -160,7 +162,170 @@ func TestWorkspaceAndOpenKeepTheRequestedMultiFlowBasis(t *testing.T) {
 			t.Fatalf("MCP tool %s has no input schema", tool["name"])
 		}
 	}
+	toolNames := map[string]bool{}
+	for _, tool := range tools {
+		toolNames[tool["name"].(string)] = true
+	}
+	for _, name := range []string{"entry_points", "prepare_workspace", "business_journeys", "upsert_business_journey", "open_business_journey"} {
+		if !toolNames[name] {
+			t.Fatalf("BusinessJourney MCP tool %q was not advertised", name)
+		}
+	}
 }
+
+func TestBusinessJourneyMCPRegistersWithoutExposingRuntimeCredentials(t *testing.T) {
+	repo := fixture(t)
+	core, err := flowcore.StartFixture(context.Background(), repo)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer core.Close(context.Background())
+	document, err := core.Document(context.Background())
+	if err != nil || len(document.Scenarios) != 1 {
+		t.Fatalf("fixture scenario=%#v err=%v", document.Scenarios, err)
+	}
+	server := &Server{Repo: repo}
+	created := toolCall(t, server, "upsert_business_journey", map[string]any{
+		"id": "complete-signup", "title": "가입을 완료합니다", "outcome": "가입 상태가 준비됩니다",
+		"segments": []any{map[string]any{"flow_id": document.Current.ID, "scenario_id": document.Scenarios[0].ID}},
+	})
+	if created.Error != nil {
+		t.Fatalf("BusinessJourney registration failed: %#v", created.Error)
+	}
+	registered := structuredContent(t, created)
+	data, _ := registered["data"].(map[string]any)
+	if registered["status"] != "ready" || data["id"] != "complete-signup" {
+		t.Fatalf("BusinessJourney was not registered: %#v", registered)
+	}
+	encoded, _ := json.Marshal(created)
+	if strings.Contains(string(encoded), core.Token) {
+		t.Fatal("MCP response exposed the runtime credential")
+	}
+	listed := toolCall(t, server, "business_journeys", map[string]any{})
+	journeys, _ := structuredContent(t, listed)["data"].([]any)
+	if len(journeys) != 1 || journeys[0].(map[string]any)["id"] != "complete-signup" {
+		t.Fatalf("BusinessJourney list=%#v", journeys)
+	}
+	opened := toolCall(t, server, "open_business_journey", map[string]any{"id": "complete-signup"})
+	openData, _ := structuredContent(t, opened)["data"].(map[string]any)
+	if view, _ := openData["view_url"].(string); !strings.Contains(view, "?journey=complete-signup") {
+		t.Fatalf("BusinessJourney view was not focused: %q", view)
+	}
+	invalid := toolCall(t, server, "upsert_business_journey", map[string]any{
+		"id": "invalid-signup", "title": "근거 없는 여정",
+		"segments": []any{map[string]any{"flow_id": document.Current.ID, "scenario_id": "missing-scenario"}},
+	})
+	invalidContent := structuredContent(t, invalid)
+	if invalid.Error != nil || invalidContent["status"] != "unknown" {
+		t.Fatalf("Core validation was bypassed: response=%#v content=%#v", invalid, invalidContent)
+	}
+}
+
+func TestBusinessJourneyToolsWorkThroughTheMCPProtocol(t *testing.T) {
+	repo := fixture(t)
+	core, err := flowcore.StartFixture(context.Background(), repo)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer core.Close(context.Background())
+	document, err := core.Document(context.Background())
+	if err != nil || len(document.Scenarios) != 1 {
+		t.Fatalf("fixture scenario=%#v err=%v", document.Scenarios, err)
+	}
+	var input bytes.Buffer
+	encoder := json.NewEncoder(&input)
+	for _, request := range []map[string]any{
+		{"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": map[string]any{"protocolVersion": Modern}},
+		{"jsonrpc": "2.0", "id": 2, "method": "tools/call", "params": map[string]any{"name": "upsert_business_journey", "arguments": map[string]any{"id": "complete-signup", "title": "가입을 완료합니다", "segments": []any{map[string]any{"flow_id": document.Current.ID, "scenario_id": document.Scenarios[0].ID}}}}},
+		{"jsonrpc": "2.0", "id": 3, "method": "tools/call", "params": map[string]any{"name": "open_business_journey", "arguments": map[string]any{"id": "complete-signup"}}},
+	} {
+		if err := encoder.Encode(request); err != nil {
+			t.Fatal(err)
+		}
+	}
+	var output bytes.Buffer
+	if err := (&Server{Repo: repo}).Serve(context.Background(), &input, &output); err != nil {
+		t.Fatal(err)
+	}
+	lines := bytes.Split(bytes.TrimSpace(output.Bytes()), []byte("\n"))
+	if len(lines) != 3 {
+		t.Fatalf("MCP response count=%d output=%s", len(lines), output.String())
+	}
+	var opened map[string]any
+	if err := json.Unmarshal(lines[2], &opened); err != nil {
+		t.Fatal(err)
+	}
+	structured := opened["result"].(map[string]any)["structuredContent"].(map[string]any)
+	openData := structured["data"].(map[string]any)
+	if view, _ := openData["view_url"].(string); !strings.Contains(view, "?journey=complete-signup") {
+		t.Fatalf("MCP protocol did not open the registered journey: %q", view)
+	}
+	if strings.Contains(output.String(), core.Token) {
+		t.Fatal("MCP protocol exposed the runtime credential")
+	}
+}
+
+func TestPrepareWorkspaceProtectsTheRunningScopeAndEntryPointsRemainDiscoverable(t *testing.T) {
+	repo := fixture(t)
+	core, err := flowcore.StartFixture(context.Background(), repo)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer core.Close(context.Background())
+	server := &Server{Repo: repo, Discover: func(context.Context) entrypoint.Result {
+		return entrypoint.Result{State: entrypoint.Unknown, Candidates: []entrypoint.EntryPoint{{FlowID: "system:push-token:lib/push.dart:PushRegistration:_registerToken", Alias: "푸시 토큰 갱신", Anchor: flowir.Anchor{Path: "lib/push.dart"}}}}
+	}}
+	entries := toolCall(t, server, "entry_points", map[string]any{})
+	entryData, _ := structuredContent(t, entries)["data"].(map[string]any)
+	points, _ := entryData["entry_points"].([]entrypoint.EntryPoint)
+	if len(points) != 1 || !strings.HasPrefix(points[0].FlowID, "system:push-token:") {
+		t.Fatalf("system entry point was not exposed to MCP: %#v", entryData)
+	}
+	prepared := toolCall(t, server, "prepare_workspace", map[string]any{"flow_ids": []any{"route:/signup"}})
+	if prepared.Error != nil || structuredContent(t, prepared)["status"] != "ready" {
+		t.Fatalf("matching workspace was not prepared: %#v", prepared)
+	}
+	mismatched := toolCall(t, server, "prepare_workspace", map[string]any{"flow_ids": []any{"route:/other"}})
+	if mismatched.Error == nil || mismatched.Error.Message != "WORKSPACE_SCOPE_MISMATCH" {
+		t.Fatalf("running workspace was silently replaced: %#v", mismatched)
+	}
+}
+
+func TestPrepareWorkspaceStartsOnlyTheRequestedScope(t *testing.T) {
+	repo := fixture(t)
+	starts := 0
+	server := &Server{Repo: repo, Start: func(ctx context.Context, selectors []string) (*flowcore.Core, *compiler.Problem, error) {
+		starts++
+		if len(selectors) != 1 || selectors[0] != "route:/signup" {
+			t.Fatalf("prepare workspace selectors=%#v", selectors)
+		}
+		core, err := flowcore.StartFixture(ctx, repo)
+		return core, nil, err
+	}}
+	defer server.closeStarted()
+	prepared := toolCall(t, server, "prepare_workspace", map[string]any{"flow_ids": []any{"route:/signup"}})
+	if starts != 1 || prepared.Error != nil || structuredContent(t, prepared)["status"] != "ready" {
+		t.Fatalf("prepare_workspace did not start the exact requested scope: starts=%d response=%#v", starts, prepared)
+	}
+}
+
+func toolCall(t *testing.T, server *Server, name string, arguments map[string]any) response {
+	t.Helper()
+	return server.call(context.Background(), request{JSONRPC: "2.0", ID: 1, Params: map[string]any{"name": name, "arguments": arguments}})
+}
+
+func structuredContent(t *testing.T, result response) map[string]any {
+	t.Helper()
+	if result.Error != nil {
+		t.Fatalf("MCP error: %#v", result.Error)
+	}
+	content, _ := result.Result.(map[string]any)["structuredContent"].(map[string]any)
+	if content == nil {
+		t.Fatalf("missing structured content: %#v", result)
+	}
+	return content
+}
+
 func conversation(t *testing.T, repo, era, call string) []map[string]any {
 	t.Helper()
 	input := `{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"` + era + `"}}` + "\n"
