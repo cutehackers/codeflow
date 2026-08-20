@@ -80,6 +80,21 @@ LLM은 `workspace.flow_ids`와 `screen_flow_edges`를 먼저 읽고, 필요한 �
 `current(flow_id)`로 상세 조회한다. 여러 flow의 step을 하나의 timeline으로
 합치거나 서로 다른 `worktree_fingerprint`를 연결하면 안 된다.
 
+### 한 화면의 사용자 경로
+
+`current(flow_id)`의 `data.scenarios`는 하나의 화면에서 관찰된
+`user_action`별 결정적 projection이다. 이것은 LLM이 만든 분류나 추천이
+아니다. 여러 scenario가 있으면 사용자가 지정한 경로의 `step_ids`만 읽어
+설명한다. 사용자가 어느 경로인지 지정하지 않았다면 이메일·전화번호·소셜처럼
+선택 가능한 경로를 먼저 나열하고, 서로의 step을 하나의 순차 흐름으로 합치지
+않는다.
+
+scenario와 step의 제목은 정적 위젯 텍스트, FlowIR을 과장 없이 바꾼 중립 문장,
+또는 사람이 명시적으로 승인한 domain label일 수 있다. 승인 label은 기본
+제목을 대체할 수 있지만 LLM이 사실·상태·결과를 추가로 확인한 근거는 아니다.
+LLM은 제목이 비어 있거나 기술적인 경우에도 그럴듯한 업무 의미를 만들어 채우지
+않고, Fact와 evidence 또는 `unknowns`를 따른다.
+
 `diff`가 `BASELINE_NOT_SELECTED`를 반환하면 결과를 추측하지 않는다.
 실행 중인 `serve`를 `Ctrl-C`로 종료한 뒤 로컬 Git 기준선과 직접 비교하고,
 계속 FlowView가 필요하면 `serve`를 다시 실행한다.
@@ -107,7 +122,9 @@ LLM은 다음 순서로 읽는다.
    `data.current.id`로 요청한 흐름이 맞는지 확인한다.
 3. `data.current.status`로 흐름의 신뢰 상태가 `observed`, `mixed`,
    `unknown` 중 무엇인지 확인한다.
-4. `data.current.steps`를 `order` 순서대로 읽는다.
+4. `data.scenarios`가 있으면 요청한 scenario 하나를 선택하고, 해당
+   `step_ids`에 속한 `data.current.steps`만 `order` 순서대로 읽는다. scenario가
+   없으면 전체 step을 읽는다.
 5. 각 step의 `trigger_fact → behavior_facts → result_facts`를 `facts`와
    연결한다.
 6. `causal_edges`로 이전 원인과 다음 결과를 확인한다.
@@ -187,6 +204,21 @@ MCP 응답의 `basis`에는 전체 manifest 대신 `manifest_count`가 포함된
 또는 typed error를 사용자에게 알리고, 새 분석이 성공한 것처럼 말하지
 않는다.
 
+사용자가 PR 검토용 정적 보고서를 명시적으로 요청한 경우에만 다음처럼
+`export`를 실행할 수 있다.
+
+```sh
+./bin/codeflow export \
+  --repo HOME/workspace/sgp-981-app \
+  --output join-flow.html \
+  --flow route:/join
+```
+
+export 자체는 LLM 호출이나 의미 추론을 수행하지 않는다. 보고서는 당시 Basis와
+근거를 보존한 정적 파일이므로, LLM은 이를 런타임 실행 결과나 최신 코드라고
+표현하면 안 된다. 파일을 PR·외부 서비스에 업로드하거나 링크를 게시하는 행위는
+사용자의 별도 명시 요청이 있어야 한다.
+
 ## 7. 금지 사항
 
 - CodeFlow와 별개의 스캐너나 인과 분석기를 LLM이 즉석에서 구현하지 않는다.
@@ -195,6 +227,7 @@ MCP 응답의 `basis`에는 전체 manifest 대신 `manifest_count`가 포함된
 - auth token, `.codeflow/runtime.json`, 서버 응답 body 또는 비밀 값을
   답변에 노출하지 않는다.
 - 사용자가 요청하지 않았는데 FlowView를 열거나 외부로 게시하지 않는다.
+- 사용자가 요청하지 않았는데 HTML 보고서를 생성·업로드·PR에 첨부하지 않는다.
 - 현재 basis와 다른 Git revision의 코드 근거를 섞지 않는다.
 
 ## 8. LLM용 최소 체크리스트
@@ -206,6 +239,7 @@ MCP 응답의 `basis`에는 전체 manifest 대신 `manifest_count`가 포함된
 [ ] step을 order 순으로 설명했는가?
 [ ] 코드 → 상태 → 화면 결과가 연결됐는가?
 [ ] 모든 branch outcome을 빠짐없이 설명했는가?
+[ ] 여러 scenario가 있으면 하나만 선택해 다른 경로와 섞지 않았는가?
 [ ] unknown을 추측하지 않고 사용자 언어로 설명했는가?
 [ ] 코드가 바뀌었다면 refresh 후 새 결과를 읽었는가?
 [ ] FlowView는 사용자가 요청했을 때만 제공했는가?

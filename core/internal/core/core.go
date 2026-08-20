@@ -2,6 +2,7 @@
 package core
 
 import (
+	"bytes"
 	"context"
 	"crypto/subtle"
 	"database/sql"
@@ -54,6 +55,7 @@ type Core struct {
 	comparison      *compare.Result
 	overlayMu       sync.Mutex
 	overlays        []ontology.Candidate
+	domainMu        sync.Mutex
 }
 
 // envelope is the common CodeFlowResponse contract. Runtime-only publication
@@ -104,6 +106,7 @@ type workspaceFlowDocumentV2 struct {
 	CausalEdges   []flowir.CausalEdge      `json:"causal_edges,omitempty"`
 	Architecture  flowir.ArchitectureSlice `json:"architecture"`
 	Current       flowir.Flow              `json:"current"`
+	Scenarios     []flowir.Scenario        `json:"scenarios,omitempty"`
 	Unknowns      []flowir.UnknownDetail   `json:"unknowns,omitempty"`
 }
 
@@ -145,6 +148,38 @@ type workspaceNavigationFlow struct {
 	Steps    int
 	Unknowns int
 	Selected bool
+}
+
+type scenarioNavigation struct {
+	Flows    []scenarioNavigationItem
+	Selected *scenarioNavigationItem
+}
+
+type scenarioNavigationItem struct {
+	ID, URL, Title string
+	Status         flowir.Status
+	Steps          int
+	Unknowns       int
+	Selected       bool
+}
+
+type flowViewModel struct {
+	Document         flowir.Document
+	Status           string
+	Resolved         entrypoint.Result
+	Comparison       *compare.Result
+	Overlays         []ontology.Candidate
+	Lenses           map[string]lens.Source
+	FactLabels       map[string]string
+	Timeline         []timelineItem
+	Architecture     []architecturePathItem
+	ArchitectureFlow architectureFlow
+	Debt             []debtItem
+	ResolvedDebt     []store.DebtReview
+	Workspace        workspaceNavigation
+	Scenarios        scenarioNavigation
+	Publication      string
+	Export           bool
 }
 
 func StartFixture(ctx context.Context, repo string) (*Core, error) {
@@ -640,6 +675,8 @@ func (c *Core) routes() http.Handler {
 	mux.HandleFunc("/api/v1/overlay", c.overlay)
 	mux.HandleFunc("/api/v1/overlay/import", c.importOverlay)
 	mux.HandleFunc("/api/v1/overlay/approve", c.approveOverlay)
+	mux.HandleFunc("/api/v1/domain-labels", c.domainLabels)
+	mux.HandleFunc("/api/v1/export", c.export)
 	mux.HandleFunc("/api/v1/debt", c.debt)
 	mux.HandleFunc("/api/v1/debt/review", c.reviewDebt)
 	mux.HandleFunc("/_codeflow/publication", c.publication)
@@ -807,6 +844,128 @@ func (c *Core) approveOverlay(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	writeJSON(w, http.StatusNotFound, envelope{Status: "unknown", Unknowns: []any{}, Error: &apiError{Code: "OVERLAY_NOT_FOUND", Message: "candidate is not present in this runtime"}})
+}
+
+// domainLabels exposes the reviewed wording layer without granting it any
+// authority over FlowIR. A PUT is an explicit local approval: its target must
+// exist in the current published document, so stale code cannot receive a
+// previously approved business explanation.
+func (c *Core) domainLabels(w http.ResponseWriter, r *http.Request) {
+	if !c.authorized(r) {
+		writeJSON(w, http.StatusUnauthorized, envelope{Status: "unavailable", Unknowns: []any{}, Error: &apiError{Code: "UNAUTHORIZED", Message: "a valid CodeFlow runtime token is required"}})
+		return
+	}
+	c.domainMu.Lock()
+	defer c.domainMu.Unlock()
+	switch r.Method {
+	case http.MethodGet:
+		labels, err := ontology.LoadDomainLabels(c.repo)
+		if err != nil {
+			writeJSON(w, http.StatusInternalServerError, envelope{Status: "unavailable", Unknowns: []any{}, Error: &apiError{Code: "DOMAIN_LABELS_UNAVAILABLE", Message: err.Error()}})
+			return
+		}
+		writeJSON(w, http.StatusOK, envelope{Status: "ready", Data: labels, Unknowns: []any{}, ViewURL: c.URL + "/"})
+	case http.MethodPut:
+		var label ontology.DomainLabel
+		if err := json.NewDecoder(io.LimitReader(r.Body, 64*1024)).Decode(&label); err != nil {
+			writeJSON(w, http.StatusBadRequest, envelope{Status: "unknown", Unknowns: []any{}, Error: &apiError{Code: "DOMAIN_LABEL_MALFORMED", Message: "flow_id, scenario_id, optional step_id, and title are required"}})
+			return
+		}
+		documents, _, _, err := c.store.GetBatch(r.Context())
+		if err != nil {
+			writeJSON(w, http.StatusServiceUnavailable, envelope{Status: "unavailable", Unknowns: []any{}, Error: &apiError{Code: "DOMAIN_LABELS_UNAVAILABLE", Message: "current flow workspace is unavailable"}})
+			return
+		}
+		if !domainLabelTargetExists(documents, label) {
+			writeJSON(w, http.StatusBadRequest, envelope{Status: "unknown", Unknowns: []any{}, Error: &apiError{Code: "DOMAIN_LABEL_TARGET_INVALID", Message: "the label target is not present in the current observed flow"}})
+			return
+		}
+		stored, err := ontology.SaveDomainLabel(c.repo, label)
+		if err != nil {
+			writeJSON(w, http.StatusBadRequest, envelope{Status: "unknown", Unknowns: []any{}, Error: &apiError{Code: "DOMAIN_LABEL_INVALID", Message: err.Error()}})
+			return
+		}
+		writeJSON(w, http.StatusOK, envelope{Status: "ready", Data: stored, Unknowns: []any{}, ViewURL: c.URL + "/"})
+	default:
+		writeJSON(w, http.StatusMethodNotAllowed, envelope{Status: "unavailable", Unknowns: []any{}, Error: &apiError{Code: "METHOD_NOT_ALLOWED", Message: "GET or PUT is required"}})
+	}
+}
+
+func domainLabelTargetExists(documents []flowir.Document, label ontology.DomainLabel) bool {
+	for _, document := range documents {
+		if document.Current.ID != label.FlowID {
+			continue
+		}
+		for _, scenario := range document.Scenarios {
+			if scenario.ID != label.ScenarioID {
+				continue
+			}
+			if label.StepID == "" {
+				return true
+			}
+			for _, stepID := range scenario.StepIDs {
+				if stepID == label.StepID {
+					return true
+				}
+			}
+		}
+	}
+	return false
+}
+
+// export writes a self-contained review document that is safe to attach to a
+// pull request. It contains the captured basis and evidence snippets, but no
+// local runtime polling, auth token, or vscode:// link that would be invalid
+// for another reviewer.
+func (c *Core) export(w http.ResponseWriter, r *http.Request) {
+	if !c.authorized(r) {
+		writeJSON(w, http.StatusUnauthorized, envelope{Status: "unavailable", Unknowns: []any{}, Error: &apiError{Code: "UNAUTHORIZED", Message: "a valid CodeFlow runtime token is required"}})
+		return
+	}
+	if r.Method != http.MethodGet {
+		writeJSON(w, http.StatusMethodNotAllowed, envelope{Status: "unavailable", Unknowns: []any{}, Error: &apiError{Code: "METHOD_NOT_ALLOWED", Message: "GET is required"}})
+		return
+	}
+	bytes, err := c.ExportHTML(r.Context(), r.URL.Query().Get("flow_id"), r.URL.Query().Get("scenario"))
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, envelope{Status: "unknown", Unknowns: []any{}, Error: &apiError{Code: "EXPORT_UNAVAILABLE", Message: err.Error()}})
+		return
+	}
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	w.Header().Set("Content-Disposition", "attachment; filename=codeflow-flow.html")
+	_, _ = w.Write(bytes)
+}
+
+// ExportHTML returns one immutable-screen report. Scenario selection is
+// explicit in the report metadata; when omitted, it matches FlowView's first
+// source-backed interaction selection.
+func (c *Core) ExportHTML(ctx context.Context, flowID, scenarioID string) ([]byte, error) {
+	documents, publishedAt, status, err := c.store.GetBatch(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("workspace unavailable: %w", err)
+	}
+	workspace, err := buildWorkspace(documents)
+	if err != nil {
+		return nil, fmt.Errorf("workspace invalid: %w", err)
+	}
+	if flowID == "" {
+		flowID = documents[0].Current.ID
+	}
+	for _, document := range documents {
+		if document.Current.ID != flowID {
+			continue
+		}
+		model, err := c.flowViewModel(ctx, document, status, workspace, publishedAt, scenarioID, entrypoint.Result{Candidates: []entrypoint.EntryPoint{}}, true)
+		if err != nil {
+			return nil, err
+		}
+		var out bytes.Buffer
+		if err := exportPage.Execute(&out, model); err != nil {
+			return nil, fmt.Errorf("render export: %w", err)
+		}
+		return out.Bytes(), nil
+	}
+	return nil, fmt.Errorf("flow %q is not present in the current workspace", flowID)
 }
 func (c *Core) refresh(w http.ResponseWriter, r *http.Request) {
 	if !c.authorized(r) {
@@ -1025,6 +1184,7 @@ func buildWorkspaceV2(documents []flowir.Document) (workspaceDocumentV2, error) 
 			CausalEdges:   document.CausalEdges,
 			Architecture:  document.Architecture,
 			Current:       document.Current,
+			Scenarios:     document.Scenarios,
 			Unknowns:      document.Unknowns,
 		}
 	}
@@ -1038,6 +1198,101 @@ func buildWorkspaceNavigation(workspace workspaceDocument, selected string) work
 	}
 	return workspaceNavigation{Flows: flows, Edges: workspace.Edges}
 }
+
+func scenarioTitle(document flowir.Document, scenario flowir.Scenario, labels map[string]ontology.DomainLabel) string {
+	if label, ok := labels[ontology.DomainLabelID(document.Current.ID, scenario.ID, "")]; ok {
+		return label.Title
+	}
+	for _, fact := range document.Facts {
+		if fact.ID != scenario.InteractionFact {
+			continue
+		}
+		if fact.Object != "" {
+			return fact.Object
+		}
+		return humanAction(fact.Subject)
+	}
+	return "사용자 경로"
+}
+
+func buildScenarioNavigation(document flowir.Document, selected string, labels map[string]ontology.DomainLabel) scenarioNavigation {
+	items := make([]scenarioNavigationItem, 0, len(document.Scenarios))
+	for _, scenario := range document.Scenarios {
+		unknowns := 0
+		stepSet := map[string]bool{}
+		for _, stepID := range scenario.StepIDs {
+			stepSet[stepID] = true
+		}
+		for _, unknown := range document.Unknowns {
+			for _, stepID := range unknown.RelatedSteps {
+				if stepSet[stepID] {
+					unknowns++
+					break
+				}
+			}
+		}
+		item := scenarioNavigationItem{ID: scenario.ID, URL: "/?flow=" + url.QueryEscape(document.Current.ID) + "&scenario=" + url.QueryEscape(scenario.ID), Title: scenarioTitle(document, scenario, labels), Status: scenario.Status, Steps: len(scenario.StepIDs), Unknowns: unknowns, Selected: scenario.ID == selected}
+		items = append(items, item)
+	}
+	if selected == "" && len(items) > 0 {
+		items[0].Selected = true
+		selected = items[0].ID
+	}
+	var active *scenarioNavigationItem
+	for i := range items {
+		if items[i].ID == selected {
+			active = &items[i]
+			break
+		}
+	}
+	return scenarioNavigation{Flows: items, Selected: active}
+}
+
+func scopeScenario(document flowir.Document, scenarioID string) (flowir.Document, *flowir.Scenario) {
+	if scenarioID == "" && len(document.Scenarios) > 0 {
+		scenarioID = document.Scenarios[0].ID
+	}
+	for _, scenario := range document.Scenarios {
+		if scenario.ID != scenarioID {
+			continue
+		}
+		allowed := map[string]bool{}
+		for _, stepID := range scenario.StepIDs {
+			allowed[stepID] = true
+		}
+		scoped := document
+		scoped.Current.Steps = nil
+		scoped.Current.Status = scenario.Status
+		for _, step := range document.Current.Steps {
+			if allowed[step.ID] {
+				scoped.Current.Steps = append(scoped.Current.Steps, step)
+			}
+		}
+		scoped.Unknowns = nil
+		for _, unknown := range document.Unknowns {
+			for _, stepID := range unknown.RelatedSteps {
+				if allowed[stepID] {
+					scoped.Unknowns = append(scoped.Unknowns, unknown)
+					break
+				}
+			}
+		}
+		scoped.Scenarios = []flowir.Scenario{scenario}
+		return scoped, &scenario
+	}
+	return document, nil
+}
+
+func domainLabelMap(labels []ontology.DomainLabel) map[string]ontology.DomainLabel {
+	indexed := make(map[string]ontology.DomainLabel, len(labels))
+	for _, label := range labels {
+		if label.Status == "confirmed" {
+			indexed[label.ID] = label
+		}
+	}
+	return indexed
+}
+
 func writeJSON(w http.ResponseWriter, status int, body any) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
@@ -1084,31 +1339,34 @@ func displayFact(fact flowir.Fact) string {
 	}
 	switch fact.Kind {
 	case "screen_entry":
-		return "화면 진입 · " + strings.TrimPrefix(value, "route:")
+		return "이 화면을 엽니다"
 	case "user_action":
+		if fact.Object != "" {
+			return "“" + fact.Object + "”을 선택합니다"
+		}
 		return "사용자 동작 · " + humanAction(value)
 	case "condition", "confirmation_condition":
 		return humanCondition(value)
 	case "provider_dependency":
-		return "상태 사용 · " + humanIdentifier(value)
+		return "이 단계에 필요한 정보를 확인합니다"
 	case "unknown_state":
-		return "상태 변경 미확정 · " + shortSymbol(value)
+		return "처리 상태가 어떻게 바뀌는지 확인할 수 없습니다"
 	case "state_transition", "notifier_state_transition":
-		return "상태 변경 · " + humanIdentifier(shortSymbol(value))
+		return "처리 상태를 갱신합니다"
 	case "event_dispatch":
-		return "요청 전달 · " + humanIdentifier(shortSymbol(value))
+		return "다음 처리를 요청합니다"
 	case "terminal_result":
-		return "화면 이동 없이 현재 동작 종료"
+		return "이 단계에서 처리가 끝납니다"
 	case "listener_condition":
-		return "상태 감지 · " + humanIdentifier(shortSymbol(value))
+		return "변경된 처리 상태를 확인합니다"
 	case "route_transition", "visible_result":
-		return "화면 결과 · " + strings.TrimPrefix(value, "route:")
+		return "다음 화면으로 이동합니다"
 	case "repository_access":
-		return "저장소 접근 · " + shortSymbol(value)
+		return "필요한 정보를 저장하거나 조회합니다"
 	case "external_call", "external_result":
-		return "외부 경계 · " + shortSymbol(value)
+		return "외부 서비스와 연결합니다"
 	default:
-		return fact.Kind + " · " + shortSymbol(value)
+		return "코드에서 확인한 처리를 진행합니다"
 	}
 }
 
@@ -1174,13 +1432,13 @@ func humanCondition(value string) string {
 	normalized := strings.ToLower(strings.ReplaceAll(value, " ", ""))
 	switch {
 	case strings.Contains(normalized, "iscompleted"):
-		return "조건 확인 · 작업이 완료된 상태인지 검사"
+		return "이전 작업이 완료되었는지 확인합니다"
 	case strings.Contains(normalized, "confirmed"):
-		return "조건 확인 · 사용자가 계속 진행하기로 확인했는지 검사"
+		return "계속 진행해도 되는지 확인합니다"
 	case strings.Contains(normalized, "iscanceled"):
-		return "조건 확인 · 취소 상태인지 검사"
+		return "취소된 요청인지 확인합니다"
 	default:
-		return "조건 확인 · " + humanIdentifier(shortSymbol(value))
+		return "계속 진행할 수 있는지 확인합니다"
 	}
 }
 
@@ -1349,8 +1607,23 @@ func displayCausalKind(kind string) string {
 	}
 }
 
+func scenarioIDForStep(document flowir.Document, stepID string) string {
+	for _, scenario := range document.Scenarios {
+		for _, candidate := range scenario.StepIDs {
+			if candidate == stepID {
+				return scenario.ID
+			}
+		}
+	}
+	return ""
+}
+
 func timeline(document flowir.Document, comparison *compare.Result) []timelineItem {
-	labels := factLabels(document)
+	return timelineWithDomainLabels(document, comparison, nil)
+}
+
+func timelineWithDomainLabels(document flowir.Document, comparison *compare.Result, domainLabels map[string]ontology.DomainLabel) []timelineItem {
+	factLabel := factLabels(document)
 	changed := map[string]string{}
 	if comparison != nil {
 		for _, id := range comparison.Delta.AddedSteps {
@@ -1380,7 +1653,7 @@ func timeline(document flowir.Document, comparison *compare.Result) []timelineIt
 				change = value
 			}
 		}
-		title := "미확정 결과"
+		title := "다음 처리 결과를 확인할 수 없습니다"
 		ids := append(append([]string{}, step.BehaviorFacts...), step.ResultFacts...)
 		if len(ids) > 0 {
 			for _, fact := range document.Facts {
@@ -1389,6 +1662,9 @@ func timeline(document flowir.Document, comparison *compare.Result) []timelineIt
 					break
 				}
 			}
+		}
+		if label, ok := domainLabels[ontology.DomainLabelID(document.Current.ID, scenarioIDForStep(document, step.ID), step.ID)]; ok {
+			title = label.Title
 		}
 		sourceState := "unknown"
 		var source lens.Source
@@ -1412,10 +1688,10 @@ func timeline(document flowir.Document, comparison *compare.Result) []timelineIt
 		for _, edge := range document.CausalEdges {
 			fromCurrent, toCurrent := facts[edge.FromFact], facts[edge.ToFact]
 			if toCurrent && !fromCurrent {
-				item.Incoming = append(item.Incoming, causalView{Kind: displayCausalKind(edge.Kind), RawKind: edge.Kind, Label: labels[edge.FromFact], Status: edge.Status})
+				item.Incoming = append(item.Incoming, causalView{Kind: displayCausalKind(edge.Kind), RawKind: edge.Kind, Label: factLabel[edge.FromFact], Status: edge.Status})
 			}
 			if fromCurrent && !toCurrent {
-				item.Outgoing = append(item.Outgoing, causalView{Kind: displayCausalKind(edge.Kind), RawKind: edge.Kind, Label: labels[edge.ToFact], Status: edge.Status})
+				item.Outgoing = append(item.Outgoing, causalView{Kind: displayCausalKind(edge.Kind), RawKind: edge.Kind, Label: factLabel[edge.ToFact], Status: edge.Status})
 			}
 		}
 		item.StateDelta = title
@@ -1451,7 +1727,7 @@ func timeline(document flowir.Document, comparison *compare.Result) []timelineIt
 	for i := range items {
 		for _, branch := range items[i].Step.Branches {
 			branchNumber++
-			view := branchView{ID: branch.ID, Condition: labels[branch.ConditionFact], Status: branch.Status}
+			view := branchView{ID: branch.ID, Condition: factLabel[branch.ConditionFact], Status: branch.Status}
 			previousIndex := -1
 			for outcomeIndex, outcome := range branch.OutcomeStepIDs {
 				if index, ok := stepIndexes[outcome]; ok {
@@ -1759,6 +2035,22 @@ func debtLocation(debt flowir.UnknownDetail) string {
 var flowViewSource string
 
 var page = template.Must(template.New("flow").Parse(flowViewSource))
+var exportPage = template.Must(template.New("export").Parse(staticFlowViewSource()))
+
+func staticFlowViewSource() string {
+	const pollingStart = "  const initialPublication = root.dataset.publication;"
+	start := strings.Index(flowViewSource, pollingStart)
+	if start < 0 {
+		panic("FlowView export requires the runtime polling boundary")
+	}
+	end := strings.Index(flowViewSource[start:], "\n})();")
+	if end < 0 {
+		panic("FlowView export requires a closing script boundary")
+	}
+	// Keep the interaction script and its IIFE close, but remove the only
+	// network activity. An exported report must render identically offline.
+	return flowViewSource[:start] + flowViewSource[start+end:]
+}
 
 func (c *Core) view(w http.ResponseWriter, r *http.Request) {
 	documents, publishedAt, status, err := c.store.GetBatch(r.Context())
@@ -1792,10 +2084,38 @@ func (c *Core) view(w http.ResponseWriter, r *http.Request) {
 	if selector := r.URL.Query().Get("selector"); selector != "" {
 		resolved = entrypoint.Resolve(r.Context(), c.repo, selector, c.adapterCommand)
 	}
+	model, err := c.flowViewModel(r.Context(), document, status, workspace, publishedAt, r.URL.Query().Get("scenario"), resolved, false)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	if err := page.Execute(w, model); err != nil {
+		http.Error(w, fmt.Sprintf("render flow: %v", err), 500)
+	}
+	if resolved.EntryPoint != nil {
+		fmt.Fprintf(w, "<!-- %s — %s:%d -->", resolved.EntryPoint.FlowID, resolved.EntryPoint.Anchor.Path, resolved.EntryPoint.Anchor.LineRange[0])
+	}
+}
+
+func (c *Core) flowViewModel(ctx context.Context, document flowir.Document, status string, workspace workspaceDocument, publishedAt, requestedScenario string, resolved entrypoint.Result, exported bool) (flowViewModel, error) {
 	c.overlayMu.Lock()
 	overlays := append([]ontology.Candidate(nil), c.overlays...)
 	c.overlayMu.Unlock()
-	reviews, _ := c.store.DebtReviews(r.Context(), document.Current.ID)
+	c.domainMu.Lock()
+	domainLabels, domainErr := ontology.LoadDomainLabels(c.repo)
+	c.domainMu.Unlock()
+	if domainErr != nil {
+		return flowViewModel{}, fmt.Errorf("domain labels unavailable: %w", domainErr)
+	}
+	labelIndex := domainLabelMap(domainLabels)
+	scenarios := buildScenarioNavigation(document, requestedScenario, labelIndex)
+	if requestedScenario != "" && scenarios.Selected == nil {
+		return flowViewModel{}, fmt.Errorf("scenario %q is not present in flow %q", requestedScenario, document.Current.ID)
+	}
+	if scenarios.Selected != nil {
+		document, _ = scopeScenario(document, scenarios.Selected.ID)
+	}
+	reviews, _ := c.store.DebtReviews(ctx, document.Current.ID)
 	states := map[string]string{}
 	for _, review := range reviews {
 		states[review.DebtID] = review.State
@@ -1805,26 +2125,11 @@ func (c *Core) view(w http.ResponseWriter, r *http.Request) {
 			document.Unknowns[i].DebtState = state
 		}
 	}
-	timelineItems := timeline(document, c.comparison)
-	if err := page.Execute(w, struct {
-		Document         flowir.Document
-		Status           string
-		Resolved         entrypoint.Result
-		Comparison       *compare.Result
-		Overlays         []ontology.Candidate
-		Lenses           map[string]lens.Source
-		FactLabels       map[string]string
-		Timeline         []timelineItem
-		Architecture     []architecturePathItem
-		ArchitectureFlow architectureFlow
-		Debt             []debtItem
-		ResolvedDebt     []store.DebtReview
-		Workspace        workspaceNavigation
-		Publication      string
-	}{document, status, resolved, c.comparison, overlays, stepLenses(document), factLabels(document), timelineItems, architecturePath(document), architectureFlowView(document, timelineItems), actionableDebt(document), resolvedDebt(reviews, document), buildWorkspaceNavigation(workspace, document.Current.ID), publishedAt + "|" + status}); err != nil {
-		http.Error(w, fmt.Sprintf("render flow: %v", err), 500)
+	timelineItems := timelineWithDomainLabels(document, c.comparison, labelIndex)
+	if exported {
+		for i := range timelineItems {
+			timelineItems[i].EditorURL = ""
+		}
 	}
-	if resolved.EntryPoint != nil {
-		fmt.Fprintf(w, "<!-- %s — %s:%d -->", resolved.EntryPoint.FlowID, resolved.EntryPoint.Anchor.Path, resolved.EntryPoint.Anchor.LineRange[0])
-	}
+	return flowViewModel{Document: document, Status: status, Resolved: resolved, Comparison: c.comparison, Overlays: overlays, Lenses: stepLenses(document), FactLabels: factLabels(document), Timeline: timelineItems, Architecture: architecturePath(document), ArchitectureFlow: architectureFlowView(document, timelineItems), Debt: actionableDebt(document), ResolvedDebt: resolvedDebt(reviews, document), Workspace: buildWorkspaceNavigation(workspace, document.Current.ID), Scenarios: scenarios, Publication: publishedAt + "|" + status, Export: exported}, nil
 }

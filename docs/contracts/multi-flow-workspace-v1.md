@@ -60,5 +60,10 @@ loads only that flow's architecture, vertical causal timeline, branches, state
 changes, code lens, and cognitive debt. Steps from different flows are never
 flattened into one timeline.
 
+When a selected screen has several observed `user_action` roots, its FlowIR
+also contains `scenarios`. FlowView selects one scenario before rendering the
+timeline, architecture, and debt. These action-rooted paths are not additional
+workspace flows and do not consume the one-to-three screen-flow limit.
+
 The verified `VS Code에서 열기` action remains attached to the selected step and
 is emitted only when the current manifest and source anchor still match.

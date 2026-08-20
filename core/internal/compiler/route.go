@@ -180,6 +180,13 @@ func compileResolved(ctx context.Context, basis flowir.Basis, resolved entrypoin
 	if err != nil {
 		return flowir.Document{}, nil, err
 	}
+	// A route can expose several independently selectable actions. The
+	// deterministic scenario projection preserves that separation without
+	// changing any fact, causal edge, or behavior comparison identity.
+	flowir.DeriveScenarios(&doc)
+	if err := flowir.Validate(doc); err != nil {
+		return flowir.Document{}, nil, err
+	}
 	return doc, nil, nil
 }
 

@@ -44,6 +44,7 @@
               "causal_edges": { "type": "array" },
               "architecture": { "type": "object" },
               "current": { "type": "object" },
+              "scenarios": { "type": "array" },
               "unknowns": { "type": "array" }
             },
             "not": { "required": ["basis"] },

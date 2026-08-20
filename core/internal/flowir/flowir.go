@@ -135,6 +135,21 @@ type Flow struct {
 	Status         Status `json:"status"`
 }
 
+// Scenario is a deterministic, action-rooted projection of one screen flow.
+// A screen may expose several independently selectable user actions. Keeping
+// their step IDs separate prevents a reader from mistaking source-order for a
+// causal sequence between, for example, two different sign-up methods.
+//
+// Scenario contains no business prose. Reader-facing domain names belong to
+// the separately approved ontology layer, while this identity remains fully
+// reproducible from current source evidence.
+type Scenario struct {
+	ID              string   `json:"id"`
+	InteractionFact string   `json:"interaction_fact"`
+	StepIDs         []string `json:"step_ids"`
+	Status          Status   `json:"status"`
+}
+
 // ArchitectureSlice is intentionally just the components and relations that
 // participate in this flow; it is not a repository-wide diagram.
 type ArchitectureSlice struct {
@@ -152,6 +167,7 @@ type Document struct {
 	CausalEdges   []CausalEdge      `json:"causal_edges,omitempty"`
 	Architecture  ArchitectureSlice `json:"architecture"`
 	Current       Flow              `json:"current"`
+	Scenarios     []Scenario        `json:"scenarios,omitempty"`
 	Unknowns      []UnknownDetail   `json:"unknowns,omitempty"`
 }
 
@@ -167,6 +183,96 @@ func CausalEdgeID(from, to, kind string, conditions []string) string {
 // display prose must never change identity.
 func BranchID(conditionFactID string, orderedOutcomeBehaviorKeys []string) string {
 	return Hash(append([]string{conditionFactID}, orderedOutcomeBehaviorKeys...)...)
+}
+
+// ScenarioID is stable across presentation and source-position changes. The
+// action fact already incorporates the resolved callback identity and its
+// evidence fingerprint, so a changed interaction gets a new scenario instead
+// of retaining a misleading domain label.
+func ScenarioID(flowID, interactionFactID string) string {
+	return Hash("scenario", flowID, interactionFactID)
+}
+
+// DeriveScenarios projects a screen's causal steps into one scenario per
+// observed user_action. A step joins its action when it either contains that
+// action or is triggered by a fact already owned by the action's path. This
+// follows the existing FlowIR causal shape and deliberately does not infer a
+// relationship from source ordering.
+func DeriveScenarios(document *Document) {
+	if document == nil {
+		return
+	}
+	facts := make(map[string]Fact, len(document.Facts))
+	for _, fact := range document.Facts {
+		facts[fact.ID] = fact
+	}
+	actionIDs := make([]string, 0)
+	seenActions := map[string]bool{}
+	for _, step := range document.Current.Steps {
+		for _, id := range step.BehaviorFacts {
+			if fact, ok := facts[id]; ok && fact.Kind == "user_action" && fact.Status != Stale && !seenActions[id] {
+				actionIDs = append(actionIDs, id)
+				seenActions[id] = true
+			}
+		}
+	}
+	scenarios := make([]Scenario, 0, len(actionIDs))
+	for _, actionID := range actionIDs {
+		ownedFacts := map[string]bool{actionID: true}
+		ownedSteps := map[string]bool{}
+		changed := true
+		for changed {
+			changed = false
+			for _, step := range document.Current.Steps {
+				if ownedSteps[step.ID] {
+					continue
+				}
+				containsAction := false
+				for _, id := range step.BehaviorFacts {
+					if id == actionID {
+						containsAction = true
+						break
+					}
+				}
+				if !containsAction && !ownedFacts[step.TriggerFact] {
+					continue
+				}
+				ownedSteps[step.ID] = true
+				changed = true
+				for _, id := range step.BehaviorFacts {
+					ownedFacts[id] = true
+				}
+				for _, id := range step.ResultFacts {
+					ownedFacts[id] = true
+				}
+			}
+		}
+		stepIDs := make([]string, 0, len(ownedSteps))
+		status := Observed
+		hasObserved := false
+		for _, step := range document.Current.Steps {
+			if !ownedSteps[step.ID] {
+				continue
+			}
+			stepIDs = append(stepIDs, step.ID)
+			if step.Status == Observed {
+				hasObserved = true
+			}
+			if step.Status == Unknown {
+				status = Mixed
+			}
+			if step.Status == Mixed {
+				status = Mixed
+			}
+		}
+		if !hasObserved && len(stepIDs) > 0 {
+			status = Unknown
+		}
+		if len(stepIDs) > 0 {
+			scenarios = append(scenarios, Scenario{ID: ScenarioID(document.Current.ID, actionID), InteractionFact: actionID, StepIDs: stepIDs, Status: status})
+		}
+	}
+	document.Scenarios = scenarios
 }
 
 func Hash(parts ...string) string {
@@ -221,7 +327,31 @@ func CanonicalJSON(document Document) ([]byte, error) {
 			return anchorKey(canonical.Unknowns[i].Evidence[a]) < anchorKey(canonical.Unknowns[i].Evidence[b])
 		})
 	}
+	for i := range canonical.Scenarios {
+		canonical.Scenarios[i].StepIDs = sortedScenarioSteps(canonical.Scenarios[i].StepIDs, canonical.Current.Steps)
+	}
+	sort.Slice(canonical.Scenarios, func(i, j int) bool { return canonical.Scenarios[i].ID < canonical.Scenarios[j].ID })
 	return json.Marshal(canonical)
+}
+
+func sortedScenarioSteps(ids []string, steps []Step) []string {
+	order := make(map[string]int, len(steps))
+	for i, step := range steps {
+		order[step.ID] = i
+	}
+	ids = append([]string(nil), ids...)
+	sort.Slice(ids, func(i, j int) bool {
+		left, leftOK := order[ids[i]]
+		right, rightOK := order[ids[j]]
+		if leftOK && rightOK && left != right {
+			return left < right
+		}
+		if leftOK != rightOK {
+			return leftOK
+		}
+		return ids[i] < ids[j]
+	})
+	return slices.Compact(ids)
 }
 
 func sortedUnique(values []string) []string {
@@ -297,6 +427,34 @@ func Validate(document Document) error {
 				return fmt.Errorf("causal edge %s references invalid condition", edge.ID)
 			}
 		}
+	}
+	scenarioSteps := map[string]Step{}
+	for _, step := range document.Current.Steps {
+		scenarioSteps[step.ID] = step
+	}
+	seenScenarios := map[string]bool{}
+	for _, scenario := range document.Scenarios {
+		if scenario.ID == "" || scenario.InteractionFact == "" || len(scenario.StepIDs) == 0 || seenScenarios[scenario.ID] {
+			return errors.New("scenarios require unique id, interaction_fact, and step_ids")
+		}
+		if scenario.ID != ScenarioID(document.Current.ID, scenario.InteractionFact) {
+			return fmt.Errorf("scenario %s has non-deterministic identity", scenario.ID)
+		}
+		action, ok := facts[scenario.InteractionFact]
+		if !ok || action.Kind != "user_action" || action.Status == Stale {
+			return fmt.Errorf("scenario %s references an invalid interaction", scenario.ID)
+		}
+		seenSteps := map[string]bool{}
+		for _, stepID := range scenario.StepIDs {
+			if _, ok := scenarioSteps[stepID]; !ok || seenSteps[stepID] {
+				return fmt.Errorf("scenario %s references an invalid step", scenario.ID)
+			}
+			seenSteps[stepID] = true
+		}
+		if scenario.Status != Observed && scenario.Status != Mixed && scenario.Status != Unknown {
+			return fmt.Errorf("scenario %s has invalid status", scenario.ID)
+		}
+		seenScenarios[scenario.ID] = true
 	}
 	if _, ok := facts[document.Current.EntryPointFact]; !ok {
 		return errors.New("current flow references missing entry point fact")

@@ -71,7 +71,7 @@ func selectorInputProblem(selectors []string, explicit bool) *compiler.Problem {
 
 func run(args []string, stdout, stderr io.Writer) int {
 	if len(args) == 0 {
-		fmt.Fprintln(stderr, "usage: codeflow doctor|fixture-open|basis|resolve|analyze|verify|serve|open|refresh|compare|cache|mcp")
+		fmt.Fprintln(stderr, "usage: codeflow doctor|fixture-open|basis|resolve|analyze|verify|serve|open|export|refresh|compare|cache|mcp")
 		return 2
 	}
 	if args[0] == "fixture-open" {
@@ -94,6 +94,9 @@ func run(args []string, stdout, stderr io.Writer) int {
 	}
 	if args[0] == "open" {
 		return openFlow(args[1:], stdout, stderr)
+	}
+	if args[0] == "export" {
+		return exportFlow(args[1:], stdout, stderr)
 	}
 	if args[0] == "refresh" {
 		return refreshCommand(args[1:], stdout, stderr)
@@ -462,6 +465,98 @@ func analyze(args []string, stdout, stderr io.Writer) int {
 	}
 	_ = json.NewEncoder(stdout).Encode(output)
 	return 0
+}
+
+// exportFlow compiles the same verified snapshot used by FlowView and writes
+// a self-contained HTML review report. It intentionally refuses to overwrite
+// an existing file so a PR artifact is never replaced accidentally.
+func exportFlow(args []string, stdout, stderr io.Writer) int {
+	flags := flag.NewFlagSet("export", flag.ContinueOnError)
+	flags.SetOutput(stderr)
+	repo := flags.String("repo", ".", "repository to inspect")
+	graph := flags.String("codegraph-url", "", "CodeGraph HTTP URL")
+	adapter := flags.String("adapter", "", "installed Dart adapter command")
+	output := flags.String("output", "", "new HTML report path")
+	scenario := flags.String("scenario", "", "scenario id to render (defaults to the first observed interaction)")
+	timeout := flags.Duration("timeout", 45*time.Second, "analysis deadline")
+	var flows selectorFlags
+	flags.Var(&flows, "flow", "one flow selector to export")
+	if err := flags.Parse(args); err != nil || flags.NArg() > 1 || *output == "" {
+		fmt.Fprintln(stderr, "usage: codeflow export --output REPORT.html [--repo DIR] [--flow SELECTOR] [--scenario ID] [SELECTOR]")
+		return 2
+	}
+	selectors := requestedSelectors(flows, flags.Arg(0))
+	if len(selectors) > 1 {
+		fmt.Fprintln(stderr, "export: choose one flow; create one self-contained report per screen")
+		return 2
+	}
+	if problem := selectorInputProblem(selectors, len(flows) > 0); problem != nil {
+		_ = json.NewEncoder(stdout).Encode(problem)
+		return 1
+	}
+	if extension := strings.ToLower(filepath.Ext(*output)); extension != ".html" && extension != ".htm" {
+		fmt.Fprintln(stderr, "export: --output must end in .html or .htm")
+		return 2
+	}
+	if _, err := os.Stat(*output); err == nil {
+		fmt.Fprintln(stderr, "export: output already exists; choose a new report path")
+		return 2
+	} else if !os.IsNotExist(err) {
+		fmt.Fprintln(stderr, "export:", err)
+		return 2
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), *timeout)
+	defer cancel()
+	instance, problem, err := flowcore.StartAnalysis(ctx, *repo, flowcore.AnalysisOptions{Selectors: selectors, CodeGraphURL: *graph, AdapterCommand: resolvedAdapter(*adapter)})
+	if err != nil {
+		fmt.Fprintln(stderr, "export:", err)
+		return 2
+	}
+	if problem != nil {
+		_ = json.NewEncoder(stdout).Encode(problem)
+		return 1
+	}
+	defer instance.Close(context.Background())
+	document, err := instance.Document(ctx)
+	if err != nil {
+		fmt.Fprintln(stderr, "export:", err)
+		return 2
+	}
+	html, err := instance.ExportHTML(ctx, document.Current.ID, *scenario)
+	if err != nil {
+		fmt.Fprintln(stderr, "export:", err)
+		return 2
+	}
+	if err := writeNewHTMLReport(*output, html); err != nil {
+		if os.IsExist(err) {
+			fmt.Fprintln(stderr, "export: output already exists; choose a new report path")
+			return 2
+		}
+		fmt.Fprintln(stderr, "export:", err)
+		return 2
+	}
+	fmt.Fprintf(stdout, "CodeFlow HTML report: %s · %s\n", *output, document.Current.ID)
+	return 0
+}
+
+// writeNewHTMLReport reserves the requested artifact path at write time. The
+// initial existence check above keeps common failures fast, while O_EXCL
+// protects the long analysis-to-write interval from concurrent exports.
+func writeNewHTMLReport(path string, contents []byte) error {
+	file, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0644)
+	if err != nil {
+		return err
+	}
+	if _, err := file.Write(contents); err != nil {
+		_ = file.Close()
+		_ = os.Remove(path)
+		return err
+	}
+	if err := file.Close(); err != nil {
+		_ = os.Remove(path)
+		return err
+	}
+	return nil
 }
 
 // serve keeps one already-published analysis available for local review. It

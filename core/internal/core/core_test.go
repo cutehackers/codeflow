@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"os"
@@ -37,7 +38,7 @@ func TestFlowViewTemplateV1IsFlowAgnosticAndKeepsStableRegions(t *testing.T) {
 		}
 	}
 	previous := -1
-	for _, region := range []string{"snapshot", "timeline-navigation", "timeline", "step-detail", "impact-chain", "code-lens", "architecture", "cognitive-debt"} {
+	for _, region := range []string{"snapshot", "workspace-map", "domain-scenarios", "timeline-navigation", "timeline", "step-detail", "impact-chain", "code-lens", "architecture", "cognitive-debt"} {
 		position := strings.Index(flowViewSource, `data-region="`+region+`"`)
 		if position < 0 || position <= previous {
 			t.Fatalf("missing or reordered stable region %q", region)
@@ -85,6 +86,17 @@ func TestFlowViewTemplateV1IsFlowAgnosticAndKeepsStableRegions(t *testing.T) {
 	}
 	if strings.Contains(flowViewSource, "aria-selected") || !strings.Contains(flowViewSource, `aria-pressed=`) {
 		t.Fatal("FlowView buttons must expose native pressed state rather than invalid aria-selected semantics")
+	}
+}
+
+func TestStaticExportLeavesWorkspaceCardsNonNavigable(t *testing.T) {
+	model := flowViewModel{Export: true, Workspace: workspaceNavigation{Flows: []workspaceNavigationFlow{{ID: "route:/join", Selected: true}, {ID: "route:/sign-in"}}}}
+	var exported bytes.Buffer
+	if err := exportPage.Execute(&exported, model); err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(exported.String(), `href="/?flow=`) {
+		t.Fatal("static export retained workspace navigation links")
 	}
 }
 
@@ -141,8 +153,8 @@ func TestTimelineSeparatesAdjacentAlternativeBranchOutcomes(t *testing.T) {
 		t.Fatalf("unexpected timeline projection: %#v", items)
 	}
 	branch := items[0].Branches[0]
-	if branch.Condition != "조건 확인 · 작업이 완료된 상태인지 검사" {
-		t.Fatalf("condition expression was shortened or lost: %q", branch.Condition)
+	if branch.Condition != "이전 작업이 완료되었는지 확인합니다" {
+		t.Fatalf("condition was not expressed as reader-facing domain language: %q", branch.Condition)
 	}
 	if len(branch.Outcomes) != 2 || branch.Outcomes[0].StepIndex != 1 || branch.Outcomes[1].StepIndex != 2 {
 		t.Fatalf("branch outcomes do not target their timeline steps: %#v", branch.Outcomes)
@@ -158,19 +170,54 @@ func TestDisplayFactUsesReaderLanguageWithoutLosingCodeIdentity(t *testing.T) {
 	if got := displayFact(action); got != "사용자 동작 · 나가기 요청" {
 		t.Fatalf("private symbol leaked into primary action label: %q", got)
 	}
-	if got := displayFact(condition); got != "조건 확인 · 사용자가 계속 진행하기로 확인했는지 검사" {
-		t.Fatalf("condition was not expressed for a code reader: %q", got)
+	if got := displayFact(condition); got != "계속 진행해도 되는지 확인합니다" {
+		t.Fatalf("condition was not expressed as reader-facing domain language: %q", got)
 	}
 	if shortSymbol(action.Subject) != "_JoinPageState._requestExit" {
 		t.Fatal("reader label must not destroy the underlying code identity")
 	}
 	provider := flowir.Fact{Kind: "provider_dependency", Object: "provider:routeDestinationDispatcherProvider"}
-	if got := displayFact(provider); got != "상태 사용 · 화면 경로 목적지 이동 처리" {
+	if got := displayFact(provider); got != "이 단계에 필요한 정보를 확인합니다" {
 		t.Fatalf("provider jargon leaked into reader label: %q", got)
 	}
 	event := flowir.Fact{Kind: "event_dispatch", Object: "event:JoinCancelEvent"}
-	if got := displayFact(event); got != "요청 전달 · 가입 취소 요청" {
+	if got := displayFact(event); got != "다음 처리를 요청합니다" {
 		t.Fatalf("event jargon leaked into reader label: %q", got)
+	}
+	visibleAction := flowir.Fact{Kind: "user_action", Subject: "Page.submit", Object: "이메일로 가입"}
+	if got := displayFact(visibleAction); got != "“이메일로 가입”을 선택합니다" {
+		t.Fatalf("source-backed action copy was not used as the scenario label: %q", got)
+	}
+}
+
+func TestScenarioSelectionScopesTimelineToOneUserJourney(t *testing.T) {
+	anchor := flowir.Anchor{Kind: "code", Path: "lib/join.dart", FileHash: "source"}
+	entry := flowir.Fact{ID: "entry", Kind: "entry_point", Subject: "route:/join", Status: flowir.Observed, Evidence: []flowir.Anchor{anchor}}
+	email := flowir.Fact{ID: "email", Kind: "user_action", Subject: "Join.email", Object: "이메일로 가입", Status: flowir.Observed, Evidence: []flowir.Anchor{anchor}}
+	phone := flowir.Fact{ID: "phone", Kind: "user_action", Subject: "Join.phone", Object: "전화번호로 가입", Status: flowir.Observed, Evidence: []flowir.Anchor{anchor}}
+	emailResult := flowir.Fact{ID: "email-result", Kind: "visible_result", Subject: "Join.email", Object: "route:/verify-email", Status: flowir.Observed, Evidence: []flowir.Anchor{{Kind: "code", Path: anchor.Path, Symbol: "route", FileHash: anchor.FileHash}}}
+	phoneResult := flowir.Fact{ID: "phone-result", Kind: "visible_result", Subject: "Join.phone", Object: "route:/verify-phone", Status: flowir.Observed, Evidence: []flowir.Anchor{{Kind: "code", Path: anchor.Path, Symbol: "route", FileHash: anchor.FileHash}}}
+	document := flowir.Document{Facts: []flowir.Fact{entry, email, phone, emailResult, phoneResult}, Current: flowir.Flow{ID: "route:/join", EntryPointFact: entry.ID, Steps: []flowir.Step{
+		{ID: "email-action", BehaviorKey: "email-action", Order: 1, Actor: "user", TriggerFact: entry.ID, BehaviorFacts: []string{email.ID}, Status: flowir.Observed, PrimaryEvidence: []flowir.Anchor{anchor}},
+		{ID: "email-result-step", BehaviorKey: "email-result", Order: 2, Actor: "system", TriggerFact: email.ID, ResultFacts: []string{emailResult.ID}, Status: flowir.Observed, PrimaryEvidence: []flowir.Anchor{anchor}},
+		{ID: "phone-action", BehaviorKey: "phone-action", Order: 3, Actor: "user", TriggerFact: entry.ID, BehaviorFacts: []string{phone.ID}, Status: flowir.Observed, PrimaryEvidence: []flowir.Anchor{anchor}},
+		{ID: "phone-result-step", BehaviorKey: "phone-result", Order: 4, Actor: "system", TriggerFact: phone.ID, ResultFacts: []string{phoneResult.ID}, Status: flowir.Observed, PrimaryEvidence: []flowir.Anchor{anchor}},
+	}}}
+	flowir.DeriveScenarios(&document)
+	if len(document.Scenarios) != 2 {
+		t.Fatalf("scenario projection=%#v", document.Scenarios)
+	}
+	scoped, scenario := scopeScenario(document, document.Scenarios[0].ID)
+	if scenario == nil || len(scoped.Current.Steps) != 2 || scoped.Current.Steps[0].ID != "email-action" {
+		t.Fatalf("scenario scope retained another action: %#v", scoped.Current.Steps)
+	}
+	items := timeline(scoped, nil)
+	if len(items) != 2 || strings.Contains(items[0].Title+items[1].Title, "전화번호") {
+		t.Fatalf("timeline mixed independent sign-up methods: %#v", items)
+	}
+	navigation := buildScenarioNavigation(document, scenario.ID, nil)
+	if navigation.Selected == nil || navigation.Selected.Title != "이메일로 가입" {
+		t.Fatalf("scenario navigation lost source-backed user label: %#v", navigation)
 	}
 }
 
@@ -444,6 +491,77 @@ func TestSemanticOverlayNeverChangesFlowIRAndOnlyApprovalPersistsKnowledge(t *te
 	finalBytes, _ := flowir.CanonicalJSON(final)
 	if string(beforeBytes) != string(finalBytes) {
 		t.Fatal("approval must not modify deterministic FlowIR")
+	}
+}
+
+func TestDomainLabelAndStaticExportKeepFlowIRImmutable(t *testing.T) {
+	repo := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(repo, "lib"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(repo, "lib", "signup.dart"), []byte("void signup() {}\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	c, err := StartFixture(context.Background(), repo)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer c.Close(context.Background())
+	before, err := c.Document(context.Background())
+	if err != nil || len(before.Scenarios) != 1 || len(before.Scenarios[0].StepIDs) == 0 {
+		t.Fatalf("fixture needs an action-rooted scenario: %#v %v", before.Scenarios, err)
+	}
+	beforeBytes, _ := flowir.CanonicalJSON(before)
+	label := fmt.Sprintf(`{"flow_id":%q,"scenario_id":%q,"step_id":%q,"title":"가입 정보를 확인합니다"}`, before.Current.ID, before.Scenarios[0].ID, before.Scenarios[0].StepIDs[0])
+	request, _ := http.NewRequest(http.MethodPut, c.URL+"/api/v1/domain-labels", strings.NewReader(label))
+	request.Header.Set("X-CodeFlow-Token", c.Token)
+	response, err := http.DefaultClient.Do(request)
+	if err != nil || response.StatusCode != http.StatusOK {
+		if response != nil {
+			response.Body.Close()
+		}
+		t.Fatalf("domain label approval=%v", err)
+	}
+	response.Body.Close()
+	after, err := c.Document(context.Background())
+	afterBytes, _ := flowir.CanonicalJSON(after)
+	if err != nil || string(beforeBytes) != string(afterBytes) {
+		t.Fatal("approved domain wording must not alter deterministic FlowIR")
+	}
+	view, err := http.Get(c.URL + "/?scenario=" + before.Scenarios[0].ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	body, _ := io.ReadAll(view.Body)
+	view.Body.Close()
+	if !strings.Contains(string(body), "가입 정보를 확인합니다") || !strings.Contains(string(body), `data-region="domain-scenarios"`) {
+		t.Fatalf("FlowView did not render the selected domain scenario: %s", body)
+	}
+	exported, err := c.ExportHTML(context.Background(), before.Current.ID, before.Scenarios[0].ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, forbidden := range []string{"fetch('/_codeflow/publication'", "vscode://"} {
+		if strings.Contains(string(exported), forbidden) {
+			t.Fatalf("static report retained local-only content %q", forbidden)
+		}
+	}
+	if !strings.Contains(string(exported), "가입 정보를 확인합니다") || !strings.Contains(string(exported), `data-region="domain-scenarios"`) {
+		t.Fatalf("static report did not preserve reviewed domain flow: %s", exported)
+	}
+	if _, err := c.ExportHTML(context.Background(), before.Current.ID, "missing-scenario"); err == nil {
+		t.Fatal("export accepted a scenario that is not in the current observed flow")
+	}
+	exportRequest, _ := http.NewRequest(http.MethodGet, c.URL+"/api/v1/export?flow_id=route:%2Fsignup&scenario="+before.Scenarios[0].ID, nil)
+	exportRequest.Header.Set("X-CodeFlow-Token", c.Token)
+	exportResponse, err := http.DefaultClient.Do(exportRequest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	exportBody, _ := io.ReadAll(exportResponse.Body)
+	exportResponse.Body.Close()
+	if exportResponse.StatusCode != http.StatusOK || !strings.Contains(exportResponse.Header.Get("Content-Disposition"), "attachment") || strings.Contains(string(exportBody), "vscode://") {
+		t.Fatalf("export endpoint did not serve a safe attachment: status=%d headers=%v", exportResponse.StatusCode, exportResponse.Header)
 	}
 }
 

@@ -35,6 +35,12 @@ AST may still discover candidates, but it is never sufficient for an observed
 callback or call relationship. Regex is limited to narrow framework rules that
 emit nothing when their complete unique seam is absent.
 
+For a resolved callback, the adapter may put a direct static widget label,
+`Semantics` label, or tooltip in the `user_action.object` field. This is
+reader-facing source evidence, not an inferred domain meaning: dynamic strings
+and labels not owned by the callback's widget are omitted. Core uses it to name
+the action-rooted scenario before falling back to an approved domain label.
+
 Resolved causality is product-name independent. For navigation, the adapter
 joins a resolved destination constructor to a unique switch-expression mapping
 and a resolved literal route constant. For state-driven navigation, it joins

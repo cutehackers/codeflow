@@ -197,7 +197,7 @@ Future<List<Map<String, Object>>> _refine(
         _fact(
           'user_action',
           actionSymbol,
-          '',
+          press.label ?? '',
           relative,
           source,
           press.start,
@@ -1519,6 +1519,7 @@ class _Body {
 
 class _ResolvedCallback {
   final String name, symbol, owner, trigger;
+  final String? label;
   final int start, end;
   final _Body body;
   _ResolvedCallback(
@@ -1526,6 +1527,7 @@ class _ResolvedCallback {
     this.symbol,
     this.owner,
     this.trigger,
+    this.label,
     this.start,
     this.end,
     this.body,
@@ -1616,6 +1618,7 @@ List<_ResolvedCallback> _resolvedCallbacks(
         _canonicalSymbol(element),
         _displayOwner(element),
         named.name.label.name,
+        _interactionLabel(named),
         named.offset,
         named.end,
         body,
@@ -1623,6 +1626,65 @@ List<_ResolvedCallback> _resolvedCallbacks(
     );
   }
   return callbacks;
+}
+
+// A button's visible copy is useful domain evidence, but only when it is a
+// direct source literal owned by the same widget as the resolved callback.
+// Dynamic strings, inherited labels, and arbitrary nearby text are omitted so
+// reader-facing scenario names never pretend to be confirmed UI copy.
+String? _interactionLabel(NamedExpression callback) {
+  AstNode? node = callback.parent;
+  for (var depth = 0; node != null && depth < 4; depth++, node = node.parent) {
+    if (node is! InstanceCreationExpression) continue;
+    final label = _staticWidgetLabel(node);
+    if (label != null) return label;
+  }
+  return null;
+}
+
+String? _staticWidgetLabel(InstanceCreationExpression widget) {
+  for (final argument in widget.argumentList.arguments) {
+    if (argument is! NamedExpression) continue;
+    final name = argument.name.label.name;
+    if (const {'semanticLabel', 'tooltip', 'label'}.contains(name)) {
+      final value = _staticText(argument.expression, 0);
+      if (value != null) return value;
+    }
+  }
+  for (final argument in widget.argumentList.arguments) {
+    if (argument is NamedExpression && argument.name.label.name == 'child') {
+      final value = _staticText(argument.expression, 0);
+      if (value != null) return value;
+    }
+  }
+  return null;
+}
+
+String? _staticText(Expression expression, int depth) {
+  if (expression is SimpleStringLiteral) {
+    final value = expression.value.trim();
+    return value.isEmpty ? null : value;
+  }
+  if (depth >= 3 || expression is! InstanceCreationExpression) return null;
+  for (final argument in expression.argumentList.arguments) {
+    if (argument is NamedExpression) {
+      if (!const {
+        'data',
+        'text',
+        'label',
+        'child',
+        'semanticLabel',
+      }.contains(argument.name.label.name)) {
+        continue;
+      }
+      final value = _staticText(argument.expression, depth + 1);
+      if (value != null) return value;
+      continue;
+    }
+    final value = _staticText(argument, depth + 1);
+    if (value != null) return value;
+  }
+  return null;
 }
 
 class _OnPressedVisitor extends RecursiveAstVisitor<void> {

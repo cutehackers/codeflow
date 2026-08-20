@@ -26,6 +26,15 @@
     .workspace-flow[aria-current="page"] small { color: #ddd; }
     .workspace-edges { display: flex; flex-wrap: wrap; gap: 6px; color: var(--muted); font-size: 12px; }
     .workspace-edge { padding: 2px 7px; border-left: 2px solid var(--ink); }
+    .scenario-map { display: grid; min-width: 0; gap: 9px; padding: 13px; border: 1px solid var(--ink); border-radius: var(--radius-md); background: var(--soft); }
+    .scenario-map-header { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }
+    .scenario-map-header h2, .scenario-map-header p { margin: 0; }
+    .scenario-map-header p { color: var(--muted); font-size: 12px; }
+    .scenario-flows { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 7px; }
+    .scenario-flow { display: grid; gap: 3px; min-width: 0; padding: 10px 11px; border: 1px solid var(--line); border-radius: var(--radius-md); background: var(--paper); color: var(--ink); text-decoration: none; }
+    .scenario-flow:hover, .scenario-flow:focus-visible { border-color: var(--ink); box-shadow: 3px 3px 0 #ccc; outline: none; }
+    .scenario-flow[aria-current="page"] { border-color: var(--ink); box-shadow: inset 4px 0 0 var(--ink); }
+    .scenario-flow small { color: var(--muted); }
     .architecture-line { padding: 10px 0; border-bottom: 1px solid var(--line); }
     .architecture-map { min-width: 0; max-width: 100%; overflow: hidden; border: 1px solid var(--ink); border-radius: var(--radius-md); background: var(--paper); }
     .architecture-map-header { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; padding: 11px 13px; border-bottom: 1px solid var(--ink); cursor: pointer; list-style: none; }
@@ -128,7 +137,7 @@
     .delta-grid div { border-left: 1px solid var(--line); padding-left: 8px; }
     .sr-only { position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0; overflow: hidden; clip: rect(0,0,0,0); white-space: nowrap; border: 0; }
     [hidden] { display: none !important; }
-    @media (max-width: 760px) { main { padding: 18px 13px 40px; } .flow-workbench, .detail-grid, .delta-grid { grid-template-columns: minmax(0, 1fr); } .flow-workbench > .navigation, .timeline-shell, .detail-column { grid-column: 1; grid-row: auto; } .timeline-shell { max-height: min(46vh, 390px); overflow-y: auto; border-right: 0; border-bottom: 1px solid var(--line); padding-bottom: 10px; overscroll-behavior-y: contain; } .workspace-map-header, .architecture-map-header { align-items: flex-start; flex-direction: column; } .navigation { align-items: flex-start; } .navigation-current { display: grid; gap: 2px; } .navigation-controls { flex: 0 0 100%; justify-content: space-between; } .facts { grid-template-columns: minmax(0, 1fr); } .architecture-lane { grid-template-columns: 112px minmax(max-content, 1fr); } .architecture-lane-label { width: 112px; } .impact-chain { grid-template-columns: minmax(0, 1fr); } .impact-arrow { min-height: 24px; border: 0; border-top: 1px solid var(--ink); border-bottom: 1px solid var(--ink); transform: rotate(90deg); } .branch-label { min-width: 100%; } .branch-jump { min-width: min(180px, 100%); } }
+    @media (max-width: 760px) { main { padding: 18px 13px 40px; } .flow-workbench, .detail-grid, .delta-grid { grid-template-columns: minmax(0, 1fr); } .flow-workbench > .navigation, .timeline-shell, .detail-column { grid-column: 1; grid-row: auto; } .timeline-shell { max-height: min(46vh, 390px); overflow-y: auto; border-right: 0; border-bottom: 1px solid var(--line); padding-bottom: 10px; overscroll-behavior-y: contain; } .workspace-map-header, .scenario-map-header, .architecture-map-header { align-items: flex-start; flex-direction: column; } .navigation { align-items: flex-start; } .navigation-current { display: grid; gap: 2px; } .navigation-controls { flex: 0 0 100%; justify-content: space-between; } .facts { grid-template-columns: minmax(0, 1fr); } .architecture-lane { grid-template-columns: 112px minmax(max-content, 1fr); } .architecture-lane-label { width: 112px; } .impact-chain { grid-template-columns: minmax(0, 1fr); } .impact-arrow { min-height: 24px; border: 0; border-top: 1px solid var(--ink); border-bottom: 1px solid var(--ink); transform: rotate(90deg); } .branch-label { min-width: 100%; } .branch-jump { min-width: min(180px, 100%); } }
     @media (prefers-reduced-motion: reduce) { .timeline { scroll-behavior: auto; } }
   </style>
 </head>
@@ -145,9 +154,14 @@
   {{if gt (len .Workspace.Flows) 1}}<section class="workspace-map" data-region="workspace-map" aria-label="화면 흐름 지도">
     <div class="workspace-map-header"><h2>화면 흐름 지도</h2><span>같은 코드 기준 · {{len .Workspace.Flows}}개 flow</span></div>
     <nav class="workspace-flows" aria-label="분석한 화면 선택">
-      {{range .Workspace.Flows}}<a class="workspace-flow" href="{{.URL}}" data-workspace-flow="{{.ID}}" aria-current="{{if .Selected}}page{{else}}false{{end}}"><strong>{{.ID}}</strong><small>{{.Steps}}단계 · {{if .Unknowns}}{{.Unknowns}}개 연결 미확정{{else}}모든 연결 확인됨{{end}}</small></a>{{end}}
+      {{range .Workspace.Flows}}{{if $.Export}}<span class="workspace-flow" data-workspace-flow="{{.ID}}" aria-current="{{if .Selected}}page{{else}}false{{end}}"><strong>{{.ID}}</strong><small>{{.Steps}}단계 · {{if .Unknowns}}{{.Unknowns}}개 연결 미확정{{else}}모든 연결 확인됨{{end}}</small></span>{{else}}<a class="workspace-flow" href="{{.URL}}" data-workspace-flow="{{.ID}}" aria-current="{{if .Selected}}page{{else}}false{{end}}"><strong>{{.ID}}</strong><small>{{.Steps}}단계 · {{if .Unknowns}}{{.Unknowns}}개 연결 미확정{{else}}모든 연결 확인됨{{end}}</small></a>{{end}}{{end}}
     </nav>
     {{if .Workspace.Edges}}<div class="workspace-edges" aria-label="코드에서 확인된 화면 이동">{{range .Workspace.Edges}}<span class="workspace-edge" data-from-flow="{{.From}}" data-to-flow="{{.To}}">{{.From}} → {{.To}}</span>{{end}}</div>{{end}}
+  </section>{{end}}
+
+  {{if .Scenarios.Flows}}<section class="scenario-map" data-region="domain-scenarios" aria-label="화면 안에서 선택할 수 있는 사용자 경로">
+    <div class="scenario-map-header"><div><h2>이 화면에서 선택할 수 있는 경로</h2><p>한 경로의 사용자 결과와 코드 근거를 함께 봅니다.</p></div>{{if .Scenarios.Selected}}<span class="status" data-status="{{.Scenarios.Selected.Status}}">{{.Scenarios.Selected.Steps}}단계 · {{if .Scenarios.Selected.Unknowns}}{{.Scenarios.Selected.Unknowns}}개 연결 미확정{{else}}코드 연결 확인됨{{end}}</span>{{end}}</div>
+    <nav class="scenario-flows" aria-label="사용자 경로 선택">{{range .Scenarios.Flows}}{{if $.Export}}<span class="scenario-flow" data-scenario="{{.ID}}" aria-current="{{if .Selected}}page{{else}}false{{end}}"><strong>{{.Title}}</strong><small>{{.Steps}}단계 · {{if .Unknowns}}{{.Unknowns}}개 연결 미확정{{else}}결과까지 확인됨{{end}}</small></span>{{else}}<a class="scenario-flow" href="{{.URL}}" data-scenario="{{.ID}}" aria-current="{{if .Selected}}page{{else}}false{{end}}"><strong>{{.Title}}</strong><small>{{.Steps}}단계 · {{if .Unknowns}}{{.Unknowns}}개 연결 미확정{{else}}결과까지 확인됨{{end}}</small></a>{{end}}{{end}}</nav>
   </section>{{end}}
 
   <div class="architecture-line" aria-label="관찰된 아키텍처 경계">

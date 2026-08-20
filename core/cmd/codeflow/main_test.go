@@ -253,6 +253,44 @@ func TestAnalyzeAcceptsRepeatedFlowSelectorsAndReturnsWorkspace(t *testing.T) {
 	}
 }
 
+func TestExportWritesSelfContainedHTMLReport(t *testing.T) {
+	repo := initRepo(t)
+	if err := os.MkdirAll(filepath.Join(repo, "lib"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	source := []byte("final routes=[GoRoute(path: '/signup',builder:(c,s)=>const SignupPage())]; class SignupPage { void build(){ ElevatedButton(onPressed: _submit, child: const Text('이메일로 가입')); } void _submit(){ context.go('/done'); } }\n")
+	if err := os.WriteFile(filepath.Join(repo, "lib", "routes.dart"), source, 0644); err != nil {
+		t.Fatal(err)
+	}
+	_ = exec.Command("git", "-C", repo, "add", ".").Run()
+	_ = exec.Command("git", "-C", repo, "-c", "user.email=x@y.z", "-c", "user.name=x", "commit", "-qm", "fixture").Run()
+	_, file, _, _ := runtime.Caller(0)
+	adapter := "dart " + filepath.Join(filepath.Dir(file), "../../../adapters/dart/bin/codeflow-dart-adapter.dart")
+	output := filepath.Join(t.TempDir(), "signup-report.html")
+	var stdout, stderr bytes.Buffer
+	if exit := run([]string{"export", "--repo", repo, "--adapter", adapter, "--output", output, "route:/signup"}, &stdout, &stderr); exit != 0 {
+		t.Fatalf("export exit=%d stderr=%s stdout=%s", exit, stderr.String(), stdout.String())
+	}
+	html, err := os.ReadFile(output)
+	if err != nil || !bytes.Contains(html, []byte("이메일로 가입")) || bytes.Contains(html, []byte("fetch('/_codeflow/publication'")) || bytes.Contains(html, []byte("vscode://")) {
+		t.Fatalf("invalid exported report err=%v html=%s", err, html)
+	}
+}
+
+func TestWriteNewHTMLReportRefusesExistingOutput(t *testing.T) {
+	output := filepath.Join(t.TempDir(), "report.html")
+	if err := os.WriteFile(output, []byte("existing report"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := writeNewHTMLReport(output, []byte("replacement")); !os.IsExist(err) {
+		t.Fatalf("existing report was not protected: %v", err)
+	}
+	contents, err := os.ReadFile(output)
+	if err != nil || string(contents) != "existing report" {
+		t.Fatalf("existing report was overwritten: %q %v", contents, err)
+	}
+}
+
 func TestMultiFlowCLIRejectsEmptyDuplicateAndOversizedSetsBeforeAnalysis(t *testing.T) {
 	for _, test := range []struct {
 		name string

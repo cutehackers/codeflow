@@ -68,6 +68,9 @@ HOME/workspace/codeflow/bin/codeflow serve \
 
 FlowView의 화면 흐름 지도에서 flow를 선택하면 해당 화면의 Architecture,
 수직 타임라인, 코드·상태·화면 결과와 `VS Code에서 열기`가 함께 바뀝니다.
+화면 안에 여러 사용자 행동이 있으면 `이 화면에서 선택할 수 있는 경로`에서
+이메일·전화번호·소셜 가입처럼 하나의 경로를 먼저 선택합니다. 기본 단계는
+사용자 목적과 결과로 읽히며, 구현 조건·상태·호출은 코드 근거에서 확인합니다.
 열어 둔 Core가 파일 이벤트를 놓쳤다고 의심될 때는
 `./bin/codeflow refresh --repo HOME/workspace/sgp-981-app`로 갱신합니다. 기본
 출력은 짧은 요약이며, 전체 기계 응답은 `--format json`에서만 출력합니다.
@@ -85,7 +88,17 @@ FlowView의 화면 흐름 지도에서 flow를 선택하면 해당 화면의 Arc
   --repo HOME/workspace/sgp-981-app \
   --baseline main \
   route:/join
+
+# PR에 첨부할 정적 HTML 보고서 생성
+./bin/codeflow export \
+  --repo HOME/workspace/sgp-981-app \
+  --output join-email-flow.html \
+  --flow route:/join
 ```
+
+export 파일은 분석 당시 Basis와 코드 근거를 보존하지만 로컬 서버, 인증 토큰,
+`VS Code에서 열기` 링크는 포함하지 않습니다. 화면에 여러 경로가 있을 때
+`--scenario`으로 특정 경로를 선택할 수 있습니다.
 
 자세한 내용:
 

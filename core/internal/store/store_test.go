@@ -130,6 +130,7 @@ func TestPublishBatchIsAtomicAndRequiresOneBasis(t *testing.T) {
 	second := first
 	second.Current.ID, second.Current.FlowKey = "route:/home", "route:/home"
 	second.Architecture.EntryPoints = []string{"route:/home"}
+	flowir.DeriveScenarios(&second)
 	invalid := second
 	invalid.SchemaVersion = "invalid"
 	if err := db.PublishBatch(context.Background(), []flowir.Document{first, invalid}, "partial", "ready"); err == nil {

@@ -10,13 +10,15 @@ stable regions in this reading order:
 
 1. `snapshot` — repository revision, worktree state, and overall trust.
 2. The optional multi-flow screen map and compact current-code path.
-3. `timeline-navigation` and `timeline` — previous/next controls and ordered
+3. `domain-scenarios` when a screen has more than one observed `user_action`.
+   It selects one user-facing path before a causal timeline is shown.
+4. `timeline-navigation` and `timeline` — previous/next controls and ordered
    causal steps.
-4. `step-detail` — a selected step containing `impact-chain` and `code-lens`.
-5. `architecture` — a secondary, collapsible UI/application/state/data/external
+5. `step-detail` — a selected step containing `impact-chain` and `code-lens`.
+6. `architecture` — a secondary, collapsible UI/application/state/data/external
    causal map whose nodes select the corresponding timeline step. Opening the
    map scrolls to the already-selected timeline step.
-6. `cognitive-debt` when current unknowns exist.
+7. `cognitive-debt` when current unknowns exist.
 
 The impact chain always reads `코드 변경 → 상태 변화 → 화면 결과`. A missing
 baseline is presented as `비교 기준 없음` or `baseline 미선택`, never as “no
@@ -44,6 +46,17 @@ tests, rather than full-pixel snapshots, protect the contract: version,
 region order, architecture/timeline linkage, status vocabulary, impact chain,
 and editor-link trust gate. Styling may evolve without permitting flow-specific
 markup or changing causal meaning.
+
+The default reader-facing step title must describe a user action, a decision,
+a task, or a visible result. It must not lead with implementation categories
+such as `condition`, `state transition`, or `repository access`. A reviewed
+domain label may replace a title only when it targets the current deterministic
+scenario/step identity; the code lens and fact IDs remain visible as evidence.
+
+The static export variant keeps the same template and visual primitives, but
+removes local runtime polling and editor links. Scenario cards become static
+labels rather than dead navigation links. Its contract is defined in
+[`domain-scenarios-v1.md`](./domain-scenarios-v1.md).
 
 Selection is one shared state. Choosing a timeline item, an architecture node,
 or a branch outcome must select the same timeline item, architecture node, and

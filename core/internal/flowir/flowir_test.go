@@ -82,6 +82,31 @@ func TestCausalEdgeIDTreatsConditionsAsASet(t *testing.T) {
 		t.Fatalf("condition ordering changed causal identity: %s != %s", left, right)
 	}
 }
+
+func TestDeriveScenariosKeepsIndependentUserActionsSeparate(t *testing.T) {
+	doc := fixtureDocument(t)
+	entry := doc.Current.EntryPointFact
+	anchor := doc.Current.Steps[0].PrimaryEvidence[0]
+	phoneAction := Fact{ID: Hash("user_action", "Page.phone", "전화번호로 가입"), Kind: "user_action", Subject: "Page.phone", Object: "전화번호로 가입", Evidence: []Anchor{anchor}, Status: Observed}
+	phoneResult := Fact{ID: Hash("visible_result", "Page.phone", "route:/verify"), Kind: "visible_result", Subject: "Page.phone", Object: "route:/verify", Evidence: []Anchor{{Kind: "code", Path: anchor.Path, Symbol: "route", FileHash: anchor.FileHash}}, Status: Observed}
+	doc.Facts = append(doc.Facts, phoneAction, phoneResult)
+	doc.Current.Steps = append(doc.Current.Steps,
+		Step{ID: Hash("phone-action"), BehaviorKey: "route:/signup:user:phone", Order: 3, Actor: "user", TriggerFact: entry, BehaviorFacts: []string{phoneAction.ID}, PrimaryEvidence: []Anchor{anchor}, Status: Observed},
+		Step{ID: Hash("phone-result"), BehaviorKey: "route:/signup:system:phone-result", Order: 4, Actor: "system", TriggerFact: phoneAction.ID, ResultFacts: []string{phoneResult.ID}, PrimaryEvidence: []Anchor{anchor}, Status: Observed},
+	)
+	DeriveScenarios(&doc)
+	if len(doc.Scenarios) != 2 {
+		t.Fatalf("expected two action-rooted scenarios, got %#v", doc.Scenarios)
+	}
+	for _, scenario := range doc.Scenarios {
+		if len(scenario.StepIDs) != 2 {
+			t.Fatalf("scenario must contain only its own action and result steps: %#v", scenario)
+		}
+	}
+	if err := Validate(doc); err != nil {
+		t.Fatalf("scenario projection must remain valid FlowIR: %v", err)
+	}
+}
 func TestValidateRejectsInvalidEvidenceCombinations(t *testing.T) {
 	base := fixtureDocument(t)
 	cases := []struct {

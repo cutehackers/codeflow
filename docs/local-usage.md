@@ -79,6 +79,22 @@ FlowView navigation requires no additional command. Select an architecture
 node or timeline step, inspect `코드 변경 → 상태 변화 → 화면 결과`, then use
 **VS Code에서 열기** to open the hash-verified current anchor at its line.
 
+여러 사용자 행동이 있는 화면은 `이 화면에서 선택할 수 있는 경로`에서 하나를
+고른 뒤 해당 scenario의 타임라인을 읽는다. PR 검토용 정적 보고서가 필요하면
+다음처럼 새 HTML 파일을 생성한다.
+
+```sh
+./bin/codeflow export \
+  --repo HOME/workspace/sgp-981-app \
+  --output join-flow.html \
+  --flow route:/join
+```
+
+`--scenario`에는 `analyze` 결과의 `scenarios[].id`를 지정할 수 있다. export는
+로컬 runtime, 인증 토큰, editor link, 화면·scenario 이동 링크를 포함하지 않는다.
+이미 존재하는 출력 파일은 덮어쓰지 않으며, 동시 export도 하나만 그 경로를 만들
+수 있다.
+
 ## Local trust boundary
 
 FlowView is intentionally a local review page: Core binds only to the literal
