@@ -1,6 +1,6 @@
 # CodeFlow Goal-Driven Implementation Tickets
 
-Status: approved for implementation planning
+Status: implemented and verified for local use
 Source contract: [CodeFlow Production Design Specification](./codeflow-production-design-ko.md)
 
 ## How to use this backlog
@@ -36,11 +36,11 @@ Deliver the smallest runnable Go CLI and configuration path that identifies the 
 
 ### Acceptance criteria
 
-- [ ] `codeflow doctor` works with no configuration and with a valid versioned configuration.
-- [ ] Exact logical entry points and configured feature aliases validate against the contract; unknown schema versions stop with remediation.
-- [ ] Git, CodeGraph, Dart/Flutter, configuration, and version failures are distinguishable typed results.
-- [ ] Human-readable and machine-readable output identify what is ready, unavailable, or incompatible without claiming analysis succeeded.
-- [ ] Running the command leaves the inspected product repository and Git state unchanged.
+- [x] `codeflow doctor` works with no configuration and with a valid versioned configuration.
+- [x] Exact logical entry points and configured feature aliases validate against the contract; unknown schema versions stop with remediation.
+- [x] Git, CodeGraph, Dart/Flutter, configuration, and version failures are distinguishable typed results.
+- [x] Human-readable and machine-readable output identify what is ready, unavailable, or incompatible without claiming analysis succeeded.
+- [x] Running the command leaves the inspected product repository and Git state unchanged.
 
 ### Completion evidence
 
@@ -69,12 +69,12 @@ Use a controlled fixture fact provider to drive the production FlowIR, validatio
 
 ### Acceptance criteria
 
-- [ ] Versioned schemas cover the deterministic FlowIR types and reject the specification’s invalid trust/evidence combinations.
-- [ ] Canonical FlowIR content is byte-identical for identical inputs while publication time and runtime status live outside it.
-- [ ] A repository-scoped Core publishes the fixture flow transactionally to SQLite in WAL mode.
-- [ ] The loopback-only API requires the runtime token and returns the common response envelope.
-- [ ] A minimal vertical FlowView shows basis, ordered steps, trust state, and the anchored code range.
-- [ ] Stale locks are recoverable using both PID and repository fingerprint.
+- [x] Versioned schemas cover the deterministic FlowIR types and reject the specification’s invalid trust/evidence combinations.
+- [x] Canonical FlowIR content is byte-identical for identical inputs while publication time and runtime status live outside it.
+- [x] A repository-scoped Core publishes the fixture flow transactionally to SQLite in WAL mode.
+- [x] The loopback-only API requires the runtime token and returns the common response envelope.
+- [x] A minimal vertical FlowView shows basis, ordered steps, trust state, and the anchored code range.
+- [x] Stale locks are recoverable using both PID and repository fingerprint.
 
 ### Completion evidence
 
@@ -103,11 +103,11 @@ Replace the walking skeleton’s synthetic basis with a real manifest, Git class
 
 ### Acceptance criteria
 
-- [ ] Manifest entries use raw-byte SHA-256, repository-relative normalized paths, file type/mode, Git state, and generated-file classification.
-- [ ] Git classification covers clean, added, modified, deleted, renamed, and untracked files; ambiguous rename is deletion plus addition.
-- [ ] Symlinks are not followed and hash their link target; default secret, build, tool, and generated exclusions apply.
-- [ ] Relevant hashes are reread before publication; one concurrent change retries and continued mutation preserves the last consistent snapshot with `analyzing` status.
-- [ ] The CLI, API, and FlowView present the same `FlowBasis` and never mix files from different observations.
+- [x] Manifest entries use raw-byte SHA-256, repository-relative normalized paths, file type/mode, Git state, and generated-file classification.
+- [x] Git classification covers clean, added, modified, deleted, renamed, and untracked files; ambiguous rename is deletion plus addition.
+- [x] Symlinks are not followed and hash their link target; default secret, build, tool, and generated exclusions apply.
+- [x] Relevant hashes are reread before publication; one concurrent change retries and continued mutation preserves the last consistent snapshot with `analyzing` status.
+- [x] The CLI, API, and FlowView present the same `FlowBasis` and never mix files from different observations.
 
 ### Completion evidence
 
@@ -136,11 +136,11 @@ Run the Dart adapter as a versioned JSON-RPC child process and use it to discove
 
 ### Acceptance criteria
 
-- [ ] The adapter supports initialize, capability negotiation, request correlation, cancellation/deadline, shutdown, and cleanup with versioned request/result/error schemas.
-- [ ] `route:/signup`, a configured `signup` alias, and a uniquely discovered `signup` shorthand resolve to the same logical entry point.
-- [ ] Zero matches show available entry points; multiple matches show candidates and do not auto-select.
-- [ ] Every discovered entry point has a current source anchor and stable logical `flow_id`.
-- [ ] Adapter absence, incompatibility, malformed output, and timeout remain typed unavailable or unknown results in CLI, API, and FlowView.
+- [x] The adapter supports initialize, capability negotiation, request correlation, cancellation/deadline, shutdown, and cleanup with versioned request/result/error schemas.
+- [x] `route:/signup`, a configured `signup` alias, and a uniquely discovered `signup` shorthand resolve to the same logical entry point.
+- [x] Zero matches show available entry points; multiple matches show candidates and do not auto-select.
+- [x] Every discovered entry point has a current source anchor and stable logical `flow_id`.
+- [x] Adapter absence, incompatibility, malformed output, and timeout remain typed unavailable or unknown results in CLI, API, and FlowView.
 
 ### Completion evidence
 
@@ -169,12 +169,12 @@ Connect the versioned CodeGraph HTTP adapter and targeted Dart semantic refineme
 
 ### Acceptance criteria
 
-- [ ] CodeGraph status, tool discovery, query, indexing, pagination, job polling, deadline, cancellation, and error behavior conform to versioned fixtures.
-- [ ] Core validates graph paths, symbols, revision scope, file hashes, and spans against the current worktree before using a relationship.
-- [ ] Dart refinement resolves actual call targets only for the affected graph slice.
-- [ ] The compiler emits causal steps for the user trigger, meaningful processing, and visible result while folding helpers, mappers, and loggers.
-- [ ] Every observed step passes the Evidence Gate and exposes no more than three current primary anchors with 5–20 line code lenses.
-- [ ] Missing or stale graph evidence is visible as `unknown` or `STALE_GRAPH`, never as a completed observed path.
+- [x] CodeGraph status, tool discovery, query, indexing, pagination, job polling, deadline, cancellation, and error behavior conform to versioned fixtures.
+- [x] Core validates graph paths, symbols, revision scope, file hashes, and spans against the current worktree before using a relationship.
+- [x] Dart refinement resolves actual call targets only for the affected graph slice.
+- [x] The compiler emits causal steps for the user trigger, meaningful processing, and visible result while folding helpers, mappers, and loggers.
+- [x] Every observed step passes the Evidence Gate and exposes no more than three current primary anchors with 5–20 line code lenses.
+- [x] Missing or stale graph evidence is visible as `unknown` or `STALE_GRAPH`, never as a completed observed path.
 
 ### Completion evidence
 
@@ -203,11 +203,11 @@ Extend the targeted Dart analysis and causal compiler path for one supported `re
 
 ### Acceptance criteria
 
-- [ ] Provider dependencies resolve to canonical Dart symbols with current anchors.
-- [ ] The supported state assignment or transition becomes a causal state-change fact and step result.
-- [ ] Async loading, data, or error transitions are ordered only when control-flow evidence establishes the order.
-- [ ] Unsupported Riverpod patterns appear at the correct timeline position as `unknown`.
-- [ ] FlowIR, API, CLI, and FlowView preserve the same trust state and evidence.
+- [x] Provider dependencies resolve to canonical Dart symbols with current anchors.
+- [x] The supported state assignment or transition becomes a causal state-change fact and step result.
+- [x] Async loading, data, or error transitions are ordered only when control-flow evidence establishes the order.
+- [x] Unsupported Riverpod patterns appear at the correct timeline position as `unknown`.
+- [x] FlowIR, API, CLI, and FlowView preserve the same trust state and evidence.
 
 ### Completion evidence
 
@@ -236,11 +236,11 @@ Extend one route flow with a meaningful condition and multiple outcomes. Preserv
 
 ### Acceptance criteria
 
-- [ ] A branch cannot enter FlowIR without a condition fact and current condition anchor.
-- [ ] Outcome ordering and `Branch.id` follow the deterministic contract without line-number or prose inputs.
-- [ ] A visible result requires UI-state or route evidence.
-- [ ] Dynamic dispatch with no unique target creates a reasoned `unknown` associated with the affected step.
-- [ ] FlowView expands the branch vertically and visually separates observed and unknown outcomes.
+- [x] A branch cannot enter FlowIR without a condition fact and current condition anchor.
+- [x] Outcome ordering and `Branch.id` follow the deterministic contract without line-number or prose inputs.
+- [x] A visible result requires UI-state or route evidence.
+- [x] Dynamic dispatch with no unique target creates a reasoned `unknown` associated with the affected step.
+- [x] FlowView expands the branch vertically and visually separates observed and unknown outcomes.
 
 ### Completion evidence
 
@@ -269,11 +269,11 @@ Recognize one repository access and one external API call in the selected graph 
 
 ### Acceptance criteria
 
-- [ ] Repository read/write and external call facts contain canonical targets and current evidence.
-- [ ] ArchitectureSlice includes only the relevant application, domain, data, and external boundaries and relations.
-- [ ] A present contract may support an observed boundary result; absence of a contract ends the path with `EXTERNAL_BOUNDARY_UNKNOWN`.
-- [ ] Network execution is never used to infer runtime external behavior.
-- [ ] CLI, API, and FlowView show the same boundary and uncertainty.
+- [x] Repository read/write and external call facts contain canonical targets and current evidence.
+- [x] ArchitectureSlice includes only the relevant application, domain, data, and external boundaries and relations.
+- [x] A present contract may support an observed boundary result; absence of a contract ends the path with `EXTERNAL_BOUNDARY_UNKNOWN`.
+- [x] Network execution is never used to infer runtime external behavior.
+- [x] CLI, API, and FlowView show the same boundary and uncertainty.
 
 ### Completion evidence
 
@@ -302,12 +302,12 @@ Resolve a baseline to a commit SHA, materialize its read-only analysis mirror fr
 
 ### Acceptance criteria
 
-- [ ] Baseline input resolves to an immutable commit SHA; missing or invalid revisions fail with a typed error.
-- [ ] The mirror is built under CodeFlow cache without checkout, worktree mutation, or automatic network dependency fetch.
-- [ ] Baseline anchors use commit/blob evidence; missing local dependencies produce unknown rather than a guessed flow.
-- [ ] Matching is one-to-one within duplicate `behavior_key` buckets using symbol then structural fingerprint; ambiguity becomes deletion plus addition.
-- [ ] FlowDelta reports added/removed steps, changed results, changed branches, and new unknowns through CLI, API, and inline FlowView presentation.
-- [ ] Repeating the comparison with identical bases produces identical deterministic FlowIR and delta.
+- [x] Baseline input resolves to an immutable commit SHA; missing or invalid revisions fail with a typed error.
+- [x] The mirror is built under CodeFlow cache without checkout, worktree mutation, or automatic network dependency fetch.
+- [x] Baseline anchors use commit/blob evidence; missing local dependencies produce unknown rather than a guessed flow.
+- [x] Matching is one-to-one within duplicate `behavior_key` buckets using symbol then structural fingerprint; ambiguity becomes deletion plus addition.
+- [x] FlowDelta reports added/removed steps, changed results, changed branches, and new unknowns through CLI, API, and inline FlowView presentation.
+- [x] Repeating the comparison with identical bases produces identical deterministic FlowIR and delta.
 
 ### Completion evidence
 
@@ -336,16 +336,19 @@ Treat file events as debounced change notifications, run a full authoritative re
 
 ### Acceptance criteria
 
-- [ ] Events only schedule work and are never persisted or interpreted as source facts.
-- [ ] Reconcile precedes reverse-dependency impact calculation and compilation.
-- [ ] Only affected open flows recompile after a consistent snapshot is available.
-- [ ] Changes during analysis follow the one-retry/last-consistent-snapshot rule and show `analyzing` status.
-- [ ] A missed event is recovered by `refresh`, `analyze`, `open`, or the next scheduled reconcile.
+- [x] Events only schedule work and are never persisted or interpreted as source facts.
+- [x] Reconcile precedes reverse-dependency impact calculation and compilation.
+- [x] Only affected open flows recompile after a consistent snapshot is available.
+- [x] Changes during analysis follow the one-retry/last-consistent-snapshot rule and show `analyzing` status.
+- [x] A missed event is recovered by `refresh`, `analyze`, `open`, or the next scheduled reconcile.
 
 ### Completion evidence
 
 - An integration test modifies, deletes, renames, and rapidly rewrites fixture files while observing page/API state.
 - The test proves no published flow combines hashes from different observations.
+- A recursive watcher integration proves tool/cache changes are ignored, product
+  changes schedule work, a persistent Dart Analyzer session is reused, and the
+  open page reloads only after the publication identity changes.
 
 ### Non-goals
 
@@ -369,11 +372,11 @@ Expose the specified CodeFlow tools over stdio with modern `2026-07-28` and lega
 
 ### Acceptance criteria
 
-- [ ] Both eras expose current, diff, step, unknowns, refresh, and open operations using the common response envelope.
-- [ ] The client’s first request selects the era; unsupported versions receive an actionable compatibility error.
-- [ ] Both eras return semantically identical deterministic data for the same FlowBasis.
-- [ ] Multiple MCP processes reuse the valid repository Core and do not compete for SQLite or the Dart adapter.
-- [ ] MCP preserves observed, inferred, confirmed, unknown, stale, and unavailable distinctions.
+- [x] Both eras expose current, diff, step, unknowns, refresh, and open operations using the common response envelope.
+- [x] The client’s first request selects the era; unsupported versions receive an actionable compatibility error.
+- [x] Both eras return semantically identical deterministic data for the same FlowBasis.
+- [x] Multiple MCP processes reuse the valid repository Core and do not compete for SQLite or the Dart adapter.
+- [x] MCP preserves observed, inferred, confirmed, unknown, stale, and unavailable distinctions.
 
 ### Completion evidence
 
@@ -402,11 +405,11 @@ Import an authorized JSONL or transcript export into the Micro Ontology, filter 
 
 ### Acceptance criteria
 
-- [ ] Only the allowed event classes are normalized; raw transcripts are not persisted by default.
-- [ ] Secret-bearing events are excluded from semantic processing and storage.
-- [ ] Session evidence can create inferred overlays and intent candidates but cannot create or alter facts, branches, stable IDs, or FlowDelta.
-- [ ] FlowView visually separates inferred text and supports explicit approval to `confirmed`.
-- [ ] Only approved names and intent persist in `.codeflow/knowledge`; deleting all overlays leaves deterministic FlowIR unchanged.
+- [x] Only the allowed event classes are normalized; raw transcripts are not persisted by default.
+- [x] Secret-bearing events are excluded from semantic processing and storage.
+- [x] Session evidence can create inferred overlays and intent candidates but cannot create or alter facts, branches, stable IDs, or FlowDelta.
+- [x] FlowView visually separates inferred text and supports explicit approval to `confirmed`.
+- [x] Only approved names and intent persist in `.codeflow/knowledge`; deleting all overlays leaves deterministic FlowIR unchanged.
 
 ### Completion evidence
 
@@ -443,17 +446,17 @@ bridge succeeds for the selected repository.
 
 ### Acceptance criteria
 
-- [ ] The compatibility probe validates required tool input/output schemas, not
+- [x] The compatibility probe validates required tool input/output schemas, not
   only tool names, and reports a typed incompatible state with remediation.
-- [ ] Repository discovery, explicit indexing request, asynchronous job polling,
+- [x] Repository discovery, explicit indexing request, asynchronous job polling,
   pagination, deadline, and cancellation conform to captured real-service
   fixtures.
-- [ ] Core never treats unanchored CodeGraph symbols or snippets as observed;
+- [x] Core never treats unanchored CodeGraph symbols or snippets as observed;
   it deterministically creates current source anchors or returns an unknown.
-- [ ] A real CodeGraphContext service indexes a temporary Dart/Flutter fixture
+- [x] A real CodeGraphContext service indexes a temporary Dart/Flutter fixture
   and supplies a route-relevant relationship slice accepted by the Evidence
   Gate.
-- [ ] `doctor`, `analyze`, `compare`, API, and FlowView surface the same typed
+- [x] `doctor`, `analyze`, `compare`, API, and FlowView surface the same typed
   unavailable/incompatible/indexing states.
 
 ### Completion evidence
@@ -492,16 +495,16 @@ preferred when it is compatible and Dart-capable.
 
 ### Acceptance criteria
 
-- [ ] Backend selection is explicit and visible in doctor/API/FlowView; an
+- [x] Backend selection is explicit and visible in doctor/API/FlowView; an
   incompatible external service never silently becomes a claimed external
   analysis success.
-- [ ] The owned bridge derives relationships from actual current Dart source,
+- [x] The owned bridge derives relationships from actual current Dart source,
   never session text or fixture-specific responses.
-- [ ] Dynamic dispatch, computed route strings, unparseable files, and missing
+- [x] Dynamic dispatch, computed route strings, unparseable files, and missing
   targets become typed unknowns rather than guessed edges.
-- [ ] Every owned bridge anchor passes the same Core manifest/hash/span/revision
+- [x] Every owned bridge anchor passes the same Core manifest/hash/span/revision
   validation as an external CodeGraph response.
-- [ ] A real Flutter repository with a const-defined `GoRoute` can produce the
+- [x] A real Flutter repository with a const-defined `GoRoute` can produce the
   minimal route slice required for CF-G13 without writing project source.
 
 ### Completion evidence
@@ -540,15 +543,15 @@ destinations, interpolated paths, and incomplete resolver cases unknown.
 
 ### Acceptance criteria
 
-- [ ] The selected destination constructor, dispatcher implementation, resolver
+- [x] The selected destination constructor, dispatcher implementation, resolver
   switch arm, and resulting route each carry current source anchors.
-- [ ] The resolver must be statically exhaustive for the selected destination;
+- [x] The resolver must be statically exhaustive for the selected destination;
   duplicate or ambiguous arms fail closed.
-- [ ] Const path aliases resolve only inside the captured worktree and are
+- [x] Const path aliases resolve only inside the captured worktree and are
   revalidated against the manifest.
-- [ ] The real `sgp-981-app` `/join` route shows its direct confirmed outcomes
+- [x] The real `sgp-981-app` `/join` route shows its direct confirmed outcomes
   without treating unrelated provider-state conditions as runtime facts.
-- [ ] Dynamic and unrecognized destination seams remain explicit unknowns.
+- [x] Dynamic and unrecognized destination seams remain explicit unknowns.
 
 ### Completion evidence
 
@@ -586,12 +589,12 @@ success before compilation completes.
 
 ### Acceptance criteria
 
-- [ ] `serve` uses the same `StartAnalysis` Core path and FlowIR as `analyze`.
-- [ ] It prints a loopback review URL only after transactional publication;
+- [x] `serve` uses the same `StartAnalysis` Core path and FlowIR as `analyze`.
+- [x] It prints a loopback review URL only after transactional publication;
   shutdown releases runtime resources safely.
-- [ ] The page/API show the same branch, current code lenses, backend boundary,
+- [x] The page/API show the same branch, current code lenses, backend boundary,
   and unknowns as the CLI document.
-- [ ] Failure returns typed diagnostics and does not leave a stale runtime
+- [x] Failure returns typed diagnostics and does not leave a stale runtime
   owner or product source mutation.
 
 ### Completion evidence
@@ -629,13 +632,13 @@ cases remain unknown.
 
 ### Acceptance criteria
 
-- [ ] Every event, controller assignment, listener condition, and result has a
+- [x] Every event, controller assignment, listener condition, and result has a
   current anchor and one causal ordering chain.
-- [ ] Event handling or state construction with side effects, multiple matching
+- [x] Event handling or state construction with side effects, multiple matching
   handlers, or ambiguous provider bindings fails closed to unknown.
-- [ ] The real `/join` cancellation path shows the confirmed result `authPath`
+- [x] The real `/join` cancellation path shows the confirmed result `authPath`
   only after the explicit dialog-confirmed `JoinCancelEvent` path.
-- [ ] Existing unsupported Riverpod patterns remain unknown and cannot be
+- [x] Existing unsupported Riverpod patterns remain unknown and cannot be
   upgraded merely because adjacent text resembles a state assignment.
 
 ### Completion evidence
@@ -672,12 +675,12 @@ the same lens data through the authenticated API.
 
 ### Acceptance criteria
 
-- [ ] Every displayed observed/unknown primary anchor receives a bounded 5–20
+- [x] Every displayed observed/unknown primary anchor receives a bounded 5–20
   line lens including the anchored range and deterministic context window.
-- [ ] Source outside the captured manifest, changed source, invalid ranges, and
+- [x] Source outside the captured manifest, changed source, invalid ranges, and
   unreadable files produce a typed lens state without exposing unverified text.
-- [ ] Lens output never contains runtime tokens or unrelated repository files.
-- [ ] Timeline/branch DOM ordering and trust labels remain intact while the
+- [x] Lens output never contains runtime tokens or unrelated repository files.
+- [x] Timeline/branch DOM ordering and trust labels remain intact while the
   rendered snippet identifies the route/action/condition code directly.
 
 ### Completion evidence
@@ -709,12 +712,12 @@ Run CodeFlow against one agreed real feature and prepare the CurrentFlow, FlowDe
 
 ### Acceptance criteria
 
-- [ ] The user confirms the starting action and final visible result are correct.
-- [ ] The user confirms important branches and state transitions are present and correctly ordered.
-- [ ] The user confirms default code lenses expose the code that actually explains each step.
-- [ ] The user confirms FlowDelta has useful signal without file-diff noise.
-- [ ] Every uncertain or out-of-scope boundary remains visibly unknown.
-- [ ] The same feature reconstructed without session evidence has the same FactSet and BehaviorFlow.
+- [x] The user confirms the starting action and final visible result are correct.
+- [x] The user confirms important branches and state transitions are present and correctly ordered.
+- [x] The user confirms default code lenses expose the code that actually explains each step.
+- [x] The user confirms FlowDelta has useful signal without file-diff noise.
+- [x] Every uncertain or out-of-scope boundary remains visibly unknown.
+- [x] The same feature reconstructed without session evidence has the same FactSet and BehaviorFlow.
 
 ### Completion evidence
 
@@ -743,11 +746,11 @@ Package the Core, Dart adapter, and FlowView assets so `open` diagnoses prerequi
 
 ### Acceptance criteria
 
-- [ ] A signed release binary or Homebrew artifact installs without modifying product source files.
-- [ ] `codeflow open <feature>` starts or reuses Core, validates dependencies, resolves the feature, publishes the flow, and opens its authenticated local view.
-- [ ] `serve` remains available for explicit persistent control, while `analyze`, `diff`, and `refresh` work without watcher history.
-- [ ] Core, schema, CodeGraph contract, Dart adapter, and packaged assets participate in the version handshake.
-- [ ] Installation, update, launch, or compatibility failure leaves no false ready state and provides remediation.
+- [x] A relocatable local package installs without modifying product source files; signed release and Homebrew distribution remain deferred by explicit decision.
+- [x] `codeflow open <feature>` starts or reuses Core, validates dependencies, resolves the feature, publishes the flow, and opens its authenticated local view.
+- [x] `serve` remains available for explicit persistent control, while `analyze`, `diff`, and `refresh` work without watcher history.
+- [x] Core, schema, CodeGraph contract, Dart adapter, and packaged assets participate in the version handshake.
+- [x] Installation, update, launch, or compatibility failure leaves no false ready state and provides remediation.
 
 ### Completion evidence
 
@@ -776,11 +779,11 @@ Package a thin Skill, MCP configuration, Core discovery, FlowView assets, and op
 
 ### Acceptance criteria
 
-- [ ] The Skill uses current flow for understanding, diff for review, and opens FlowView only when requested.
-- [ ] Agent responses preserve trust states and explicitly carry unknowns rather than completing them with model inference.
-- [ ] The plugin discovers `codeflow` through PATH or explicit configuration and reports incompatible versions clearly.
-- [ ] Optional session hooks only request refresh or import supported evidence; failure does not affect current-state reconstruction.
-- [ ] The package contains no duplicate scanner, compiler, evidence, or delta implementation.
+- [x] The Skill uses current flow for understanding, diff for review, and opens FlowView only when requested.
+- [x] Agent responses preserve trust states and explicitly carry unknowns rather than completing them with model inference.
+- [x] The plugin discovers `codeflow` through PATH or explicit configuration and reports incompatible versions clearly.
+- [x] Optional session hooks only request refresh or import supported evidence; failure does not affect current-state reconstruction.
+- [x] The package contains no duplicate scanner, compiler, evidence, or delta implementation.
 
 ### Completion evidence
 
@@ -850,7 +853,7 @@ deployment, release signing, or marketplace distribution.
 
 **Type:** AFK
 **Blocked by:** CF-G10, CF-G13, CF-G16
-**Status:** Ready for implementation — design direction approved
+**Status:** Completed — implemented and locally verified (2026-08-19)
 
 ### Goal
 
@@ -874,33 +877,33 @@ detail-card header level.
 
 ### Acceptance criteria
 
-- [ ] A public CLI accepts repeated selectors and rejects empty, duplicate, or
+- [x] A public CLI accepts repeated selectors and rejects empty, duplicate, or
   ambiguous selectors with typed remediation.
-- [ ] All requested flows share the exact repository, revision, manifest and
+- [x] All requested flows share the exact repository, revision, manifest and
   worktree fingerprint; a changing workspace never publishes a mixed batch.
-- [ ] Compilation shares manifest capture and one initialized Dart Analyzer
+- [x] Compilation shares manifest capture and one initialized Dart Analyzer
   session while preserving per-flow validation and unknown boundaries.
-- [ ] Batch publication is atomic: readers see the complete previous or complete
+- [x] Batch publication is atomic: readers see the complete previous or complete
   new flow set, never a partial set.
-- [ ] Only an observed visible result and a same-Basis current entry point create
+- [x] Only an observed visible result and a same-Basis current entry point create
   an observed cross-flow edge.
-- [ ] The screen flow map selects one flow; the architecture map, vertical
+- [x] The screen flow map selects one flow; the architecture map, vertical
   timeline, detail card, branch outcomes, and previous/next controls share one
   bidirectional selection state.
-- [ ] `VS Code에서 열기` remains a primary detail action and follows that shared
+- [x] `VS Code에서 열기` remains a primary detail action and follows that shared
   selection to the exact verified file, line, and column; stale or unavailable
   lenses expose no editor URI and explain why the source cannot be opened.
-- [ ] The vertical timeline retains current visual semantics, clearly breaks
+- [x] The vertical timeline retains current visual semantics, clearly breaks
   mutually exclusive branches, and gives state-changing steps an unmistakable
   ring without relying on color.
-- [ ] Single-flow usage remains the same simple command and renders through the
+- [x] Single-flow usage remains the same simple command and renders through the
   same reusable workspace components without a separate forked template.
-- [ ] The workspace works at 320px, 736px and 1024px, with large text, keyboard,
+- [x] The workspace works at 320px, 736px and 1024px, with large text, keyboard,
   screen reader and reduced-motion checks.
-- [ ] Up to three supported flows meet the 25-second local MVP target without
+- [x] Up to three supported flows meet the 25-second local MVP target without
   weakening evidence validation; a timeout preserves the last consistent batch.
-- [ ] MCP can request and open a flow set while retaining current per-flow tools
-  and unchanged CodeFlow response trust semantics.
+- [x] MCP can request and open a flow set while retaining current per-flow tools
+  and the same CodeFlow trust semantics in a compact, non-duplicated projection.
 
 ### Completion evidence
 
@@ -919,6 +922,207 @@ detail-card header level.
 
 Merging steps from different flows into one timeline, cross-revision flow maps,
 runtime trace collection, product-source editing, deployment, or color themes.
+
+---
+
+## Remaining review backlog after the v0.1 pin
+
+These are the important follow-up tickets that remain after the local 0.1 pin
+and the completed tracer-bullet implementation set above.
+
+### CF-G18 — Make FlowView read like a causal review surface
+
+**Type:** HITL
+**Blocked by:** None
+**Status:** Open
+
+### Goal
+
+A reviewer can scan the screen and immediately understand which code change
+caused which state change, which visible result followed, and which branches or
+unknowns still need attention.
+
+### What to build
+
+Refine the existing monochrome FlowView so the vertical timeline, architecture
+causal map, code lens, and detail card feel like one review surface instead of
+separate panels. Keep the current `VS Code에서 열기` action, make state changes
+visibly stronger than plain labels, and rewrite unresolved items in user-facing
+language.
+
+### Acceptance criteria
+
+- [ ] Timeline selection and architecture selection stay bidirectionally linked.
+- [ ] The code view keeps a natural left alignment and makes the current anchor
+      line easy to spot.
+- [ ] State changes are visually stronger than neutral metadata and are easy to
+      compare step to step.
+- [ ] Unknowns explain what is missing and what evidence would resolve them in
+      plain language.
+- [ ] Desktop and mobile views both keep the timeline readable without hiding
+      the review controls.
+
+### Completion evidence
+
+- A final design review sample matches the updated review language and layout.
+- Browser-level tests prove selection sync, no horizontal overflow, and intact
+  code-lens links.
+
+### Non-goals
+
+New analysis capability, deployment, or color-theme exploration.
+
+### CF-G19 — Keep multi-flow workspaces visually consistent
+
+**Type:** AFK
+**Blocked by:** None
+**Status:** Open
+
+### Goal
+
+When several related screens are requested together, the workspace keeps one
+coherent template and one interaction model across all flows.
+
+### What to build
+
+Reinforce the shared workspace shell so repeated selectors, screen switching,
+and detail navigation always behave the same way regardless of how many flows
+are open. The shell should reuse the same verified layout and not drift into
+different ad hoc variants for different flow counts.
+
+### Acceptance criteria
+
+- [ ] Single-flow and multi-flow requests render through the same workspace
+      template.
+- [ ] Flow selection stays synchronized across the screen map, architecture
+      map, timeline, and detail card.
+- [ ] Multiple flows reuse one basis and one analyzer session where possible.
+- [ ] A mixed snapshot can never appear when the workspace updates.
+- [ ] The same visible controls appear in the same places for one flow or many.
+
+### Completion evidence
+
+- A local multi-flow fixture shows the same shell and selection behavior across
+  different flow counts.
+- Tests cover repeated selectors, switching, and no mixed publication.
+
+### Non-goals
+
+Historical replay, full-screen portfolio views, or per-project theming.
+
+### CF-G20 — Keep `.codeflow/cache` lean and disposable
+
+**Type:** AFK
+**Blocked by:** None
+**Status:** Open
+
+### Goal
+
+The cache only holds artifacts that materially speed up local reuse, and users
+can tell what remains safe to delete.
+
+### What to build
+
+Audit the cache layout, define which artifacts are required for runtime reuse,
+and add a cleanup policy for stale or superseded data. The policy should keep
+the current flow experience intact while preventing old lenses, obsolete
+baselines, and abandoned workspace state from growing without bound.
+
+### Acceptance criteria
+
+- [ ] The cache contents are documented by purpose, not just by file name.
+- [ ] Stale or superseded cache entries can be removed without breaking active
+      flows.
+- [ ] A repeatable size check makes cache growth visible over time.
+- [ ] Cleanup preserves the current runtime and open view behavior.
+- [ ] The local experience still starts quickly after cache cleanup.
+
+### Completion evidence
+
+- A cleanup or audit command reports what is kept, what can be deleted, and
+  why.
+- Tests prove cleanup does not corrupt a live runtime or current flow.
+
+### Non-goals
+
+Remote cache syncing, build artifact deduplication, or package-manager cache
+policy.
+
+### CF-G21 — Minimize runtime unknowns with explicit evidence
+
+**Type:** HITL
+**Blocked by:** None
+**Status:** Open
+
+### Goal
+
+Unknowns stay small, readable, and intentional, especially when a result depends
+on runtime behavior that static code alone cannot prove.
+
+### What to build
+
+Clarify which unknowns come from runtime-only effects such as dependency
+injection, server responses, or dynamic dispatch, and define the smallest
+evidence needed to turn each one into a confirmed result. The product should
+never pretend that static Dart AST alone can prove runtime truth, but it should
+also avoid keeping unknowns around when better evidence is available.
+
+### Acceptance criteria
+
+- [ ] Unknown labels are written in user language instead of protocol jargon.
+- [ ] Static evidence and runtime evidence remain separate sources of truth.
+- [ ] Any runtime upgrade path is explicit and deterministic.
+- [ ] The review surface explains why a step is still unknown and what would
+      reduce that uncertainty.
+- [ ] The system keeps the number of open unknowns as low as the available
+      evidence allows.
+
+### Completion evidence
+
+- A review of a real flow shows fewer, better-explained unknowns than the
+  current state.
+- Tests prove unknowns are not upgraded without their required evidence.
+
+### Non-goals
+
+Guessing runtime behavior, executing the app for every step, or storing raw
+session logs as the primary truth source.
+
+### CF-G22 — Make local setup and first run obvious
+
+**Type:** AFK
+**Blocked by:** None
+**Status:** Open
+
+### Goal
+
+A new local user can install and run CodeFlow without reading the full design
+spec first.
+
+### What to build
+
+Add a short, practical quickstart that covers local installation, the verified
+`0.1` release line, the core commands for `doctor`, `analyze`, `serve`, and
+`open`, and the expectation that deployment is not part of the default path.
+Keep the wording concise enough that the first-run path is obvious.
+
+### Acceptance criteria
+
+- [ ] README or local usage docs show a minimal install and run sequence.
+- [ ] The docs explain the local-only workflow and the `0.1` version pin.
+- [ ] The example commands match the verified local usage path.
+- [ ] A new user can reach a readable FlowView without hunting across multiple
+      documents.
+- [ ] The first-run instructions do not imply deployment is required.
+
+### Completion evidence
+
+- A fresh local reader can follow the documented commands end to end.
+- The docs and the code agree on the visible default local workflow.
+
+### Non-goals
+
+Release signing, production hosting, or remote deployment instructions.
 
 ---
 
