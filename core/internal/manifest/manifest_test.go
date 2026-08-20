@@ -65,6 +65,60 @@ func TestCaptureClassifiesGitStatesAndEvidence(t *testing.T) {
 	}
 }
 
+func TestCaptureExcludesLocalToolStateWithoutDroppingProductSource(t *testing.T) {
+	repo := initRepository(t)
+	write(t, repo, "lib/feature.dart", "void feature() {}\n")
+	for _, path := range []string{
+		".venv/lib/python/site.py",
+		"packages/app/.dart_tool/package_config.json",
+		"packages/app/build/output.bin",
+		".codegraph/index.json",
+		".flow-trace/events.jsonl",
+		".codex/session.json",
+		".claude/settings.json",
+		".tasks/local.md",
+		".brv/cache.json",
+		".vscode/settings.json",
+		".DS_Store",
+	} {
+		write(t, repo, path, "local-only")
+	}
+	git(t, repo, "add", "-f", ".")
+	git(t, repo, "-c", "user.email=test@example.test", "-c", "user.name=Test", "commit", "-qm", "initial")
+	if err := os.Remove(filepath.Join(repo, ".venv/lib/python/site.py")); err != nil {
+		t.Fatal(err)
+	}
+
+	basis, err := Capture(repo)
+	if err != nil {
+		t.Fatal(err)
+	}
+	entries := byPath(basis.Manifest)
+	if _, ok := entries["lib/feature.dart"]; !ok {
+		t.Fatal("product source was excluded")
+	}
+	for _, path := range []string{
+		".venv/lib/python/site.py",
+		"packages/app/.dart_tool/package_config.json",
+		"packages/app/build/output.bin",
+		".codegraph/index.json",
+		".flow-trace/events.jsonl",
+		".codex/session.json",
+		".claude/settings.json",
+		".tasks/local.md",
+		".brv/cache.json",
+		".vscode/settings.json",
+		".DS_Store",
+	} {
+		if _, ok := entries[path]; ok {
+			t.Fatalf("local tool path %q was captured", path)
+		}
+	}
+	if basis.Dirty {
+		t.Fatal("changes confined to excluded local tool state must not dirty the product basis")
+	}
+}
+
 func TestCaptureRetriesOnceAndRejectsContinualMutation(t *testing.T) {
 	repo := initRepository(t)
 	write(t, repo, "file.txt", "one")
@@ -90,6 +144,17 @@ func TestCaptureRetriesOnceAndRejectsContinualMutation(t *testing.T) {
 	}})
 	if !errors.Is(err, ErrChanging) {
 		t.Fatalf("err=%v, want changing", err)
+	}
+}
+
+func TestExcludedKeepsRemovedToolDirectoriesOutsideWatcherBoundary(t *testing.T) {
+	for _, path := range []string{".codeflow", "build", "packages/app/.dart_tool"} {
+		if !Excluded(path, false) {
+			t.Fatalf("removed tool directory %q was treated as product input", path)
+		}
+	}
+	if Excluded("lib", false) || Excluded("lib/feature.dart", false) {
+		t.Fatal("product source was excluded from watcher boundary")
 	}
 }
 

@@ -15,6 +15,8 @@ import 'package:analyzer/dart/ast/visitor.dart';
 import 'package:analyzer/dart/element/element.dart';
 
 const protocol = '1';
+final Map<String, AnalysisContextCollection> _analysisContexts = {};
+const _analysisContextsPerRepository = 4;
 
 Future<void> main(List<String> args) async {
   if (args.length == 1 && args[0] == '--probe') {
@@ -92,6 +94,9 @@ Future<void> main(List<String> args) async {
             params['repository'] as String,
             params['flow_id'] as String,
             (params['paths'] as List).whereType<String>().toList(),
+            ((params['analysis_paths'] as List?) ?? params['paths'] as List)
+                .whereType<String>()
+                .toList(),
           ),
         });
       } else if (method == 'shutdown') {
@@ -113,38 +118,66 @@ Future<List<Map<String, Object>>> _refine(
   String root,
   String flowId,
   List<String> paths,
+  List<String> analysisPaths,
 ) async {
   final facts = <Map<String, Object>>[];
   final sources = <String, String>{};
   final units = <String, CompilationUnit>{};
-  final analysis = AnalysisContextCollection(includedPaths: [root]);
+  // One long-lived adapter process owns one analyzer context per repository.
+  // Multi-flow compilation therefore pays package resolution once while each
+  // flow still receives an independently verified source slice.
+  final includedPaths =
+      analysisPaths
+          .where((path) => path.endsWith('.dart') && !path.startsWith('../'))
+          .map(
+            (path) =>
+                '$root${Platform.pathSeparator}${path.replaceAll('/', Platform.pathSeparator)}',
+          )
+          .toSet()
+          .toList()
+        ..sort();
+  if (includedPaths.isEmpty) return facts;
+  final analysisKey = '$root\u0000${includedPaths.join('\u0000')}';
+  var analysis = _analysisContexts[analysisKey];
+  if (analysis == null) {
+    // A long-running Core may see several bounded graph slices as files are
+    // added or flows are refreshed. Keep useful Analyzer contexts warm without
+    // retaining every historical path set for the lifetime of the process.
+    final repositoryPrefix = '$root\u0000';
+    final repositoryKeys = _analysisContexts.keys
+        .where((key) => key.startsWith(repositoryPrefix))
+        .toList();
+    while (repositoryKeys.length >= _analysisContextsPerRepository) {
+      final oldest = repositoryKeys.removeAt(0);
+      _analysisContexts.remove(oldest)?.dispose();
+    }
+    analysis = AnalysisContextCollection(
+      includedPaths: includedPaths,
+      sdkPath: _dartSdkPath(),
+    );
+    _analysisContexts[analysisKey] = analysis;
+  }
+  final activeAnalysis = analysis;
   final contracts = await _externalContracts(root);
-  final hasHomeDestinationSeam = await _hasHomeDestinationSeam(root, paths);
   // Resolve the complete validated slice first. This lets route ownership be
   // established before any callback is admitted.
-  for (final relative in paths.toSet()) {
-    if (!relative.endsWith('.dart') || relative.startsWith('../')) continue;
-    final file = File(
-      '$root${Platform.pathSeparator}${relative.replaceAll('/', Platform.pathSeparator)}',
-    );
-    if (!await file.exists()) continue;
-    final bytes = await file.readAsBytes();
-    final source = utf8.decode(bytes);
-    CompilationUnit? resolvedUnit;
-    try {
-      final result = await analysis
-          .contextFor(file.path)
-          .currentSession
-          .getResolvedUnit(file.path);
-      if (result is ResolvedUnitResult) resolvedUnit = result.unit;
-    } catch (_) {
-      // A syntax tree may still help discovery, but it is never allowed to
-      // create an observed callback/call relationship. Those facts require a
-      // resolved element below.
-    }
-    sources[relative] = source;
-    if (resolvedUnit != null) units[relative] = resolvedUnit;
+  final flowPaths =
+      paths
+          .where((path) => path.endsWith('.dart') && !path.startsWith('../'))
+          .toSet()
+          .toList()
+        ..sort();
+  // Independent package analysis drivers can resolve their files in parallel.
+  // Results are reinserted in path order so fact generation stays byte-for-byte
+  // deterministic even when completion order differs.
+  final resolved = await Future.wait(
+    flowPaths.map((relative) => _resolveSource(activeAnalysis, root, relative)),
+  );
+  for (final result in resolved.whereType<_ResolvedSource>()) {
+    sources[result.relative] = result.source;
+    if (result.unit != null) units[result.relative] = result.unit!;
   }
+  final causality = _ResolvedCausality(sources, units);
   final selectedOwners = _selectedRouteOwners(flowId, sources, units);
   for (final entry in units.entries) {
     final relative = entry.key;
@@ -169,17 +202,18 @@ Future<List<Map<String, Object>>> _refine(
           source,
           press.start,
           press.end,
-          'resolved_ast:onPressed:$actionSymbol',
+          'resolved_ast:${press.trigger}:$actionSymbol',
           proof: 'resolved_ast',
           symbolId: actionSymbol,
         ),
       );
       final body = press.body;
-      if (hasHomeDestinationSeam) {
-        facts.addAll(
-          _homeDestinationTransitions(actionSymbol, relative, source, body),
-        );
-      }
+      facts.addAll(
+        causality.routeTransitions(actionSymbol, relative, source, body),
+      );
+      facts.addAll(
+        causality.eventChainFacts(actionSymbol, relative, source, body),
+      );
       facts.addAll(_riverpodFacts(source, relative, owner, actionSymbol, body));
       facts.addAll(
         _boundaryFacts(source, relative, actionSymbol, body, contracts),
@@ -218,16 +252,22 @@ Future<List<Map<String, Object>>> _refine(
           source,
         );
         if (targetBody != null) {
-          if (hasHomeDestinationSeam) {
-            facts.addAll(
-              _homeDestinationTransitions(
-                targetSymbol,
-                relative,
-                source,
-                targetBody,
-              ),
-            );
-          }
+          facts.addAll(
+            causality.routeTransitions(
+              targetSymbol,
+              relative,
+              source,
+              targetBody,
+            ),
+          );
+          facts.addAll(
+            causality.eventChainFacts(
+              targetSymbol,
+              relative,
+              source,
+              targetBody,
+            ),
+          );
           facts.addAll(
             _riverpodFacts(source, relative, owner, actionSymbol, targetBody),
           );
@@ -243,48 +283,11 @@ Future<List<Map<String, Object>>> _refine(
           facts.addAll(
             _controlFacts(targetSymbol, relative, source, targetBody),
           );
-          final nav = RegExp(
-            r'''(?:context\s*\.\s*(?:go|push)|GoRouter\.of\s*\(\s*context\s*\)\s*\.\s*(?:go|push))\s*\(\s*['"](/[^'"]+)['"]''',
-          ).firstMatch(targetBody.text);
-          if (nav != null) {
-            final pos = targetBody.start + nav.start;
-            facts.add(
-              _fact(
-                'route_transition',
-                targetSymbol,
-                'route:${nav.group(1)!}',
-                relative,
-                source,
-                pos,
-                targetBody.start + nav.end,
-                'go_router:transition:${nav.group(1)!}',
-              ),
-            );
-          }
         }
       }
       facts.addAll(_controlFacts(actionSymbol, relative, source, body));
-      final direct = RegExp(
-        r'''(?:context\s*\.\s*(?:go|push)|GoRouter\.of\s*\(\s*context\s*\)\s*\.\s*(?:go|push))\s*\(\s*['"](/[^'"]+)['"]''',
-      ).firstMatch(body.text);
-      if (direct != null) {
-        final pos = body.start + direct.start;
-        facts.add(
-          _fact(
-            'route_transition',
-            actionSymbol,
-            'route:${direct.group(1)!}',
-            relative,
-            source,
-            pos,
-            body.start + direct.end,
-            'go_router:transition:${direct.group(1)!}',
-          ),
-        );
-      }
     }
   }
-  facts.addAll(_joinCancelChain(sources));
   final unique = <String, Map<String, Object>>{};
   for (final fact in facts) {
     unique['${fact['kind']}:${fact['subject']}:${fact['object']}:${(fact['anchor'] as Map)['byte_start']}'] =
@@ -299,201 +302,899 @@ Future<List<Map<String, Object>>> _refine(
   return result;
 }
 
-// Bounded CF-G13E event chain. Every pattern is intentionally exact and all
-// involved files must have been supplied by the validated graph slice. This
-// does not model arbitrary async Riverpod behavior.
-List<Map<String, Object>> _joinCancelChain(Map<String, String> sources) {
-  final results = <Map<String, Object>>[];
-  final pageMatches = <_CancelPage>[];
-  for (final entry in sources.entries) {
-    final source = entry.value;
-    final dispatch = RegExp(
-      r'ref\s*\.\s*dispatch\s*\(\s*joinControllerProvider\s*,\s*const\s+JoinCancelEvent\s*\(\s*\)\s*\)',
-    ).firstMatch(source);
-    final confirmation = RegExp(
-      r'if\s*\(\s*!mounted\s*\|\|\s*confirmed\s*!=\s*true\s*\)\s*return\s*;',
-    ).firstMatch(source);
-    final listener = RegExp(
-      r'if\s*\(\s*state\.isCanceled\s*\)\s*\{\s*GoRouter\.of\s*\(\s*context\s*\)\s*\.\s*go\s*\(\s*authPath\s*\)\s*;',
-    ).firstMatch(source);
-    final owner = RegExp(r'class\s+(\w+)').firstMatch(source)?.group(1);
-    if (dispatch != null &&
-        confirmation != null &&
-        listener != null &&
-        owner != null) {
-      pageMatches.add(
-        _CancelPage(entry.key, source, owner, dispatch, confirmation, listener),
+class _ResolvedSource {
+  final String relative;
+  final String source;
+  final CompilationUnit? unit;
+  const _ResolvedSource(this.relative, this.source, this.unit);
+}
+
+Future<_ResolvedSource?> _resolveSource(
+  AnalysisContextCollection analysis,
+  String root,
+  String relative,
+) async {
+  final file = File(
+    '$root${Platform.pathSeparator}${relative.replaceAll('/', Platform.pathSeparator)}',
+  );
+  if (!await file.exists()) return null;
+  final source = utf8.decode(await file.readAsBytes());
+  CompilationUnit? resolvedUnit;
+  try {
+    final result = await analysis
+        .contextFor(file.path)
+        .currentSession
+        .getResolvedUnit(file.path);
+    if (result is ResolvedUnitResult) resolvedUnit = result.unit;
+  } catch (_) {
+    // A syntax tree may still help discovery, but it is never allowed to
+    // create an observed callback/call relationship. Those facts require a
+    // resolved element below.
+  }
+  return _ResolvedSource(relative, source, resolvedUnit);
+}
+
+String? _dartSdkPath() {
+  final candidates = <String>[];
+  final configured = Platform.environment['DART_SDK'];
+  if (configured != null && configured.isNotEmpty) candidates.add(configured);
+  final flutter = Platform.environment['FLUTTER_ROOT'];
+  if (flutter != null && flutter.isNotEmpty) {
+    candidates.add(
+      '$flutter${Platform.pathSeparator}bin${Platform.pathSeparator}cache${Platform.pathSeparator}dart-sdk',
+    );
+  }
+  candidates.add(_sdkRootForExecutable(Platform.resolvedExecutable));
+  final executableName = Platform.isWindows ? 'dart.exe' : 'dart';
+  for (final directory in (Platform.environment['PATH'] ?? '').split(
+    Platform.isWindows ? ';' : ':',
+  )) {
+    if (directory.isEmpty) continue;
+    final executable = File(
+      '$directory${Platform.pathSeparator}$executableName',
+    );
+    if (executable.existsSync()) {
+      candidates.add(_sdkRootForExecutable(executable.path));
+      // Flutter's bin/dart is a launcher script rather than a symlink. Its
+      // actual SDK is the adjacent bin/cache/dart-sdk directory.
+      candidates.add(
+        '${executable.parent.path}${Platform.pathSeparator}cache${Platform.pathSeparator}dart-sdk',
       );
+      break;
     }
   }
-  if (pageMatches.length != 1) return results;
-  final page = pageMatches.single;
-  final controllerMatches = sources.entries
-      .where(
-        (entry) =>
-            RegExp(
-              r'case\s+final\s+JoinCancelEvent\s+\w+\s*:\s*await\s+_onJoinCancel\s*\(',
-            ).hasMatch(entry.value) &&
-            RegExp(
-              r'state\s*=\s*const\s+AsyncData\s*\(\s*JoinState\s*\(\s*isCanceled\s*:\s*true\s*\)\s*\)\s*;',
-            ).hasMatch(entry.value),
-      )
-      .toList();
-  final authMatches = sources.entries
-      .where(
-        (entry) => RegExp(
-          r'''const\s+String\s+authPath\s*=\s*['"]\/auth['"]''',
-        ).hasMatch(entry.value),
-      )
-      .toList();
-  if (controllerMatches.length != 1 || authMatches.length != 1) return results;
-  final controller = controllerMatches.single;
-  final assignment = RegExp(
-    r'state\s*=\s*const\s+AsyncData\s*\(\s*JoinState\s*\(\s*isCanceled\s*:\s*true\s*\)\s*\)\s*;',
-  ).firstMatch(controller.value)!;
-  results.add(
-    _fact(
-      'confirmation_condition',
-      '${page.owner}._requestExit',
-      'confirmed == true',
-      page.path,
-      page.source,
-      page.confirmation.start,
-      page.confirmation.end,
-      'dart:confirm:JoinCancelEvent',
-    ),
-  );
-  // The guard has an explicit `return`, so its negative outcome is not an
-  // unknown destination. It is a source-backed terminal result: this action
-  // performs no navigation (cancel declined, or the widget is already gone).
-  results.add(
-    _fact(
-      'terminal_result',
-      '${page.owner}._requestExit',
-      'result:no_navigation',
-      page.path,
-      page.source,
-      page.confirmation.start,
-      page.confirmation.end,
-      'dart:terminal:return_without_navigation',
-    ),
-  );
-  results.add(
-    _fact(
-      'event_dispatch',
-      '${page.owner}._requestExit',
-      'event:JoinCancelEvent',
-      page.path,
-      page.source,
-      page.dispatch.start,
-      page.dispatch.end,
-      'riverpod:dispatch:joinControllerProvider:JoinCancelEvent',
-    ),
-  );
-  results.add(
-    _fact(
-      'notifier_state_transition',
-      'provider:joinControllerProvider',
-      'state:JoinState.isCanceled=true',
-      controller.key,
-      controller.value,
-      assignment.start,
-      assignment.end,
-      'riverpod:event_state:JoinCancelEvent:isCanceled',
-    ),
-  );
-  results.add(
-    _fact(
-      'listener_condition',
-      '${page.owner}._onWizardSettled',
-      'state.isCanceled',
-      page.path,
-      page.source,
-      page.listener.start,
-      page.listener.start + page.listener.group(0)!.indexOf('GoRouter'),
-      'dart:listener_condition:isCanceled',
-    ),
-  );
-  final navStart =
-      page.listener.start + page.listener.group(0)!.indexOf('GoRouter');
-  results.add(
-    _fact(
-      'route_transition',
-      '${page.owner}._onWizardSettled',
-      'route:/auth',
-      page.path,
-      page.source,
-      navStart,
-      page.listener.end,
-      'go_router:listener:authPath:/auth',
-    ),
-  );
-  return results;
+  for (final candidate in candidates.toSet()) {
+    final libraries = File(
+      '$candidate${Platform.pathSeparator}lib${Platform.pathSeparator}_internal${Platform.pathSeparator}sdk_library_metadata${Platform.pathSeparator}lib${Platform.pathSeparator}libraries.dart',
+    );
+    if (libraries.existsSync()) return candidate;
+  }
+  return null;
 }
 
-class _CancelPage {
-  final String path, source, owner;
-  final RegExpMatch dispatch, confirmation, listener;
-  _CancelPage(
+String _sdkRootForExecutable(String executable) {
+  try {
+    return File(File(executable).resolveSymbolicLinksSync()).parent.parent.path;
+  } catch (_) {
+    return File(executable).parent.parent.path;
+  }
+}
+
+// Resolved causality is a deep module behind one small interface: given an
+// already selected action body, return only source-backed navigation and
+// event→state→listener facts. Product names never enter this implementation.
+// Candidate slicing happens in Core; every relationship below additionally
+// requires Analyzer elements from the exact supplied source slice.
+class _ResolvedCausality {
+  final Map<String, String> sources;
+  final Map<String, CompilationUnit> units;
+  final Map<String, _RouteConstant> _routeConstants = {};
+  final Map<String, _RouteConstant> _destinationRoutes = {};
+  final Map<String, _LocatedBody> _executables = {};
+
+  _ResolvedCausality(this.sources, this.units) {
+    _indexExecutables();
+    _indexRouteConstants();
+    _indexDestinationRoutes();
+  }
+
+  List<Map<String, Object>> routeTransitions(
+    String subject,
+    String path,
+    String source,
+    _Body body,
+  ) {
+    final unit = units[path];
+    if (unit == null) return [];
+    final visitor = _ResolvedNavigationVisitor(
+      body.start,
+      body.start + body.text.length,
+      _routeConstants,
+      _destinationRoutes,
+    );
+    unit.accept(visitor);
+    return visitor.navigation
+        .map(
+          (item) => _fact(
+            'route_transition',
+            subject,
+            'route:${item.route}',
+            path,
+            source,
+            item.start,
+            item.end,
+            item.fingerprint,
+            proof: item.proof,
+            symbolId: item.symbolId,
+          ),
+        )
+        .toList();
+  }
+
+  List<Map<String, Object>> eventChainFacts(
+    String subject,
+    String path,
+    String source,
+    _Body body,
+  ) {
+    final unit = units[path];
+    if (unit == null) return [];
+    final dispatchVisitor = _DispatchVisitor(
+      body.start,
+      body.start + body.text.length,
+    );
+    unit.accept(dispatchVisitor);
+    final chains = <_ResolvedEventChain>[];
+    for (final dispatch in dispatchVisitor.dispatches) {
+      final state = _uniqueStateTransition(dispatch.eventTypeSymbol);
+      if (state == null) continue;
+      final listener = _uniqueListenerTransition(
+        dispatch.providerSymbol,
+        state,
+      );
+      if (listener == null) continue;
+      final guard = _lastTerminalGuard(unit, body, dispatch.start);
+      if (guard == null) continue;
+      chains.add(_ResolvedEventChain(dispatch, state, listener, guard));
+    }
+    if (chains.length != 1) return [];
+    final chain = chains.single;
+    final eventName = chain.dispatch.eventType.displayName;
+    final providerName = chain.dispatch.provider.displayName;
+    final stateName = chain.state.stateType.displayName;
+    final listenerSubject = chain.listener.body.symbol;
+    return [
+      _fact(
+        'confirmation_condition',
+        subject,
+        chain.guard.condition.toSource(),
+        path,
+        source,
+        chain.guard.start,
+        chain.guard.end,
+        'resolved_ast:terminal_guard:$subject:${chain.guard.condition.toSource()}',
+        proof: 'resolved_ast',
+        symbolId: subject,
+      ),
+      _fact(
+        'terminal_result',
+        subject,
+        'result:no_navigation',
+        path,
+        source,
+        chain.guard.start,
+        chain.guard.end,
+        'resolved_ast:return_without_navigation:$subject',
+        proof: 'resolved_ast',
+        symbolId: subject,
+      ),
+      _fact(
+        'event_dispatch',
+        subject,
+        'event:$eventName',
+        path,
+        source,
+        chain.dispatch.start,
+        chain.dispatch.end,
+        'resolved_ast:dispatch:${chain.dispatch.providerSymbol}:${chain.dispatch.eventTypeSymbol}',
+        proof: 'resolved_ast',
+        symbolId: chain.dispatch.eventTypeSymbol,
+      ),
+      _fact(
+        'notifier_state_transition',
+        'provider:$providerName',
+        'state:$stateName.${chain.state.field}=${chain.state.value}',
+        chain.state.body.path,
+        chain.state.body.source,
+        chain.state.start,
+        chain.state.end,
+        'resolved_ast:event_state:${chain.dispatch.eventTypeSymbol}:${chain.state.stateTypeSymbol}:${chain.state.field}=${chain.state.value}',
+        proof: 'resolved_ast',
+        symbolId: chain.state.body.symbol,
+      ),
+      _fact(
+        'listener_condition',
+        listenerSubject,
+        chain.listener.condition.toSource(),
+        chain.listener.body.path,
+        chain.listener.body.source,
+        chain.listener.condition.offset,
+        chain.listener.condition.end,
+        'resolved_ast:listener:${chain.dispatch.providerSymbol}:${chain.state.stateTypeSymbol}:${chain.state.field}',
+        proof: 'resolved_ast',
+        symbolId: listenerSubject,
+      ),
+      _fact(
+        'route_transition',
+        listenerSubject,
+        'route:${chain.listener.navigation.route}',
+        chain.listener.body.path,
+        chain.listener.body.source,
+        chain.listener.navigation.start,
+        chain.listener.navigation.end,
+        chain.listener.navigation.fingerprint,
+        proof: chain.listener.navigation.proof,
+        symbolId: chain.listener.navigation.symbolId,
+      ),
+    ];
+  }
+
+  void _indexExecutables() {
+    for (final entry in units.entries) {
+      final source = sources[entry.key]!;
+      for (final declaration in entry.value.declarations) {
+        if (declaration is ClassDeclaration) {
+          for (final method
+              in declaration.members.whereType<MethodDeclaration>()) {
+            final element = method.declaredFragment?.element;
+            if (element == null || element.isSynthetic) continue;
+            final symbol = _canonicalSymbol(element);
+            _executables[symbol] = _LocatedBody(
+              entry.key,
+              source,
+              entry.value,
+              symbol,
+              _functionBody(source, method.body),
+            );
+          }
+        } else if (declaration is FunctionDeclaration) {
+          final element = declaration.declaredFragment?.element;
+          if (element == null || element.isSynthetic) continue;
+          final symbol = _canonicalSymbol(element);
+          _executables[symbol] = _LocatedBody(
+            entry.key,
+            source,
+            entry.value,
+            symbol,
+            _functionBody(source, declaration.functionExpression.body),
+          );
+        }
+      }
+    }
+  }
+
+  void _indexRouteConstants() {
+    for (final entry in units.entries) {
+      final source = sources[entry.key]!;
+      final visitor = _ResolvedRouteConstantVisitor(entry.key, source);
+      entry.value.accept(visitor);
+      for (final route in visitor.routes) {
+        _routeConstants[route.symbol] = route;
+      }
+    }
+  }
+
+  void _indexDestinationRoutes() {
+    final candidates = <String, List<_RouteConstant>>{};
+    for (final unit in units.values) {
+      final visitor = _DestinationResolverVisitor(_routeConstants);
+      unit.accept(visitor);
+      for (final entry in visitor.routes.entries) {
+        candidates.putIfAbsent(entry.key, () => []).add(entry.value);
+      }
+    }
+    for (final entry in candidates.entries) {
+      final unique = {
+        for (final route in entry.value)
+          '${route.symbol}\u0000${route.value}': route,
+      };
+      if (unique.length == 1) {
+        _destinationRoutes[entry.key] = unique.values.single;
+      }
+    }
+  }
+
+  _ResolvedStateTransition? _uniqueStateTransition(String eventTypeSymbol) {
+    final found = <_ResolvedStateTransition>[];
+    for (final entry in units.entries) {
+      final visitor = _EventCaseVisitor(eventTypeSymbol);
+      entry.value.accept(visitor);
+      for (final eventCase in visitor.cases) {
+        final direct = _stateTransitionsInRange(
+          _LocatedBody(
+            entry.key,
+            sources[entry.key]!,
+            entry.value,
+            eventTypeSymbol,
+            _Body(
+              eventCase.offset,
+              sources[entry.key]!.substring(eventCase.offset, eventCase.end),
+            ),
+          ),
+        );
+        found.addAll(direct);
+        if (direct.isNotEmpty) continue;
+        final calls = _ResolvedCallVisitor(eventCase.offset, eventCase.end);
+        entry.value.accept(calls);
+        for (final call in calls.calls) {
+          final target = _executables[call];
+          if (target != null) found.addAll(_stateTransitionsInRange(target));
+        }
+      }
+    }
+    final unique = {
+      for (final item in found)
+        '${item.body.path}:${item.start}:${item.end}': item,
+    };
+    return unique.length == 1 ? unique.values.single : null;
+  }
+
+  List<_ResolvedStateTransition> _stateTransitionsInRange(_LocatedBody body) {
+    final visitor = _ResolvedStateAssignmentVisitor(
+      body.body.start,
+      body.body.start + body.body.text.length,
+    );
+    body.unit.accept(visitor);
+    return visitor.transitions
+        .map(
+          (item) => _ResolvedStateTransition(
+            body,
+            item.start,
+            item.end,
+            item.stateType,
+            item.stateTypeSymbol,
+            item.field,
+            item.value,
+          ),
+        )
+        .toList();
+  }
+
+  _ResolvedListenerTransition? _uniqueListenerTransition(
+    String providerSymbol,
+    _ResolvedStateTransition state,
+  ) {
+    final found = <_ResolvedListenerTransition>[];
+    for (final unit in units.values) {
+      final registrations = _ListenRegistrationVisitor(providerSymbol);
+      unit.accept(registrations);
+      for (final symbol in registrations.callbackSymbols) {
+        final body = _executables[symbol];
+        if (body == null) continue;
+        final conditions = _ListenerConditionVisitor(
+          body.body.start,
+          body.body.start + body.body.text.length,
+          state.stateTypeSymbol,
+          state.field,
+        );
+        body.unit.accept(conditions);
+        for (final statement in conditions.statements) {
+          final navigation = _ResolvedNavigationVisitor(
+            statement.thenStatement.offset,
+            statement.thenStatement.end,
+            _routeConstants,
+            _destinationRoutes,
+          );
+          body.unit.accept(navigation);
+          if (navigation.navigation.length == 1) {
+            found.add(
+              _ResolvedListenerTransition(
+                body,
+                statement.expression,
+                navigation.navigation.single,
+              ),
+            );
+          }
+        }
+      }
+    }
+    final unique = {
+      for (final item in found)
+        '${item.body.symbol}:${item.condition.offset}:${item.navigation.route}':
+            item,
+    };
+    return unique.length == 1 ? unique.values.single : null;
+  }
+}
+
+class _LocatedBody {
+  final String path, source, symbol;
+  final CompilationUnit unit;
+  final _Body body;
+  const _LocatedBody(this.path, this.source, this.unit, this.symbol, this.body);
+}
+
+class _RouteConstant {
+  final String path, source, symbol, value;
+  final int start, end;
+  final Element element;
+  const _RouteConstant(
     this.path,
     this.source,
-    this.owner,
-    this.dispatch,
-    this.confirmation,
-    this.listener,
+    this.symbol,
+    this.value,
+    this.start,
+    this.end,
+    this.element,
   );
 }
 
-// This result is emitted only from the action body (or a direct helper body)
-// that contains the dispatcher invocation. Keeping the subject tied to that
-// body lets Core attach a source-backed condition branch rather than showing a
-// route outcome as unconditional for every action on the page.
-List<Map<String, Object>> _homeDestinationTransitions(
-  String subject,
-  String path,
-  String source,
-  _Body body,
-) {
-  return RegExp(
-        r'routeDestinationDispatcherProvider\)\s*\.\s*go\s*\(\s*const\s+HomeDestination\s*\(\s*\)\s*\)',
-      )
-      .allMatches(body.text)
-      .map(
-        (match) => _fact(
-          'route_transition',
-          subject,
-          'route:/home',
+class _ResolvedRouteConstantVisitor extends RecursiveAstVisitor<void> {
+  final String path, source;
+  final List<_RouteConstant> routes = [];
+  _ResolvedRouteConstantVisitor(this.path, this.source);
+
+  @override
+  void visitVariableDeclaration(VariableDeclaration node) {
+    final value = node.initializer;
+    final parent = node.parent;
+    final element = node.declaredFragment?.element;
+    if (value is SimpleStringLiteral &&
+        value.value.startsWith('/') &&
+        parent is VariableDeclarationList &&
+        parent.keyword?.lexeme == 'const' &&
+        element != null) {
+      routes.add(
+        _RouteConstant(
           path,
           source,
-          body.start + match.start,
-          body.start + match.end,
-          'route_destination:HomeDestination:/home',
+          _canonicalSymbol(element),
+          value.value,
+          node.offset,
+          node.end,
+          element,
         ),
-      )
-      .toList();
+      );
+    }
+    super.visitVariableDeclaration(node);
+  }
 }
 
-Future<bool> _hasHomeDestinationSeam(String root, List<String> paths) async {
-  var dispatcher = false, resolver = false, home = false;
-  for (final relative in paths) {
-    final file = File(
-      '$root${Platform.pathSeparator}${relative.replaceAll('/', Platform.pathSeparator)}',
-    );
-    if (!await file.exists()) continue;
-    final source = utf8.decode(await file.readAsBytes());
-    dispatcher =
-        dispatcher ||
-        source.contains('_router.go(resolveDestination(destination))');
-    resolver =
-        resolver ||
-        RegExp(r'HomeDestination\s*\(\s*\)\s*=>\s*homePath').hasMatch(source);
-    home =
-        home ||
-        RegExp(
-          r'''const\s+String\s+homePath\s*=\s*['"]\/home['"]''',
-        ).hasMatch(source);
+class _DestinationResolverVisitor extends RecursiveAstVisitor<void> {
+  final Map<String, _RouteConstant> constants;
+  final Map<String, _RouteConstant> routes = {};
+  _DestinationResolverVisitor(this.constants);
+
+  @override
+  void visitSwitchExpressionCase(SwitchExpressionCase node) {
+    final destination = _patternTypeElement(node.guardedPattern.pattern);
+    final route = _routeForExpression(node.expression, constants);
+    if (destination != null && route != null) {
+      routes[_canonicalSymbol(destination)] = route;
+    }
+    super.visitSwitchExpressionCase(node);
   }
-  return dispatcher && resolver && home;
+}
+
+Element? _patternTypeElement(DartPattern pattern) {
+  if (pattern is ObjectPattern) return pattern.type.element;
+  if (pattern is DeclaredVariablePattern && pattern.type is NamedType) {
+    return (pattern.type as NamedType).element;
+  }
+  if (pattern is ConstantPattern &&
+      pattern.expression is InstanceCreationExpression) {
+    return (pattern.expression as InstanceCreationExpression)
+        .constructorName
+        .element
+        ?.enclosingElement;
+  }
+  return null;
+}
+
+_RouteConstant? _routeForExpression(
+  Expression expression,
+  Map<String, _RouteConstant> constants,
+) {
+  final element = _expressionElement(expression);
+  return element == null ? null : constants[_canonicalSymbol(element)];
+}
+
+Element? _expressionElement(Expression expression) {
+  if (expression is SimpleIdentifier) return expression.element;
+  if (expression is PrefixedIdentifier) return expression.identifier.element;
+  if (expression is PropertyAccess) return expression.propertyName.element;
+  return null;
+}
+
+class _ResolvedNavigation {
+  final int start, end;
+  final String route, proof, fingerprint;
+  final String? symbolId;
+  const _ResolvedNavigation(
+    this.start,
+    this.end,
+    this.route,
+    this.proof,
+    this.fingerprint,
+    this.symbolId,
+  );
+}
+
+class _ResolvedNavigationVisitor extends RecursiveAstVisitor<void> {
+  final int start, end;
+  final Map<String, _RouteConstant> constants;
+  final Map<String, _RouteConstant> destinationRoutes;
+  final List<_ResolvedNavigation> navigation = [];
+  _ResolvedNavigationVisitor(
+    this.start,
+    this.end,
+    this.constants,
+    this.destinationRoutes,
+  );
+
+  @override
+  void visitMethodInvocation(MethodInvocation node) {
+    if (node.offset < start || node.end > end) {
+      super.visitMethodInvocation(node);
+      return;
+    }
+    final method = node.methodName.name;
+    if ((method != 'go' && method != 'push') ||
+        node.argumentList.arguments.isEmpty) {
+      super.visitMethodInvocation(node);
+      return;
+    }
+    final argument = node.argumentList.arguments.first;
+    if (argument is SimpleStringLiteral && argument.value.startsWith('/')) {
+      final target = node.target;
+      final directContext =
+          target is SimpleIdentifier && target.name == 'context';
+      final staticGoRouter =
+          target is MethodInvocation &&
+          target.methodName.name == 'of' &&
+          target.target is SimpleIdentifier &&
+          (target.target as SimpleIdentifier).name == 'GoRouter';
+      if (directContext || staticGoRouter) {
+        navigation.add(
+          _ResolvedNavigation(
+            node.offset,
+            node.end,
+            argument.value,
+            'framework_rule_v1',
+            'go_router:ast_literal:${argument.value}',
+            null,
+          ),
+        );
+      }
+    } else {
+      _RouteConstant? route;
+      String? semanticSymbol;
+      final element = _expressionElement(argument);
+      if (element != null) {
+        semanticSymbol = _canonicalSymbol(element);
+        route = constants[semanticSymbol];
+      } else if (argument is InstanceCreationExpression) {
+        final type = argument.constructorName.element?.enclosingElement;
+        if (type != null) {
+          semanticSymbol = _canonicalSymbol(type);
+          route = destinationRoutes[semanticSymbol];
+        }
+      }
+      if (route != null &&
+          semanticSymbol != null &&
+          node.methodName.element != null) {
+        navigation.add(
+          _ResolvedNavigation(
+            node.offset,
+            node.end,
+            route.value,
+            'resolved_ast',
+            'resolved_ast:navigation:$semanticSymbol:${route.symbol}:${route.value}',
+            semanticSymbol,
+          ),
+        );
+      }
+    }
+    super.visitMethodInvocation(node);
+  }
+}
+
+class _ResolvedDispatch {
+  final int start, end;
+  final Element provider, eventType;
+  final String providerSymbol, eventTypeSymbol;
+  const _ResolvedDispatch(
+    this.start,
+    this.end,
+    this.provider,
+    this.eventType,
+    this.providerSymbol,
+    this.eventTypeSymbol,
+  );
+}
+
+class _DispatchVisitor extends RecursiveAstVisitor<void> {
+  final int start, end;
+  final List<_ResolvedDispatch> dispatches = [];
+  _DispatchVisitor(this.start, this.end);
+
+  @override
+  void visitMethodInvocation(MethodInvocation node) {
+    if (node.offset >= start &&
+        node.end <= end &&
+        node.methodName.name == 'dispatch' &&
+        node.argumentList.arguments.length >= 2) {
+      final provider = _expressionElement(node.argumentList.arguments.first);
+      final event = node.argumentList.arguments[1];
+      if (provider != null && event is InstanceCreationExpression) {
+        final eventType = event.constructorName.element?.enclosingElement;
+        if (eventType != null && node.methodName.element != null) {
+          dispatches.add(
+            _ResolvedDispatch(
+              node.offset,
+              node.end,
+              provider,
+              eventType,
+              _canonicalSymbol(provider),
+              _canonicalSymbol(eventType),
+            ),
+          );
+        }
+      }
+    }
+    super.visitMethodInvocation(node);
+  }
+}
+
+class _EventCaseVisitor extends RecursiveAstVisitor<void> {
+  final String eventTypeSymbol;
+  final List<SwitchPatternCase> cases = [];
+  _EventCaseVisitor(this.eventTypeSymbol);
+
+  @override
+  void visitSwitchPatternCase(SwitchPatternCase node) {
+    final type = _patternTypeElement(node.guardedPattern.pattern);
+    if (type != null && _canonicalSymbol(type) == eventTypeSymbol) {
+      cases.add(node);
+    }
+    super.visitSwitchPatternCase(node);
+  }
+}
+
+class _ResolvedCallVisitor extends RecursiveAstVisitor<void> {
+  final int start, end;
+  final List<String> calls = [];
+  _ResolvedCallVisitor(this.start, this.end);
+  @override
+  void visitMethodInvocation(MethodInvocation node) {
+    if (node.offset >= start && node.end <= end) {
+      final element = node.methodName.element;
+      if (element != null && !element.isSynthetic) {
+        calls.add(_canonicalSymbol(element));
+      }
+    }
+    super.visitMethodInvocation(node);
+  }
+}
+
+class _StateValue {
+  final int start, end;
+  final Element stateType;
+  final String stateTypeSymbol, field, value;
+  const _StateValue(
+    this.start,
+    this.end,
+    this.stateType,
+    this.stateTypeSymbol,
+    this.field,
+    this.value,
+  );
+}
+
+class _ResolvedStateAssignmentVisitor extends RecursiveAstVisitor<void> {
+  final int start, end;
+  final List<_StateValue> transitions = [];
+  _ResolvedStateAssignmentVisitor(this.start, this.end);
+  @override
+  void visitAssignmentExpression(AssignmentExpression node) {
+    if (node.offset >= start &&
+        node.end <= end &&
+        node.leftHandSide.toSource() == 'state') {
+      final visitor = _NamedBooleanStateVisitor();
+      node.rightHandSide.accept(visitor);
+      if (visitor.values.length == 1) {
+        final value = visitor.values.single;
+        transitions.add(
+          _StateValue(
+            node.offset,
+            node.end,
+            value.stateType,
+            _canonicalSymbol(value.stateType),
+            value.field,
+            value.value,
+          ),
+        );
+      }
+    }
+    super.visitAssignmentExpression(node);
+  }
+}
+
+class _NamedBooleanState {
+  final Element stateType;
+  final String field, value;
+  const _NamedBooleanState(this.stateType, this.field, this.value);
+}
+
+class _NamedBooleanStateVisitor extends RecursiveAstVisitor<void> {
+  final List<_NamedBooleanState> values = [];
+  @override
+  void visitNamedExpression(NamedExpression node) {
+    final value = node.expression;
+    final arguments = node.parent;
+    final creation = arguments?.parent;
+    if (value is BooleanLiteral && creation is InstanceCreationExpression) {
+      final stateType = creation.constructorName.element?.enclosingElement;
+      if (stateType != null) {
+        values.add(
+          _NamedBooleanState(
+            stateType,
+            node.name.label.name,
+            value.value.toString(),
+          ),
+        );
+      }
+    }
+    super.visitNamedExpression(node);
+  }
+}
+
+class _ResolvedStateTransition {
+  final _LocatedBody body;
+  final int start, end;
+  final Element stateType;
+  final String stateTypeSymbol, field, value;
+  const _ResolvedStateTransition(
+    this.body,
+    this.start,
+    this.end,
+    this.stateType,
+    this.stateTypeSymbol,
+    this.field,
+    this.value,
+  );
+}
+
+class _ListenRegistrationVisitor extends RecursiveAstVisitor<void> {
+  final String providerSymbol;
+  final List<String> callbackSymbols = [];
+  _ListenRegistrationVisitor(this.providerSymbol);
+  @override
+  void visitMethodInvocation(MethodInvocation node) {
+    if (node.methodName.name == 'listen' &&
+        node.argumentList.arguments.length >= 2) {
+      final provider = _expressionElement(node.argumentList.arguments.first);
+      final callback = _expressionElement(node.argumentList.arguments[1]);
+      if (provider != null &&
+          callback is ExecutableElement &&
+          _canonicalSymbol(provider) == providerSymbol) {
+        callbackSymbols.add(_canonicalSymbol(callback));
+      }
+    }
+    super.visitMethodInvocation(node);
+  }
+}
+
+class _ListenerConditionVisitor extends RecursiveAstVisitor<void> {
+  final int start, end;
+  final String stateTypeSymbol, field;
+  final List<IfStatement> statements = [];
+  _ListenerConditionVisitor(
+    this.start,
+    this.end,
+    this.stateTypeSymbol,
+    this.field,
+  );
+  @override
+  void visitIfStatement(IfStatement node) {
+    if (node.offset >= start &&
+        node.end <= end &&
+        _conditionReadsStateField(node.expression, stateTypeSymbol, field)) {
+      statements.add(node);
+    }
+    super.visitIfStatement(node);
+  }
+}
+
+bool _conditionReadsStateField(
+  Expression condition,
+  String stateTypeSymbol,
+  String field,
+) {
+  final visitor = _ResolvedMemberVisitor(field, stateTypeSymbol);
+  condition.accept(visitor);
+  return visitor.found;
+}
+
+class _ResolvedMemberVisitor extends RecursiveAstVisitor<void> {
+  final String field, ownerSymbol;
+  bool found = false;
+  _ResolvedMemberVisitor(this.field, this.ownerSymbol);
+  void _check(SimpleIdentifier identifier) {
+    final element = identifier.element;
+    final owner = element?.enclosingElement;
+    if (identifier.name == field &&
+        owner != null &&
+        _canonicalSymbol(owner) == ownerSymbol) {
+      found = true;
+    }
+  }
+
+  @override
+  void visitSimpleIdentifier(SimpleIdentifier node) {
+    _check(node);
+    super.visitSimpleIdentifier(node);
+  }
+}
+
+class _TerminalGuard {
+  final Expression condition;
+  final int start, end;
+  const _TerminalGuard(this.condition, this.start, this.end);
+}
+
+_TerminalGuard? _lastTerminalGuard(
+  CompilationUnit unit,
+  _Body body,
+  int before,
+) {
+  final visitor = _TerminalGuardVisitor(body.start, before);
+  unit.accept(visitor);
+  if (visitor.guards.isEmpty) return null;
+  visitor.guards.sort((a, b) => a.start.compareTo(b.start));
+  return visitor.guards.last;
+}
+
+class _TerminalGuardVisitor extends RecursiveAstVisitor<void> {
+  final int start, end;
+  final List<_TerminalGuard> guards = [];
+  _TerminalGuardVisitor(this.start, this.end);
+  @override
+  void visitIfStatement(IfStatement node) {
+    if (node.offset >= start &&
+        node.end <= end &&
+        _returnsImmediately(node.thenStatement)) {
+      guards.add(_TerminalGuard(node.expression, node.offset, node.end));
+    }
+    super.visitIfStatement(node);
+  }
+}
+
+bool _returnsImmediately(Statement statement) {
+  if (statement is ReturnStatement) return true;
+  return statement is Block &&
+      statement.statements.length == 1 &&
+      statement.statements.single is ReturnStatement;
+}
+
+class _ResolvedListenerTransition {
+  final _LocatedBody body;
+  final Expression condition;
+  final _ResolvedNavigation navigation;
+  const _ResolvedListenerTransition(this.body, this.condition, this.navigation);
+}
+
+class _ResolvedEventChain {
+  final _ResolvedDispatch dispatch;
+  final _ResolvedStateTransition state;
+  final _ResolvedListenerTransition listener;
+  final _TerminalGuard guard;
+  const _ResolvedEventChain(
+    this.dispatch,
+    this.state,
+    this.listener,
+    this.guard,
+  );
 }
 
 class _ExternalContract {
@@ -817,13 +1518,14 @@ class _Body {
 }
 
 class _ResolvedCallback {
-  final String name, symbol, owner;
+  final String name, symbol, owner, trigger;
   final int start, end;
   final _Body body;
   _ResolvedCallback(
     this.name,
     this.symbol,
     this.owner,
+    this.trigger,
     this.start,
     this.end,
     this.body,
@@ -833,7 +1535,13 @@ class _ResolvedCallback {
 // This identity contains semantic scope, not display prose or source
 // coordinates. Equal method names in different packages/classes are distinct.
 String _canonicalSymbol(Element element) {
-  final base = element.baseElement;
+  // A variable declaration and a resolved read of that variable are exposed
+  // by Analyzer as a PropertyInducingElement and its synthetic getter. Treat
+  // both as one semantic identity so cross-file const/provider links join.
+  final semantic = element is PropertyAccessorElement
+      ? element.variable
+      : element;
+  final base = semantic.baseElement;
   final library = base.library?.uri.toString() ?? 'unresolved-library';
   final owner = base.enclosingElement;
   final ownerPart = owner == null
@@ -907,6 +1615,7 @@ List<_ResolvedCallback> _resolvedCallbacks(
         element.displayName,
         _canonicalSymbol(element),
         _displayOwner(element),
+        named.name.label.name,
         named.offset,
         named.end,
         body,
@@ -920,7 +1629,15 @@ class _OnPressedVisitor extends RecursiveAstVisitor<void> {
   final List<NamedExpression> arguments = [];
   @override
   void visitNamedExpression(NamedExpression node) {
-    if (node.name.label.name == 'onPressed') arguments.add(node);
+    if (const {
+      'onPressed',
+      'onTap',
+      'onLongPress',
+      'onChanged',
+      'onSubmitted',
+    }.contains(node.name.label.name)) {
+      arguments.add(node);
+    }
     super.visitNamedExpression(node);
   }
 }
@@ -1116,8 +1833,16 @@ Future<List<Map<String, Object>>> _discover(String root) async {
           '${Platform.pathSeparator}.git${Platform.pathSeparator}',
         ))
       continue;
+    final relative = entity.path
+        .substring(root.length + 1)
+        .replaceAll('\\', '/');
+    if (relative.startsWith('test/') || relative.contains('/test/')) continue;
     final raw = await entity.readAsBytes();
     final source = utf8.decode(raw);
+    // Route discovery still uses the Dart parser, but files without any
+    // go_router constructor or annotation cannot contain a supported route.
+    // This exact lexical precondition avoids parsing unrelated package code.
+    if (!source.contains('GoRoute')) continue;
     for (final declaration in _routeDeclarations(source)) {
       final route = declaration.path;
       final prefix = source.substring(0, declaration.start);
@@ -1128,7 +1853,7 @@ Future<List<Map<String, Object>>> _discover(String root) async {
         'flow_id': 'route:$route',
         'alias': alias,
         'anchor': {
-          'path': entity.path.substring(root.length + 1).replaceAll('\\', '/'),
+          'path': relative,
           'line_start': '\n'.allMatches(prefix).length + 1,
           'line_end':
               '\n'.allMatches(prefix).length +
@@ -1241,7 +1966,8 @@ class _GoRouteVisitor extends RecursiveAstVisitor<void> {
         } else if (expression is SimpleIdentifier) {
           path = constants[expression.name];
         }
-      } else if (argument.name.label.name == 'builder') {
+      } else if (argument.name.label.name == 'builder' ||
+          argument.name.label.name == 'pageBuilder') {
         final visitor = _ConstructedTypeVisitor();
         argument.expression.accept(visitor);
         builderOwners.addAll(visitor.types);
@@ -1262,11 +1988,64 @@ class _ConstructedTypeVisitor extends RecursiveAstVisitor<void> {
   }
 }
 
+class _TypedGoRouteVisitor extends RecursiveAstVisitor<void> {
+  final Map<String, String> constants;
+  final Map<String, Set<String>> routeOwners;
+  final List<_RouteDeclaration> routes = [];
+  _TypedGoRouteVisitor(this.constants, this.routeOwners);
+
+  @override
+  void visitAnnotation(Annotation node) {
+    if (node.name.name != 'TypedGoRoute') {
+      super.visitAnnotation(node);
+      return;
+    }
+    final typeArguments = node.typeArguments?.arguments;
+    if (typeArguments == null || typeArguments.length != 1) {
+      super.visitAnnotation(node);
+      return;
+    }
+    String? path;
+    for (final argument
+        in node.arguments?.arguments.whereType<NamedExpression>() ??
+            const <NamedExpression>[]) {
+      if (argument.name.label.name != 'path') continue;
+      final expression = argument.expression;
+      if (expression is StringLiteral) {
+        path = expression.stringValue;
+      } else if (expression is SimpleIdentifier) {
+        path = constants[expression.name];
+      }
+    }
+    final routeClass = typeArguments.single.toSource();
+    final owners = routeOwners[routeClass] ?? const <String>{};
+    if (path?.startsWith('/') == true && owners.length == 1) {
+      routes.add(
+        _RouteDeclaration(path!, node.offset, node.end, Set.of(owners)),
+      );
+    }
+    super.visitAnnotation(node);
+  }
+}
+
 List<_RouteDeclaration> _routeDeclarations(String source) {
   final unit = parseString(content: source, throwIfDiagnostics: false).unit;
   final constants = _ConstantStringVisitor();
   unit.accept(constants);
   final routes = _GoRouteVisitor(constants.values);
   unit.accept(routes);
-  return routes.routes;
+  final routeOwners = <String, Set<String>>{};
+  for (final declaration in unit.declarations.whereType<ClassDeclaration>()) {
+    final owners = <String>{};
+    for (final member in declaration.members.whereType<MethodDeclaration>()) {
+      if (member.name.lexeme != 'build') continue;
+      final visitor = _ConstructedTypeVisitor();
+      member.body.accept(visitor);
+      owners.addAll(visitor.types);
+    }
+    if (owners.length == 1) routeOwners[declaration.name.lexeme] = owners;
+  }
+  final typedRoutes = _TypedGoRouteVisitor(constants.values, routeOwners);
+  unit.accept(typedRoutes);
+  return [...routes.routes, ...typedRoutes.routes];
 }

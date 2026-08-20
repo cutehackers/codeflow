@@ -10,13 +10,13 @@ FlowIR의 빈 부분을 자체 추론으로 채우면 안 된다.
 먼저 CodeFlow 저장소에서 Core를 빌드한다.
 
 ```sh
-go build -o ./codeflow ./core/cmd/codeflow
+make local
 ```
 
 분석할 프로젝트에 대해 로컬 Core를 실행하고 계속 켜 둔다.
 
 ```sh
-./codeflow serve \
+./bin/codeflow serve \
   --repo HOME/workspace/sgp-981-app \
   route:/join
 ```
@@ -31,7 +31,7 @@ MCP 설정은 다음과 같다.
 {
   "mcpServers": {
     "codeflow": {
-      "command": "HOME/workspace/codeflow/codeflow",
+      "command": "HOME/workspace/codeflow/bin/codeflow",
       "args": [
         "mcp",
         "--repo",
@@ -46,7 +46,7 @@ MCP 설정은 다음과 같다.
 MCP를 사용할 수 없는 LLM은 아래 CLI 명령의 JSON을 읽어도 된다.
 
 ```sh
-./codeflow analyze \
+./bin/codeflow analyze \
   --repo HOME/workspace/sgp-981-app \
   route:/join
 ```
@@ -57,19 +57,35 @@ MCP를 사용할 수 없는 LLM은 아래 CLI 명령의 JSON을 읽어도 된다
 
 | 목적 | 도구 | 입력 | 사용 시점 |
 | --- | --- | --- | --- |
-| 현재 흐름 이해 | `current` | `flow_id: route:/join` | 항상 첫 번째 |
+| 여러 화면 관계 이해 | `workspace` | 없음 | 둘 이상의 flow가 게시됐을 때 가장 먼저 |
+| 현재 흐름 이해 | `current` | `flow_id: route:/join` | 단일 flow일 때 첫 번째 |
 | 한 단계 상세 확인 | `step` | `flow_id`, `step_id` | 특정 상태·호출·화면 결과를 설명할 때 |
 | 미확정 경계 확인 | `unknowns` | `flow_id` | 설명에 추론이 필요해지는 즉시 |
 | 코드 변경 반영 | `refresh` | 없음 | 파일이 바뀌었거나 basis가 오래됐을 때 |
 | FlowView URL 취득 | `open` | `flow_id` | 사용자가 화면 확인을 요청했을 때만 |
 | 기준선 비교 | `diff` | 없음 | Core에 baseline 비교가 이미 게시됐을 때 |
 
+여러 화면은 다음처럼 하나의 Core에 함께 요청한다. 각 flow는 독립된 FlowIR을
+유지하며 `workspace`는 동일한 Basis에서 확인된 화면 이동만 연결한다.
+
+```sh
+./bin/codeflow serve \
+  --repo HOME/workspace/sgp-981-app \
+  --flow route:/join \
+  --flow route:/home \
+  --flow route:/auth
+```
+
+LLM은 `workspace.flow_ids`와 `screen_flow_edges`를 먼저 읽고, 필요한 화면만
+`current(flow_id)`로 상세 조회한다. 여러 flow의 step을 하나의 timeline으로
+합치거나 서로 다른 `worktree_fingerprint`를 연결하면 안 된다.
+
 `diff`가 `BASELINE_NOT_SELECTED`를 반환하면 결과를 추측하지 않는다.
 실행 중인 `serve`를 `Ctrl-C`로 종료한 뒤 로컬 Git 기준선과 직접 비교하고,
 계속 FlowView가 필요하면 `serve`를 다시 실행한다.
 
 ```sh
-./codeflow compare \
+./bin/codeflow compare \
   --repo HOME/workspace/sgp-981-app \
   --baseline main \
   route:/join
@@ -154,12 +170,18 @@ JoinCancelEvent → JoinState.isCanceled=true → listener 감지 → /auth
 
 사용자 또는 에이전트가 코드를 변경했다면 이전 결과를 재사용하지 않는다.
 
-1. `refresh`를 호출한다.
+1. 실행 중인 `serve`가 파일 변경을 감지해 새 snapshot을 게시할 때까지
+   `status`를 확인한다. watcher 이벤트가 누락됐거나 즉시 재확인이 필요하면
+   `refresh`를 호출한다.
 2. 새 `current`를 가져온다.
 3. 이전과 새 `worktree_fingerprint`가 다른지 확인한다.
 4. 변경된 step의 상태 변화와 화면 결과를 다시 설명한다.
 5. baseline이 필요하면 `compare` 결과의 added, removed, changed state,
    changed causal edge, new unknown만 요약한다.
+
+MCP 응답의 `basis`에는 전체 manifest 대신 `manifest_count`가 포함된다.
+정확한 현재성은 `head_revision`과 `worktree_fingerprint`로 확인하고, 필요한
+코드만 `step`의 anchor/lens 또는 FlowView에서 읽는다.
 
 `refresh` 실패 시 마지막 스냅샷이 보존될 수 있으므로 `status=analyzing`
 또는 typed error를 사용자에게 알리고, 새 분석이 성공한 것처럼 말하지

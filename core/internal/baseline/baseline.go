@@ -22,7 +22,10 @@ type Mirror struct {
 	Basis    flowir.Basis
 }
 
-const retainedMirrors = 3
+const (
+	retainedMirrors     = 3
+	hardRetainedMirrors = 8
+)
 
 type CacheEntry struct {
 	Revision string    `json:"revision"`
@@ -34,6 +37,7 @@ type CacheReport struct {
 	Root           string       `json:"root"`
 	TotalBytes     int64        `json:"total_bytes"`
 	RetentionLimit int          `json:"retention_limit"`
+	HardLimit      int          `json:"hard_retention_limit"`
 	Baselines      []CacheEntry `json:"baselines"`
 }
 
@@ -147,7 +151,7 @@ func analysisInput(path string) bool {
 
 func InspectCache(repo string) (CacheReport, error) {
 	root := filepath.Join(repo, ".codeflow", "cache", "baselines")
-	report := CacheReport{Root: root, RetentionLimit: retainedMirrors, Baselines: []CacheEntry{}}
+	report := CacheReport{Root: root, RetentionLimit: retainedMirrors, HardLimit: hardRetainedMirrors, Baselines: []CacheEntry{}}
 	items, err := os.ReadDir(root)
 	if os.IsNotExist(err) {
 		return report, nil
@@ -194,12 +198,17 @@ func prune(repo, keep string, limit int) error {
 			selected[entry.Revision] = true
 		}
 	}
+	retained := 0
 	for _, entry := range report.Baselines {
 		if selected[entry.Revision] {
+			retained++
 			continue
 		}
 		// A recently touched mirror may belong to a concurrent comparison.
-		if time.Since(entry.LastUsed) < time.Hour {
+		// That grace period is itself hard-bounded, so repeated comparisons can
+		// never grow the reconstructable cache without limit.
+		if time.Since(entry.LastUsed) < time.Hour && retained < hardRetainedMirrors {
+			retained++
 			continue
 		}
 		if err := os.RemoveAll(filepath.Join(report.Root, entry.Revision)); err != nil {

@@ -100,6 +100,25 @@ func TestCleanCacheRemovesOnlyReconstructableBaselines(t *testing.T) {
 		t.Fatalf("state was touched: %q %v", got, err)
 	}
 }
+
+func TestRecentBaselineGracePeriodStillHasAHardLimit(t *testing.T) {
+	repo := t.TempDir()
+	root := filepath.Join(repo, ".codeflow", "cache", "baselines")
+	for i := 0; i < hardRetainedMirrors+4; i++ {
+		name := fmt.Sprintf("%040x", i+1)
+		dir := filepath.Join(root, name)
+		must(t, os.MkdirAll(dir, 0755))
+		recent := time.Now().Add(-time.Duration(i) * time.Minute)
+		must(t, os.Chtimes(dir, recent, recent))
+	}
+	if err := prune(repo, "", retainedMirrors); err != nil {
+		t.Fatal(err)
+	}
+	report, err := InspectCache(repo)
+	if err != nil || len(report.Baselines) != hardRetainedMirrors || report.HardLimit != hardRetainedMirrors {
+		t.Fatalf("recent grace period left cache unbounded: %#v err=%v", report, err)
+	}
+}
 func TestResolveRejectsUnavailableRevision(t *testing.T) {
 	repo := t.TempDir()
 	run(t, "git", "init", "-q", repo)

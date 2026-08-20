@@ -1,6 +1,6 @@
 SHELL := /bin/sh
 
-.PHONY: doctor-dev test build package package-macos
+.PHONY: doctor-dev test build local package package-macos
 
 doctor-dev:
 	@set -eu; \
@@ -26,6 +26,15 @@ test:
 
 build:
 	go build -o bin/codeflow ./core/cmd/codeflow
+
+# Fast local layout. The AOT adapter avoids paying Dart JIT startup on every
+# FlowView refresh; both output directories are ignored by Git.
+local:
+	@set -eu; mkdir -p bin libexec; \
+	go build -o bin/codeflow ./core/cmd/codeflow; \
+	(cd adapters/dart && dart pub get >/dev/null && dart compile exe bin/codeflow-dart-adapter.dart -o ../../libexec/codeflow-dart-adapter); \
+	chmod 755 bin/codeflow libexec/codeflow-dart-adapter; \
+	echo "local CodeFlow: bin/codeflow"
 
 # Produces a relocatable unsigned macOS layout. Signing/notarization remains a
 # release concern; the executable resolves its adjacent libexec adapter.

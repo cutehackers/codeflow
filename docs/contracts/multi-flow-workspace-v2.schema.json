@@ -1,0 +1,64 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://codeflow.local/contracts/multi-flow-workspace-v2.schema.json",
+  "title": "CodeFlow compact multi-flow workspace envelope v2",
+  "type": "object",
+  "required": ["basis", "status", "data", "unknowns", "view_url"],
+  "properties": {
+    "basis": {
+      "type": "object",
+      "required": ["repository", "head_revision", "worktree_fingerprint", "dirty", "manifest_count"],
+      "properties": {
+        "repository": { "type": "string", "minLength": 1 },
+        "head_revision": { "type": "string" },
+        "baseline_revision": { "type": "string" },
+        "worktree_fingerprint": { "type": "string", "minLength": 1 },
+        "dirty": { "type": "boolean" },
+        "manifest_count": { "type": "integer", "minimum": 0 }
+      },
+      "additionalProperties": false
+    },
+    "status": { "type": "string", "enum": ["ready", "analyzing", "unavailable"] },
+    "data": {
+      "type": "object",
+      "required": ["schema_version", "flow_ids", "flows", "screen_flow_edges"],
+      "properties": {
+        "schema_version": { "const": "2" },
+        "flow_ids": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 3,
+          "items": { "type": "string", "pattern": "^route:/" },
+          "uniqueItems": true
+        },
+        "flows": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 3,
+          "items": {
+            "type": "object",
+            "required": ["schema_version", "facts", "architecture", "current"],
+            "properties": {
+              "schema_version": { "const": "1" },
+              "facts": { "type": "array" },
+              "causal_edges": { "type": "array" },
+              "architecture": { "type": "object" },
+              "current": { "type": "object" },
+              "unknowns": { "type": "array" }
+            },
+            "not": { "required": ["basis"] },
+            "additionalProperties": false
+          }
+        },
+        "screen_flow_edges": { "type": "array" }
+      },
+      "not": { "required": ["basis"] },
+      "additionalProperties": false
+    },
+    "unknowns": { "type": "array" },
+    "view_url": { "type": "string" },
+    "metadata": { "type": "object" },
+    "error": { "type": ["object", "null"] }
+  },
+  "additionalProperties": false
+}

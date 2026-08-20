@@ -18,6 +18,7 @@
 # Go build and test output
 /bin/
 /dist/
+/libexec/
 /codeflow
 /coverage/
 *.test

@@ -1,12 +1,14 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"flag"
 	"fmt"
 	"io"
 	"net/http"
+	neturl "net/url"
 	"os"
 	"os/exec"
 	"os/signal"
@@ -29,6 +31,43 @@ import (
 )
 
 func main() { os.Exit(run(os.Args[1:], os.Stdout, os.Stderr)) }
+
+type selectorFlags []string
+
+func (values *selectorFlags) String() string { return strings.Join(*values, ",") }
+func (values *selectorFlags) Set(value string) error {
+	*values = append(*values, value)
+	return nil
+}
+
+func requestedSelectors(values selectorFlags, positional string) []string {
+	out := append([]string(nil), values...)
+	if positional != "" || len(out) == 0 {
+		out = append(out, positional)
+	}
+	return out
+}
+
+func selectorInputProblem(selectors []string, explicit bool) *compiler.Problem {
+	if len(selectors) > 3 {
+		return &compiler.Problem{Code: "FLOW_SET_TOO_LARGE", Message: "choose one to three --flow selectors"}
+	}
+	seen := map[string]bool{}
+	for _, selector := range selectors {
+		selector = strings.TrimSpace(selector)
+		if selector == "" {
+			if explicit {
+				return &compiler.Problem{Code: "SELECTOR_REQUIRED", Message: "each --flow value must be an exact route:/... selector"}
+			}
+			continue
+		}
+		if seen[selector] {
+			return &compiler.Problem{Code: "DUPLICATE_SELECTOR", Message: selector + " was requested more than once; keep one occurrence"}
+		}
+		seen[selector] = true
+	}
+	return nil
+}
 
 func run(args []string, stdout, stderr io.Writer) int {
 	if len(args) == 0 {
@@ -57,7 +96,7 @@ func run(args []string, stdout, stderr io.Writer) int {
 		return openFlow(args[1:], stdout, stderr)
 	}
 	if args[0] == "refresh" {
-		return analyze(args[1:], stdout, stderr)
+		return refreshCommand(args[1:], stdout, stderr)
 	}
 	if args[0] == "compare" {
 		return compare(args[1:], stdout, stderr)
@@ -104,6 +143,152 @@ func run(args []string, stdout, stderr io.Writer) int {
 	return 1
 }
 
+func refreshCommand(args []string, stdout, stderr io.Writer) int {
+	format, analysisArgs, err := refreshOutputFormat(args)
+	if err != nil {
+		fmt.Fprintln(stderr, err)
+		return 2
+	}
+	repo := repositoryArgument(analysisArgs)
+	state, err := flowruntime.ReadState(repo)
+	if err != nil {
+		// No persistent Core is a supported standalone recovery path. Preserve
+		// analyze's selector/adapter/timeout flags rather than inventing another
+		// command grammar.
+		var result bytes.Buffer
+		status := analyze(analysisArgs, &result, stderr)
+		if format == "json" || status != 0 {
+			_, _ = io.Copy(stdout, &result)
+			return status
+		}
+		if err := writeRefreshSummary(stdout, result.Bytes(), false); err != nil {
+			fmt.Fprintln(stderr, "refresh:", err)
+			return 2
+		}
+		return 0
+	}
+	request, err := http.NewRequest(http.MethodPost, fmt.Sprintf("http://127.0.0.1:%d/api/v1/refresh", state.Port), nil)
+	if err != nil {
+		fmt.Fprintln(stderr, "refresh:", err)
+		return 2
+	}
+	request.Header.Set("X-CodeFlow-Token", state.AuthToken)
+	client := &http.Client{Timeout: 60 * time.Second}
+	response, err := client.Do(request)
+	if err != nil {
+		fmt.Fprintln(stderr, "refresh:", err)
+		return 2
+	}
+	defer response.Body.Close()
+	body, err := io.ReadAll(io.LimitReader(response.Body, 32<<20))
+	if err != nil {
+		fmt.Fprintln(stderr, "refresh:", err)
+		return 2
+	}
+	if response.StatusCode >= http.StatusBadRequest {
+		_, _ = stdout.Write(body)
+		return 1
+	}
+	if format == "json" {
+		_, _ = stdout.Write(body)
+		return 0
+	}
+	if err := writeRefreshSummary(stdout, body, true); err != nil {
+		fmt.Fprintln(stderr, "refresh:", err)
+		return 2
+	}
+	return 0
+}
+
+func refreshOutputFormat(args []string) (string, []string, error) {
+	format := "human"
+	clean := make([]string, 0, len(args))
+	for index := 0; index < len(args); index++ {
+		argument := args[index]
+		switch {
+		case argument == "--format":
+			if index+1 >= len(args) {
+				return "", nil, fmt.Errorf("usage: codeflow refresh [--format human|json] [analyze options]")
+			}
+			index++
+			format = args[index]
+		case strings.HasPrefix(argument, "--format="):
+			format = strings.TrimPrefix(argument, "--format=")
+		default:
+			clean = append(clean, argument)
+		}
+	}
+	if format != "human" && format != "json" {
+		return "", nil, fmt.Errorf("--format must be human or json")
+	}
+	return format, clean, nil
+}
+
+func writeRefreshSummary(writer io.Writer, payload []byte, runtimeResponse bool) error {
+	type flowSummary struct {
+		Current struct {
+			ID string `json:"id"`
+		} `json:"current"`
+		FlowIDs []string `json:"flow_ids"`
+		Flows   []struct {
+			Unknowns []json.RawMessage `json:"unknowns"`
+		} `json:"flows"`
+		Unknowns []json.RawMessage `json:"unknowns"`
+	}
+	status, viewURL, data := "ready", "", payload
+	unknownCount := 0
+	if runtimeResponse {
+		var response struct {
+			Status   string            `json:"status"`
+			Data     json.RawMessage   `json:"data"`
+			Unknowns []json.RawMessage `json:"unknowns"`
+			ViewURL  string            `json:"view_url"`
+		}
+		if err := json.Unmarshal(payload, &response); err != nil {
+			return fmt.Errorf("invalid Core response: %w", err)
+		}
+		status, viewURL, data, unknownCount = response.Status, response.ViewURL, response.Data, len(response.Unknowns)
+	}
+	var summary flowSummary
+	if err := json.Unmarshal(data, &summary); err != nil {
+		return fmt.Errorf("invalid analysis response: %w", err)
+	}
+	flowCount := len(summary.FlowIDs)
+	if flowCount == 0 {
+		flowCount = len(summary.Flows)
+	}
+	if flowCount == 0 && summary.Current.ID != "" {
+		flowCount = 1
+	}
+	if !runtimeResponse {
+		unknownCount = len(summary.Unknowns)
+		for _, flow := range summary.Flows {
+			unknownCount += len(flow.Unknowns)
+		}
+	}
+	label := "analyzed"
+	if runtimeResponse {
+		label = "refreshed"
+	}
+	fmt.Fprintf(writer, "CodeFlow %s: %s · %d flow(s) · %d unresolved\n", label, status, flowCount, unknownCount)
+	if viewURL != "" {
+		fmt.Fprintf(writer, "FlowView: %s\n", viewURL)
+	}
+	return nil
+}
+
+func repositoryArgument(args []string) string {
+	for i, argument := range args {
+		if argument == "--repo" && i+1 < len(args) {
+			return args[i+1]
+		}
+		if strings.HasPrefix(argument, "--repo=") {
+			return strings.TrimPrefix(argument, "--repo=")
+		}
+	}
+	return "."
+}
+
 func cacheCommand(args []string, stdout, stderr io.Writer) int {
 	if len(args) == 0 || (args[0] != "status" && args[0] != "clean") {
 		fmt.Fprintln(stderr, "usage: codeflow cache status|clean [--repo DIR] [--format human|json]")
@@ -136,7 +321,7 @@ func cacheCommand(args []string, stdout, stderr io.Writer) int {
 	if action == "clean" {
 		fmt.Fprintln(stdout, "CodeFlow baseline cache cleaned (reconstructable data only).")
 	}
-	fmt.Fprintf(stdout, "Baseline cache: %d mirror(s), %s · automatic retention: %d\n", len(report.Baselines), humanBytes(report.TotalBytes), report.RetentionLimit)
+	fmt.Fprintf(stdout, "Baseline cache: %d mirror(s), %s · automatic retention: %d (temporary hard limit: %d)\n", len(report.Baselines), humanBytes(report.TotalBytes), report.RetentionLimit, report.HardLimit)
 	fmt.Fprintf(stdout, "Path: %s\n", report.Root)
 	return 0
 }
@@ -242,13 +427,20 @@ func analyze(args []string, stdout, stderr io.Writer) int {
 	graph := flags.String("codegraph-url", "", "CodeGraph HTTP URL")
 	adapter := flags.String("adapter", "", "installed Dart adapter command")
 	timeout := flags.Duration("timeout", 45*time.Second, "analysis deadline")
+	var flows selectorFlags
+	flags.Var(&flows, "flow", "flow selector to include; repeat up to three times")
 	if err := flags.Parse(args); err != nil || flags.NArg() > 1 {
-		fmt.Fprintln(stderr, "usage: codeflow analyze [--repo DIR] [--codegraph-url URL] [--adapter COMMAND] [SELECTOR]")
+		fmt.Fprintln(stderr, "usage: codeflow analyze [--repo DIR] [--flow SELECTOR ...] [SELECTOR]")
 		return 2
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), *timeout)
 	defer cancel()
-	instance, problem, err := flowcore.StartAnalysis(ctx, *repo, flowcore.AnalysisOptions{Selector: flags.Arg(0), CodeGraphURL: *graph, AdapterCommand: resolvedAdapter(*adapter)})
+	selectors := requestedSelectors(flows, flags.Arg(0))
+	if problem := selectorInputProblem(selectors, len(flows) > 0); problem != nil {
+		_ = json.NewEncoder(stdout).Encode(problem)
+		return 1
+	}
+	instance, problem, err := flowcore.StartAnalysis(ctx, *repo, flowcore.AnalysisOptions{Selectors: selectors, CodeGraphURL: *graph, AdapterCommand: resolvedAdapter(*adapter)})
 	if err != nil {
 		fmt.Fprintln(stderr, "analysis:", err)
 		return 2
@@ -258,12 +450,17 @@ func analyze(args []string, stdout, stderr io.Writer) int {
 		return 1
 	}
 	defer instance.Close(context.Background())
-	doc, err := instance.Document(ctx)
+	var output any
+	if len(selectors) > 1 {
+		output, err = instance.Workspace(ctx)
+	} else {
+		output, err = instance.Document(ctx)
+	}
 	if err != nil {
 		fmt.Fprintln(stderr, "analysis read:", err)
 		return 2
 	}
-	_ = json.NewEncoder(stdout).Encode(doc)
+	_ = json.NewEncoder(stdout).Encode(output)
 	return 0
 }
 
@@ -284,13 +481,20 @@ func serveContext(wait context.Context, args []string, stdout, stderr io.Writer)
 	graph := flags.String("codegraph-url", "", "CodeGraph HTTP URL")
 	adapter := flags.String("adapter", "", "installed Dart adapter command")
 	timeout := flags.Duration("timeout", 45*time.Second, "analysis deadline")
+	var flows selectorFlags
+	flags.Var(&flows, "flow", "flow selector to include; repeat up to three times")
 	if err := flags.Parse(args); err != nil || flags.NArg() > 1 {
-		fmt.Fprintln(stderr, "usage: codeflow serve [--repo DIR] [--codegraph-url URL] [--adapter COMMAND] [SELECTOR]")
+		fmt.Fprintln(stderr, "usage: codeflow serve [--repo DIR] [--flow SELECTOR ...] [SELECTOR]")
 		return 2
+	}
+	selectors := requestedSelectors(flows, flags.Arg(0))
+	if problem := selectorInputProblem(selectors, len(flows) > 0); problem != nil {
+		_ = json.NewEncoder(stdout).Encode(problem)
+		return 1
 	}
 	started := time.Now()
 	compile, cancel := context.WithTimeout(wait, *timeout)
-	instance, problem, err := flowcore.StartAnalysis(compile, *repo, flowcore.AnalysisOptions{Selector: flags.Arg(0), CodeGraphURL: *graph, AdapterCommand: resolvedAdapter(*adapter)})
+	instance, problem, err := flowcore.StartAnalysis(compile, *repo, flowcore.AnalysisOptions{Selectors: selectors, CodeGraphURL: *graph, AdapterCommand: resolvedAdapter(*adapter)})
 	cancel()
 	if err != nil {
 		fmt.Fprintln(stderr, "serve:", err)
@@ -302,8 +506,8 @@ func serveContext(wait context.Context, args []string, stdout, stderr io.Writer)
 	}
 	// Publication happens inside StartAnalysis before the Core is returned.
 	fmt.Fprintf(stdout, "CodeFlow review URL: %s/\n", instance.URL)
-	selected := flags.Arg(0)
-	if selected == "" {
+	selected := strings.Join(selectors, ", ")
+	if len(selectors) == 1 && selectors[0] == "" {
 		selected = "auto-selected unique route"
 	}
 	fmt.Fprintf(stdout, "Ready in %.1fs · %s\n", time.Since(started).Seconds(), selected)
@@ -326,11 +530,18 @@ func openFlow(args []string, stdout, stderr io.Writer) int {
 	repo := flags.String("repo", ".", "repository to inspect")
 	graph := flags.String("codegraph-url", "", "CodeGraph HTTP URL")
 	adapter := flags.String("adapter", "", "installed Dart adapter command")
+	var flows selectorFlags
+	flags.Var(&flows, "flow", "flow selector to include; repeat up to three times")
 	if err := flags.Parse(args); err != nil || flags.NArg() > 1 {
-		fmt.Fprintln(stderr, "usage: codeflow open [--repo DIR] [--codegraph-url URL] [--adapter COMMAND] [SELECTOR]")
+		fmt.Fprintln(stderr, "usage: codeflow open [--repo DIR] [--flow SELECTOR ...] [SELECTOR]")
 		return 2
 	}
-	if reused, url, err := reuseRuntime(*repo); err != nil {
+	selectors := requestedSelectors(flows, flags.Arg(0))
+	if problem := selectorInputProblem(selectors, len(flows) > 0); problem != nil {
+		_ = json.NewEncoder(stdout).Encode(problem)
+		return 1
+	}
+	if reused, url, err := reuseRuntimeFor(*repo, selectors); err != nil {
 		fmt.Fprintln(stderr, "open:", err)
 		return 2
 	} else if reused {
@@ -352,7 +563,7 @@ func openFlow(args []string, stdout, stderr io.Writer) int {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 	compile, cancel := context.WithTimeout(ctx, 45*time.Second)
-	instance, problem, err := flowcore.StartAnalysis(compile, *repo, flowcore.AnalysisOptions{Selector: flags.Arg(0), CodeGraphURL: *graph, AdapterCommand: resolvedAdapter(*adapter)})
+	instance, problem, err := flowcore.StartAnalysis(compile, *repo, flowcore.AnalysisOptions{Selectors: selectors, CodeGraphURL: *graph, AdapterCommand: resolvedAdapter(*adapter)})
 	cancel()
 	if err != nil {
 		fmt.Fprintln(stderr, "open:", err)
@@ -379,6 +590,10 @@ func openFlow(args []string, stdout, stderr io.Writer) int {
 }
 
 func reuseRuntime(repo string) (bool, string, error) {
+	return reuseRuntimeFor(repo, []string{""})
+}
+
+func reuseRuntimeFor(repo string, selectors []string) (bool, string, error) {
 	state, err := flowruntime.ReadState(repo)
 	if err != nil {
 		return false, "", nil
@@ -394,6 +609,37 @@ func reuseRuntime(repo string) (bool, string, error) {
 		return false, "", fmt.Errorf("CORE_INCOMPATIBLE_OR_UNAVAILABLE: existing runtime could not refresh safely")
 	}
 	response.Body.Close()
+	workspaceRequest, _ := http.NewRequest(http.MethodGet, url+"api/v2/workspace", nil)
+	workspaceRequest.Header.Set("X-CodeFlow-Token", state.AuthToken)
+	workspaceResponse, err := http.DefaultClient.Do(workspaceRequest)
+	if err != nil || workspaceResponse.StatusCode != http.StatusOK {
+		if workspaceResponse != nil {
+			workspaceResponse.Body.Close()
+		}
+		return false, "", fmt.Errorf("CORE_INCOMPATIBLE_OR_UNAVAILABLE: existing runtime has no compatible workspace")
+	}
+	var workspace struct {
+		Data struct {
+			FlowIDs []string `json:"flow_ids"`
+		} `json:"data"`
+	}
+	decodeErr := json.NewDecoder(workspaceResponse.Body).Decode(&workspace)
+	workspaceResponse.Body.Close()
+	if decodeErr != nil {
+		return false, "", fmt.Errorf("CORE_INCOMPATIBLE_OR_UNAVAILABLE: existing runtime returned malformed workspace")
+	}
+	if len(selectors) > 0 && !(len(selectors) == 1 && selectors[0] == "") {
+		available := map[string]bool{}
+		for _, flowID := range workspace.Data.FlowIDs {
+			available[flowID] = true
+		}
+		for _, selector := range selectors {
+			if !strings.HasPrefix(selector, "route:/") || !available[selector] {
+				return false, "", fmt.Errorf("CORE_FLOW_SET_MISMATCH: stop the existing runtime before requesting %s", selector)
+			}
+		}
+		url += "?flow=" + neturl.QueryEscape(selectors[0])
+	}
 	return true, url, nil
 }
 

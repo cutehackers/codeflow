@@ -151,16 +151,58 @@ func TestDartStructuralBridgeResolvesConstRouteAndRejectsDynamic(t *testing.T) {
 	}
 }
 
+func TestDartStructuralBridgeSupportsTypedAndPageBuilderRoutes(t *testing.T) {
+	for _, test := range []struct {
+		name   string
+		flowID string
+		source string
+		page   string
+	}{
+		{
+			name:   "typed route",
+			flowID: "route:/home",
+			source: "const homePath = '/home';\n@TypedGoRoute<HomeRoute>(path: homePath)\nclass HomeRoute extends GoRouteData { const HomeRoute(); Widget build(BuildContext c, GoRouterState s) => const HomePage(); }\n",
+			page:   "class HomePage { const HomePage(); }\n",
+		},
+		{
+			name:   "page builder child",
+			flowID: "route:/auth",
+			source: "final route = GoRoute(path: '/auth', pageBuilder: (c, s) => NoTransitionPage(child: const AuthEntryPage()));\n",
+			page:   "class AuthEntryPage { const AuthEntryPage(); }\n",
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			repo := t.TempDir()
+			if err := os.MkdirAll(filepath.Join(repo, "lib"), 0755); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(filepath.Join(repo, "lib", "routes.dart"), []byte(test.source), 0644); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(filepath.Join(repo, "lib", "page.dart"), []byte(test.page), 0644); err != nil {
+				t.Fatal(err)
+			}
+			_ = exec.Command("git", "init", "-q", repo).Run()
+			_ = exec.Command("git", "-C", repo, "add", ".").Run()
+			_ = exec.Command("git", "-C", repo, "-c", "user.email=x@y.z", "-c", "user.name=x", "commit", "-qm", "fixture").Run()
+			rels, err := DartStructuralRelationships(repo, test.flowID)
+			if err != nil || len(rels) != 1 || rels[0].To.Path != "lib/page.dart" || rels[0].From.Revision == "" {
+				t.Fatalf("relationships=%#v err=%v", rels, err)
+			}
+		})
+	}
+}
+
 func TestDirectEventControllerRequiresOneMatchingProviderAndEventCase(t *testing.T) {
-	page := []byte("void x() { ref.dispatch(joinControllerProvider, const JoinCancelEvent()); }")
-	valid := []byte("final joinControllerProvider = x; void onEvent() { case final JoinCancelEvent e:; }")
+	page := []byte("void x() { ref.dispatch(accountMachine, const AbortRegistration()); }")
+	valid := []byte("final accountMachine = x; void handle() { case final AbortRegistration e:; }")
 	if path, _ := directEventController(map[string][]byte{"page.dart": page, "controller.dart": valid}, page); path != "controller.dart" {
 		t.Fatalf("unique direct controller=%q", path)
 	}
 	if path, _ := directEventController(map[string][]byte{"page.dart": page, "a.dart": valid, "b.dart": valid}, page); path != "" {
 		t.Fatalf("ambiguous controller must fail closed: %q", path)
 	}
-	if path, _ := directEventController(map[string][]byte{"page.dart": page, "controller.dart": []byte("final joinControllerProvider = x;")}, page); path != "" {
+	if path, _ := directEventController(map[string][]byte{"page.dart": page, "controller.dart": []byte("final accountMachine = x;")}, page); path != "" {
 		t.Fatalf("missing event case must fail closed: %q", path)
 	}
 }

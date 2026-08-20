@@ -1,6 +1,6 @@
 # FlowView Multi-flow Workspace 디자인 방향
 
-상태: 디자인 방향 승인 · 구현 전 계약
+상태: 구현 및 로컬 검증 완료
 결정일: 2026-08-19
 기준: 기존 단일 FlowView, `sgp-981-app` `/join`, 사용자 승인 샘플
 
@@ -111,3 +111,20 @@ FlowView의 상위 정보 구조는 `Multi-flow Workspace`로 확장한다. 여�
 
 배포, 컬러 테마 확장, 실행 trace 수집, product source 수정, 서로 다른 revision의
 flow 병합은 이 디자인 목표에 포함하지 않는다.
+
+## 10. 로컬 검증 결과
+
+- 실제 `HOME/workspace/sgp-981-app`에서 `/join`, `/home`, `/auth`를 하나의
+  Basis로 분석했으며 `/join → /home`, `/join → /auth`만 observed 화면 edge로
+  게시했다.
+- `make local`로 만든 AOT Dart adapter를 사용한 3-flow 분석은 16.26초로
+  25초 MVP 목표 안에 완료됐다. 검증된 소스 합집합만 Analyzer context에 넣되
+  flow별 evidence slice와 hash/range 검증은 유지한다.
+- 실제 브라우저에서 320px, 736px, 1024px와 기본 데스크톱 폭을 검수했고 가로
+  넘침 없이 수직 타임라인과 상세 카드가 배치됐다.
+- timeline, Architecture node, branch, 이전/다음은 click과 Enter/Space 입력에서
+  같은 selection state를 사용하며 선택된 source lens의 VS Code 링크가 함께
+  변경된다.
+- `.codeflow/cache`에는 reconstructable baseline mirror만 허용한다. 평상시에는
+  3개, 동시 비교 보호 시간에도 최대 8개만 유지한다. 실제 대상의 현재 baseline cache는 비어 있었으며 AOT adapter는
+  대상 저장소 cache가 아닌 CodeFlow의 ignored `libexec/`에 생성된다.

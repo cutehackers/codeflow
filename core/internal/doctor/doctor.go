@@ -301,7 +301,7 @@ func atLeastDart310(version string) bool {
 func run(ctx context.Context, command string, args ...string) ([]byte, error) {
 	// SDK probes can contend with concurrent integration tests on developer laptops;
 	// this is a readiness check, not an interactive request path.
-	commandContext, cancel := context.WithTimeout(ctx, 3*time.Second)
+	commandContext, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
 	cmd := exec.CommandContext(commandContext, command, args...)
 	out, err := cmd.CombinedOutput()

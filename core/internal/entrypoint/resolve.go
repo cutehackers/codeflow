@@ -44,14 +44,6 @@ type EntryPoint struct {
 
 func Resolve(ctx context.Context, repo, selector, command string) Result {
 	selector = strings.TrimSpace(selector)
-	loaded, err := config.Load(repo)
-	if err != nil {
-		return Result{State: Unavailable, Selector: selector, Candidates: []EntryPoint{}, Unknown: &Problem{"CONFIG_INVALID", err.Error()}}
-	}
-	exact := selector
-	if feature, ok := loaded.Config.Features[selector]; ok {
-		exact = feature.EntryPoint
-	}
 	entries, err := dartadapter.Discover(ctx, command, repo)
 	if err != nil {
 		f := dartadapter.AsFailure(err)
@@ -64,6 +56,23 @@ func Resolve(ctx context.Context, repo, selector, command string) Result {
 	basis, err := manifest.Capture(repo)
 	if err != nil {
 		return Result{State: Unavailable, Selector: selector, Candidates: []EntryPoint{}, Unknown: &Problem{"WORKTREE_UNAVAILABLE", err.Error()}}
+	}
+	return ResolveDiscovered(repo, selector, entries, basis)
+}
+
+// ResolveDiscovered applies the exact same selector and evidence gate to entry
+// points returned by an already initialized adapter. Multi-flow compilation
+// uses it so every selector shares one manifest capture and one analyzer
+// process instead of silently observing the worktree several times.
+func ResolveDiscovered(repo, selector string, entries []dartadapter.EntryPoint, basis flowir.Basis) Result {
+	selector = strings.TrimSpace(selector)
+	loaded, err := config.Load(repo)
+	if err != nil {
+		return Result{State: Unavailable, Selector: selector, Candidates: []EntryPoint{}, Unknown: &Problem{"CONFIG_INVALID", err.Error()}}
+	}
+	exact := selector
+	if feature, ok := loaded.Config.Features[selector]; ok {
+		exact = feature.EntryPoint
 	}
 	candidates, err := convert(entries, basis)
 	if err != nil {

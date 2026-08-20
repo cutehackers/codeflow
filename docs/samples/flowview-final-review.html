@@ -1,0 +1,418 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>CodeFlow · FlowView 최종 디자인 검수</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --ink: #111;
+      --muted: #666;
+      --faint: #8b8b8b;
+      --line: #c7c7c7;
+      --soft: #f4f4f2;
+      --paper: #fff;
+      --radius-sm: 6px;
+      --radius-md: 9px;
+      --radius-lg: 12px;
+    }
+
+    * { box-sizing: border-box; }
+    html { scroll-behavior: smooth; }
+    body {
+      margin: 0;
+      overflow-x: hidden;
+      background: var(--paper);
+      color: var(--ink);
+      font: 14px/1.55 ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    }
+    button, a { font: inherit; }
+    button { color: inherit; }
+    code, pre, .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+    button:focus-visible, a:focus-visible, summary:focus-visible { outline: 3px solid #999; outline-offset: 2px; }
+
+    .shell { width: min(1240px, 100%); margin: auto; padding: 24px 24px 64px; }
+    .eyebrow { color: var(--muted); font-size: 11px; font-weight: 750; letter-spacing: .1em; text-transform: uppercase; }
+    .badge { display: inline-flex; align-items: center; min-height: 23px; padding: 1px 8px; border: 1px solid var(--ink); border-radius: 999px; font-size: 11px; font-weight: 700; }
+    .status::before { content: "○"; margin-right: 6px; }
+    .status[data-status="observed"]::before { content: "●"; }
+    .status[data-status="mixed"]::before { content: "◐"; }
+    .status[data-status="unknown"]::before { content: "?"; font-weight: 900; }
+
+    .review-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 24px; padding-bottom: 18px; border-bottom: 3px solid var(--ink); }
+    .review-header h1 { margin: 2px 0 4px; font-size: clamp(23px, 4vw, 34px); line-height: 1.12; letter-spacing: -.035em; }
+    .review-header p { max-width: 700px; margin: 0; color: var(--muted); }
+    .review-state { display: grid; justify-items: end; gap: 8px; flex: 0 0 auto; }
+
+    .snapshot { display: flex; align-items: center; flex-wrap: wrap; gap: 8px 12px; padding: 13px 0; border-bottom: 1px solid var(--line); }
+    .snapshot strong { margin-left: auto; }
+
+    .workspace { display: grid; gap: 10px; padding: 18px 0; border-bottom: 1px solid var(--line); }
+    .section-heading { display: flex; align-items: baseline; justify-content: space-between; gap: 16px; }
+    .section-heading h2 { margin: 0; font-size: 16px; }
+    .section-heading span { color: var(--muted); font-size: 12px; }
+    .flow-tabs { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+    .flow-tab { display: grid; min-width: 0; gap: 2px; padding: 11px 13px; border: 1px solid var(--line); border-radius: var(--radius-md); background: var(--paper); text-align: left; cursor: pointer; }
+    .flow-tab strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .flow-tab small { color: var(--muted); }
+    .flow-tab[aria-pressed="true"] { border-color: var(--ink); background: var(--ink); color: var(--paper); }
+    .flow-tab[aria-pressed="true"] small { color: #d8d8d8; }
+    .flow-links { display: flex; flex-wrap: wrap; gap: 6px 18px; color: var(--muted); font-size: 12px; }
+    .flow-links span::before { content: "↳"; margin-right: 6px; color: var(--ink); }
+
+    .path-line { display: flex; align-items: center; flex-wrap: wrap; gap: 7px; padding: 12px 0; color: var(--muted); }
+    .path-line code { color: var(--ink); }
+
+    .architecture { margin: 4px 0 18px; overflow: hidden; border: 1px solid var(--ink); border-radius: var(--radius-lg); }
+    .architecture summary { display: flex; align-items: baseline; justify-content: space-between; gap: 16px; padding: 12px 14px; border-bottom: 1px solid var(--ink); list-style: none; cursor: pointer; }
+    .architecture summary::-webkit-details-marker { display: none; }
+    .architecture summary h2 { margin: 0; font-size: 15px; }
+    .architecture summary span { color: var(--muted); font-size: 12px; }
+    .architecture-scroll { max-width: 100%; overflow-x: auto; }
+    .architecture-lane { display: grid; grid-template-columns: 126px minmax(max-content, 1fr); min-width: max-content; border-bottom: 1px solid var(--line); }
+    .architecture-lane:last-child { border-bottom: 0; }
+    .lane-label { position: sticky; left: 0; z-index: 2; display: grid; place-items: center start; width: 126px; padding: 11px 12px; border-right: 1px solid var(--ink); background: var(--paper); color: var(--muted); font-size: 11px; font-weight: 750; }
+    .lane-track { display: grid; grid-template-columns: repeat(var(--columns), minmax(146px, 1fr)); gap: 8px; min-width: calc(var(--columns) * 154px); padding: 8px; background-image: linear-gradient(to right, transparent calc(100% - 1px), #e8e8e8 0); background-size: 154px 100%; }
+    .architecture-node { display: grid; align-content: start; min-height: 67px; gap: 2px; padding: 8px 9px; border: 1px solid var(--ink); border-radius: var(--radius-md); background: var(--paper); text-align: left; cursor: pointer; }
+    .architecture-node small { color: var(--muted); }
+    .architecture-node[aria-pressed="true"] { background: var(--ink); color: var(--paper); box-shadow: 3px 3px 0 #cfcfcf; }
+    .architecture-node[aria-pressed="true"] small { color: #d8d8d8; }
+
+    .workbench { display: grid; grid-template-columns: minmax(230px, 292px) minmax(0, 1fr); grid-template-rows: auto minmax(0, 1fr); column-gap: 24px; }
+    .step-navigation { grid-column: 2; display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 0 0 10px; }
+    .step-title { display: grid; min-width: 0; }
+    .step-title strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 16px; }
+    .step-title small { color: var(--muted); }
+    .nav-actions { display: flex; align-items: center; gap: 7px; }
+    .btn { min-height: 36px; padding: 7px 11px; border: 1px solid var(--ink); border-radius: var(--radius-sm); background: var(--paper); cursor: pointer; }
+    .btn:hover:not(:disabled) { background: var(--ink); color: var(--paper); }
+    .btn:disabled { border-color: var(--line); color: var(--line); cursor: default; }
+
+    .timeline-shell { grid-column: 1; grid-row: 1 / span 2; min-width: 0; padding-right: 18px; border-right: 1px solid var(--line); }
+    .timeline-label { margin-bottom: 10px; }
+    .timeline { display: grid; margin: 0; padding: 0; list-style: none; }
+    .timeline li { position: relative; min-width: 0; padding: 0 0 8px 23px; }
+    .timeline li::before { content: ""; position: absolute; top: 0; bottom: 0; left: 8px; width: 1px; background: var(--line); }
+    .timeline li:last-child::before { bottom: 50%; }
+    .timeline li[data-break="true"] { margin-top: 8px; padding-top: 8px; border-top: 1px dashed var(--line); }
+    .timeline button { position: relative; display: grid; width: 100%; grid-template-columns: 35px minmax(0, 1fr); gap: 8px; padding: 8px 7px; border: 0; border-radius: var(--radius-md); background: transparent; text-align: left; cursor: pointer; }
+    .timeline-marker { position: relative; z-index: 1; display: grid; place-items: center; width: 31px; height: 25px; border: 1px solid var(--ink); border-radius: 999px; background: var(--paper); font: 700 10px/1 ui-monospace, monospace; }
+    .timeline-copy { min-width: 0; padding-left: 8px; border-left: 3px solid transparent; }
+    .timeline-copy small { display: block; color: var(--muted); font-size: 10px; }
+    .timeline-copy strong { display: block; margin-top: 2px; line-height: 1.35; }
+    .timeline button[aria-pressed="true"] { background: var(--soft); }
+    .timeline button[aria-pressed="true"] .timeline-marker { background: var(--ink); color: var(--paper); }
+    .timeline button[aria-pressed="true"] .timeline-copy { border-left-color: var(--ink); }
+    .timeline button[data-status="unknown"] .timeline-marker { border-style: dashed; }
+
+    .detail-column { grid-column: 2; min-width: 0; }
+    .step-card { min-width: 0; padding: 18px; border: 1px solid var(--ink); border-radius: var(--radius-lg); box-shadow: 4px 4px 0 var(--soft); }
+    .step-meta { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px; margin-bottom: 14px; padding-bottom: 11px; border-bottom: 1px solid var(--line); }
+    .step-meta h2 { margin: 0; font-size: 18px; }
+    .step-badges { display: flex; flex-wrap: wrap; gap: 6px; }
+    .impact-chain { display: grid; grid-template-columns: minmax(0, 1fr) 26px minmax(0, 1fr) 26px minmax(0, 1fr); margin-bottom: 17px; overflow: hidden; border: 1px solid var(--ink); border-radius: var(--radius-md); }
+    .impact-cell { display: grid; align-content: center; min-height: 78px; gap: 4px; padding: 10px 12px; }
+    .impact-cell small { color: var(--muted); font-size: 10px; font-weight: 800; letter-spacing: .08em; }
+    .impact-cell[data-kind="state"] { background: var(--ink); color: var(--paper); }
+    .impact-cell[data-kind="state"] small { color: #ccc; }
+    .impact-arrow { display: grid; place-items: center; border-inline: 1px solid var(--ink); }
+    .detail-grid { display: grid; grid-template-columns: minmax(220px, .88fr) minmax(0, 1.3fr); gap: 20px; align-items: start; }
+    .facts { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 8px 12px; margin: 0; }
+    .facts dt { color: var(--muted); }
+    .facts dd { margin: 0; }
+    .state-delta { padding: 8px 10px; border-left: 3px solid var(--ink); background: var(--soft); font-weight: 700; }
+    .call-path { display: flex; align-items: center; flex-wrap: wrap; gap: 5px; margin-bottom: 9px; font-size: 11px; }
+    .source-toolbar { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; padding: 7px 10px; border: 1px solid var(--line); border-bottom: 0; background: var(--soft); font-size: 11px; }
+    .source-toolbar span { color: var(--muted); }
+    pre { max-width: 100%; max-height: 390px; margin: 0; overflow: auto; border: 1px solid var(--line); background: #fafafa; font: 12px/1.55 ui-monospace, SFMono-Regular, Menlo, monospace; text-align: left; }
+    pre code { display: block; width: max-content; min-width: 100%; padding: 7px 0; }
+    .code-line { display: grid; grid-template-columns: 5.5ch minmax(max-content, 1fr); min-height: 1.55em; }
+    .code-line-number { position: sticky; left: 0; padding: 0 8px 0 4px; border-right: 1px solid #ddd; background: #fafafa; color: var(--muted); text-align: right; user-select: none; }
+    .code-line-text { padding: 0 10px; white-space: pre; }
+    .code-line[data-selected="true"] { background: #e9e9e7; box-shadow: inset 3px 0 0 var(--ink); }
+    .evidence-actions { display: flex; align-items: baseline; justify-content: space-between; flex-wrap: wrap; gap: 8px; margin-top: 8px; color: var(--muted); font-size: 11px; }
+    .evidence-actions .mono { min-width: 0; overflow-wrap: anywhere; }
+    .editor-link { display: inline-flex; align-items: center; padding: 6px 9px; border: 1px solid var(--ink); border-radius: var(--radius-sm); background: var(--ink); color: var(--paper); text-decoration: none; font-weight: 700; }
+    .editor-link:hover { background: var(--paper); color: var(--ink); }
+    .branch-note { margin-top: 14px; padding: 11px 12px; border-left: 4px double var(--ink); background: var(--soft); }
+    .branch-note strong { display: block; margin-bottom: 4px; }
+
+    .review-notes { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; margin-top: 22px; }
+    .review-note { min-width: 0; padding: 12px 13px; border: 1px solid var(--line); border-radius: var(--radius-md); }
+    .review-note strong { display: block; margin-bottom: 3px; }
+    .review-note span { color: var(--muted); font-size: 12px; }
+
+    @media (max-width: 800px) {
+      .shell { padding: 17px 13px 40px; }
+      .review-header { display: grid; }
+      .review-state { justify-items: start; }
+      .snapshot strong { width: 100%; margin-left: 0; }
+      .flow-tabs, .review-notes { grid-template-columns: 1fr; }
+      .workbench { grid-template-columns: minmax(0, 1fr); }
+      .step-navigation, .timeline-shell, .detail-column { grid-column: 1; grid-row: auto; }
+      .step-navigation { order: 1; align-items: flex-start; flex-wrap: wrap; }
+      .timeline-shell { order: 2; max-height: 370px; margin-bottom: 14px; padding: 0 0 8px; overflow-y: auto; border-right: 0; border-bottom: 1px solid var(--line); }
+      .detail-column { order: 3; }
+      .detail-grid { grid-template-columns: minmax(0, 1fr); }
+      .impact-chain { grid-template-columns: minmax(0, 1fr); }
+      .impact-arrow { min-height: 24px; border: 0; border-block: 1px solid var(--ink); transform: rotate(90deg); }
+      .architecture-lane { grid-template-columns: 102px minmax(max-content, 1fr); }
+      .lane-label { width: 102px; }
+    }
+
+    @media (max-width: 430px) {
+      .nav-actions { width: 100%; }
+      .nav-actions .btn { flex: 1; }
+      .facts { grid-template-columns: minmax(0, 1fr); }
+      .step-card { padding: 14px; }
+      .architecture summary { align-items: flex-start; flex-direction: column; }
+    }
+
+    @media (prefers-reduced-motion: reduce) { html { scroll-behavior: auto; } }
+  </style>
+</head>
+<body>
+  <main class="shell" id="flowview-sample">
+    <header class="review-header">
+      <div>
+        <span class="eyebrow">Final design review · local sample</span>
+        <h1>코드 흐름을 읽는 작업 공간</h1>
+        <p>파일 목록이 아니라, 사용자 동작이 어떤 코드와 상태를 거쳐 화면 결과로 이어지는지 단계별로 검토합니다.</p>
+      </div>
+      <div class="review-state">
+        <span class="badge">디자인 검수 샘플</span>
+        <span class="status" data-status="observed">현재 코드에서 확인됨</span>
+      </div>
+    </header>
+
+    <section class="snapshot" aria-label="분석 기준">
+      <span class="badge">ArchitectureSnapshot</span>
+      <code>sgp-981-app@9641f8b</code>
+      <span>작업 트리 변경 있음 · 동일한 코드 기준</span>
+      <strong id="snapshot-status" class="status" data-status="observed">흐름 연결 확인됨</strong>
+    </section>
+
+    <section class="workspace" aria-label="화면 흐름 지도">
+      <div class="section-heading"><h2>화면 흐름 지도</h2><span>같은 분석 기준 · 3개 화면</span></div>
+      <nav class="flow-tabs" aria-label="검수할 화면 선택">
+        <button class="flow-tab" type="button" data-flow="join" aria-pressed="true"><strong>/join · 회원가입</strong><small>9단계 · 모든 핵심 연결 확인</small></button>
+        <button class="flow-tab" type="button" data-flow="home" aria-pressed="false"><strong>/home · 홈</strong><small>3단계 · 화면 진입 흐름</small></button>
+        <button class="flow-tab" type="button" data-flow="auth" aria-pressed="false"><strong>/auth · 로그인</strong><small>4단계 · 세션 확인 흐름</small></button>
+      </nav>
+      <div class="flow-links" aria-label="코드에서 확인된 화면 이동"><span>/join → /home</span><span>/join → /auth</span><span>/auth → /home</span></div>
+    </section>
+
+    <div class="path-line" id="path-line" aria-label="현재 코드 경로"></div>
+
+    <details class="architecture" open aria-label="Architecture causal map">
+      <summary><h2>Architecture causal map</h2><span>노드를 누르면 같은 타임라인 단계로 이동합니다.</span></summary>
+      <div class="architecture-scroll"><div id="architecture-lanes"></div></div>
+    </details>
+
+    <section class="workbench" aria-label="선택한 코드 흐름">
+      <div class="step-navigation" aria-label="타임라인 이동">
+        <div class="step-title"><small id="step-position">01 / 09</small><strong id="current-step-title">회원가입 화면 진입</strong></div>
+        <div class="nav-actions"><button id="prev" class="btn" type="button">← 이전 단계</button><button id="next" class="btn" type="button">다음 단계 →</button></div>
+      </div>
+
+      <aside class="timeline-shell">
+        <div class="timeline-label"><span class="eyebrow">Vertical causal timeline</span></div>
+        <ol class="timeline" id="timeline" aria-label="코드 흐름 타임라인"></ol>
+      </aside>
+
+      <div class="detail-column">
+        <article class="step-card" aria-live="polite">
+          <div class="step-meta"><h2 id="detail-title"></h2><div class="step-badges"><span class="badge" id="trust-badge"></span><span class="badge" id="change-badge"></span></div></div>
+          <div class="impact-chain" aria-label="코드에서 상태와 화면 결과까지의 영향">
+            <div class="impact-cell" data-kind="code"><small>코드 동작</small><strong id="code-impact"></strong></div><div class="impact-arrow" aria-hidden="true">→</div>
+            <div class="impact-cell" data-kind="state"><small>상태 변화</small><strong id="state-impact"></strong></div><div class="impact-arrow" aria-hidden="true">→</div>
+            <div class="impact-cell" data-kind="result"><small>사용자 결과</small><strong id="result-impact"></strong></div>
+          </div>
+          <div class="detail-grid">
+            <dl class="facts">
+              <dt>상태 입력</dt><dd id="state-before"></dd>
+              <dt>상태 변화</dt><dd class="state-delta" id="state-delta"></dd>
+              <dt>상태 근거</dt><dd id="state-proof"></dd>
+              <dt>이전 원인</dt><dd id="incoming"></dd>
+              <dt>다음 결과</dt><dd id="outgoing"></dd>
+              <dt>검증 상태</dt><dd id="verification"></dd>
+            </dl>
+            <section aria-label="선택 단계 코드 근거">
+              <div class="call-path" id="call-path"></div>
+              <div class="source-toolbar"><strong>현재 코드</strong><span id="selected-line"></span></div>
+              <pre tabindex="0" aria-label="현재 코드 조각"><code id="source-code"></code></pre>
+              <div class="evidence-actions"><span class="mono" id="source-path"></span><a class="editor-link" id="editor-link" href="#" aria-label="현재 코드 근거를 VS Code에서 열기">↗ VS Code에서 열기</a></div>
+            </section>
+          </div>
+          <div class="branch-note" id="branch-note" hidden></div>
+        </article>
+      </div>
+    </section>
+
+    <section class="review-notes" aria-label="디자인 검수 기준">
+      <div class="review-note"><strong>한눈에 이해</strong><span>선택 단계의 코드 동작, 상태 변화, 사용자 결과를 한 줄로 읽을 수 있는가?</span></div>
+      <div class="review-note"><strong>근거로 이동</strong><span>타임라인과 인과 지도가 함께 움직이고 실제 코드 위치로 바로 갈 수 있는가?</span></div>
+      <div class="review-note"><strong>불확실성 정직성</strong><span>확인되지 않은 연결이 어려운 분석 용어 없이 이해되는가?</span></div>
+    </section>
+  </main>
+
+  <script>
+    (() => {
+      const samplePath = 'packages/feature_account/lib/src/features/join/presentation/join_page.dart';
+      const flows = {
+        join: {
+          status: 'observed',
+          path: ['/join', 'JoinPage', 'JoinController', 'JoinState', 'AppRouter'],
+          steps: [
+            step('회원가입 화면 진입', 'UI', '라우터가 JoinPage를 만듭니다.', '화면 없음', '회원가입 초안 준비', '회원가입 화면 표시', 43, [
+              "GoRoute(", "  path: joinPath,", "  builder: (context, state) => const JoinPage(),", "),"
+            ], 'route:/join', 'JoinPage 생성'),
+            step('가입 정보 제출', 'UI', '완료 버튼이 제출 이벤트를 보냅니다.', '입력 완료', '제출 처리 중', '버튼 입력 잠금', 132, [
+              "onPressed: state.isLoading", "    ? null", "    : () => ref.dispatch(", "          joinControllerProvider,", "          const JoinSubmitEvent(),", "        ),"
+            ], '완료 버튼', 'JoinSubmitEvent'),
+            step('가입 결과 확인', 'Application', 'Controller가 가입 결과를 분류합니다.', '제출 처리 중', '가입 완료', '완료 경로 선택', 249, [
+              "final result = await _establishSession(state.value!.draft);", "switch (result) {", "  case Ok(:final value):", "    state = AsyncData(JoinState.completed(value));", "  case Error(:final error):", "    state = AsyncError(error, StackTrace.current);", "}"
+            ], 'JoinSubmitEvent', '완료 상태'),
+            step('완료 경로 선택', 'Navigation', '완료 결과를 화면 목적지로 바꿉니다.', '가입 완료', 'HomeDestination', '/home 이동 결정', 112, [
+              "final destination = switch (completion) {", "  JoinCompletedWithSession() => const HomeDestination(),", "  JoinCompletedWithoutSession() => const AuthDestination(),", "};", "ref.read(routeDispatcherProvider).go(destination);"
+            ], '완료 상태', 'HomeDestination', { title: '가입 뒤 세션 상태에 따라 목적지가 달라집니다.', body: '세션이 있으면 홈으로, 세션이 없으면 로그인 화면으로 이어집니다.' }),
+            step('홈 화면 이동', 'Navigation', '목적지 resolver가 /home을 반환합니다.', 'HomeDestination', '/home', '홈 화면 표시', 76, [
+              "String resolveDestination(RouteDestination destination) {", "  return switch (destination) {", "    HomeDestination() => homePath,", "    AuthDestination() => authPath,", "  };", "}"
+            ], 'HomeDestination', 'route:/home'),
+            step('나가기 확인', 'UI', '사용자가 가입 취소를 확인합니다.', '가입 진행 중', '취소 확인됨', '취소 이벤트 전달', 139, [
+              "final confirmed = await showDialog<bool>(", "  context: context,", "  builder: (_) => const JoinExitDialog(),", ");", "if (confirmed ?? false) {", "  ref.dispatch(joinControllerProvider, const JoinCancelEvent());", "}"
+            ], '나가기 버튼', 'JoinCancelEvent', { title: '사용자가 취소를 확정한 경우에만 다음 단계로 갑니다.', body: '확인하지 않으면 현재 회원가입 화면에 그대로 머뭅니다.' }, true),
+            step('취소 이벤트 처리', 'Application', 'Controller가 JoinCancelEvent를 받습니다.', '취소 확인됨', '취소 처리 시작', '상태 대입 실행', 272, [
+              "switch (event) {", "  case JoinCancelEvent():", "    state = AsyncData(", "      JoinState(isCanceled: true),", "    );", "}"
+            ], 'JoinCancelEvent', 'JoinState 대입'),
+            step('가입 상태 변경', 'State', '취소 상태를 true로 대입합니다.', 'isCanceled = false', 'isCanceled = true', 'listener가 변경 감지', 276, [
+              "/// 가입을 취소하면 작성 중인 draft를 모두 버립니다.", "Future<void> _onJoinCancel(JoinCancelEvent event) async {", "  state = const AsyncData(JoinState(isCanceled: true));", "}"
+            ], 'Controller 이벤트 처리', 'JoinPage listener'),
+            step('로그인 화면 이동', 'Navigation', 'listener가 취소 상태를 읽고 /auth로 이동합니다.', 'isCanceled = true', '/auth', '로그인 화면 표시', 159, [
+              "ref.listen(joinControllerProvider, (previous, next) {", "  final canceled = next.value?.isCanceled ?? false;", "  if (canceled) {", "    ref.read(routeDispatcherProvider).go(", "      const AuthDestination(),", "    );", "  }", "});"
+            ], 'JoinPage listener', 'route:/auth')
+          ]
+        },
+        home: {
+          status: 'observed',
+          path: ['/home', 'HomePage', 'HomeFeedProvider'],
+          steps: [
+            step('홈 화면 진입', 'UI', '라우터가 HomePage를 만듭니다.', '이전 화면', '홈 화면 준비', '홈 스켈레톤 표시', 31, ["GoRoute(", "  path: homePath,", "  builder: (_, __) => const HomePage(),", "),"], 'route:/home', 'HomePage'),
+            step('홈 데이터 요청', 'Application', '화면이 홈 피드 provider를 구독합니다.', '홈 화면 준비', '데이터 불러오는 중', '로딩 상태 표시', 48, ["final feed = ref.watch(homeFeedProvider);", "return feed.when(", "  loading: () => const HomeSkeleton(),", "  data: HomeContent.new,", "  error: HomeError.new,", ");"], 'HomePage', 'homeFeedProvider'),
+            step('홈 콘텐츠 표시', 'UI', '데이터가 준비되면 HomeContent를 표시합니다.', '데이터 불러오는 중', '홈 데이터 준비됨', '홈 콘텐츠 표시', 51, ["return feed.when(", "  loading: () => const HomeSkeleton(),", "  data: (items) => HomeContent(items: items),", "  error: (error, stack) => HomeError(error: error),", ");"], 'homeFeedProvider', 'HomeContent')
+          ]
+        },
+        auth: {
+          status: 'mixed',
+          path: ['/auth', 'AuthPage', 'AuthController', 'AppRouter'],
+          steps: [
+            step('로그인 화면 진입', 'UI', '라우터가 AuthPage를 만듭니다.', '세션 없음', '로그인 대기', '로그인 화면 표시', 24, ["GoRoute(", "  path: authPath,", "  builder: (_, __) => const AuthPage(),", "),"], 'route:/auth', 'AuthPage'),
+            step('로그인 요청', 'UI', '사용자가 입력한 계정으로 로그인 이벤트를 보냅니다.', '로그인 대기', '로그인 처리 중', '입력 잠금', 91, ["onPressed: state.isLoading", "    ? null", "    : () => ref.dispatch(", "          authControllerProvider,", "          AuthSubmitEvent(form.value),", "        ),"], '로그인 버튼', 'AuthSubmitEvent'),
+            step('세션 저장', 'State', '성공한 세션을 앱 상태에 반영합니다.', '세션 없음', '세션 있음', '인증 listener 호출', 184, ["case Ok(:final session):", "  await ref.read(sessionStoreProvider).save(session);", "  state = AsyncData(", "    AuthState.authenticated(session.user),", "  );"], '로그인 성공', 'AuthState.authenticated'),
+            step('로그인 후 이동', 'Navigation', '로그인 완료 상태가 홈 이동을 요청합니다.', '세션 있음', '/home', '홈 화면 표시', 118, ["ref.listen(authControllerProvider, (_, next) {", "  if (next.value?.isAuthenticated ?? false) {", "    ref.read(routeDispatcherProvider).go(", "      const HomeDestination(),", "    );", "  }", "});"], '인증 listener', 'route:/home', { title: '서버가 추가 인증을 요구하는 경우는 아직 타임라인에 연결되지 않았습니다.', body: '현재 코드는 성공 경로만 확인됩니다. 추가 인증 응답 형식이 연결되면 별도 단계로 표시할 수 있습니다.' })
+          ]
+        }
+      };
+
+      function step(title, layer, codeImpact, before, after, result, line, code, incoming, outgoing, branch = null, sectionBreak = false) {
+        return { title, layer, codeImpact, before, after, result, line, code, incoming, outgoing, branch, sectionBreak, status: branch && branch.title.includes('아직') ? 'mixed' : 'observed' };
+      }
+
+      const root = document.getElementById('flowview-sample');
+      const flowTabs = Array.from(root.querySelectorAll('[data-flow]'));
+      const timeline = root.querySelector('#timeline');
+      const lanes = root.querySelector('#architecture-lanes');
+      const architectureScroll = root.querySelector('.architecture-scroll');
+      let flowKey = 'join';
+      let selected = 7;
+
+      const escapeHTML = (value) => String(value).replace(/[&<>"']/g, (character) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[character]);
+
+      function renderFlow(key) {
+        flowKey = key;
+        selected = key === 'join' ? 7 : 0;
+        flowTabs.forEach((tab) => tab.setAttribute('aria-pressed', String(tab.dataset.flow === key)));
+        const flow = flows[key];
+        root.querySelector('#snapshot-status').dataset.status = flow.status;
+        root.querySelector('#snapshot-status').textContent = flow.status === 'observed' ? '흐름 연결 확인됨' : '일부 연결은 추가 확인 필요';
+        root.querySelector('#path-line').innerHTML = '<span class="badge">현재 코드 경로</span>' + flow.path.map((part, index) => `${index ? '<span aria-hidden="true">→</span>' : ''}<code>${escapeHTML(part)}</code>`).join('');
+        timeline.replaceChildren(...flow.steps.map((item, index) => {
+          const li = document.createElement('li');
+          li.dataset.break = String(Boolean(item.sectionBreak));
+          li.innerHTML = `<button type="button" data-step="${index}" data-status="${item.status}" aria-pressed="false"><span class="timeline-marker">${String(index + 1).padStart(2, '0')}</span><span class="timeline-copy"><small>${escapeHTML(item.layer)} · ${item.status === 'observed' ? '코드에서 확인' : '일부 연결 미확정'}${item.before !== item.after ? ' · 상태 변경' : ''}</small><strong>${escapeHTML(item.title)}</strong></span></button>`;
+          li.querySelector('button').addEventListener('click', () => renderStep(index));
+          return li;
+        }));
+        renderArchitecture(flow);
+        renderStep(selected, false);
+      }
+
+      function renderArchitecture(flow) {
+        const layerOrder = ['UI', 'Application', 'State', 'Navigation'];
+        lanes.replaceChildren(...layerOrder.filter((layer) => flow.steps.some((stepItem) => stepItem.layer === layer)).map((layer) => {
+          const lane = document.createElement('div');
+          lane.className = 'architecture-lane';
+          const nodes = flow.steps.map((item, index) => ({ item, index })).filter(({ item }) => item.layer === layer).map(({ item, index }) => `<button class="architecture-node" type="button" style="grid-column:${index + 1}" data-architecture-step="${index}" aria-pressed="false"><strong>${escapeHTML(item.title)}</strong><small>${escapeHTML(item.after)}</small></button>`).join('');
+          lane.innerHTML = `<div class="lane-label">${layer}</div><div class="lane-track" style="--columns:${flow.steps.length}">${nodes}</div>`;
+          lane.querySelectorAll('[data-architecture-step]').forEach((node) => node.addEventListener('click', () => {
+            renderStep(Number(node.dataset.architectureStep), false);
+            root.querySelector('.workbench').scrollIntoView({ block: 'start', behavior: 'smooth' });
+          }));
+          return lane;
+        }));
+      }
+
+      function renderStep(index, scroll = true) {
+        const flow = flows[flowKey];
+        selected = Math.max(0, Math.min(flow.steps.length - 1, index));
+        const item = flow.steps[selected];
+        root.querySelectorAll('[data-step]').forEach((button, buttonIndex) => button.setAttribute('aria-pressed', String(buttonIndex === selected)));
+        root.querySelectorAll('[data-architecture-step]').forEach((node) => node.setAttribute('aria-pressed', String(Number(node.dataset.architectureStep) === selected)));
+        root.querySelector('#step-position').textContent = `${String(selected + 1).padStart(2, '0')} / ${String(flow.steps.length).padStart(2, '0')}`;
+        root.querySelector('#current-step-title').textContent = item.title;
+        root.querySelector('#detail-title').textContent = item.title;
+        root.querySelector('#trust-badge').textContent = item.status === 'observed' ? '현재 코드에서 확인' : '일부 연결 미확정';
+        root.querySelector('#change-badge').textContent = item.before !== item.after ? '상태 변경' : '상태 유지';
+        root.querySelector('#code-impact').textContent = item.codeImpact;
+        root.querySelector('#state-impact').textContent = `${item.before} → ${item.after}`;
+        root.querySelector('#result-impact').textContent = item.result;
+        root.querySelector('#state-before').textContent = item.before;
+        root.querySelector('#state-delta').textContent = `${item.before} → ${item.after}`;
+        root.querySelector('#state-proof').textContent = `${item.layer} 코드 ${item.line}번째 줄의 값 대입과 조건을 확인했습니다.`;
+        root.querySelector('#incoming').textContent = item.incoming;
+        root.querySelector('#outgoing').textContent = item.outgoing;
+        root.querySelector('#verification').textContent = item.status === 'observed' ? '현재 파일·심볼·코드 범위 확인됨' : '확인된 코드와 빠진 연결이 함께 있음';
+        root.querySelector('#call-path').innerHTML = [item.incoming, item.title, item.outgoing].map((part, pathIndex) => `${pathIndex ? '<span aria-hidden="true">→</span>' : ''}<code>${escapeHTML(part)}</code>`).join('');
+        root.querySelector('#selected-line').textContent = `선택 줄 ${item.line}`;
+        root.querySelector('#source-code').innerHTML = item.code.map((lineText, lineIndex) => {
+          const number = item.line - Math.min(2, item.code.length - 1) + lineIndex;
+          const selectedLine = number === item.line;
+          return `<span class="code-line" data-selected="${selectedLine}"><span class="code-line-number">${number}</span><span class="code-line-text">${escapeHTML(lineText)}</span></span>`;
+        }).join('');
+        const evidencePath = item.title === '가입 상태 변경' || item.title === '취소 이벤트 처리'
+          ? 'packages/feature_account/lib/src/features/join/presentation/join_controller.dart'
+          : samplePath;
+        root.querySelector('#source-path').textContent = `${evidencePath}:${item.line}`;
+        root.querySelector('#editor-link').href = `vscode://file/Users/junhyounglee/workspace/sgp-981-app/${evidencePath}:${item.line}`;
+        const note = root.querySelector('#branch-note');
+        note.hidden = !item.branch;
+        note.innerHTML = item.branch ? `<strong>${escapeHTML(item.branch.title)}</strong><span>${escapeHTML(item.branch.body)}</span>` : '';
+        root.querySelector('#prev').disabled = selected === 0;
+        root.querySelector('#next').disabled = selected === flow.steps.length - 1;
+        const activeNode = root.querySelector(`[data-architecture-step="${selected}"]`);
+        if (scroll && activeNode) {
+          const nodeRect = activeNode.getBoundingClientRect();
+          const containerRect = architectureScroll.getBoundingClientRect();
+          architectureScroll.scrollTo({ left: architectureScroll.scrollLeft + nodeRect.left + nodeRect.width / 2 - containerRect.left - containerRect.width / 2, behavior: 'smooth' });
+        }
+      }
+
+      flowTabs.forEach((tab) => tab.addEventListener('click', () => renderFlow(tab.dataset.flow)));
+      root.querySelector('#prev').addEventListener('click', () => renderStep(selected - 1));
+      root.querySelector('#next').addEventListener('click', () => renderStep(selected + 1));
+      renderFlow('join');
+    })();
+  </script>
+</body>
+</html>

@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"reflect"
 	"slices"
 	"sort"
 )
@@ -42,6 +43,11 @@ type Basis struct {
 	Dirty               bool            `json:"dirty"`
 	Manifest            []ManifestEntry `json:"manifest"`
 }
+
+// SameBasis is intentionally strict: multi-flow publication may share results
+// only when every repository, Git, dirty-state, fingerprint, and manifest field
+// describes the same captured worktree.
+func SameBasis(left, right Basis) bool { return reflect.DeepEqual(left, right) }
 
 // ManifestEntry is a byte-for-byte observation of one path in a worktree.
 // It is deliberately data, not a claim about what the source means.

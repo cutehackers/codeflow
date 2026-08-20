@@ -11,7 +11,6 @@ import (
 	"fmt"
 	"io"
 	"os/exec"
-	"path/filepath"
 	"strings"
 	"sync"
 	"time"
@@ -62,12 +61,24 @@ type Client struct {
 // by arguments; relative script paths are made repository-independent by the
 // caller before reaching this boundary.
 func Start(ctx context.Context, command string) (*Client, error) {
-	parts := strings.Fields(command)
+	parts, splitErr := splitCommand(command)
+	if splitErr != nil {
+		return nil, &Failure{"ADAPTER_UNAVAILABLE", splitErr.Error()}
+	}
 	if len(parts) == 0 {
 		return nil, &Failure{"ADAPTER_UNAVAILABLE", "no Dart adapter command was configured"}
 	}
-	cmd := exec.CommandContext(ctx, parts[0], parts[1:]...)
+	select {
+	case <-ctx.Done():
+		return nil, &Failure{"ADAPTER_TIMEOUT", ctx.Err().Error()}
+	default:
+	}
+	// The child belongs to the Client/Core lifecycle, not to the context of the
+	// request that happened to start it. Individual RPC calls still honor their
+	// deadlines and abort the child on timeout; Shutdown owns normal teardown.
+	cmd := exec.Command(parts[0], parts[1:]...)
 	cmd.Args = append(cmd.Args, "--stdio")
+	isolateProcessGroup(cmd)
 	in, err := cmd.StdinPipe()
 	if err != nil {
 		return nil, err
@@ -84,10 +95,56 @@ func Start(ctx context.Context, command string) (*Client, error) {
 	return &Client{cmd: cmd, in: in, out: bufio.NewReader(out), done: done}, nil
 }
 
-func DefaultCommand(repo string) string {
-	// This is kept explicit and executable with a normal Flutter/Dart SDK.
-	return "dart " + filepath.Join(repo, "adapters", "dart", "bin", "codeflow-dart-adapter.dart")
+func splitCommand(command string) ([]string, error) {
+	var parts []string
+	var current strings.Builder
+	var quote rune
+	escaped, started := false, false
+	flush := func() {
+		if started {
+			parts = append(parts, current.String())
+			current.Reset()
+			started = false
+		}
+	}
+	for _, character := range command {
+		if escaped {
+			current.WriteRune(character)
+			escaped, started = false, true
+			continue
+		}
+		if character == '\\' && quote != '\'' {
+			escaped, started = true, true
+			continue
+		}
+		if quote != 0 {
+			if character == quote {
+				quote = 0
+				started = true
+			} else {
+				current.WriteRune(character)
+				started = true
+			}
+			continue
+		}
+		if character == '\'' || character == '"' {
+			quote, started = character, true
+			continue
+		}
+		if character == ' ' || character == '\t' || character == '\n' || character == '\r' {
+			flush()
+			continue
+		}
+		current.WriteRune(character)
+		started = true
+	}
+	if escaped || quote != 0 {
+		return nil, fmt.Errorf("adapter command has an unfinished quote or escape")
+	}
+	flush()
+	return parts, nil
 }
+
 func (c *Client) Initialize(ctx context.Context) error {
 	var result struct {
 		ProtocolVersion string   `json:"protocol_version"`
@@ -127,10 +184,19 @@ func (c *Client) Discover(ctx context.Context, repo string) ([]EntryPoint, error
 	return result.EntryPoints, nil
 }
 func (c *Client) RefineRouteFlow(ctx context.Context, repo, flowID string, paths []string) ([]SemanticFact, error) {
+	return c.RefineRouteFlowWithAnalysisPaths(ctx, repo, flowID, paths, paths)
+}
+
+// RefineRouteFlowWithAnalysisPaths keeps the evidence slice for one flow
+// separate from the bounded union used to initialize a shared Analyzer
+// context. Multi-flow compilation passes the same union for every flow so
+// package resolution is paid once without allowing facts from another flow's
+// slice to leak into this result.
+func (c *Client) RefineRouteFlowWithAnalysisPaths(ctx context.Context, repo, flowID string, paths, analysisPaths []string) ([]SemanticFact, error) {
 	var result struct {
 		Facts []SemanticFact `json:"facts"`
 	}
-	if err := c.call(ctx, "refineRouteFlow", map[string]any{"repository": repo, "flow_id": flowID, "paths": paths}, &result); err != nil {
+	if err := c.call(ctx, "refineRouteFlow", map[string]any{"repository": repo, "flow_id": flowID, "paths": paths, "analysis_paths": analysisPaths}, &result); err != nil {
 		return nil, err
 	}
 	for _, fact := range result.Facts {
@@ -201,6 +267,10 @@ func (c *Client) call(ctx context.Context, method string, params any, result any
 		return &Failure{"ADAPTER_TIMEOUT", ctx.Err().Error()}
 	case got := <-line:
 		if got.err != nil {
+			if ctx.Err() != nil {
+				c.abortLocked()
+				return &Failure{"ADAPTER_TIMEOUT", ctx.Err().Error()}
+			}
 			return &Failure{"ADAPTER_MALFORMED", "adapter closed stdout before a response"}
 		}
 		var response struct {

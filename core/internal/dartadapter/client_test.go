@@ -51,3 +51,36 @@ func TestTimeoutTerminatesClientSoLateOutputCannotCorrelateToNextRequest(t *test
 		t.Fatalf("%v", failure)
 	}
 }
+
+func TestSplitCommandPreservesQuotedExecutableAndArguments(t *testing.T) {
+	parts, err := splitCommand(`"/Applications/Code Flow/dart" '/tmp/adapter path.dart' --mode=local\ review`)
+	if err != nil || len(parts) != 3 || parts[0] != "/Applications/Code Flow/dart" || parts[1] != "/tmp/adapter path.dart" || parts[2] != "--mode=local review" {
+		t.Fatalf("quoted command split=%#v err=%v", parts, err)
+	}
+	if _, err := splitCommand(`dart "unfinished`); err == nil {
+		t.Fatal("unfinished command quoting was accepted")
+	}
+}
+
+func TestClientLifetimeOutlivesTheStartRequestContext(t *testing.T) {
+	adapter := executable(t, `
+read initialize
+echo '{"jsonrpc":"2.0","id":1,"result":{"protocol_version":"1","capabilities":["discover_entry_points"]}}'
+read shutdown
+echo '{"jsonrpc":"2.0","id":2,"result":{}}'
+`)
+	start, cancel := context.WithCancel(context.Background())
+	client, err := Start(start, adapter)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cancel()
+	if err := client.Initialize(context.Background()); err != nil {
+		t.Fatalf("start request cancellation killed the owned adapter: %v", err)
+	}
+	shutdown, stop := context.WithTimeout(context.Background(), 5*time.Second)
+	defer stop()
+	if err := client.Shutdown(shutdown); err != nil {
+		t.Fatal(err)
+	}
+}

@@ -9,12 +9,14 @@ The root declares `data-flowview-version="1"`. Every rendered flow uses these
 stable regions in this reading order:
 
 1. `snapshot` — repository revision, worktree state, and overall trust.
-2. `architecture` — UI/application/state/data/external lanes whose nodes select
-   the corresponding timeline step.
+2. The optional multi-flow screen map and compact current-code path.
 3. `timeline-navigation` and `timeline` — previous/next controls and ordered
    causal steps.
 4. `step-detail` — a selected step containing `impact-chain` and `code-lens`.
-5. `cognitive-debt` when current unknowns exist.
+5. `architecture` — a secondary, collapsible UI/application/state/data/external
+   causal map whose nodes select the corresponding timeline step. Opening the
+   map scrolls to the already-selected timeline step.
+6. `cognitive-debt` when current unknowns exist.
 
 The impact chain always reads `코드 변경 → 상태 변화 → 화면 결과`. A missing
 baseline is presented as `비교 기준 없음` or `baseline 미선택`, never as “no
@@ -25,6 +27,15 @@ All editor links are constructed only by the verified source-lens boundary.
 The template receives a `vscode://file/...:line:column` URL only after the
 relative path, manifest hash, anchor hash, and current bytes agree. Stale or
 unavailable lenses render no editor link.
+
+The code lens keeps the exact raw source window in the API, but its visible
+lines remove only the window's shared leading indentation. Each row shows its
+real source line number and marks the anchor range, so deeply nested Flutter
+widgets start at the left edge without destroying their relative indentation.
+Line numbers never wrap. Source lines follow editor conventions: they preserve
+relative indentation and scroll horizontally instead of breaking at arbitrary
+characters. A compact header identifies the selected line, and the anchor row
+is highlighted across the code viewport.
 
 Visible status and branch labels use reader-facing Korean phrases; stable raw
 status and reason values stay in `data-*` attributes and API payloads. A branch
@@ -50,3 +61,8 @@ The approved successor design direction is documented in
 It preserves this v1 trust and evidence contract while moving the timeline's
 existing monochrome marker, connector, state-change ring, and branch grammar to
 a vertical detail workspace beneath a multi-flow screen map.
+
+The implemented publication and API rules are defined by
+[`multi-flow-workspace-v1.md`](./multi-flow-workspace-v1.md). The reusable
+template owns both single-flow and multi-flow rendering; compilers still emit no
+feature-specific HTML.

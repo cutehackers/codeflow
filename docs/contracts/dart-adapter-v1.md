@@ -16,7 +16,11 @@ child. `shutdown` is requested at normal completion; bounded process cleanup
 prevents child leakage.
 
 `refineRouteFlow` parses the validated Core-supplied source slice with the Dart
-Analyzer. The selected `GoRoute` builder first identifies the owning Widget and
+Analyzer. An optional `analysis_paths` field supplies the bounded union of
+current source paths needed by one Multi-flow compilation. Every flow keeps its
+own `paths` evidence slice, while the adapter initializes one Analyzer context
+from the shared union and reuses package resolution for the remaining flows.
+The selected `GoRoute` builder first identifies the owning Widget and
 State declarations. `onPressed` callbacks and direct calls enter observed
 FlowIR only when Analyzer resolves them to executable elements owned by that
 route. Text matches, unresolved identifiers, closures, computed callbacks, and
@@ -30,6 +34,23 @@ go_router rule; `contract_v1` names versioned local contract evidence. Syntax
 AST may still discover candidates, but it is never sufficient for an observed
 callback or call relationship. Regex is limited to narrow framework rules that
 emit nothing when their complete unique seam is absent.
+
+Resolved causality is product-name independent. For navigation, the adapter
+joins a resolved destination constructor to a unique switch-expression mapping
+and a resolved literal route constant. For state-driven navigation, it joins
+the exact provider and event at `dispatch`, the unique resolved event case and
+state assignment, a listener registered for the same provider, a condition on
+the assigned state member, and the listener's resolved route. Every link must
+be present in the Core-supplied current source slice. Missing or ambiguous
+links emit no observed chain; route names, provider names, event names, class
+names, and filenames are never special-cased.
+
+An explicit return guard immediately preceding a resolved dispatch may produce
+the second, terminal `result:no_navigation` branch. This does not claim which
+branch runs at runtime; it proves only that the current source contains both
+possible outcomes. A state listener may own the only visible navigation for an
+action—no same-body route call is required.
+
 The adapter advertises `dart_analyzer_ast` and `resolved_symbols` from version
 0.5.0.
 

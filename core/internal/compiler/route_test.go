@@ -2,6 +2,7 @@ package compiler
 
 import (
 	"codeflow/core/internal/codegraph"
+	"codeflow/core/internal/entrypoint"
 	"codeflow/core/internal/flowir"
 	"codeflow/core/internal/manifest"
 	"context"
@@ -20,6 +21,7 @@ const routeSource = "final routes = [GoRoute(path: '/signup', builder: (context,
 const riverpodSource = "final signupProvider = NotifierProvider<SignupNotifier, String>(SignupNotifier.new);\nfinal asyncSignupProvider = AsyncNotifierProvider<AsyncSignupNotifier, String>(AsyncSignupNotifier.new);\nfinal routes = [GoRoute(path: '/signup', builder: (context, state) => const SignupPage())];\nclass SignupPage {\n  void build() { ElevatedButton(onPressed: _submit); }\n  void _submit() { ref.read(signupProvider.notifier).submit(); _navigate(); }\n  void _navigate() { context.go('/welcome'); }\n}\nclass SignupNotifier { void submit() { state = 'submitted'; } }\nclass AsyncSignupNotifier { Future<void> submit() async { state = AsyncLoading(); await load(); state = AsyncData('submitted'); } }\n"
 const boundarySource = "final routes = [GoRoute(path: '/signup', builder: (context, state) => const SignupPage())];\nclass SignupPage {\n  void build() { ElevatedButton(onPressed: _submit); }\n  void _submit() { UserRepository.save(); PaymentsApi.charge(); _navigate(); }\n  void _navigate() { context.go('/welcome'); }\n}\n"
 const dynamicBranchSource = "final routes = [GoRoute(path: '/signup', builder: (context, state) => const SignupPage())];\nclass SignupPage {\n  void build() { ElevatedButton(onPressed: _submit); }\n  void _submit() { _navigate(); }\n  void _navigate() {\n    if (approved) { context.go('/welcome'); } else { dynamic fallback; fallback.go('/retry'); }\n  }\n}\n"
+const multiRouteSource = "final routes = [\n  GoRoute(path: '/signup', builder: (context, state) => const SignupPage()),\n  GoRoute(path: '/settings', builder: (context, state) => const SettingsPage()),\n];\nclass SignupPage {\n  const SignupPage();\n  void build() { ElevatedButton(onPressed: _submit); }\n  void _submit() { context.go('/welcome'); }\n}\nclass SettingsPage {\n  const SettingsPage();\n  void build() { ElevatedButton(onPressed: _save); }\n  void _save() { context.go('/done'); }\n}\n"
 
 func fixture(t *testing.T) (string, string) {
 	t.Helper()
@@ -82,7 +84,95 @@ func TestCompileBuildsEvidenceBackedRouteAndRejectsStaleGraph(t *testing.T) {
 	}
 }
 
-func TestCompileRejectsTextualOrUnresolvedCallbackAsObserved(t *testing.T) {
+func TestAssembleNeverBorrowsAnUnrelatedRouteTransition(t *testing.T) {
+	basis, entry, anchor := assembleFixture()
+	routeAnchor := anchor
+	routeAnchor.Symbol = "route"
+	doc, err := assemble(basis, entry, []semanticFact{
+		{kind: "user_action", subject: "SignupPage.submit", proof: "resolved_ast", symbolID: "SignupPage.submit", anchor: anchor, status: flowir.Observed},
+		{kind: "route_transition", subject: "OtherPage.close", object: "route:/wrong", proof: "framework_rule_v1", anchor: routeAnchor, status: flowir.Observed},
+	}, "owned_dart_structural")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if doc.Current.Status != flowir.Unknown || len(doc.Unknowns) != 1 || doc.Unknowns[0].Reason != "missing_relation" {
+		t.Fatalf("unrelated transition must stop at an explicit unknown: %#v", doc)
+	}
+	for _, fact := range doc.Facts {
+		if fact.Kind == "visible_result" {
+			t.Fatalf("unrelated transition became a visible result: %#v", fact)
+		}
+	}
+}
+
+func TestAssembleUsesOnlyResolvedCallPathToRouteTransition(t *testing.T) {
+	basis, entry, anchor := assembleFixture()
+	routeAnchor := anchor
+	routeAnchor.Symbol = "route"
+	doc, err := assemble(basis, entry, []semanticFact{
+		{kind: "user_action", subject: "SignupPage.submit", proof: "resolved_ast", symbolID: "SignupPage.submit", anchor: anchor, status: flowir.Observed},
+		{kind: "call", subject: "SignupPage.submit", object: "SignupPage.navigate", proof: "resolved_ast", symbolID: "SignupPage.navigate", anchor: anchor, status: flowir.Observed},
+		{kind: "route_transition", subject: "OtherPage.close", object: "route:/wrong", proof: "framework_rule_v1", anchor: routeAnchor, status: flowir.Observed},
+		{kind: "route_transition", subject: "SignupPage.navigate", object: "route:/welcome", proof: "framework_rule_v1", anchor: routeAnchor, status: flowir.Observed},
+	}, "owned_dart_structural")
+	if err != nil {
+		t.Fatal(err)
+	}
+	visible := ""
+	for _, fact := range doc.Facts {
+		if fact.Kind == "visible_result" {
+			visible = fact.Object
+		}
+	}
+	if doc.Current.Status != flowir.Observed || visible != "route:/welcome" || len(doc.Current.Steps) != 2 {
+		t.Fatalf("resolved call path was not preserved: %#v", doc)
+	}
+}
+
+func TestAssemblePreservesMultipleActionsWithoutInventingOutcomes(t *testing.T) {
+	basis, entry, anchor := assembleFixture()
+	second := anchor
+	second.ByteRange = []int{20, 30}
+	second.LineRange = []int{2, 2}
+	second.Fingerprint = "action-b"
+	routeAnchor := anchor
+	routeAnchor.Symbol = "route"
+	secondRouteAnchor := second
+	secondRouteAnchor.Symbol = "route"
+	doc, err := assemble(basis, entry, []semanticFact{
+		{kind: "user_action", subject: "Page.continueAction", proof: "resolved_ast", symbolID: "Page.continueAction", anchor: anchor, status: flowir.Observed},
+		{kind: "route_transition", subject: "Page.continueAction", object: "route:/next", proof: "framework_rule_v1", anchor: routeAnchor, status: flowir.Observed},
+		{kind: "user_action", subject: "Page.helpAction", proof: "resolved_ast", symbolID: "Page.helpAction", anchor: second, status: flowir.Observed},
+		{kind: "route_transition", subject: "UnrelatedPage.close", object: "route:/wrong", proof: "framework_rule_v1", anchor: secondRouteAnchor, status: flowir.Observed},
+	}, "owned_dart_structural")
+	if err != nil {
+		t.Fatal(err)
+	}
+	visible := map[string]bool{}
+	actions := 0
+	for _, fact := range doc.Facts {
+		if fact.Kind == "visible_result" {
+			visible[fact.Object] = true
+		}
+		if fact.Kind == "user_action" {
+			actions++
+		}
+	}
+	if doc.Current.Status != flowir.Mixed || actions != 2 || !visible["route:/next"] || visible["route:/wrong"] || len(doc.Unknowns) != 1 {
+		t.Fatalf("multiple actions were dropped or cross-wired: %#v", doc)
+	}
+}
+
+func assembleFixture() (flowir.Basis, entrypoint.EntryPoint, flowir.Anchor) {
+	anchor := flowir.Anchor{Kind: "code", Path: "lib/page.dart", Symbol: "code", LineRange: []int{1, 1}, ByteRange: []int{0, 10}, FileHash: "sha256:page", SpanHash: "sha256:span", Fingerprint: "action-a", Revision: "revision"}
+	basis := flowir.Basis{Repository: "fixture", HeadRevision: "revision", WorktreeFingerprint: "sha256:fixture", Manifest: []flowir.ManifestEntry{{Path: "lib/page.dart", Type: "file", Mode: "0644", FileHash: "sha256:page", GitState: "clean"}}}
+	entryAnchor := anchor
+	entryAnchor.Symbol = "route"
+	entryAnchor.Fingerprint = "entry"
+	return basis, entrypoint.EntryPoint{FlowID: "route:/page", Anchor: entryAnchor}, anchor
+}
+
+func TestCompileKeepsTextualOrUnresolvedCallbackExplicitlyUnknown(t *testing.T) {
 	repo, adapter := fixture(t)
 	spoof := "final routes = [GoRoute(path: '/signup', builder: (context, state) => const SignupPage())];\nclass SignupPage {\n  void build() { final note = 'onPressed: _submit'; ElevatedButton(onPressed: missingCallback); }\n  void _submit() { context.go('/wrong'); }\n}\n"
 	if err := os.WriteFile(filepath.Join(repo, "lib/signup.dart"), []byte(spoof), 0644); err != nil {
@@ -92,9 +182,62 @@ func TestCompileRejectsTextualOrUnresolvedCallbackAsObserved(t *testing.T) {
 	exec.Command("git", "-C", repo, "-c", "user.email=x@y.z", "-c", "user.name=x", "commit", "-qm", "unresolved callback").Run()
 	s := graph(t, repo, false)
 	defer s.Close()
-	_, problem, err := Compile(context.Background(), Options{Repo: repo, Selector: "signup", CodeGraphURL: s.URL, AdapterCommand: adapter})
-	if problem != nil || err == nil || !strings.Contains(err.Error(), "observed user action") {
-		t.Fatalf("text and unresolved identifiers must not become observed actions: err=%v problem=%#v", err, problem)
+	doc, problem, err := Compile(context.Background(), Options{Repo: repo, Selector: "signup", CodeGraphURL: s.URL, AdapterCommand: adapter})
+	if problem != nil || err != nil {
+		t.Fatalf("unknown flow must remain reviewable: err=%v problem=%#v", err, problem)
+	}
+	if doc.Current.Status != flowir.Unknown || len(doc.Unknowns) != 1 || doc.Unknowns[0].Reason != "supported_user_action_missing" {
+		t.Fatalf("unresolved callback did not remain explicit unknown: %#v", doc.Current)
+	}
+	for _, fact := range doc.Facts {
+		if fact.Kind == "user_action" && fact.Status == flowir.Observed {
+			t.Fatalf("text or unresolved identifier became an observed action: %#v", fact)
+		}
+	}
+}
+
+func TestCompileUsesASTNavigationAndIgnoresRouteText(t *testing.T) {
+	repo, adapter := fixture(t)
+	source := "final routes = [GoRoute(path: '/signup', builder: (context, state) => const SignupPage())];\nclass SignupPage { void build() { ElevatedButton(onPressed: _submit); } void _submit() { final example = \"context.go('/wrong')\"; /* context.go('/also-wrong'); */ context.go('/right'); } }\n"
+	if err := os.WriteFile(filepath.Join(repo, "lib", "signup.dart"), []byte(source), 0644); err != nil {
+		t.Fatal(err)
+	}
+	exec.Command("git", "-C", repo, "add", ".").Run()
+	exec.Command("git", "-C", repo, "-c", "user.email=x@y.z", "-c", "user.name=x", "commit", "-qm", "ast navigation").Run()
+	s := graph(t, repo, false)
+	defer s.Close()
+	doc, problem, err := Compile(context.Background(), Options{Repo: repo, Selector: "signup", CodeGraphURL: s.URL, AdapterCommand: adapter})
+	if err != nil || problem != nil {
+		t.Fatalf("err=%v problem=%#v", err, problem)
+	}
+	for _, fact := range doc.Facts {
+		if fact.Kind == "visible_result" && fact.Object != "route:/right" {
+			t.Fatalf("route-looking text became navigation evidence: %#v", fact)
+		}
+	}
+}
+
+func TestCompileRecognizesResolvedTapCallback(t *testing.T) {
+	repo, adapter := fixture(t)
+	source := "final routes = [GoRoute(path: '/signup', builder: (context, state) => const SignupPage())];\nclass SignupPage { void build() { GestureDetector(onTap: _openHelp); } void _openHelp() { context.push('/help'); } }\n"
+	if err := os.WriteFile(filepath.Join(repo, "lib", "signup.dart"), []byte(source), 0644); err != nil {
+		t.Fatal(err)
+	}
+	exec.Command("git", "-C", repo, "add", ".").Run()
+	exec.Command("git", "-C", repo, "-c", "user.email=x@y.z", "-c", "user.name=x", "commit", "-qm", "tap action").Run()
+	s := graph(t, repo, false)
+	defer s.Close()
+	doc, problem, err := Compile(context.Background(), Options{Repo: repo, Selector: "signup", CodeGraphURL: s.URL, AdapterCommand: adapter})
+	if err != nil || problem != nil {
+		t.Fatalf("err=%v problem=%#v", err, problem)
+	}
+	seenTap, seenHelp := false, false
+	for _, fact := range doc.Facts {
+		seenTap = seenTap || (fact.Kind == "user_action" && len(fact.Evidence) == 1 && strings.Contains(fact.Evidence[0].Fingerprint, "onTap"))
+		seenHelp = seenHelp || (fact.Kind == "visible_result" && fact.Object == "route:/help")
+	}
+	if !seenTap || !seenHelp || doc.Current.Status != flowir.Observed {
+		t.Fatalf("resolved tap callback was not compiled: %#v", doc)
 	}
 }
 
@@ -220,6 +363,122 @@ func TestSuppliedJoinRouteStaticallyCompletesHomeStayAndCancelOutcomes(t *testin
 	}
 }
 
+func TestCompileResolvedCausalityDoesNotDependOnProductNames(t *testing.T) {
+	repo, adapter := fixture(t)
+	files := map[string]string{
+		"lib/routes.dart":               "import 'registration_page.dart';\nconst registrationPath = '/register';\nfinal routes = [GoRoute(path: registrationPath, builder: (context, state) => const RegistrationPage())];\n",
+		"lib/registration_page.dart":    "import 'registration_machine.dart';\nimport 'navigation.dart';\nimport 'screen_routes.dart';\nfinal ref = Ref();\nfinal router = Router();\nfinal dispatcher = NavigationDispatcher();\nclass Ref { void dispatch(Object provider, Object event) {} void listen(Object provider, void Function(RegistrationState?, RegistrationState) callback) {} }\nclass Router { void go(String route) {} }\nclass NavigationDispatcher { void go(Object destination) {} }\nclass RegistrationPage { const RegistrationPage(); void build() { Button(onPressed: _abortRegistration); ref.listen(accountMachine, _observe); } void _abortRegistration() { if (alreadyDone) { dispatcher.go(const DashboardTarget()); return; } if (!confirmed) return; ref.dispatch(accountMachine, const AbortRegistration()); } void _observe(RegistrationState? previous, RegistrationState state) { if (state.aborted) router.go(loginRoute); } }\n",
+		"lib/registration_machine.dart": "final accountMachine = Object();\nfinal class AbortRegistration { const AbortRegistration(); }\nfinal class RegistrationState { final bool aborted; const RegistrationState({this.aborted = false}); }\nclass RegistrationMachine { RegistrationState state = const RegistrationState(); void handle(Object event) { switch (event) { case final AbortRegistration event: _applyAbort(event); default: break; } } void _applyAbort(AbortRegistration event) { state = const RegistrationState(aborted: true); } }\n",
+		"lib/navigation.dart":           "final class DashboardTarget { const DashboardTarget(); }\n",
+		"lib/destination_map.dart":      "import 'navigation.dart';\nimport 'screen_routes.dart';\nString destinationPath(Object destination) => switch (destination) { DashboardTarget() => dashboardRoute, _ => '/fallback', };\n",
+		"lib/screen_routes.dart":        "const String dashboardRoute = '/dashboard';\nconst String loginRoute = '/login';\n",
+	}
+	for name, contents := range files {
+		path := filepath.Join(repo, filepath.FromSlash(name))
+		if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, []byte(contents), 0644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.Remove(filepath.Join(repo, "lib", "signup.dart")); err != nil {
+		t.Fatal(err)
+	}
+	if out, err := exec.Command("git", "-C", repo, "add", "-A").CombinedOutput(); err != nil {
+		t.Fatalf("add: %s %v", out, err)
+	}
+	if out, err := exec.Command("git", "-C", repo, "-c", "user.email=x@y.z", "-c", "user.name=x", "commit", "-qm", "generic causality").CombinedOutput(); err != nil {
+		t.Fatalf("commit: %s %v", out, err)
+	}
+	doc, problem, err := Compile(context.Background(), Options{Repo: repo, Selector: "route:/register", AdapterCommand: adapter})
+	if err != nil || problem != nil {
+		t.Fatalf("err=%v problem=%#v", err, problem)
+	}
+	if doc.Current.Status != flowir.Observed || len(doc.Unknowns) != 0 {
+		t.Fatalf("generic resolved chain must be complete: status=%s unknowns=%#v", doc.Current.Status, doc.Unknowns)
+	}
+	want := map[string]bool{
+		"event:AbortRegistration":              false,
+		"state:RegistrationState.aborted=true": false,
+		"route:/dashboard":                     false,
+		"route:/login":                         false,
+	}
+	for _, fact := range doc.Facts {
+		if _, ok := want[fact.Object]; ok {
+			want[fact.Object] = fact.Status == flowir.Observed && fact.Proof == "resolved_ast"
+		}
+		if strings.Contains(fact.Subject+fact.Object+fact.SymbolID, "JoinCancel") || strings.Contains(fact.Subject+fact.Object+fact.SymbolID, "HomeDestination") {
+			t.Fatalf("product-specific semantic identity leaked: %#v", fact)
+		}
+	}
+	for object, seen := range want {
+		if !seen {
+			t.Fatalf("missing generic observed fact %s: %#v", object, doc.Facts)
+		}
+	}
+	eventOnly := strings.Replace(files["lib/registration_page.dart"], "if (alreadyDone) { dispatcher.go(const DashboardTarget()); return; } ", "", 1)
+	if err := os.WriteFile(filepath.Join(repo, "lib", "registration_page.dart"), []byte(eventOnly), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if out, err := exec.Command("git", "-C", repo, "add", "-A").CombinedOutput(); err != nil {
+		t.Fatalf("add event-only: %s %v", out, err)
+	}
+	if out, err := exec.Command("git", "-C", repo, "-c", "user.email=x@y.z", "-c", "user.name=x", "commit", "-qm", "event listener only").CombinedOutput(); err != nil {
+		t.Fatalf("commit event-only: %s %v", out, err)
+	}
+	eventDoc, problem, err := Compile(context.Background(), Options{Repo: repo, Selector: "route:/register", AdapterCommand: adapter})
+	if err != nil || problem != nil {
+		t.Fatalf("event-only err=%v problem=%#v", err, problem)
+	}
+	if eventDoc.Current.Status != flowir.Observed || len(eventDoc.Unknowns) != 0 || len(eventDoc.Current.Steps) != 7 {
+		t.Fatalf("listener-owned navigation timeline is incomplete: status=%s steps=%d unknowns=%#v", eventDoc.Current.Status, len(eventDoc.Current.Steps), eventDoc.Unknowns)
+	}
+	last := eventDoc.Current.Steps[len(eventDoc.Current.Steps)-1]
+	if !strings.Contains(last.BehaviorKey, "route:/login") {
+		t.Fatalf("listener-owned route is not the final causal step: %#v", eventDoc.Current.Steps)
+	}
+}
+
+func TestCompileManySharesExactBasisAndKeepsFlowsIndependent(t *testing.T) {
+	repo, adapter := fixture(t)
+	if err := os.WriteFile(filepath.Join(repo, "lib", "signup.dart"), []byte(multiRouteSource), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if out, err := exec.Command("git", "-C", repo, "add", ".").CombinedOutput(); err != nil {
+		t.Fatalf("add: %s %v", out, err)
+	}
+	if out, err := exec.Command("git", "-C", repo, "-c", "user.email=x@y.z", "-c", "user.name=x", "commit", "-qm", "multi routes").CombinedOutput(); err != nil {
+		t.Fatalf("commit: %s %v", out, err)
+	}
+	starts := filepath.Join(t.TempDir(), "adapter-starts")
+	wrapper := filepath.Join(t.TempDir(), "adapter-wrapper")
+	script := fmt.Sprintf("#!/bin/sh\nprintf x >> %q\nexec dart %q \"$@\"\n", starts, strings.TrimPrefix(adapter, "dart "))
+	if err := os.WriteFile(wrapper, []byte(script), 0755); err != nil {
+		t.Fatal(err)
+	}
+	documents, problem, err := CompileMany(context.Background(), Options{Repo: repo, AdapterCommand: wrapper}, []string{"route:/signup", "route:/settings"})
+	if err != nil || problem != nil || len(documents) != 2 {
+		t.Fatalf("multi compile documents=%d problem=%#v err=%v", len(documents), problem, err)
+	}
+	if documents[0].Current.ID != "route:/signup" || documents[1].Current.ID != "route:/settings" {
+		t.Fatalf("selector order changed: %s %s", documents[0].Current.ID, documents[1].Current.ID)
+	}
+	if documents[0].Basis.WorktreeFingerprint != documents[1].Basis.WorktreeFingerprint || documents[0].Basis.HeadRevision != documents[1].Basis.HeadRevision {
+		t.Fatal("multi-flow documents do not share one exact basis")
+	}
+	if documents[0].Current.Steps[1].BehaviorKey == documents[1].Current.Steps[1].BehaviorKey {
+		t.Fatal("independent flows were flattened into one behavior")
+	}
+	started, err := os.ReadFile(starts)
+	if err != nil || string(started) != "x" {
+		t.Fatalf("multi-flow must reuse one adapter process: starts=%q err=%v", started, err)
+	}
+	if _, problem, _ := CompileMany(context.Background(), Options{}, []string{"route:/signup", "route:/signup"}); problem == nil || problem.Code != "DUPLICATE_SELECTOR" {
+		t.Fatalf("duplicate selector problem=%#v", problem)
+	}
+}
+
 func TestCompileOwnedDartHomeDestinationSeamRequiresCompleteUniqueSlice(t *testing.T) {
 	for _, tc := range []struct {
 		name  string
@@ -227,7 +486,7 @@ func TestCompileOwnedDartHomeDestinationSeamRequiresCompleteUniqueSlice(t *testi
 		want  flowir.Status
 	}{
 		{name: "complete", files: homeDestinationSeamFiles(), want: flowir.Mixed},
-		{name: "missing resolver", files: withoutHomeSeamFile("lib/route_destination_resolver.dart"), want: flowir.Unknown},
+		{name: "missing resolver", files: withoutHomeSeamFile("lib/destination_resolver.dart"), want: flowir.Unknown},
 		{name: "ambiguous resolver", files: withAmbiguousResolver(), want: flowir.Unknown},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -286,7 +545,7 @@ func TestOwnedDartSeamAnchorsRejectSourceChangedAfterCapture(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(repo, "lib/app_router.dart"), []byte("changed"), 0644); err != nil {
+	if err := os.WriteFile(filepath.Join(repo, "lib/destination_resolver.dart"), []byte("changed"), 0644); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := validateRelationships(basis, rels); err == nil {
@@ -296,11 +555,11 @@ func TestOwnedDartSeamAnchorsRejectSourceChangedAfterCapture(t *testing.T) {
 
 func homeDestinationSeamFiles() map[string]string {
 	return map[string]string{
-		"lib/join_routes.dart":                "const joinPath = '/join'; final routes = [GoRoute(path: joinPath, builder: (context, state) => const JoinPage())];\n",
-		"lib/join_page.dart":                  "class JoinPage { void build() { ElevatedButton(onPressed: _requestExit); } void _requestExit() { if (completed) { ref.read(routeDestinationDispatcherProvider).go(const HomeDestination()); } } }\n",
-		"lib/app_router.dart":                 "void go(destination) { _router.go(resolveDestination(destination)); }\n",
-		"lib/route_destination_resolver.dart": "String resolveDestination(destination) => switch (destination) { HomeDestination() => homePath, };\n",
-		"lib/content_routes.dart":             "const String homePath = '/home';\n",
+		"lib/join_routes.dart":          "import 'join_page.dart';\nconst joinPath = '/join'; final routes = [GoRoute(path: joinPath, builder: (context, state) => const JoinPage())];\n",
+		"lib/join_page.dart":            "import 'navigation.dart';\nfinal dispatcher = NavigationDispatcher();\nclass NavigationDispatcher { void go(Object destination) {} }\nclass JoinPage { const JoinPage(); void build() { ElevatedButton(onPressed: _requestExit); } void _requestExit() { if (completed) { dispatcher.go(const DashboardTarget()); } } }\n",
+		"lib/navigation.dart":           "final class DashboardTarget { const DashboardTarget(); }\n",
+		"lib/destination_resolver.dart": "import 'navigation.dart';\nimport 'screen_routes.dart';\nString resolveDestination(Object destination) => switch (destination) { DashboardTarget() => dashboardPath, _ => '/fallback', };\n",
+		"lib/screen_routes.dart":        "const String dashboardPath = '/home';\n",
 	}
 }
 func withoutHomeSeamFile(remove string) map[string]string {
@@ -310,7 +569,7 @@ func withoutHomeSeamFile(remove string) map[string]string {
 }
 func withAmbiguousResolver() map[string]string {
 	files := homeDestinationSeamFiles()
-	files["other/route_destination_resolver.dart"] = files["lib/route_destination_resolver.dart"]
+	files["other/destination_resolver.dart"] = files["lib/destination_resolver.dart"]
 	return files
 }
 

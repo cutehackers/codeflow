@@ -79,6 +79,19 @@ func TestNativePackageLayoutRunsBundledBinaryAndAdapter(t *testing.T) {
 	if err == nil || !bytes.Contains(out, []byte(`"dart_adapter"`)) {
 		t.Fatalf("bundled doctor output=%s err=%v", out, err)
 	}
+	if err := os.MkdirAll(filepath.Join(repo, "lib"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	source := "final routes = [GoRoute(path: '/signup', builder: (c, s) => const SignupPage())];\nclass SignupPage { const SignupPage(); void build() { ElevatedButton(onPressed: _submit); } void _submit() { context.go('/done'); } }\n"
+	if err := os.WriteFile(filepath.Join(repo, "lib", "routes.dart"), []byte(source), 0644); err != nil {
+		t.Fatal(err)
+	}
+	_ = exec.Command("git", "-C", repo, "add", ".").Run()
+	_ = exec.Command("git", "-C", repo, "-c", "user.email=x@y.z", "-c", "user.name=x", "commit", "-qm", "fixture").Run()
+	out, err = exec.Command(binary, "analyze", "--repo", repo, "--adapter", adapter, "route:/signup").CombinedOutput()
+	if err != nil || !bytes.Contains(out, []byte(`"id":"route:/signup"`)) || !bytes.Contains(out, []byte(`"status":"observed"`)) {
+		t.Fatalf("bundled AOT adapter did not perform resolved analysis: %s err=%v", out, err)
+	}
 }
 
 func TestReuseRuntimeRefreshesCompatibleCoreAndRejectsBadCache(t *testing.T) {
@@ -97,6 +110,15 @@ func TestReuseRuntimeRefreshesCompatibleCoreAndRejectsBadCache(t *testing.T) {
 	reused, url, err := reuseRuntime(repo)
 	if err != nil || !reused || url != c.URL+"/" {
 		t.Fatalf("reused=%v url=%q err=%v", reused, url, err)
+	}
+	var stdout, stderr bytes.Buffer
+	if status := run([]string{"refresh", "--repo", repo}, &stdout, &stderr); status != 0 || !strings.Contains(stdout.String(), "CodeFlow refreshed: ready · 1 flow(s)") || !strings.Contains(stdout.String(), c.URL) {
+		t.Fatalf("refresh did not attach to the live Core: status=%d stdout=%s stderr=%s", status, stdout.String(), stderr.String())
+	}
+	stdout.Reset()
+	stderr.Reset()
+	if status := run([]string{"refresh", "--format", "json", "--repo", repo}, &stdout, &stderr); status != 0 || !bytes.Contains(stdout.Bytes(), []byte(`"status":"ready"`)) {
+		t.Fatalf("JSON refresh contract failed: status=%d stdout=%s stderr=%s", status, stdout.String(), stderr.String())
 	}
 	if err := os.WriteFile(filepath.Join(repo, ".codeflow/runtime.json"), []byte(`{"runtime_version":"old"}`), 0600); err != nil {
 		t.Fatal(err)
@@ -127,10 +149,10 @@ func TestPackagedPluginMCPUsesOneLiveCoreForCurrentDiffUnknownsAndOpen(t *testin
 	defer core.Close(context.Background())
 	input := strings.Join([]string{
 		`{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2026-07-28"}}`,
-		`{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"current","arguments":{}}}`,
-		`{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"unknowns","arguments":{}}}`,
+		`{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"current","arguments":{"flow_id":"route:/signup"}}}`,
+		`{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"unknowns","arguments":{"flow_id":"route:/signup"}}}`,
 		`{"jsonrpc":"2.0","id":4,"method":"tools/call","params":{"name":"diff","arguments":{}}}`,
-		`{"jsonrpc":"2.0","id":5,"method":"tools/call","params":{"name":"open","arguments":{}}}`}, "\n") + "\n"
+		`{"jsonrpc":"2.0","id":5,"method":"tools/call","params":{"name":"open","arguments":{"flow_id":"route:/signup"}}}`}, "\n") + "\n"
 	cmd := exec.Command(filepath.Join(root, "dist/codeflow/bin/codeflow"), "mcp", "--repo", repo)
 	cmd.Stdin = strings.NewReader(input)
 	out, err := cmd.CombinedOutput()
@@ -194,6 +216,62 @@ func TestResolvedAdapterFindsLocalSourceCheckoutWithoutFlags(t *testing.T) {
 	}
 }
 
+func TestAnalyzeAcceptsRepeatedFlowSelectorsAndReturnsWorkspace(t *testing.T) {
+	repo := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(repo, "lib"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	source := []byte("final routes = [\n  GoRoute(path: '/signup', builder: (context, state) => const SignupPage()),\n  GoRoute(path: '/settings', builder: (context, state) => const SettingsPage()),\n];\nclass SignupPage { const SignupPage(); void build() { ElevatedButton(onPressed: _submit); } void _submit() { context.go('/settings'); } }\nclass SettingsPage { const SettingsPage(); void build() { ElevatedButton(onPressed: _save); } void _save() { context.go('/signup'); } }\n")
+	if err := os.WriteFile(filepath.Join(repo, "lib", "routes.dart"), source, 0644); err != nil {
+		t.Fatal(err)
+	}
+	if out, err := exec.Command("git", "init", "-q", repo).CombinedOutput(); err != nil {
+		t.Fatalf("git init: %s %v", out, err)
+	}
+	_ = exec.Command("git", "-C", repo, "add", ".").Run()
+	_ = exec.Command("git", "-C", repo, "-c", "user.email=x@y.z", "-c", "user.name=x", "commit", "-qm", "fixture").Run()
+	_, file, _, _ := runtime.Caller(0)
+	adapter := "dart " + filepath.Join(filepath.Dir(file), "../../../adapters/dart/bin/codeflow-dart-adapter.dart")
+	var stdout, stderr bytes.Buffer
+	exit := run([]string{"analyze", "--repo", repo, "--adapter", adapter, "--flow", "route:/signup", "--flow", "route:/settings"}, &stdout, &stderr)
+	if exit != 0 {
+		t.Fatalf("analyze exit=%d stderr=%s stdout=%s", exit, stderr.String(), stdout.String())
+	}
+	var result struct {
+		FlowIDs []string `json:"flow_ids"`
+		Flows   []struct {
+			Current struct {
+				ID string `json:"id"`
+			} `json:"current"`
+		} `json:"flows"`
+	}
+	if err := json.Unmarshal(stdout.Bytes(), &result); err != nil {
+		t.Fatal(err)
+	}
+	if strings.Join(result.FlowIDs, ",") != "route:/signup,route:/settings" || len(result.Flows) != 2 {
+		t.Fatalf("workspace output=%#v", result)
+	}
+}
+
+func TestMultiFlowCLIRejectsEmptyDuplicateAndOversizedSetsBeforeAnalysis(t *testing.T) {
+	for _, test := range []struct {
+		name string
+		args []string
+		code string
+	}{
+		{name: "empty", args: []string{"analyze", "--flow", " "}, code: "SELECTOR_REQUIRED"},
+		{name: "duplicate", args: []string{"analyze", "--flow", "route:/join", "--flow", "route:/join"}, code: "DUPLICATE_SELECTOR"},
+		{name: "too many", args: []string{"analyze", "--flow", "route:/a", "--flow", "route:/b", "--flow", "route:/c", "--flow", "route:/d"}, code: "FLOW_SET_TOO_LARGE"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			var stdout, stderr bytes.Buffer
+			if status := run(test.args, &stdout, &stderr); status != 1 || !strings.Contains(stdout.String(), `"Code":"`+test.code+`"`) {
+				t.Fatalf("status/output = %d %s stderr=%s", status, stdout.String(), stderr.String())
+			}
+		})
+	}
+}
+
 // TestServeHelperProcess exercises the same public command dispatch from a
 // separate foreground process. It is deliberately not called as a normal test.
 func TestServeHelperProcess(t *testing.T) {
@@ -204,7 +282,7 @@ func TestServeHelperProcess(t *testing.T) {
 }
 
 func TestServePublicProcessPublishesReviewedJoinFlowAndCleansUp(t *testing.T) {
-	const repo = "/Users/junhyounglee/workspace/sgp-981-app"
+	repo := filepath.Join(os.Getenv("HOME"), "workspace", "sgp-981-app")
 	if _, err := os.Stat(repo); err != nil {
 		t.Skip("supplied target unavailable")
 	}
@@ -280,7 +358,7 @@ func TestServePublicProcessPublishesReviewedJoinFlowAndCleansUp(t *testing.T) {
 	}
 	html, _ := io.ReadAll(page.Body)
 	_ = page.Body.Close()
-	for _, required := range []string{`aria-label="Branch"`, `data-break-after="true"`, `data-alternative="true"`, `data-jump-step=`, `data-boundary="graph:owned_dart_structural"`, `aria-label="아키텍처 인과 흐름"`, `data-layer="state"`, `aria-label="코드 변경에서 상태와 사용자 결과까지의 영향"`, `data-state-change="true"`, `vscode://file/`, `join_page.dart:114-114`, `join_controller.dart:276-276`} {
+	for _, required := range []string{`aria-label="조건 분기"`, `data-break-after="true"`, `data-alternative="true"`, `data-jump-step=`, `data-boundary="graph:owned_dart_structural"`, `aria-label="아키텍처 인과 흐름"`, `data-layer="state"`, `aria-label="코드 변경에서 상태와 사용자 결과까지의 영향"`, `data-state-change="true"`, `vscode://file/`, `join_page.dart:114-114`, `join_controller.dart:276-276`} {
 		if !bytes.Contains(html, []byte(required)) {
 			t.Fatalf("FlowView misses %s: %s", required, html)
 		}

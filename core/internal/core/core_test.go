@@ -11,6 +11,7 @@ import (
 	"runtime"
 	"strings"
 	"testing"
+	"time"
 
 	compare "codeflow/core/internal/comparison"
 	"codeflow/core/internal/delta"
@@ -30,8 +31,13 @@ func TestFlowViewTemplateV1IsFlowAgnosticAndKeepsStableRegions(t *testing.T) {
 	if !strings.Contains(flowViewSource, `data-flowview-version="1"`) {
 		t.Fatal("FlowView template version is missing")
 	}
+	for _, liveContract := range []string{`data-publication="{{.Publication}}"`, `fetch('/_codeflow/publication'`, `window.location.reload()`} {
+		if !strings.Contains(flowViewSource, liveContract) {
+			t.Fatalf("FlowView live publication contract is missing: %s", liveContract)
+		}
+	}
 	previous := -1
-	for _, region := range []string{"snapshot", "architecture", "timeline-navigation", "timeline", "step-detail", "impact-chain", "code-lens", "cognitive-debt"} {
+	for _, region := range []string{"snapshot", "timeline-navigation", "timeline", "step-detail", "impact-chain", "code-lens", "architecture", "cognitive-debt"} {
 		position := strings.Index(flowViewSource, `data-region="`+region+`"`)
 		if position < 0 || position <= previous {
 			t.Fatalf("missing or reordered stable region %q", region)
@@ -43,20 +49,77 @@ func TestFlowViewTemplateV1IsFlowAgnosticAndKeepsStableRegions(t *testing.T) {
 			t.Fatalf("FlowView branch-navigation contract %q is missing", contract)
 		}
 	}
-	if strings.Contains(flowViewSource, "scrollIntoView") {
-		t.Fatal("FlowView must not scroll the entire page when selecting a timeline step")
-	}
 	if !strings.Contains(flowViewSource, "function render(index, shouldScroll = true)") || !strings.Contains(flowViewSource, "render(0, false)") || strings.Contains(flowViewSource, "index !== 0") {
 		t.Fatal("FlowView must scroll both maps when a user returns to the first step, while keeping initial render still")
 	}
 	for _, interaction := range []string{
 		`buttons.forEach((button, i) => button.addEventListener('click', () => render(i)))`,
-		`architectureNodes.forEach((node) => node.addEventListener('click', () => render(Number(node.dataset.architectureStep))))`,
 		`branchJumps.forEach((jump) => jump.addEventListener('click', () => render(Number(jump.dataset.jumpStep))))`,
+		`if (architectureMap.open) window.requestAnimationFrame(() => render(selected))`,
+		`workbench?.scrollIntoView({ block: 'start', behavior: 'smooth' })`,
 	} {
 		if !strings.Contains(flowViewSource, interaction) {
 			t.Fatalf("FlowView bidirectional selection contract is missing: %s", interaction)
 		}
+	}
+	for _, responsive := range []string{
+		`code, .mono { overflow-wrap: anywhere; }`,
+		`.flow-workbench { display: grid; min-width: 0;`,
+		`.flow-workbench, .detail-grid, .delta-grid { grid-template-columns: minmax(0, 1fr); }`,
+	} {
+		if !strings.Contains(flowViewSource, responsive) {
+			t.Fatalf("FlowView narrow-screen overflow guard is missing: %s", responsive)
+		}
+	}
+	for _, codeLensContract := range []string{
+		`class="source-toolbar"`,
+		`class="source-code" tabindex="0"`,
+		`class="code-line" data-selected=`,
+		`.code-line-number { position: sticky;`,
+		`white-space: nowrap; overflow-wrap: normal;`,
+		`.code-line-text { min-width: 0; padding: 0 10px; white-space: pre; overflow-wrap: normal;`,
+	} {
+		if !strings.Contains(flowViewSource, codeLensContract) {
+			t.Fatalf("FlowView readable code-lens contract is missing: %s", codeLensContract)
+		}
+	}
+	if strings.Contains(flowViewSource, "aria-selected") || !strings.Contains(flowViewSource, `aria-pressed=`) {
+		t.Fatal("FlowView buttons must expose native pressed state rather than invalid aria-selected semantics")
+	}
+}
+
+func TestRuntimeTokenComparisonRejectsEmptyAndNearMatches(t *testing.T) {
+	if secureToken("", "") || secureToken("secret", "secreu") || secureToken("secret-extra", "secret") || !secureToken("secret", "secret") {
+		t.Fatal("runtime token comparison accepted an empty or non-exact credential")
+	}
+}
+
+func TestCloseCancelsPendingReconcileBeforeOwnedResources(t *testing.T) {
+	repo := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(repo, "lib"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(repo, "lib/signup.dart"), []byte("void signup() {}\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	instance, err := StartFixture(context.Background(), repo)
+	if err != nil {
+		t.Fatal(err)
+	}
+	captured := make(chan struct{}, 1)
+	instance.capture = func(string) (flowir.Basis, error) {
+		captured <- struct{}{}
+		return flowir.Basis{}, nil
+	}
+	instance.ScheduleReconcile()
+	if err := instance.Close(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	time.Sleep(150 * time.Millisecond)
+	select {
+	case <-captured:
+		t.Fatal("reconcile ran after Core released its analyzer and storage")
+	default:
 	}
 }
 
@@ -78,7 +141,7 @@ func TestTimelineSeparatesAdjacentAlternativeBranchOutcomes(t *testing.T) {
 		t.Fatalf("unexpected timeline projection: %#v", items)
 	}
 	branch := items[0].Branches[0]
-	if branch.Condition != "조건 확인 · state?.isCompleted ?? false" {
+	if branch.Condition != "조건 확인 · 작업이 완료된 상태인지 검사" {
 		t.Fatalf("condition expression was shortened or lost: %q", branch.Condition)
 	}
 	if len(branch.Outcomes) != 2 || branch.Outcomes[0].StepIndex != 1 || branch.Outcomes[1].StepIndex != 2 {
@@ -86,6 +149,110 @@ func TestTimelineSeparatesAdjacentAlternativeBranchOutcomes(t *testing.T) {
 	}
 	if !items[1].BreakAfter || !items[2].Alternative || items[1].BranchPath != "분기 1 · 경로 A" || items[2].BranchPath != "분기 1 · 경로 B" {
 		t.Fatalf("adjacent alternatives still look sequential: %#v %#v", items[1], items[2])
+	}
+}
+
+func TestDisplayFactUsesReaderLanguageWithoutLosingCodeIdentity(t *testing.T) {
+	action := flowir.Fact{Kind: "user_action", Subject: "package:account/join.dart::class:_JoinPageState::method:_requestExit"}
+	condition := flowir.Fact{Kind: "confirmation_condition", Object: "confirmed == true"}
+	if got := displayFact(action); got != "사용자 동작 · 나가기 요청" {
+		t.Fatalf("private symbol leaked into primary action label: %q", got)
+	}
+	if got := displayFact(condition); got != "조건 확인 · 사용자가 계속 진행하기로 확인했는지 검사" {
+		t.Fatalf("condition was not expressed for a code reader: %q", got)
+	}
+	if shortSymbol(action.Subject) != "_JoinPageState._requestExit" {
+		t.Fatal("reader label must not destroy the underlying code identity")
+	}
+	provider := flowir.Fact{Kind: "provider_dependency", Object: "provider:routeDestinationDispatcherProvider"}
+	if got := displayFact(provider); got != "상태 사용 · 화면 경로 목적지 이동 처리" {
+		t.Fatalf("provider jargon leaked into reader label: %q", got)
+	}
+	event := flowir.Fact{Kind: "event_dispatch", Object: "event:JoinCancelEvent"}
+	if got := displayFact(event); got != "요청 전달 · 가입 취소 요청" {
+		t.Fatalf("event jargon leaked into reader label: %q", got)
+	}
+}
+
+func TestArchitectureFlowOmitsEmptyLanes(t *testing.T) {
+	action := flowir.Fact{ID: "action", Kind: "user_action", Subject: "Page.submit", Status: flowir.Observed}
+	state := flowir.Fact{ID: "state", Kind: "state_transition", Subject: "Notifier.submit", Object: "state:done", Status: flowir.Observed}
+	document := flowir.Document{Facts: []flowir.Fact{action, state}}
+	items := []timelineItem{
+		{Step: flowir.Step{ID: "action-step", Actor: "user", BehaviorFacts: []string{action.ID}, Status: flowir.Observed}, Title: "사용자 동작"},
+		{Step: flowir.Step{ID: "state-step", Actor: "system", ResultFacts: []string{state.ID}, Status: flowir.Observed}, Title: "상태 변경"},
+	}
+	view := architectureFlowView(document, items)
+	if len(view.Lanes) != 2 || view.Lanes[0].ID != "interface" || view.Lanes[1].ID != "state" {
+		t.Fatalf("sparse architecture map retained empty lanes: %#v", view.Lanes)
+	}
+}
+
+func TestAffectedFlowIDsRecompileOnlyProvenImpactSet(t *testing.T) {
+	base := flowir.Basis{HeadRevision: "head", Manifest: []flowir.ManifestEntry{
+		{Path: "lib/a.dart", Type: "file", Mode: "0644", FileHash: "a1", GitState: "clean"},
+		{Path: "lib/b.dart", Type: "file", Mode: "0644", FileHash: "b1", GitState: "clean"},
+		{Path: "README.md", Type: "file", Mode: "0644", FileHash: "r1", GitState: "clean"},
+		{Path: "config/route.map", Type: "file", Mode: "0644", FileHash: "c1", GitState: "clean"},
+	}}
+	documents := []flowir.Document{
+		{Basis: base, Current: flowir.Flow{ID: "route:/a"}, Facts: []flowir.Fact{{Evidence: []flowir.Anchor{{Kind: "code", Path: "lib/a.dart", FileHash: "a1"}}}}, CausalEdges: []flowir.CausalEdge{{Evidence: []flowir.Anchor{{Kind: "config", Path: "config/route.map", FileHash: "c1"}}}}},
+		{Basis: base, Current: flowir.Flow{ID: "route:/b"}, Facts: []flowir.Fact{{Evidence: []flowir.Anchor{{Kind: "code", Path: "lib/b.dart", FileHash: "b1"}}}}},
+	}
+	changedA := base
+	changedA.Manifest = append([]flowir.ManifestEntry(nil), base.Manifest...)
+	changedA.Manifest[0].FileHash = "a2"
+	if got := affectedFlowIDs(documents, changedA); len(got) != 1 || got[0] != "route:/a" {
+		t.Fatalf("known source impact was not scoped to its flow: %#v", got)
+	}
+	readme := base
+	readme.Manifest = append([]flowir.ManifestEntry(nil), base.Manifest...)
+	readme.Manifest[2].FileHash = "r2"
+	if got := affectedFlowIDs(documents, readme); len(got) != 0 {
+		t.Fatalf("unreferenced documentation forced analysis: %#v", got)
+	}
+	causalEvidence := base
+	causalEvidence.Manifest = append([]flowir.ManifestEntry(nil), base.Manifest...)
+	causalEvidence.Manifest[3].FileHash = "c2"
+	if got := affectedFlowIDs(documents, causalEvidence); len(got) != 1 || got[0] != "route:/a" {
+		t.Fatalf("causal-edge evidence was omitted from impact analysis: %#v", got)
+	}
+	if err := anchorsMatchBasis(documents[0], base); err != nil {
+		t.Fatalf("current anchors were rejected: %v", err)
+	}
+	if err := anchorsMatchBasis(documents[0], changedA); err == nil {
+		t.Fatal("stale evidence hash was allowed onto a new basis")
+	}
+	newDart := base
+	newDart.Manifest = append(append([]flowir.ManifestEntry(nil), base.Manifest...), flowir.ManifestEntry{Path: "lib/new.dart", Type: "file", Mode: "0644", FileHash: "new", GitState: "untracked"})
+	if got := affectedFlowIDs(documents, newDart); len(got) != 2 {
+		t.Fatalf("new Dart input did not conservatively affect all flows: %#v", got)
+	}
+	newHead := base
+	newHead.HeadRevision = "next"
+	if got := affectedFlowIDs(documents, newHead); len(got) != 2 {
+		t.Fatalf("revision change did not invalidate every anchor: %#v", got)
+	}
+}
+
+func TestWorkspaceEdgesRequireObservedExactSameBasisTargets(t *testing.T) {
+	basis := flowir.Basis{Repository: "/repo", HeadRevision: "revision", WorktreeFingerprint: "fingerprint", Manifest: []flowir.ManifestEntry{}}
+	join := flowir.Document{Basis: basis, Current: flowir.Flow{ID: "route:/join"}, Facts: []flowir.Fact{
+		{Kind: "visible_result", Object: "route:/home", Status: flowir.Observed},
+		{Kind: "route_transition", Object: "route:/auth", Status: flowir.Unknown},
+		{Kind: "route_transition", Object: "route:/missing", Status: flowir.Observed},
+		{Kind: "route_transition", Object: "route:/join", Status: flowir.Observed},
+	}}
+	home := flowir.Document{Basis: basis, Current: flowir.Flow{ID: "route:/home"}}
+	auth := flowir.Document{Basis: basis, Current: flowir.Flow{ID: "route:/auth"}}
+	workspace, err := buildWorkspace([]flowir.Document{join, home, auth})
+	if err != nil || len(workspace.Edges) != 1 || workspace.Edges[0].From != "route:/join" || workspace.Edges[0].To != "route:/home" {
+		t.Fatalf("workspace admitted an inferred, missing, or self edge: %#v err=%v", workspace.Edges, err)
+	}
+	mixed := auth
+	mixed.Basis.WorktreeFingerprint = "different"
+	if _, err := buildWorkspace([]flowir.Document{join, home, mixed}); err == nil {
+		t.Fatal("cross-revision workspace was accepted")
 	}
 }
 
@@ -196,7 +363,7 @@ func TestComparisonAPIAndFlowViewPresentBaselineDelta(t *testing.T) {
 	}
 	html, _ := io.ReadAll(page.Body)
 	page.Body.Close()
-	if !strings.Contains(string(html), `aria-label="Behavior delta"`) || !strings.Contains(string(html), `data-baseline="abc123"`) {
+	if !strings.Contains(string(html), `aria-label="기준선과 달라진 동작"`) || !strings.Contains(string(html), `data-baseline="abc123"`) {
 		t.Fatalf("missing FlowView delta: %s", html)
 	}
 }
@@ -252,7 +419,7 @@ func TestSemanticOverlayNeverChangesFlowIRAndOnlyApprovalPersistsKnowledge(t *te
 	}
 	html, _ := io.ReadAll(page.Body)
 	page.Body.Close()
-	if !strings.Contains(string(html), `aria-label="Inferred semantic overlays"`) || !strings.Contains(string(html), `data-overlay-status="inferred"`) {
+	if !strings.Contains(string(html), `aria-label="승인 전 추론한 의미"`) || !strings.Contains(string(html), `data-overlay-status="inferred"`) {
 		t.Fatalf("FlowView does not separate inferred overlay: %s", html)
 	}
 	approve, _ := http.NewRequest(http.MethodPost, c.URL+"/api/v1/overlay/approve", strings.NewReader(`{"id":"`+imported[0].ID+`"}`))
@@ -528,10 +695,29 @@ func TestResolvedDebtLeavesCurrentFlowWhenUnknownDisappears(t *testing.T) {
 	}
 }
 
+func TestActionableDebtUsesReaderLanguageInsteadOfAnalyzerJargon(t *testing.T) {
+	document := flowir.Document{Current: flowir.Flow{ID: "route:/home"}, Unknowns: []flowir.UnknownDetail{{ID: "u", Reason: "supported_user_action_missing"}}}
+	items := actionableDebt(document)
+	if len(items) != 1 {
+		t.Fatalf("debt items=%#v", items)
+	}
+	text := items[0].Cause + " " + items[0].Confirmed + " " + items[0].Missing + " " + items[0].NextAction
+	for _, jargon := range []string{"resolved callback", "route 선언", "정적 코드 흐름"} {
+		if strings.Contains(text, jargon) {
+			t.Fatalf("FlowView debt guidance leaked analyzer jargon %q: %s", jargon, text)
+		}
+	}
+	for _, readerTerm := range []string{"버튼·탭", "화면 경로", "실행하는 메서드"} {
+		if !strings.Contains(text, readerTerm) {
+			t.Fatalf("FlowView debt guidance is missing reader term %q: %s", readerTerm, text)
+		}
+	}
+}
+
 func hasSemanticTimeline(node *html.Node) bool {
 	if node.Type == html.ElementNode && node.Data == "ol" {
 		for _, a := range node.Attr {
-			if a.Key == "aria-label" && a.Val == "Flow timeline" {
+			if a.Key == "aria-label" && a.Val == "코드 흐름 타임라인" {
 				return true
 			}
 		}

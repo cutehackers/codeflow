@@ -87,7 +87,7 @@ func observe(root string) (flowir.Basis, error) {
 	}
 	// A deletion has no filesystem entry, but it is still authoritative Git evidence.
 	for path, state := range git.states {
-		if state != "deleted" || contains(entries, path) || excludedFile(path) {
+		if state != "deleted" || contains(entries, path) || excludedPath(path) {
 			continue
 		}
 		entries = append(entries, flowir.ManifestEntry{Path: path, Type: "missing", Mode: "0000", GitState: "deleted", Generated: generated(path)})
@@ -247,11 +247,54 @@ func porcelainState(xy string) string {
 }
 func excludedDirectory(path string) bool {
 	base := filepath.Base(path)
-	return base == ".git" || base == ".codeflow" || base == "build" || base == ".dart_tool" || base == "node_modules" || base == ".idea" || base == ".gradle"
+	switch base {
+	case ".git", ".codeflow",
+		"build", "coverage", "dist", "out", "target",
+		".dart_tool", ".fvm", ".gradle", ".pub-cache", "node_modules", "Pods",
+		".venv", "venv", ".cache",
+		".agents", ".brv", ".claude", ".codegraph", ".codex", ".flow-trace", ".idea", ".tasks", ".vscode":
+		return true
+	default:
+		return false
+	}
 }
 func excludedFile(path string) bool {
 	base := filepath.Base(path)
-	return base == ".env" || strings.HasPrefix(base, ".env.") || strings.HasSuffix(base, ".pem") || strings.HasSuffix(base, ".key")
+	return base == ".DS_Store" || base == ".env" || strings.HasPrefix(base, ".env.") || strings.HasSuffix(base, ".pem") || strings.HasSuffix(base, ".key")
+}
+func excludedPath(path string) bool {
+	if excludedFile(path) {
+		return true
+	}
+	directory := filepath.Dir(filepath.FromSlash(path))
+	for directory != "." && directory != string(filepath.Separator) {
+		if excludedDirectory(directory) {
+			return true
+		}
+		parent := filepath.Dir(directory)
+		if parent == directory {
+			break
+		}
+		directory = parent
+	}
+	return false
+}
+
+// Excluded reports whether a repository-relative path is outside the
+// authoritative product manifest. Watchers use the same rule so cache, tool,
+// build, and secret churn never schedules product analysis.
+func Excluded(path string, _ bool) bool {
+	path = filepath.Clean(filepath.FromSlash(path))
+	if path == "." || path == "" || filepath.IsAbs(path) {
+		return filepath.IsAbs(path)
+	}
+	// Remove and rename notifications arrive after the node may have vanished,
+	// so a watcher cannot always recover whether it was a directory. Reserved
+	// directory names remain excluded even in that post-remove state.
+	if excludedDirectory(path) {
+		return true
+	}
+	return excludedPath(filepath.ToSlash(path))
 }
 func generated(path string) bool {
 	return strings.HasSuffix(path, ".g.dart") || strings.HasSuffix(path, ".freezed.dart") || strings.HasSuffix(path, ".gen.dart")

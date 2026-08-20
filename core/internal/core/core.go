@@ -3,6 +3,7 @@ package core
 
 import (
 	"context"
+	"crypto/subtle"
 	"database/sql"
 	_ "embed"
 	"encoding/json"
@@ -12,7 +13,10 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"net/url"
 	"path"
+	"path/filepath"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -27,24 +31,29 @@ import (
 	"codeflow/core/internal/ontology"
 	"codeflow/core/internal/runtime"
 	"codeflow/core/internal/store"
+	"codeflow/core/internal/workspacewatch"
 )
 
 type Core struct {
-	URL, Token     string
-	server         *http.Server
-	listener       net.Listener
-	runtime        runtime.Handle
-	store          *store.Store
-	repo           string
-	adapterCommand string
-	flowID         string
-	capture        func(string) (flowir.Basis, error)
-	analysis       *AnalysisOptions
-	reconcileMu    sync.Mutex
-	reconcileTimer *time.Timer
-	comparison     *compare.Result
-	overlayMu      sync.Mutex
-	overlays       []ontology.Candidate
+	URL, Token      string
+	server          *http.Server
+	listener        net.Listener
+	runtime         runtime.Handle
+	store           *store.Store
+	repo            string
+	adapterCommand  string
+	flowID          string
+	capture         func(string) (flowir.Basis, error)
+	analysis        *AnalysisOptions
+	analysisSession *compiler.Session
+	reconcileMu     sync.Mutex
+	reconcileTimer  *time.Timer
+	reconcileWG     sync.WaitGroup
+	closed          bool
+	watcher         *workspacewatch.Watcher
+	comparison      *compare.Result
+	overlayMu       sync.Mutex
+	overlays        []ontology.Candidate
 }
 
 // envelope is the common CodeFlowResponse contract. Runtime-only publication
@@ -68,6 +77,74 @@ type metadata struct {
 type apiError struct {
 	Code    string `json:"code"`
 	Message string `json:"message"`
+}
+
+type workspaceDocument struct {
+	SchemaVersion string              `json:"schema_version"`
+	Basis         flowir.Basis        `json:"basis"`
+	FlowIDs       []string            `json:"flow_ids"`
+	Flows         []flowir.Document   `json:"flows"`
+	Edges         []workspaceFlowEdge `json:"screen_flow_edges"`
+}
+
+// workspaceDocumentV2 is the compact read model for UI and agent navigation.
+// Canonical FlowIR remains available from the per-flow v1 endpoint; this model
+// shares snapshot identity once and never repeats the repository manifest in
+// every flow document.
+type workspaceDocumentV2 struct {
+	SchemaVersion string                    `json:"schema_version"`
+	FlowIDs       []string                  `json:"flow_ids"`
+	Flows         []workspaceFlowDocumentV2 `json:"flows"`
+	Edges         []workspaceFlowEdge       `json:"screen_flow_edges"`
+}
+
+type workspaceFlowDocumentV2 struct {
+	SchemaVersion string                   `json:"schema_version"`
+	Facts         []flowir.Fact            `json:"facts"`
+	CausalEdges   []flowir.CausalEdge      `json:"causal_edges,omitempty"`
+	Architecture  flowir.ArchitectureSlice `json:"architecture"`
+	Current       flowir.Flow              `json:"current"`
+	Unknowns      []flowir.UnknownDetail   `json:"unknowns,omitempty"`
+}
+
+type workspaceBasisV2 struct {
+	Repository          string `json:"repository"`
+	HeadRevision        string `json:"head_revision"`
+	BaselineRevision    string `json:"baseline_revision,omitempty"`
+	WorktreeFingerprint string `json:"worktree_fingerprint"`
+	Dirty               bool   `json:"dirty"`
+	ManifestCount       int    `json:"manifest_count"`
+}
+
+type workspaceEnvelopeV2 struct {
+	Basis    workspaceBasisV2 `json:"basis"`
+	Status   string           `json:"status"`
+	Data     any              `json:"data"`
+	Unknowns []any            `json:"unknowns"`
+	ViewURL  string           `json:"view_url"`
+	Metadata metadata         `json:"metadata,omitempty"`
+	Error    *apiError        `json:"error,omitempty"`
+}
+
+type workspaceFlowEdge struct {
+	ID       string          `json:"id"`
+	From     string          `json:"from"`
+	To       string          `json:"to"`
+	Status   flowir.Status   `json:"status"`
+	Evidence []flowir.Anchor `json:"evidence"`
+}
+
+type workspaceNavigation struct {
+	Flows []workspaceNavigationFlow
+	Edges []workspaceFlowEdge
+}
+
+type workspaceNavigationFlow struct {
+	ID, URL  string
+	Status   flowir.Status
+	Steps    int
+	Unknowns int
+	Selected bool
 }
 
 func StartFixture(ctx context.Context, repo string) (*Core, error) {
@@ -123,25 +200,48 @@ func startFixture(ctx context.Context, repo, adapterCommand string) (*Core, erro
 		lock.Release()
 		return nil, err
 	}
-	instance.server = &http.Server{Handler: instance.routes()}
+	instance.server = localHTTPServer(instance.routes())
 	go instance.server.Serve(listener)
 	return instance, nil
 }
 
 // AnalysisOptions describes the real CF-G05 public path. Unlike StartFixture,
 // it accepts only an observed, current graph-and-Dart compiled document.
-type AnalysisOptions struct{ Selector, CodeGraphURL, AdapterCommand string }
+type AnalysisOptions struct {
+	Selector, CodeGraphURL, AdapterCommand string
+	Selectors                              []string
+}
 
 func StartAnalysis(ctx context.Context, repo string, options AnalysisOptions) (*Core, *compiler.Problem, error) {
-	document, problem, err := compiler.Compile(ctx, compiler.Options{Repo: repo, Selector: options.Selector, CodeGraphURL: options.CodeGraphURL, AdapterCommand: options.AdapterCommand})
-	if err != nil || problem != nil {
-		return nil, problem, err
-	}
+	// Establish repository ownership before paying the full analyzer cost. A
+	// competing command now learns that a compatible Core already owns this
+	// repository immediately instead of compiling for seconds and failing late.
 	lock, err := runtime.Acquire(repo)
 	if err != nil {
 		return nil, nil, err
 	}
-	fail := func(e error) (*Core, *compiler.Problem, error) { lock.Release(); return nil, nil, e }
+	selectors := analysisSelectors(options)
+	compilerOptions := compiler.Options{Repo: repo, CodeGraphURL: options.CodeGraphURL, AdapterCommand: options.AdapterCommand}
+	session, problem, err := compiler.NewSession(ctx, compilerOptions)
+	if err != nil || problem != nil {
+		lock.Release()
+		return nil, problem, err
+	}
+	documents, problem, err := session.CompileMany(ctx, selectors, nil)
+	if err != nil || problem != nil {
+		shutdown, cancel := context.WithTimeout(context.Background(), time.Second)
+		_ = session.Close(shutdown)
+		cancel()
+		lock.Release()
+		return nil, problem, err
+	}
+	fail := func(e error) (*Core, *compiler.Problem, error) {
+		shutdown, cancel := context.WithTimeout(context.Background(), time.Second)
+		_ = session.Close(shutdown)
+		cancel()
+		lock.Release()
+		return nil, nil, e
+	}
 	database, err := store.Open(lock.Dir)
 	if err != nil {
 		return fail(err)
@@ -159,8 +259,14 @@ func StartAnalysis(ctx context.Context, repo string, options AnalysisOptions) (*
 	}
 	now := time.Now().UTC().Format(time.RFC3339Nano)
 	owned := options
-	instance := &Core{URL: "http://" + listener.Addr().String(), Token: token, listener: listener, runtime: lock, store: database, repo: document.Basis.Repository, adapterCommand: options.AdapterCommand, flowID: document.Current.ID, capture: manifest.Capture, analysis: &owned}
-	if err = database.Publish(ctx, document, now, "ready"); err != nil {
+	owned.Selectors = selectors
+	owned.Selector = selectors[0]
+	flowIDs := make([]string, len(documents))
+	for i := range documents {
+		flowIDs[i] = documents[i].Current.ID
+	}
+	instance := &Core{URL: "http://" + listener.Addr().String(), Token: token, listener: listener, runtime: lock, store: database, repo: documents[0].Basis.Repository, adapterCommand: options.AdapterCommand, flowID: flowIDs[0], capture: manifest.Capture, analysis: &owned, analysisSession: session}
+	if err = database.PublishBatch(ctx, documents, now, "ready"); err != nil {
 		listener.Close()
 		database.Close()
 		return fail(err)
@@ -168,12 +274,25 @@ func StartAnalysis(ctx context.Context, repo string, options AnalysisOptions) (*
 	if err = lock.Write(listener.Addr().(*net.TCPAddr).Port, token, now); err != nil {
 		listener.Close()
 		database.Close()
-		lock.Release()
-		return nil, nil, err
+		return fail(err)
 	}
-	instance.server = &http.Server{Handler: instance.routes()}
+	watcher, err := workspacewatch.Start(instance.repo, instance.ScheduleReconcile)
+	if err != nil {
+		listener.Close()
+		database.Close()
+		return fail(err)
+	}
+	instance.watcher = watcher
+	instance.server = localHTTPServer(instance.routes())
 	go instance.server.Serve(listener)
 	return instance, nil, nil
+}
+
+func analysisSelectors(options AnalysisOptions) []string {
+	if len(options.Selectors) > 0 {
+		return append([]string(nil), options.Selectors...)
+	}
+	return []string{options.Selector}
 }
 
 // StartComparison reuses the one current repository Core after compiling the
@@ -197,6 +316,9 @@ func StartComparison(ctx context.Context, repo, revision string, options Analysi
 func (c *Core) Reconcile(ctx context.Context) error {
 	c.reconcileMu.Lock()
 	defer c.reconcileMu.Unlock()
+	if c.closed {
+		return nil
+	}
 	if c.analysis != nil {
 		return c.reconcileAnalysis(ctx)
 	}
@@ -220,10 +342,17 @@ func (c *Core) Reconcile(ctx context.Context) error {
 func (c *Core) ScheduleReconcile() {
 	c.reconcileMu.Lock()
 	defer c.reconcileMu.Unlock()
-	if c.reconcileTimer != nil {
-		c.reconcileTimer.Stop()
+	if c.closed {
+		return
 	}
-	c.reconcileTimer = time.AfterFunc(100*time.Millisecond, func() { _ = c.Reconcile(context.Background()) })
+	if c.reconcileTimer != nil && c.reconcileTimer.Stop() {
+		c.reconcileWG.Done()
+	}
+	c.reconcileWG.Add(1)
+	c.reconcileTimer = time.AfterFunc(100*time.Millisecond, func() {
+		defer c.reconcileWG.Done()
+		_ = c.Reconcile(context.Background())
+	})
 }
 
 // Refresh is the public missed-event recovery path. It deliberately executes
@@ -231,10 +360,8 @@ func (c *Core) ScheduleReconcile() {
 func (c *Core) Refresh(ctx context.Context) error { return c.Reconcile(ctx) }
 
 func (c *Core) reconcileAnalysis(ctx context.Context) error {
-	// Analysis now includes resolved Dart symbols and may take longer than a
-	// notification debounce. Expose that work immediately while retaining the
-	// last complete snapshot, instead of leaving stale content marked ready.
-	if err := c.store.SetStatus(ctx, c.flowID, "analyzing"); err != nil {
+	previous, _, _, err := c.store.GetBatch(ctx)
+	if err != nil {
 		return err
 	}
 	for attempt := 0; attempt < 2; attempt++ {
@@ -245,28 +372,237 @@ func (c *Core) reconcileAnalysis(ctx context.Context) error {
 			}
 			return err
 		}
-		doc, problem, err := compiler.Compile(ctx, compiler.Options{Repo: c.repo, Selector: c.analysis.Selector, CodeGraphURL: c.analysis.CodeGraphURL, AdapterCommand: c.analysis.AdapterCommand, Basis: &basis})
+		if len(previous) > 0 && flowir.SameBasis(previous[0].Basis, basis) {
+			return c.store.SetBatchStatus(ctx, "ready")
+		}
+		// Resolved analysis may take seconds. Expose that work while retaining
+		// the complete prior snapshot, never a mixture of old and new facts.
+		if err := c.store.SetBatchStatus(ctx, "analyzing"); err != nil {
+			return err
+		}
+		affected := affectedFlowIDs(previous, basis)
+		compiled := []flowir.Document{}
+		var problem *compiler.Problem
+		if len(affected) > 0 {
+			compiled, problem, err = c.compileAnalysis(ctx, basis, affected)
+		}
 		if err != nil || problem != nil {
-			_ = c.store.SetStatus(ctx, c.flowID, "analyzing")
+			_ = c.store.SetBatchStatus(ctx, "analyzing")
 			if err != nil {
 				return err
 			}
 			return nil
 		}
+		documents, mergeErr := mergeReconciled(previous, compiled, basis)
+		if mergeErr != nil {
+			return mergeErr
+		}
 		verified, err := c.capture(c.repo)
 		if err == nil && verified.WorktreeFingerprint == basis.WorktreeFingerprint && verified.HeadRevision == basis.HeadRevision {
-			return c.store.Publish(ctx, doc, time.Now().UTC().Format(time.RFC3339Nano), "ready")
+			return c.store.PublishBatch(ctx, documents, time.Now().UTC().Format(time.RFC3339Nano), "ready")
 		}
 	}
-	return c.store.SetStatus(ctx, c.flowID, "analyzing")
+	return c.store.SetBatchStatus(ctx, "analyzing")
 }
+
+func (c *Core) compileAnalysis(ctx context.Context, basis flowir.Basis, selectors []string) ([]flowir.Document, *compiler.Problem, error) {
+	documents, problem, err := c.analysisSession.CompileMany(ctx, selectors, &basis)
+	if problem == nil || !strings.HasPrefix(problem.Code, "ADAPTER_") {
+		return documents, problem, err
+	}
+	// Cancellation or a malformed child response permanently closes the
+	// protocol stream. Replace the owned process once so a later edit or manual
+	// refresh can recover without restarting CodeFlow itself.
+	shutdown, cancel := context.WithTimeout(context.Background(), time.Second)
+	_ = c.analysisSession.Close(shutdown)
+	cancel()
+	replacement, replacementProblem, replacementErr := compiler.NewSession(ctx, compiler.Options{Repo: c.repo, CodeGraphURL: c.analysis.CodeGraphURL, AdapterCommand: c.analysis.AdapterCommand})
+	if replacementErr != nil || replacementProblem != nil {
+		return nil, replacementProblem, replacementErr
+	}
+	c.analysisSession = replacement
+	return replacement.CompileMany(ctx, selectors, &basis)
+}
+
+func affectedFlowIDs(previous []flowir.Document, basis flowir.Basis) []string {
+	if len(previous) == 0 {
+		return nil
+	}
+	if previous[0].Basis.HeadRevision != basis.HeadRevision {
+		return documentFlowIDs(previous)
+	}
+	changed := changedManifestPaths(previous[0].Basis.Manifest, basis.Manifest)
+	if len(changed) == 0 {
+		return nil
+	}
+	for path := range changed {
+		base := filepath.Base(path)
+		if (strings.HasSuffix(path, ".dart") && !pathReferenced(previous, path)) || base == "pubspec.yaml" || base == "pubspec_overrides.yaml" || base == "analysis_options.yaml" || base == "codeflow.yaml" || base == "codeflow.external-contracts.json" {
+			return documentFlowIDs(previous)
+		}
+	}
+	result := make([]string, 0, len(previous))
+	for _, document := range previous {
+		dependencies := documentPaths(document)
+		for path := range changed {
+			if dependencies[path] {
+				result = append(result, document.Current.ID)
+				break
+			}
+		}
+	}
+	return result
+}
+
+func changedManifestPaths(before, after []flowir.ManifestEntry) map[string]bool {
+	type identity struct{ kind, mode, hash, git string }
+	old := map[string]identity{}
+	for _, entry := range before {
+		old[entry.Path] = identity{entry.Type, entry.Mode, entry.FileHash, entry.GitState}
+	}
+	changed := map[string]bool{}
+	for _, entry := range after {
+		current := identity{entry.Type, entry.Mode, entry.FileHash, entry.GitState}
+		if prior, ok := old[entry.Path]; !ok || prior != current {
+			changed[entry.Path] = true
+		}
+		delete(old, entry.Path)
+	}
+	for path := range old {
+		changed[path] = true
+	}
+	return changed
+}
+
+func documentPaths(document flowir.Document) map[string]bool {
+	result := map[string]bool{}
+	add := func(anchors []flowir.Anchor) {
+		for _, anchor := range anchors {
+			if anchor.Kind == "code" || anchor.Kind == "config" || anchor.Kind == "test" || anchor.Kind == "contract" {
+				result[anchor.Path] = true
+			}
+		}
+	}
+	for _, fact := range document.Facts {
+		add(fact.Evidence)
+	}
+	for _, edge := range document.CausalEdges {
+		add(edge.Evidence)
+	}
+	for _, step := range document.Current.Steps {
+		add(step.PrimaryEvidence)
+		for _, branch := range step.Branches {
+			add(branch.Evidence)
+		}
+	}
+	for _, unknown := range document.Unknowns {
+		add(unknown.Evidence)
+	}
+	return result
+}
+
+func pathReferenced(documents []flowir.Document, path string) bool {
+	for _, document := range documents {
+		if documentPaths(document)[path] {
+			return true
+		}
+	}
+	return false
+}
+
+func documentFlowIDs(documents []flowir.Document) []string {
+	result := make([]string, len(documents))
+	for i := range documents {
+		result[i] = documents[i].Current.ID
+	}
+	return result
+}
+
+func mergeReconciled(previous, compiled []flowir.Document, basis flowir.Basis) ([]flowir.Document, error) {
+	byID := map[string]flowir.Document{}
+	for _, document := range compiled {
+		byID[document.Current.ID] = document
+	}
+	result := make([]flowir.Document, len(previous))
+	for i, document := range previous {
+		if replacement, ok := byID[document.Current.ID]; ok {
+			result[i] = replacement
+			delete(byID, document.Current.ID)
+			continue
+		}
+		if err := anchorsMatchBasis(document, basis); err != nil {
+			return nil, fmt.Errorf("rebase unaffected flow %s: %w", document.Current.ID, err)
+		}
+		document.Basis = basis
+		if err := flowir.Validate(document); err != nil {
+			return nil, fmt.Errorf("rebase unaffected flow %s: %w", document.Current.ID, err)
+		}
+		result[i] = document
+	}
+	if len(byID) > 0 {
+		return nil, fmt.Errorf("analysis returned a flow outside the active workspace")
+	}
+	return result, nil
+}
+
+func anchorsMatchBasis(document flowir.Document, basis flowir.Basis) error {
+	hashes := make(map[string]string, len(basis.Manifest))
+	for _, entry := range basis.Manifest {
+		if entry.Type == "file" {
+			hashes[entry.Path] = entry.FileHash
+		}
+	}
+	for path := range documentPaths(document) {
+		expected := hashes[path]
+		if expected == "" {
+			return fmt.Errorf("evidence path %s is absent from the current manifest", path)
+		}
+		for _, anchor := range documentAnchors(document) {
+			if anchor.Path == path && (anchor.Kind == "code" || anchor.Kind == "config" || anchor.Kind == "test" || anchor.Kind == "contract") && anchor.FileHash != expected {
+				return fmt.Errorf("evidence path %s has stale file hash", path)
+			}
+		}
+	}
+	return nil
+}
+
+func documentAnchors(document flowir.Document) []flowir.Anchor {
+	var anchors []flowir.Anchor
+	for _, fact := range document.Facts {
+		anchors = append(anchors, fact.Evidence...)
+	}
+	for _, edge := range document.CausalEdges {
+		anchors = append(anchors, edge.Evidence...)
+	}
+	for _, step := range document.Current.Steps {
+		anchors = append(anchors, step.PrimaryEvidence...)
+		for _, branch := range step.Branches {
+			anchors = append(anchors, branch.Evidence...)
+		}
+	}
+	for _, unknown := range document.Unknowns {
+		anchors = append(anchors, unknown.Evidence...)
+	}
+	return anchors
+}
+
 func (c *Core) Close(ctx context.Context) error {
+	if c.watcher != nil {
+		_ = c.watcher.Close()
+	}
 	c.reconcileMu.Lock()
-	if c.reconcileTimer != nil {
-		c.reconcileTimer.Stop()
+	c.closed = true
+	if c.reconcileTimer != nil && c.reconcileTimer.Stop() {
+		c.reconcileWG.Done()
 	}
 	c.reconcileMu.Unlock()
+	c.reconcileWG.Wait()
 	err := c.server.Shutdown(ctx)
+	if c.analysisSession != nil {
+		if sessionErr := c.analysisSession.Close(ctx); err == nil {
+			err = sessionErr
+		}
+	}
 	c.store.Close()
 	c.runtime.Release()
 	return err
@@ -275,13 +611,29 @@ func (c *Core) Close(ctx context.Context) error {
 // Document returns the same published document served from the authenticated
 // API. It is used by the short-lived `codeflow analyze` public CLI path.
 func (c *Core) Document(ctx context.Context) (flowir.Document, error) {
-	d, _, _, err := c.store.Get(ctx, c.flowID)
-	return d, err
+	documents, _, _, err := c.store.GetBatch(ctx)
+	if err != nil {
+		return flowir.Document{}, err
+	}
+	return documents[0], nil
+}
+func (c *Core) Documents(ctx context.Context) ([]flowir.Document, error) {
+	documents, _, _, err := c.store.GetBatch(ctx)
+	return documents, err
+}
+func (c *Core) Workspace(ctx context.Context) (any, error) {
+	documents, _, _, err := c.store.GetBatch(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return buildWorkspace(documents)
 }
 func (c *Core) routes() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/", c.view)
 	mux.HandleFunc("/api/v1/flows/", c.flow)
+	mux.HandleFunc("/api/v1/workspace", c.workspace)
+	mux.HandleFunc("/api/v2/workspace", c.workspaceV2)
 	mux.HandleFunc("/api/v1/compare", c.compare)
 	mux.HandleFunc("/api/v1/entry-points/resolve", c.resolve)
 	mux.HandleFunc("/api/v1/refresh", c.refresh)
@@ -290,7 +642,47 @@ func (c *Core) routes() http.Handler {
 	mux.HandleFunc("/api/v1/overlay/approve", c.approveOverlay)
 	mux.HandleFunc("/api/v1/debt", c.debt)
 	mux.HandleFunc("/api/v1/debt/review", c.reviewDebt)
-	return mux
+	mux.HandleFunc("/_codeflow/publication", c.publication)
+	return c.localSecurity(mux)
+}
+
+func (c *Core) localSecurity(next http.Handler) http.Handler {
+	expectedHost := strings.TrimPrefix(c.URL, "http://")
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// The listener is already TCP4 loopback-only. The Host check additionally
+		// rejects browser DNS-rebinding requests that resolve an unrelated origin
+		// to 127.0.0.1.
+		if r.Host != expectedHost {
+			http.Error(w, "CodeFlow is available only on its local review address", http.StatusMisdirectedRequest)
+			return
+		}
+		w.Header().Set("Cache-Control", "no-store")
+		w.Header().Set("Content-Security-Policy", "default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; img-src data:; connect-src 'self'; base-uri 'none'; frame-ancestors 'none'; form-action 'none'")
+		w.Header().Set("Cross-Origin-Resource-Policy", "same-origin")
+		w.Header().Set("Referrer-Policy", "no-referrer")
+		w.Header().Set("X-Content-Type-Options", "nosniff")
+		w.Header().Set("X-Frame-Options", "DENY")
+		next.ServeHTTP(w, r)
+	})
+}
+
+func localHTTPServer(handler http.Handler) *http.Server {
+	return &http.Server{Handler: handler, ReadHeaderTimeout: 5 * time.Second, IdleTimeout: 60 * time.Second, MaxHeaderBytes: 32 << 10}
+}
+
+func (c *Core) publication(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "GET is required", http.StatusMethodNotAllowed)
+		return
+	}
+	publication, err := c.store.Publication(r.Context())
+	if err != nil {
+		http.Error(w, "publication unavailable", http.StatusServiceUnavailable)
+		return
+	}
+	w.Header().Set("Cache-Control", "no-store")
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(publication)
 }
 func (c *Core) debt(w http.ResponseWriter, r *http.Request) {
 	if !c.authorized(r) {
@@ -301,7 +693,11 @@ func (c *Core) debt(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusMethodNotAllowed, envelope{Status: "unavailable", Unknowns: []any{}, Error: &apiError{Code: "METHOD_NOT_ALLOWED", Message: "GET is required"}})
 		return
 	}
-	reviews, err := c.store.DebtReviews(r.Context(), c.flowID)
+	flowID := r.URL.Query().Get("flow_id")
+	if flowID == "" {
+		flowID = c.flowID
+	}
+	reviews, err := c.store.DebtReviews(r.Context(), flowID)
 	if err != nil {
 		writeJSON(w, http.StatusInternalServerError, envelope{Status: "unavailable", Unknowns: []any{}, Error: &apiError{Code: "DEBT_REVIEW_UNAVAILABLE", Message: err.Error()}})
 		return
@@ -318,14 +714,18 @@ func (c *Core) reviewDebt(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var request struct {
-		ID    string `json:"id"`
-		State string `json:"state"`
+		ID     string `json:"id"`
+		State  string `json:"state"`
+		FlowID string `json:"flow_id"`
 	}
 	if err := json.NewDecoder(io.LimitReader(r.Body, 64*1024)).Decode(&request); err != nil || request.ID == "" {
 		writeJSON(w, http.StatusBadRequest, envelope{Status: "unknown", Unknowns: []any{}, Error: &apiError{Code: "DEBT_REVIEW_MALFORMED", Message: "id and state are required"}})
 		return
 	}
-	if err := c.store.ReviewDebt(r.Context(), c.flowID, request.ID, request.State, time.Now().UTC().Format(time.RFC3339Nano)); err != nil {
+	if request.FlowID == "" {
+		request.FlowID = c.flowID
+	}
+	if err := c.store.ReviewDebt(r.Context(), request.FlowID, request.ID, request.State, time.Now().UTC().Format(time.RFC3339Nano)); err != nil {
 		code, status := "DEBT_REVIEW_INVALID", http.StatusBadRequest
 		if errors.Is(err, sql.ErrNoRows) {
 			code, status = "DEBT_NOT_FOUND", http.StatusNotFound
@@ -333,7 +733,7 @@ func (c *Core) reviewDebt(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, status, envelope{Status: "unknown", Unknowns: []any{}, Error: &apiError{Code: code, Message: err.Error()}})
 		return
 	}
-	reviews, _ := c.store.DebtReviews(r.Context(), c.flowID)
+	reviews, _ := c.store.DebtReviews(r.Context(), request.FlowID)
 	writeJSON(w, http.StatusOK, envelope{Status: "ready", Data: reviews, Reviews: reviews, Unknowns: []any{}, ViewURL: c.URL + "/"})
 }
 func (c *Core) overlay(w http.ResponseWriter, r *http.Request) {
@@ -421,16 +821,28 @@ func (c *Core) refresh(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusInternalServerError, envelope{Status: "unavailable", Unknowns: []any{}, Error: &apiError{Code: "REFRESH_FAILED", Message: err.Error()}})
 		return
 	}
-	doc, _, status, err := c.store.Get(r.Context(), c.flowID)
+	documents, _, status, err := c.store.GetBatch(r.Context())
 	if err != nil {
 		writeJSON(w, http.StatusInternalServerError, envelope{Status: "unavailable", Unknowns: []any{}, Error: &apiError{Code: "STORAGE_ERROR", Message: err.Error()}})
 		return
 	}
-	unknowns := make([]any, len(doc.Unknowns))
-	for i := range doc.Unknowns {
-		unknowns[i] = doc.Unknowns[i]
+	unknowns := make([]any, 0)
+	for _, document := range documents {
+		for _, unknown := range document.Unknowns {
+			unknowns = append(unknowns, unknown)
+		}
 	}
-	writeJSON(w, http.StatusOK, envelope{Basis: &doc.Basis, Status: status, Data: doc, Unknowns: unknowns, ViewURL: c.URL + "/"})
+	if len(documents) > 1 {
+		workspace, buildErr := buildWorkspace(documents)
+		if buildErr != nil {
+			writeJSON(w, http.StatusInternalServerError, envelope{Status: "unavailable", Unknowns: []any{}, Error: &apiError{Code: "WORKSPACE_INVALID", Message: buildErr.Error()}})
+			return
+		}
+		writeJSON(w, http.StatusOK, envelope{Basis: &workspace.Basis, Status: status, Data: workspace, Unknowns: unknowns, ViewURL: c.URL + "/"})
+		return
+	}
+	document := documents[0]
+	writeJSON(w, http.StatusOK, envelope{Basis: &document.Basis, Status: status, Data: document, Unknowns: unknowns, ViewURL: c.URL + "/"})
 }
 func (c *Core) compare(w http.ResponseWriter, r *http.Request) {
 	if !c.authorized(r) {
@@ -464,7 +876,11 @@ func (c *Core) resolve(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, code, envelope{Status: string(result.State), Unknowns: unknowns, Data: result, ViewURL: c.URL + "/?selector=" + r.URL.Query().Get("selector"), Metadata: metadata{RuntimeStatus: string(result.State), ViewURL: c.URL + "/"}})
 }
 func (c *Core) authorized(r *http.Request) bool {
-	return r.Header.Get("X-CodeFlow-Token") == c.Token || strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ") == c.Token
+	return secureToken(r.Header.Get("X-CodeFlow-Token"), c.Token) || secureToken(strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer "), c.Token)
+}
+
+func secureToken(candidate, expected string) bool {
+	return len(candidate) == len(expected) && len(expected) > 0 && subtle.ConstantTimeCompare([]byte(candidate), []byte(expected)) == 1
 }
 func (c *Core) flow(w http.ResponseWriter, r *http.Request) {
 	if !c.authorized(r) {
@@ -485,6 +901,9 @@ func (c *Core) flow(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	viewURL := c.URL + "/"
+	if documents, _, _, batchErr := c.store.GetBatch(r.Context()); batchErr == nil && len(documents) > 1 {
+		viewURL += "?flow=" + url.QueryEscape(document.Current.ID)
+	}
 	unknowns := make([]any, len(document.Unknowns))
 	for i := range document.Unknowns {
 		unknowns[i] = document.Unknowns[i]
@@ -492,7 +911,134 @@ func (c *Core) flow(w http.ResponseWriter, r *http.Request) {
 	reviews, _ := c.store.DebtReviews(r.Context(), document.Current.ID)
 	writeJSON(w, http.StatusOK, envelope{Basis: &document.Basis, Status: status, Data: document, Unknowns: unknowns, Reviews: reviews, Lenses: documentLenses(document), ViewURL: viewURL, Metadata: metadata{GeneratedAt: generated, RuntimeStatus: status, ViewURL: viewURL}})
 }
-func writeJSON(w http.ResponseWriter, status int, body envelope) {
+
+func (c *Core) workspace(w http.ResponseWriter, r *http.Request) {
+	if !c.authorized(r) {
+		writeJSON(w, http.StatusUnauthorized, envelope{Status: "unavailable", Unknowns: []any{}, Error: &apiError{Code: "UNAUTHORIZED", Message: "a valid CodeFlow runtime token is required"}})
+		return
+	}
+	if r.Method != http.MethodGet {
+		writeJSON(w, http.StatusMethodNotAllowed, envelope{Status: "unavailable", Unknowns: []any{}, Error: &apiError{Code: "METHOD_NOT_ALLOWED", Message: "GET is required"}})
+		return
+	}
+	documents, generated, status, err := c.store.GetBatch(r.Context())
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, envelope{Status: "unavailable", Unknowns: []any{}, Error: &apiError{Code: "STORAGE_ERROR", Message: "stored workspace could not be read"}})
+		return
+	}
+	workspace, err := buildWorkspace(documents)
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, envelope{Status: "unavailable", Unknowns: []any{}, Error: &apiError{Code: "WORKSPACE_INVALID", Message: err.Error()}})
+		return
+	}
+	unknowns := workspaceUnknowns(documents)
+	viewURL := c.URL + "/"
+	writeJSON(w, http.StatusOK, envelope{Basis: &workspace.Basis, Status: status, Data: workspace, Unknowns: unknowns, ViewURL: viewURL, Metadata: metadata{GeneratedAt: generated, RuntimeStatus: status, ViewURL: viewURL}})
+}
+
+func (c *Core) workspaceV2(w http.ResponseWriter, r *http.Request) {
+	if !c.authorized(r) {
+		writeJSON(w, http.StatusUnauthorized, workspaceEnvelopeV2{Status: "unavailable", Unknowns: []any{}, Error: &apiError{Code: "UNAUTHORIZED", Message: "a valid CodeFlow runtime token is required"}})
+		return
+	}
+	if r.Method != http.MethodGet {
+		writeJSON(w, http.StatusMethodNotAllowed, workspaceEnvelopeV2{Status: "unavailable", Unknowns: []any{}, Error: &apiError{Code: "METHOD_NOT_ALLOWED", Message: "GET is required"}})
+		return
+	}
+	documents, generated, status, err := c.store.GetBatch(r.Context())
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, workspaceEnvelopeV2{Status: "unavailable", Unknowns: []any{}, Error: &apiError{Code: "STORAGE_ERROR", Message: "stored workspace could not be read"}})
+		return
+	}
+	workspace, err := buildWorkspaceV2(documents)
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, workspaceEnvelopeV2{Status: "unavailable", Unknowns: []any{}, Error: &apiError{Code: "WORKSPACE_INVALID", Message: err.Error()}})
+		return
+	}
+	basis := documents[0].Basis
+	viewURL := c.URL + "/"
+	writeJSON(w, http.StatusOK, workspaceEnvelopeV2{
+		Basis:  workspaceBasisV2{Repository: basis.Repository, HeadRevision: basis.HeadRevision, BaselineRevision: basis.BaselineRevision, WorktreeFingerprint: basis.WorktreeFingerprint, Dirty: basis.Dirty, ManifestCount: len(basis.Manifest)},
+		Status: status, Data: workspace, Unknowns: workspaceUnknowns(documents), ViewURL: viewURL,
+		Metadata: metadata{GeneratedAt: generated, RuntimeStatus: status, ViewURL: viewURL},
+	})
+}
+
+func workspaceUnknowns(documents []flowir.Document) []any {
+	unknowns := make([]any, 0)
+	for _, document := range documents {
+		for _, unknown := range document.Unknowns {
+			unknowns = append(unknowns, struct {
+				FlowID  string               `json:"flow_id"`
+				Unknown flowir.UnknownDetail `json:"unknown"`
+			}{document.Current.ID, unknown})
+		}
+	}
+	return unknowns
+}
+
+func buildWorkspace(documents []flowir.Document) (workspaceDocument, error) {
+	if len(documents) == 0 {
+		return workspaceDocument{}, fmt.Errorf("workspace has no flows")
+	}
+	basis := documents[0].Basis
+	flowIDs := make([]string, len(documents))
+	targets := map[string]bool{}
+	for i, document := range documents {
+		if !flowir.SameBasis(document.Basis, basis) {
+			return workspaceDocument{}, fmt.Errorf("workspace contains mixed flow bases")
+		}
+		flowIDs[i] = document.Current.ID
+		targets[document.Current.ID] = true
+	}
+	seen := map[string]bool{}
+	edges := make([]workspaceFlowEdge, 0)
+	for _, document := range documents {
+		for _, fact := range document.Facts {
+			if fact.Status != flowir.Observed || (fact.Kind != "visible_result" && fact.Kind != "route_transition") || !targets[fact.Object] || fact.Object == document.Current.ID {
+				continue
+			}
+			key := document.Current.ID + "\x00" + fact.Object
+			if seen[key] {
+				continue
+			}
+			seen[key] = true
+			edges = append(edges, workspaceFlowEdge{ID: flowir.Hash("screen_flow_edge", document.Current.ID, fact.Object), From: document.Current.ID, To: fact.Object, Status: flowir.Observed, Evidence: append([]flowir.Anchor(nil), fact.Evidence...)})
+		}
+	}
+	sort.Slice(edges, func(i, j int) bool {
+		return edges[i].From < edges[j].From || edges[i].From == edges[j].From && edges[i].To < edges[j].To
+	})
+	return workspaceDocument{SchemaVersion: "1", Basis: basis, FlowIDs: flowIDs, Flows: documents, Edges: edges}, nil
+}
+
+func buildWorkspaceV2(documents []flowir.Document) (workspaceDocumentV2, error) {
+	workspace, err := buildWorkspace(documents)
+	if err != nil {
+		return workspaceDocumentV2{}, err
+	}
+	flows := make([]workspaceFlowDocumentV2, len(documents))
+	for i, document := range documents {
+		flows[i] = workspaceFlowDocumentV2{
+			SchemaVersion: document.SchemaVersion,
+			Facts:         document.Facts,
+			CausalEdges:   document.CausalEdges,
+			Architecture:  document.Architecture,
+			Current:       document.Current,
+			Unknowns:      document.Unknowns,
+		}
+	}
+	return workspaceDocumentV2{SchemaVersion: "2", FlowIDs: workspace.FlowIDs, Flows: flows, Edges: workspace.Edges}, nil
+}
+
+func buildWorkspaceNavigation(workspace workspaceDocument, selected string) workspaceNavigation {
+	flows := make([]workspaceNavigationFlow, 0, len(workspace.Flows))
+	for _, document := range workspace.Flows {
+		flows = append(flows, workspaceNavigationFlow{ID: document.Current.ID, URL: "/?flow=" + url.QueryEscape(document.Current.ID), Status: document.Current.Status, Steps: len(document.Current.Steps), Unknowns: len(document.Unknowns), Selected: document.Current.ID == selected})
+	}
+	return workspaceNavigation{Flows: flows, Edges: workspace.Edges}
+}
+func writeJSON(w http.ResponseWriter, status int, body any) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
 	_ = json.NewEncoder(w).Encode(body)
@@ -537,22 +1083,24 @@ func displayFact(fact flowir.Fact) string {
 		value = fact.Subject
 	}
 	switch fact.Kind {
+	case "screen_entry":
+		return "화면 진입 · " + strings.TrimPrefix(value, "route:")
 	case "user_action":
-		return "사용자 동작 · " + shortSymbol(value)
+		return "사용자 동작 · " + humanAction(value)
 	case "condition", "confirmation_condition":
-		return "조건 확인 · " + shortSymbol(value)
+		return humanCondition(value)
 	case "provider_dependency":
-		return "상태 의존성 · " + shortSymbol(value)
+		return "상태 사용 · " + humanIdentifier(value)
 	case "unknown_state":
 		return "상태 변경 미확정 · " + shortSymbol(value)
 	case "state_transition", "notifier_state_transition":
-		return "상태 변경 · " + shortSymbol(value)
+		return "상태 변경 · " + humanIdentifier(shortSymbol(value))
 	case "event_dispatch":
-		return "이벤트 전달 · " + shortSymbol(value)
+		return "요청 전달 · " + humanIdentifier(shortSymbol(value))
 	case "terminal_result":
 		return "화면 이동 없이 현재 동작 종료"
 	case "listener_condition":
-		return "상태 감지 · " + shortSymbol(value)
+		return "상태 감지 · " + humanIdentifier(shortSymbol(value))
 	case "route_transition", "visible_result":
 		return "화면 결과 · " + strings.TrimPrefix(value, "route:")
 	case "repository_access":
@@ -597,28 +1145,139 @@ func shortSymbol(value string) string {
 	return value
 }
 
+func humanAction(value string) string {
+	name := strings.TrimLeft(shortSymbol(value), "_")
+	if dot := strings.LastIndex(name, "."); dot >= 0 {
+		name = strings.TrimLeft(name[dot+1:], "_")
+	}
+	switch strings.ToLower(name) {
+	case "requestexit", "exit", "close", "cancel", "back":
+		return "나가기 요청"
+	case "submit", "confirm":
+		return "입력 내용 제출"
+	case "continue", "next":
+		return "다음 단계로 이동"
+	case "save":
+		return "변경 내용 저장"
+	case "openhelp":
+		return "도움말 열기"
+	case "login", "signin":
+		return "로그인"
+	case "signup", "join":
+		return "가입 요청"
+	default:
+		return humanIdentifier(name)
+	}
+}
+
+func humanCondition(value string) string {
+	normalized := strings.ToLower(strings.ReplaceAll(value, " ", ""))
+	switch {
+	case strings.Contains(normalized, "iscompleted"):
+		return "조건 확인 · 작업이 완료된 상태인지 검사"
+	case strings.Contains(normalized, "confirmed"):
+		return "조건 확인 · 사용자가 계속 진행하기로 확인했는지 검사"
+	case strings.Contains(normalized, "iscanceled"):
+		return "조건 확인 · 취소 상태인지 검사"
+	default:
+		return "조건 확인 · " + humanIdentifier(shortSymbol(value))
+	}
+}
+
+func humanIdentifier(value string) string {
+	value = strings.TrimPrefix(value, "provider:")
+	value = strings.TrimPrefix(value, "state:")
+	value = strings.TrimPrefix(value, "event:")
+	value = strings.Trim(value, "_")
+	value = strings.NewReplacer(".", "_", ":", "_", "=", "_=_").Replace(value)
+	if value == "" {
+		return "이름 없는 동작"
+	}
+	var words []string
+	start := 0
+	runes := []rune(value)
+	for i := 1; i < len(runes); i++ {
+		if runes[i] == '_' || runes[i] == '-' {
+			if start < i {
+				words = append(words, string(runes[start:i]))
+			}
+			start = i + 1
+			continue
+		}
+		if runes[i] >= 'A' && runes[i] <= 'Z' && runes[i-1] >= 'a' && runes[i-1] <= 'z' {
+			words = append(words, string(runes[start:i]))
+			start = i
+		}
+	}
+	if start < len(runes) {
+		words = append(words, string(runes[start:]))
+	}
+	if len(words) == 0 {
+		return value
+	}
+	readable := make([]string, 0, len(words))
+	for _, word := range words {
+		switch strings.ToLower(word) {
+		case "provider":
+			continue
+		case "is":
+			continue
+		case "join":
+			readable = append(readable, "가입")
+		case "cancel":
+			readable = append(readable, "취소")
+		case "canceled", "iscanceled":
+			readable = append(readable, "취소됨")
+		case "controller":
+			readable = append(readable, "진행")
+		case "route":
+			readable = append(readable, "화면 경로")
+		case "destination":
+			readable = append(readable, "목적지")
+		case "dispatcher":
+			readable = append(readable, "이동 처리")
+		case "state":
+			readable = append(readable, "상태")
+		case "event":
+			readable = append(readable, "요청")
+		case "auth":
+			readable = append(readable, "인증")
+		case "home":
+			readable = append(readable, "홈")
+		case "true":
+			readable = append(readable, "예")
+		case "false":
+			readable = append(readable, "아니오")
+		default:
+			readable = append(readable, word)
+		}
+	}
+	return strings.Join(readable, " ")
+}
+
 type timelineItem struct {
-	Step           flowir.Step
-	Title          string
-	StateDelta     string
-	StateBefore    string
-	StateAfter     string
-	StateProof     string
-	CodeImpact     string
-	ResultImpact   string
-	HasStateChange bool
-	Change         string
-	ChangeLabel    string
-	SourceState    string
-	Lens           lens.Source
-	EditorURL      template.URL
-	Incoming       []causalView
-	Outgoing       []causalView
-	Branches       []branchView
-	TrustLabel     string
-	BranchPath     string
-	BreakAfter     bool
-	Alternative    bool
+	Step             flowir.Step
+	Title            string
+	StateDelta       string
+	StateBefore      string
+	StateAfter       string
+	StateProof       string
+	CodeImpact       string
+	ResultImpact     string
+	HasStateChange   bool
+	Change           string
+	ChangeLabel      string
+	SourceState      string
+	SourceStateLabel string
+	Lens             lens.Source
+	EditorURL        template.URL
+	Incoming         []causalView
+	Outgoing         []causalView
+	Branches         []branchView
+	TrustLabel       string
+	BranchPath       string
+	BreakAfter       bool
+	Alternative      bool
 }
 
 type branchView struct {
@@ -746,7 +1405,7 @@ func timeline(document flowir.Document, comparison *compare.Result) []timelineIt
 		if len(facts) == 0 {
 			facts[step.TriggerFact] = true
 		}
-		item := timelineItem{Step: step, Title: title, Change: change, ChangeLabel: displayChange(change), SourceState: sourceState, Lens: source, TrustLabel: trustLabel(step.Status)}
+		item := timelineItem{Step: step, Title: title, Change: change, ChangeLabel: displayChange(change), SourceState: sourceState, SourceStateLabel: displaySourceState(sourceState), Lens: source, TrustLabel: trustLabel(step.Status)}
 		if source.Status == "ready" && source.EditorURL != "" {
 			item.EditorURL = template.URL(source.EditorURL)
 		}
@@ -765,9 +1424,9 @@ func timeline(document flowir.Document, comparison *compare.Result) []timelineIt
 		if comparison != nil {
 			item.CodeImpact = item.ChangeLabel
 		} else if sourceState == "added" || sourceState == "modified" || sourceState == "renamed" || sourceState == "untracked" {
-			item.CodeImpact = sourceState + " · baseline 미선택"
+			item.CodeImpact = displaySourceState(sourceState) + " · 기준선 미선택"
 		} else {
-			item.CodeImpact = "현재 코드 · baseline 미선택"
+			item.CodeImpact = "현재 코드 · 기준선 미선택"
 		}
 		item.ResultImpact = visibleResultForStep(step, document.Facts)
 		for _, incoming := range item.Incoming {
@@ -812,6 +1471,25 @@ func timeline(document flowir.Document, comparison *compare.Result) []timelineIt
 	return items
 }
 
+func displaySourceState(state string) string {
+	switch state {
+	case "clean":
+		return "Git 변경 없음"
+	case "added":
+		return "Git에 추가됨"
+	case "modified":
+		return "수정됨"
+	case "renamed":
+		return "이름 변경됨"
+	case "deleted":
+		return "삭제됨"
+	case "untracked":
+		return "Git에 아직 추가되지 않음"
+	default:
+		return "Git 상태 미확정"
+	}
+}
+
 func stepChangesState(referenced map[string]bool, facts []flowir.Fact) bool {
 	for _, fact := range facts {
 		if referenced[fact.ID] && (fact.Kind == "state_transition" || fact.Kind == "notifier_state_transition") {
@@ -843,17 +1521,17 @@ func stepStateDelta(step flowir.Step, referenced map[string]bool, all []flowir.F
 		}
 		switch fact.Kind {
 		case "state_transition", "notifier_state_transition":
-			return "이전 값 미확정", strings.TrimPrefix(fact.Object, "state:"), "대입 결과는 observed · 실행 직전 값은 unknown"
+			return "대입 전 값은 코드만으로 확인되지 않음", humanIdentifier(strings.TrimPrefix(fact.Object, "state:")), "현재 코드에서 대입 결과를 확인했습니다. 대입 직전 값은 코드만으로 확인되지 않습니다."
 		case "listener_condition":
-			return strings.TrimPrefix(fact.Object, "state."), "값 변경 없음 · 조건이 관찰", "resolved listener condition"
+			return humanIdentifier(strings.TrimPrefix(fact.Object, "state.")), "값은 바뀌지 않고 조건을 확인함", "상태를 감지하는 조건을 현재 코드에서 확인했습니다."
 		case "provider_dependency":
-			before = strings.TrimPrefix(fact.Object, "provider:")
-			after = "값 변경 없음 · provider 참조"
-			proof = "resolved provider dependency"
+			before = humanIdentifier(strings.TrimPrefix(fact.Object, "provider:"))
+			after = "값 변경 없이 상태를 읽음"
+			proof = "현재 코드에서 상태 참조를 확인했습니다."
 		case "event_dispatch":
-			before = "dispatch 이전 상태"
-			after = strings.TrimPrefix(fact.Object, "event:") + " 전달"
-			proof = "event 전달 observed · 후속 상태는 다음 단계에서 판정"
+			before = "요청 전달 전 상태"
+			after = humanIdentifier(strings.TrimPrefix(fact.Object, "event:")) + " 전달"
+			proof = "요청 전달은 현재 코드에서 확인했습니다. 후속 상태는 다음 단계에서 확인합니다."
 		}
 	}
 	return before, after, proof
@@ -891,11 +1569,11 @@ func architectureFlowView(document flowir.Document, items []timelineItem) archit
 		facts[fact.ID] = fact
 	}
 	lanes := []architectureLane{
-		{ID: "interface", Label: "UI · 사용자 결과"},
-		{ID: "application", Label: "Application · 제어"},
-		{ID: "state", Label: "State · 상태 전이"},
-		{ID: "data", Label: "Data · 저장소"},
-		{ID: "external", Label: "External · 외부 경계"},
+		{ID: "interface", Label: "화면 · 사용자 결과"},
+		{ID: "application", Label: "동작 · 제어 흐름"},
+		{ID: "state", Label: "상태 · 값 변화"},
+		{ID: "data", Label: "데이터 · 저장소"},
+		{ID: "external", Label: "외부 시스템"},
 	}
 	index := map[string]int{"interface": 0, "application": 1, "state": 2, "data": 3, "external": 4}
 	for stepIndex, item := range items {
@@ -907,7 +1585,13 @@ func architectureFlowView(document flowir.Document, items []timelineItem) archit
 		node := architectureNode{StepIndex: stepIndex, Column: stepIndex + 1, Label: item.Title, Kind: kind, Status: item.Step.Status, Change: item.ChangeLabel, StateAfter: item.StateAfter, Incoming: incoming, EditorURL: item.EditorURL}
 		lanes[index[kind]].Nodes = append(lanes[index[kind]].Nodes, node)
 	}
-	return architectureFlow{Columns: len(items), Lanes: lanes}
+	visible := lanes[:0]
+	for _, lane := range lanes {
+		if len(lane.Nodes) > 0 {
+			visible = append(visible, lane)
+		}
+	}
+	return architectureFlow{Columns: len(items), Lanes: visible}
 }
 
 func architectureKind(step flowir.Step, facts map[string]flowir.Fact) string {
@@ -931,20 +1615,37 @@ func architectureKind(step flowir.Step, facts map[string]flowir.Fact) string {
 	return "application"
 }
 
-func architecturePath(document flowir.Document) []string {
+type architecturePathItem struct{ ID, Label string }
+
+func architecturePath(document flowir.Document) []architecturePathItem {
 	seen := map[string]bool{}
-	var out []string
+	var out []architecturePathItem
 	components := append(append([]string{}, document.Architecture.Components...), document.Architecture.Boundaries...)
 	for _, component := range components {
 		display := component
-		if strings.Contains(component, "::") || strings.HasPrefix(component, "provider:") || strings.HasPrefix(component, "state:") {
-			display = shortSymbol(component)
-		} else if strings.Contains(component, "/") {
+		switch {
+		case component == "ui":
+			display = "화면"
+		case component == "application":
+			display = "동작"
+		case component == "state":
+			display = "상태"
+		case component == "data":
+			display = "데이터"
+		case component == "external":
+			display = "외부 시스템"
+		case strings.HasPrefix(component, "graph:"):
+			display = "Dart 정적 분석"
+		case strings.Contains(component, "::"):
+			display = humanAction(component)
+		case strings.HasPrefix(component, "provider:") || strings.HasPrefix(component, "state:"):
+			display = humanIdentifier(component)
+		case strings.Contains(component, "/"):
 			display = path.Base(component)
 		}
 		if display != "" && !seen[display] {
 			seen[display] = true
-			out = append(out, display)
+			out = append(out, architecturePathItem{ID: component, Label: display})
 		}
 	}
 	return out
@@ -993,8 +1694,14 @@ func actionableDebt(document flowir.Document) []debtItem {
 			Cause:      "현재 정적 분석 범위에서 다음 코드 연결을 찾지 못함",
 		}
 		switch debt.Reason {
+		case "supported_user_action_missing":
+			item.Cause = "화면 진입은 확인했지만 버튼·탭이 실행하는 메서드를 코드에서 연결하지 못함"
+			item.Title = "화면 진입 다음의 사용자 동작이 아직 연결되지 않았습니다."
+			item.Confirmed = "현재 화면 경로와 이 화면을 여는 코드는 확인했습니다."
+			item.Missing = "버튼·탭 동작에서 다음 상태나 화면 결과로 이어지는 연결이 타임라인에 없습니다."
+			item.NextAction = "버튼·탭의 onPressed/onTap이 실행하는 메서드와 그 뒤의 상태 변경 또는 화면 이동을 확인하면 됩니다."
 		case "conditional_route_alternative":
-			item.Cause = "조건문의 일부 경로가 정적 코드 흐름에 아직 연결되지 않음"
+			item.Cause = "조건문의 일부 경로에서 이어지는 다음 동작을 현재 코드만으로 확인하지 못함"
 			item.Title = "조건의 다른 선택지가 다음 단계까지 연결되지 않았습니다."
 			if len(results) > 0 {
 				item.Confirmed = "현재 코드에서 " + strings.Join(results, ", ") + " 화면으로 이동하는 경로는 확인했습니다."
@@ -1002,7 +1709,7 @@ func actionableDebt(document flowir.Document) []debtItem {
 			item.Missing = "조건이 맞지 않을 때 현재 화면에 머무는지, 다른 동작을 실행하는지 FlowView가 아직 구분하지 못합니다."
 			item.NextAction = "표시된 조건문의 나머지 return/else 경로를 ‘화면 유지’, ‘다른 화면 이동’ 또는 ‘종료’ 단계로 연결하면 됩니다."
 		case "unsupported_riverpod_pattern":
-			item.Cause = "현재 Riverpod 분석 규칙이 이 상태 변경 형태를 지원하지 않음"
+			item.Cause = "현재 분석기가 이 상태 관리 코드의 값 변경 방식을 끝까지 따라가지 못함"
 			item.Title = "상태를 읽은 뒤 어떤 값이 바뀌는지 연결되지 않았습니다."
 			item.Confirmed = "이 동작이 상태를 읽는 코드 위치까지는 확인했습니다."
 			item.Missing = "호출되는 메서드, 대입되는 값, 그 값을 읽는 화면 중 하나 이상이 현재 타임라인에 없습니다."
@@ -1054,9 +1761,30 @@ var flowViewSource string
 var page = template.Must(template.New("flow").Parse(flowViewSource))
 
 func (c *Core) view(w http.ResponseWriter, r *http.Request) {
-	document, _, status, err := c.store.Get(r.Context(), c.flowID)
+	documents, publishedAt, status, err := c.store.GetBatch(r.Context())
 	if err != nil {
-		http.Error(w, "flow unavailable", 500)
+		http.Error(w, "workspace unavailable", 500)
+		return
+	}
+	workspace, err := buildWorkspace(documents)
+	if err != nil {
+		http.Error(w, "workspace invalid", 500)
+		return
+	}
+	selected := r.URL.Query().Get("flow")
+	if selected == "" {
+		selected = documents[0].Current.ID
+	}
+	var document flowir.Document
+	found := false
+	for _, candidate := range documents {
+		if candidate.Current.ID == selected {
+			document, found = candidate, true
+			break
+		}
+	}
+	if !found {
+		http.Error(w, "flow not found in current workspace", http.StatusNotFound)
 		return
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
@@ -1087,11 +1815,13 @@ func (c *Core) view(w http.ResponseWriter, r *http.Request) {
 		Lenses           map[string]lens.Source
 		FactLabels       map[string]string
 		Timeline         []timelineItem
-		Architecture     []string
+		Architecture     []architecturePathItem
 		ArchitectureFlow architectureFlow
 		Debt             []debtItem
 		ResolvedDebt     []store.DebtReview
-	}{document, status, resolved, c.comparison, overlays, stepLenses(document), factLabels(document), timelineItems, architecturePath(document), architectureFlowView(document, timelineItems), actionableDebt(document), resolvedDebt(reviews, document)}); err != nil {
+		Workspace        workspaceNavigation
+		Publication      string
+	}{document, status, resolved, c.comparison, overlays, stepLenses(document), factLabels(document), timelineItems, architecturePath(document), architectureFlowView(document, timelineItems), actionableDebt(document), resolvedDebt(reviews, document), buildWorkspaceNavigation(workspace, document.Current.ID), publishedAt + "|" + status}); err != nil {
 		http.Error(w, fmt.Sprintf("render flow: %v", err), 500)
 	}
 	if resolved.EntryPoint != nil {
