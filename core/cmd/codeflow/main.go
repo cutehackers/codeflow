@@ -18,6 +18,7 @@ import (
 	"syscall"
 	"time"
 
+	adapterresolver "codeflow/core/internal/adapter"
 	"codeflow/core/internal/baseline"
 	"codeflow/core/internal/comparison"
 	"codeflow/core/internal/compiler"
@@ -25,6 +26,7 @@ import (
 	"codeflow/core/internal/doctor"
 	"codeflow/core/internal/entrypoint"
 	"codeflow/core/internal/expectation"
+	"codeflow/core/internal/installation"
 	"codeflow/core/internal/manifest"
 	"codeflow/core/internal/mcp"
 	flowruntime "codeflow/core/internal/runtime"
@@ -71,11 +73,14 @@ func selectorInputProblem(selectors []string, explicit bool) *compiler.Problem {
 
 func run(args []string, stdout, stderr io.Writer) int {
 	if len(args) == 0 {
-		fmt.Fprintln(stderr, "usage: codeflow doctor|fixture-open|basis|resolve|analyze|verify|serve|open|export|refresh|compare|cache|mcp")
+		fmt.Fprintln(stderr, "usage: codeflow install|doctor|fixture-open|basis|resolve|analyze|verify|serve|open|export|refresh|compare|cache|mcp")
 		return 2
 	}
 	if args[0] == "fixture-open" {
 		return fixtureOpen(args[1:], stdout, stderr)
+	}
+	if args[0] == "install" {
+		return install(args[1:], stdout, stderr)
 	}
 	if args[0] == "basis" {
 		return basis(args[1:], stdout, stderr)
@@ -127,7 +132,8 @@ func run(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintln(stderr, "--format must be human or json")
 		return 2
 	}
-	report := doctor.Diagnose(context.Background(), doctor.Options{Repo: *repo, CodeGraphURL: *graphURL, AdapterPath: *adapter})
+	resolved := adapterresolver.Resolve(*adapter)
+	report := doctor.Diagnose(context.Background(), doctor.Options{Repo: *repo, CodeGraphURL: *graphURL, AdapterPath: resolved.Path, AdapterSource: resolved.Source})
 	if *format == "json" {
 		encoder := json.NewEncoder(stdout)
 		encoder.SetIndent("", "  ")
@@ -144,6 +150,35 @@ func run(args []string, stdout, stderr io.Writer) int {
 		}
 	}
 	return 1
+}
+
+// install is the single first-use setup command for a packaged CodeFlow
+// release. It places the paired Core and adapter in HOME/.codeflow and
+// activates the included local Codex plugin through the Codex CLI.
+func install(args []string, stdout, stderr io.Writer) int {
+	flags := flag.NewFlagSet("install", flag.ContinueOnError)
+	flags.SetOutput(stderr)
+	if err := flags.Parse(args); err != nil || flags.NArg() != 0 {
+		fmt.Fprintln(stderr, "usage: codeflow install")
+		return 2
+	}
+	executable, err := os.Executable()
+	if err != nil {
+		fmt.Fprintln(stderr, "install: locate CodeFlow executable:", err)
+		return 2
+	}
+	if resolved, resolveErr := filepath.EvalSymlinks(executable); resolveErr == nil {
+		executable = resolved
+	}
+	sourceRoot := filepath.Clean(filepath.Join(filepath.Dir(executable), ".."))
+	result, err := installation.Install(context.Background(), installation.Options{SourceRoot: sourceRoot})
+	if err != nil {
+		fmt.Fprintln(stderr, "install:", err)
+		return 2
+	}
+	fmt.Fprintf(stdout, "CodeFlow installed: %s\n", result.Executable)
+	fmt.Fprintln(stdout, "Codex plugin is active. Start a new Codex task and request a FlowView; Core starts automatically on the first request.")
+	return 0
 }
 
 func refreshCommand(args []string, stdout, stderr io.Writer) int {
@@ -385,11 +420,17 @@ func mcpServe(args []string, stdout, stderr io.Writer) int {
 	flags := flag.NewFlagSet("mcp", flag.ContinueOnError)
 	flags.SetOutput(stderr)
 	repo := flags.String("repo", ".", "repository Core to attach")
+	graph := flags.String("codegraph-url", "", "CodeGraph HTTP URL")
+	adapterPath := flags.String("adapter", "", "installed Dart adapter command")
 	if err := flags.Parse(args); err != nil || flags.NArg() != 0 {
-		fmt.Fprintln(stderr, "usage: codeflow mcp [--repo DIR]")
+		fmt.Fprintln(stderr, "usage: codeflow mcp [--repo DIR] [--codegraph-url URL] [--adapter COMMAND]")
 		return 2
 	}
-	if err := (mcp.Server{Repo: *repo}).Serve(context.Background(), os.Stdin, stdout); err != nil {
+	adapterCommand := resolvedAdapter(*adapterPath)
+	server := mcp.Server{Repo: *repo, Start: func(ctx context.Context, selectors []string) (*flowcore.Core, *compiler.Problem, error) {
+		return flowcore.StartAnalysis(ctx, *repo, flowcore.AnalysisOptions{Selectors: selectors, CodeGraphURL: *graph, AdapterCommand: adapterCommand})
+	}}
+	if err := server.Serve(context.Background(), os.Stdin, stdout); err != nil {
 		fmt.Fprintln(stderr, "mcp:", err)
 		return 1
 	}
@@ -739,42 +780,7 @@ func reuseRuntimeFor(repo string, selectors []string) (bool, string, error) {
 }
 
 func resolvedAdapter(value string) string {
-	if value != "" {
-		return value
-	}
-	if executable, err := os.Executable(); err == nil {
-		dir := filepath.Dir(executable)
-		candidates := []string{
-			filepath.Join(dir, "..", "libexec", "codeflow-dart-adapter"),
-			filepath.Join(dir, "adapters", "dart", "bin", "codeflow-dart-adapter.dart"),
-			filepath.Join(dir, "..", "adapters", "dart", "bin", "codeflow-dart-adapter.dart"),
-		}
-		for _, candidate := range candidates {
-			if _, err := os.Stat(candidate); err != nil {
-				continue
-			}
-			if strings.HasSuffix(candidate, ".dart") {
-				return "dart " + candidate
-			}
-			return candidate
-		}
-	}
-	// Local source checkout: Go retains this file's build path unless the
-	// binary was deliberately built with trimpath. This keeps `go run` and test
-	// binaries as easy to use as ./codeflow without target-repo adapter flags.
-	if _, sourceFile, _, ok := runtime.Caller(0); ok {
-		candidate := filepath.Clean(filepath.Join(filepath.Dir(sourceFile), "../../..", "adapters", "dart", "bin", "codeflow-dart-adapter.dart"))
-		if _, err := os.Stat(candidate); err == nil {
-			return "dart " + candidate
-		}
-	}
-	if cwd, err := os.Getwd(); err == nil {
-		candidate := filepath.Join(cwd, "adapters", "dart", "bin", "codeflow-dart-adapter.dart")
-		if _, err := os.Stat(candidate); err == nil {
-			return "dart " + candidate
-		}
-	}
-	return ""
+	return adapterresolver.Resolve(value).Command
 }
 
 // resolve is the non-browser public path for CF-G04. It returns exactly the

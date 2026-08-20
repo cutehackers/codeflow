@@ -1,5 +1,5 @@
-// Package mcp provides the two supported stdio MCP negotiations. It is a thin
-// client of the repository Core; it never opens SQLite or starts analysis.
+// Package mcp provides the two supported stdio MCP negotiations. It reuses a
+// repository Core when available and can start one for the first MCP request.
 package mcp
 
 import (
@@ -10,7 +10,11 @@ import (
 	"io"
 	"net/http"
 	"strings"
+	"sync"
+	"time"
 
+	"codeflow/core/internal/compiler"
+	flowcore "codeflow/core/internal/core"
 	"codeflow/core/internal/runtime"
 )
 
@@ -50,11 +54,16 @@ func stepArguments() map[string]any {
 }
 
 type Server struct {
-	Repo string
-	HTTP *http.Client
+	Repo  string
+	HTTP  *http.Client
+	Start func(context.Context, []string) (*flowcore.Core, *compiler.Problem, error)
+
+	startMu sync.Mutex
+	started *flowcore.Core
 }
 
-func (s Server) Serve(ctx context.Context, in io.Reader, out io.Writer) error {
+func (s *Server) Serve(ctx context.Context, in io.Reader, out io.Writer) error {
+	defer s.closeStarted()
 	scanner := bufio.NewScanner(in)
 	scanner.Buffer(make([]byte, 1024), 2<<20)
 	first := true
@@ -123,7 +132,7 @@ func errorResponse(id any, code int, message, data string) response {
 	return response{JSONRPC: "2.0", ID: id, Error: &rpcError{Code: code, Message: message, Data: map[string]string{"code": data}}}
 }
 func write(out io.Writer, v response) { b, _ := json.Marshal(v); _, _ = out.Write(append(b, '\n')) }
-func (s Server) call(ctx context.Context, req request) response {
+func (s *Server) call(ctx context.Context, req request) response {
 	name, _ := req.Params["name"].(string)
 	args, _ := req.Params["arguments"].(map[string]any)
 	flowID, _ := args["flow_id"].(string)
@@ -155,6 +164,13 @@ func (s Server) call(ctx context.Context, req request) response {
 		endpoint = "/api/v1/flows/ignored?id=" + escape(flowID)
 	default:
 		return errorResponse(req.ID, -32602, "UNKNOWN_TOOL", "use workspace, current, diff, step, unknowns, refresh, or open")
+	}
+	selectors := []string{""}
+	if flowID != "" {
+		selectors = []string{flowID}
+	}
+	if startup := s.ensureCore(ctx, selectors); startup != nil {
+		return errorResponse(req.ID, -32010, startup.Code, startup.Message)
 	}
 	state, err := runtime.ReadState(s.Repo)
 	if err != nil {
@@ -192,6 +208,56 @@ func (s Server) call(ctx context.Context, req request) response {
 	}
 	compactMCPEnvelope(envelope)
 	return response{JSONRPC: "2.0", ID: req.ID, Result: map[string]any{"content": []map[string]string{{"type": "text", "text": mcpSummary(name, envelope)}}, "structuredContent": envelope}}
+}
+
+type startupFailure struct {
+	Code, Message string
+}
+
+// ensureCore makes MCP usable immediately after installation. A requested
+// flow supplies an exact selector; selector-less tools preserve compiler's
+// unique-route requirement instead of guessing when several screens exist.
+func (s *Server) ensureCore(ctx context.Context, selectors []string) *startupFailure {
+	if _, err := runtime.ReadState(s.Repo); err == nil {
+		return nil
+	}
+	s.startMu.Lock()
+	defer s.startMu.Unlock()
+	if _, err := runtime.ReadState(s.Repo); err == nil {
+		return nil
+	}
+	if s.Start == nil {
+		return &startupFailure{Code: "CORE_UNAVAILABLE", Message: "CodeFlow Core is not running and this MCP server cannot start it"}
+	}
+	startup, cancel := context.WithTimeout(ctx, 45*time.Second)
+	defer cancel()
+	instance, problem, err := s.Start(startup, selectors)
+	if err != nil {
+		if err == runtime.ErrRunning {
+			if _, stateErr := runtime.ReadState(s.Repo); stateErr == nil {
+				return nil
+			}
+		}
+		return &startupFailure{Code: "CORE_START_FAILED", Message: err.Error()}
+	}
+	if problem != nil {
+		return &startupFailure{Code: problem.Code, Message: problem.Message}
+	}
+	s.started = instance
+	return nil
+}
+
+func (s *Server) closeStarted() {
+	s.startMu.Lock()
+	instance := s.started
+	s.started = nil
+	s.startMu.Unlock()
+	if instance == nil {
+		return
+	}
+	shutdown, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	_ = instance.Close(shutdown)
 }
 
 // compactMCPEnvelope preserves snapshot identity and every requested causal

@@ -886,7 +886,10 @@ codeflow.open(feature)
 ```
 
 MCP는 Core 기능의 얇은 어댑터다. 별도의 분석 로직을 갖지 않는다.
-`codeflow mcp`가 여러 Agent에 의해 실행되더라도 기존 저장소 Core에 연결하며 분석 엔진을 중복 실행하지 않는다.
+`codeflow mcp`는 기존 저장소 Core를 먼저 재사용하고, 없으면 첫 MCP 요청의
+정확한 flow selector로 Core 하나를 시작한다. selector 없이 여러 화면을 고를 수
+있는 경우에는 추측하지 않고 후보를 반환한다. MCP가 시작한 Core는 해당 stdio
+세션이 끝날 때 정리되며, 별도 `serve`는 필요하지 않다.
 
 MCP transport는 modern `2026-07-28`과 legacy `2025-11-25`를 함께 지원한다. client의 첫 요청으로 era를 판별하고, 두 경로 모두 동일한 tool handler와 `CodeFlowResponse`를 사용한다. 지원 범위와 legacy 종료 정책은 release manifest에 명시한다. 알 수 없는 version은 자동 추정하지 않고 호환성 오류와 해결 방법을 반환한다.
 
@@ -924,7 +927,9 @@ Plugin이 Core를 대체하지 않는다.
 
 - macOS 초기 배포는 Homebrew 또는 서명된 release binary를 사용한다.
 - Core는 대상 프로젝트의 Flutter/Dart SDK를 자동 탐색해 Dart adapter를 실행한다.
-- Plugin은 PATH 또는 명시적 설정에서 `codeflow`를 찾는다.
+- one-shot installer는 Core와 owned adapter를 `HOME/.codeflow`에 함께 놓고,
+  Plugin은 그 기본 위치를 사용한다. `CODEFLOW_BIN`은 비표준 설치 위치를 위한
+  선택적 override다.
 - Core, FlowIR Schema, CodeGraph adapter, Dart adapter, Plugin 버전을 handshake에서 확인한다.
 - 호환되지 않는 조합은 실행을 중단하고 해결 방법을 표시한다.
 - 설치·업데이트 실패가 프로젝트 파일을 변경해서는 안 된다.

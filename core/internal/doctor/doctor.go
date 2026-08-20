@@ -43,12 +43,13 @@ type Report struct {
 }
 
 type Options struct {
-	Repo         string
-	CodeGraphURL string
-	AdapterPath  string
-	LookPath     func(string) (string, error)
-	Run          func(context.Context, string, ...string) ([]byte, error)
-	HTTPClient   *http.Client
+	Repo          string
+	CodeGraphURL  string
+	AdapterPath   string
+	AdapterSource string
+	LookPath      func(string) (string, error)
+	Run           func(context.Context, string, ...string) ([]byte, error)
+	HTTPClient    *http.Client
 }
 
 func Diagnose(ctx context.Context, options Options) Report {
@@ -246,8 +247,10 @@ func checkSDK(ctx context.Context, repo string, options Options) Check {
 
 func checkAdapter(ctx context.Context, options Options) Check {
 	path := options.AdapterPath
+	source := options.AdapterSource
 	if path == "" {
 		path = os.Getenv("CODEFLOW_DART_ADAPTER")
+		source = "CODEFLOW_DART_ADAPTER"
 	}
 	if path == "" {
 		var err error
@@ -255,6 +258,7 @@ func checkAdapter(ctx context.Context, options Options) Check {
 		if err != nil {
 			return Check{Name: "dart_adapter", State: Unavailable, Message: "CodeFlow Dart adapter was not found", Remediation: "Install the matching CodeFlow Dart adapter or set CODEFLOW_DART_ADAPTER."}
 		}
+		source = "PATH"
 	}
 	var out []byte
 	var err error
@@ -277,7 +281,11 @@ func checkAdapter(ctx context.Context, options Options) Check {
 	if err := json.Unmarshal(out, &probe); err != nil || probe.ProtocolVersion != "1" || probe.Status != "ready" {
 		return Check{Name: "dart_adapter", State: Incompatible, Message: "Dart adapter probe is incompatible", Remediation: "Install a CodeFlow Dart adapter compatible with protocol v1."}
 	}
-	return Check{Name: "dart_adapter", State: Ready, Message: "Dart adapter probe is compatible", Details: map[string]string{"protocol": "1", "path": path}}
+	details := map[string]string{"protocol": "1", "path": path}
+	if source != "" {
+		details["source"] = source
+	}
+	return Check{Name: "dart_adapter", State: Ready, Message: "Dart adapter probe is compatible", Details: details}
 }
 
 func dartVersion(output string) string {

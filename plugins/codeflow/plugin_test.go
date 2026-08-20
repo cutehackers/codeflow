@@ -24,7 +24,7 @@ func TestPackagedMCPConfigDelegatesAllPublicTools(t *testing.T) {
 		t.Fatal(err)
 	}
 	s := v.MCPServers["codeflow"]
-	if s.Command != "codeflow" || strings.Join(s.Args, " ") != "mcp --repo ${workspaceFolder}" {
+	if s.Command != "sh" || len(s.Args) != 4 || s.Args[0] != "-c" || !strings.Contains(s.Args[1], "CODEFLOW_BIN") || !strings.Contains(s.Args[1], "$HOME/.codeflow/bin/codeflow") || s.Args[2] != "codeflow-mcp" || s.Args[3] != "${workspaceFolder}" {
 		t.Fatalf("%#v", s)
 	}
 	skill, err := os.ReadFile(filepath.Join(root, "skills/codeflow/SKILL.md"))

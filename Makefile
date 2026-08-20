@@ -33,6 +33,7 @@ local:
 	@set -eu; mkdir -p bin libexec; \
 	go build -o bin/codeflow ./core/cmd/codeflow; \
 	(cd adapters/dart && dart pub get >/dev/null && dart compile exe bin/codeflow-dart-adapter.dart -o ../../libexec/codeflow-dart-adapter); \
+	cp assets/compatibility.json libexec/compatibility.json; \
 	chmod 755 bin/codeflow libexec/codeflow-dart-adapter; \
 	echo "local CodeFlow: bin/codeflow"
 
@@ -43,6 +44,7 @@ package-macos:
 	CGO_ENABLED=1 GOOS=darwin GOARCH=arm64 go build -o dist/codeflow-macos/bin/codeflow ./core/cmd/codeflow; \
 	(cd adapters/dart && dart pub get && dart compile exe bin/codeflow-dart-adapter.dart -o ../../dist/codeflow-macos/libexec/codeflow-dart-adapter); \
 	cp assets/compatibility.json dist/codeflow-macos/libexec/compatibility.json; \
+	cp -R plugins dist/codeflow-macos/plugins; cp -R .agents dist/codeflow-macos/.agents; \
 	chmod 755 dist/codeflow-macos/bin/codeflow dist/codeflow-macos/libexec/codeflow-dart-adapter; \
 	echo "codeflow macOS package: dist/codeflow-macos"
 
@@ -52,4 +54,5 @@ package:
 	go build -o dist/codeflow/bin/codeflow ./core/cmd/codeflow; \
 	(cd adapters/dart && dart pub get && dart compile exe bin/codeflow-dart-adapter.dart -o ../../dist/codeflow/libexec/codeflow-dart-adapter); \
 	cp assets/compatibility.json dist/codeflow/libexec/; \
+	cp -R plugins dist/codeflow/plugins; cp -R .agents dist/codeflow/.agents; \
 	chmod 755 dist/codeflow/bin/codeflow dist/codeflow/libexec/codeflow-dart-adapter

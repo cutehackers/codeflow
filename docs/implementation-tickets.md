@@ -767,7 +767,7 @@ Windows/Linux distribution, cloud hosting, or automatic project dependency chang
 
 **Type:** AFK
 **Blocked by:** CF-G11, CF-G12, CF-G14
-**Status:** Completed — local plugin package, MCP integration, and refresh hook verified; marketplace installation is explicitly out of scope for now
+**Status:** Completed — one-shot local marketplace installation, automatic first-request Core startup, and refresh hook verified
 
 ### Goal
 
@@ -781,7 +781,9 @@ Package a thin Skill, MCP configuration, Core discovery, FlowView assets, and op
 
 - [x] The Skill uses current flow for understanding, diff for review, and opens FlowView only when requested.
 - [x] Agent responses preserve trust states and explicitly carry unknowns rather than completing them with model inference.
-- [x] The plugin discovers `codeflow` through PATH or explicit configuration and reports incompatible versions clearly.
+- [x] One installer places the paired Core and adapter in a predictable user location, registers the local marketplace through Codex CLI, and activates the plugin.
+- [x] The plugin uses the installed executable by default; `CODEFLOW_BIN` remains an optional override for a non-default location.
+- [x] The first requested flow starts or reuses one compatible Core without a separate terminal command.
 - [x] Optional session hooks only request refresh or import supported evidence; failure does not affect current-state reconstruction.
 - [x] The package contains no duplicate scanner, compiler, evidence, or delta implementation.
 

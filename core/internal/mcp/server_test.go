@@ -12,6 +12,7 @@ import (
 	"sync"
 	"testing"
 
+	"codeflow/core/internal/compiler"
 	flowcore "codeflow/core/internal/core"
 )
 
@@ -75,6 +76,31 @@ func TestUnsupportedProtocolAndConcurrentClientsReuseOneRuntime(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(repo, ".codeflow", "state.db")); err != nil {
 		t.Fatalf("MCP must reuse Core state, not create a competing database: %v", err)
+	}
+}
+
+func TestFirstRequestedFlowStartsAndStopsAnOwnedCore(t *testing.T) {
+	repo := fixture(t)
+	var starts int
+	server := Server{Repo: repo, Start: func(ctx context.Context, selectors []string) (*flowcore.Core, *compiler.Problem, error) {
+		starts++
+		if len(selectors) != 1 || selectors[0] != "route:/signup" {
+			t.Fatalf("selectors=%#v", selectors)
+		}
+		core, err := flowcore.StartFixture(ctx, repo)
+		return core, nil, err
+	}}
+	input := `{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"` + Modern + `"}}` + "\n" +
+		`{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"current","arguments":{"flow_id":"route:/signup"}}}` + "\n"
+	var output bytes.Buffer
+	if err := server.Serve(context.Background(), strings.NewReader(input), &output); err != nil {
+		t.Fatal(err)
+	}
+	if starts != 1 || !strings.Contains(output.String(), `"status":"observed"`) {
+		t.Fatalf("starts=%d output=%s", starts, output.String())
+	}
+	if _, err := os.Stat(filepath.Join(repo, ".codeflow", "runtime.json")); !os.IsNotExist(err) {
+		t.Fatalf("owned Core remained after MCP closed: %v", err)
 	}
 }
 
@@ -142,7 +168,8 @@ func conversation(t *testing.T, repo, era, call string) []map[string]any {
 		input += `{"jsonrpc":"2.0","id":2,"method":"tools/call","params":` + call + `}` + "\n"
 	}
 	var out bytes.Buffer
-	if err := (Server{Repo: repo}).Serve(context.Background(), strings.NewReader(input), &out); err != nil {
+	server := Server{Repo: repo}
+	if err := server.Serve(context.Background(), strings.NewReader(input), &out); err != nil {
 		t.Fatal(err)
 	}
 	lines := bytes.Split(bytes.TrimSpace(out.Bytes()), []byte("\n"))

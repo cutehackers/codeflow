@@ -16,12 +16,24 @@ Run `make local` once to build `bin/codeflow` and the adjacent AOT adapter in
 `libexec/`. Both are local ignored outputs. This is the recommended local path
 because later analysis and refresh commands do not pay Dart JIT startup again.
 
+For the one-shot Codex setup, run this once after the build:
+
+```sh
+./bin/codeflow install
+```
+
+It installs the paired Core and adapter under `HOME/.codeflow`, registers the
+included local CodeFlow marketplace, and activates its plugin. No adapter
+environment variable, PATH edit, manual MCP entry, or separate `serve` process
+is required. Start a new Codex task after it finishes; the first `current` or
+`open` request starts a Core for its exact `route:/...` flow automatically.
+
 `open` uses the owned Dart adapter beside this source checkout, uses the owned
 Dart structural graph when no CodeGraph URL is supplied, publishes one current
 snapshot, and opens its loopback FlowView. Keep the command running while
 reviewing; `Ctrl-C` releases the local runtime.
 
-To keep the browser launch manual:
+To keep the browser launch manual or hold a persistent local Core:
 
 ```sh
 ./bin/codeflow serve --repo HOME/workspace/sgp-981-app route:/join

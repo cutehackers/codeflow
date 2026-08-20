@@ -17,8 +17,8 @@ Complete one of these paths:
 
 ## CF-G15: Codex plugin installation
 
-`plugins/codeflow` validates and its packaged MCP/hook integration tests pass.
-It is not registered in a marketplace. Select either the default personal
-marketplace under `HOME/.agents/plugins/marketplace.json` or a repository/team
-marketplace path before installation; the latter needs the intended remote
-source and marketplace destination.
+The package contains its local `codeflow-local` marketplace and the `codeflow`
+plugin. `bin/codeflow install` copies the paired Core and adapter into
+`HOME/.codeflow`, adds that marketplace through the Codex CLI, and activates the
+plugin. A new Codex task then loads the MCP tools; its first flow request starts
+or reuses the local Core.

@@ -1,0 +1,20 @@
+{
+  "name": "codeflow-local",
+  "interface": {
+    "displayName": "Codeflow Local"
+  },
+  "plugins": [
+    {
+      "name": "codeflow",
+      "source": {
+        "source": "local",
+        "path": "./plugins/codeflow"
+      },
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL"
+      },
+      "category": "Productivity"
+    }
+  ]
+}

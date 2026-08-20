@@ -1,6 +1,6 @@
 ---
 name: codeflow
-description: Use installed CodeFlow Core for evidence-backed current flow, diff, unknowns, refresh, and requested FlowView review.
+description: Use installed CodeFlow for evidence-backed current flow, diff, unknowns, refresh, and requested FlowView review.
 ---
 
 # CodeFlow
@@ -15,8 +15,11 @@ and unknown reason verbatim in responses. Request `refresh` only when current
 source may have changed. Use `open` only when the user explicitly asks to view
 the local FlowView.
 
-If Core is unavailable or incompatible, report its typed error and remediation.
-Discover the executable from `CODEFLOW_BIN` when configured, otherwise PATH;
-never install, replace, or emulate Core. Optional session hooks may request
-`refresh` or import supported evidence only; hook failure is non-authoritative
-and must not alter current-flow claims.
+The first MCP request starts a compatible Core for the requested flow when one
+is not already running. This makes the installed plugin usable without a
+separate `serve` command or adapter setup. If it returns a typed setup error,
+report the error and remediation; do not replace, emulate, or infer Core
+results. `CODEFLOW_BIN` is an optional override for a non-default local
+installation. Optional session hooks may request `refresh` or import supported
+evidence only; hook failure is non-authoritative and must not alter current-flow
+claims.

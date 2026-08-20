@@ -74,9 +74,18 @@ func TestNativePackageLayoutRunsBundledBinaryAndAdapter(t *testing.T) {
 	}
 	repo := initRepo(t)
 	binary := filepath.Join(root, "dist/codeflow/bin/codeflow")
-	adapter := filepath.Join(root, "dist/codeflow/libexec/codeflow-dart-adapter")
-	out, err := exec.Command(binary, "doctor", "--repo", repo, "--adapter", adapter, "--format", "json").CombinedOutput()
-	if err == nil || !bytes.Contains(out, []byte(`"dart_adapter"`)) {
+	for _, relative := range []string{
+		"libexec/codeflow-dart-adapter",
+		"libexec/compatibility.json",
+		".agents/plugins/marketplace.json",
+		"plugins/codeflow/.codex-plugin/plugin.json",
+	} {
+		if _, err := os.Stat(filepath.Join(root, "dist/codeflow", relative)); err != nil {
+			t.Fatalf("packaged install component %s: %v", relative, err)
+		}
+	}
+	out, err := exec.Command(binary, "doctor", "--repo", repo, "--format", "json").CombinedOutput()
+	if err == nil || !bytes.Contains(out, []byte(`"dart_adapter"`)) || !bytes.Contains(out, []byte(`"source": "bundled installation"`)) {
 		t.Fatalf("bundled doctor output=%s err=%v", out, err)
 	}
 	if err := os.MkdirAll(filepath.Join(repo, "lib"), 0755); err != nil {
@@ -88,7 +97,7 @@ func TestNativePackageLayoutRunsBundledBinaryAndAdapter(t *testing.T) {
 	}
 	_ = exec.Command("git", "-C", repo, "add", ".").Run()
 	_ = exec.Command("git", "-C", repo, "-c", "user.email=x@y.z", "-c", "user.name=x", "commit", "-qm", "fixture").Run()
-	out, err = exec.Command(binary, "analyze", "--repo", repo, "--adapter", adapter, "route:/signup").CombinedOutput()
+	out, err = exec.Command(binary, "analyze", "--repo", repo, "route:/signup").CombinedOutput()
 	if err != nil || !bytes.Contains(out, []byte(`"id":"route:/signup"`)) || !bytes.Contains(out, []byte(`"status":"observed"`)) {
 		t.Fatalf("bundled AOT adapter did not perform resolved analysis: %s err=%v", out, err)
 	}
@@ -139,14 +148,11 @@ func TestPackagedPluginMCPUsesOneLiveCoreForCurrentDiffUnknownsAndOpen(t *testin
 	if err := os.MkdirAll(filepath.Join(repo, "lib"), 0755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(repo, "lib", "signup.dart"), []byte("void signup() {}\n"), 0644); err != nil {
+	if err := os.WriteFile(filepath.Join(repo, "lib", "signup.dart"), []byte("final routes = [GoRoute(path: '/signup', builder: (c, s) => const SignupPage())];\nclass SignupPage { const SignupPage(); void build() { ElevatedButton(onPressed: _submit); } void _submit() { context.go('/done'); } }\n"), 0644); err != nil {
 		t.Fatal(err)
 	}
-	core, err := flowcore.StartFixture(context.Background(), repo)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer core.Close(context.Background())
+	_ = exec.Command("git", "-C", repo, "add", ".").Run()
+	_ = exec.Command("git", "-C", repo, "-c", "user.email=x@y.z", "-c", "user.name=x", "commit", "-qm", "fixture").Run()
 	input := strings.Join([]string{
 		`{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2026-07-28"}}`,
 		`{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"current","arguments":{"flow_id":"route:/signup"}}}`,
@@ -159,10 +165,13 @@ func TestPackagedPluginMCPUsesOneLiveCoreForCurrentDiffUnknownsAndOpen(t *testin
 	if err != nil {
 		t.Fatalf("mcp: %v %s", err, out)
 	}
-	for _, required := range []string{`"id":2`, `"id":3`, `"id":4`, `"id":5`, `"status":"observed"`, core.URL} {
+	for _, required := range []string{`"id":2`, `"id":3`, `"id":4`, `"id":5`, `"status":"observed"`, `"view_url":"http://127.0.0.1:`} {
 		if !strings.Contains(string(out), required) {
 			t.Fatalf("missing %s: %s", required, out)
 		}
+	}
+	if _, err := os.Stat(filepath.Join(repo, ".codeflow", "runtime.json")); !os.IsNotExist(err) {
+		t.Fatalf("MCP-owned Core remained after its stdio session ended: %v", err)
 	}
 }
 
@@ -211,7 +220,7 @@ func mustCallerFile(t *testing.T) string { t.Helper(); _, file, _, _ := runtime.
 
 func TestResolvedAdapterFindsLocalSourceCheckoutWithoutFlags(t *testing.T) {
 	command := resolvedAdapter("")
-	if !strings.HasPrefix(command, "dart ") || !strings.HasSuffix(command, "adapters/dart/bin/codeflow-dart-adapter.dart") {
+	if !strings.HasPrefix(command, "dart ") || !strings.Contains(command, "adapters/dart/bin/codeflow-dart-adapter.dart") {
 		t.Fatalf("local source adapter was not discovered: %q", command)
 	}
 }
@@ -326,6 +335,9 @@ func TestServePublicProcessPublishesReviewedJoinFlowAndCleansUp(t *testing.T) {
 	}
 	if _, err := flowruntime.ReadState(repo); err == nil {
 		t.Skip("supplied target already has a running CodeFlow Core")
+	}
+	if _, err := os.Stat(filepath.Join(repo, ".codeflow", "codeflow.lock")); err == nil {
+		t.Skip("supplied target is owned by another CodeFlow Core")
 	}
 	_, file, _, _ := runtime.Caller(0)
 	adapter := "dart " + filepath.Join(filepath.Dir(file), "../../../adapters/dart/bin/codeflow-dart-adapter.dart")

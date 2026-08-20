@@ -7,42 +7,22 @@ FlowIR의 빈 부분을 자체 추론으로 채우면 안 된다.
 
 ## 1. 가장 짧은 사용 흐름
 
-먼저 CodeFlow 저장소에서 Core를 빌드한다.
+먼저 CodeFlow 저장소에서 Core와 owned adapter를 빌드한 뒤 one-shot 설치를 한 번
+실행한다.
 
 ```sh
 make local
+./bin/codeflow install
 ```
 
-분석할 프로젝트에 대해 로컬 Core를 실행하고 계속 켜 둔다.
+설치가 끝나면 새 Codex task에서 정확한 `route:/...` flow를 요청한다. MCP는 기존
+Core가 있으면 재사용하고, 없으면 첫 요청의 flow 기준으로 Core를 시작한다.
+따라서 adapter 경로, PATH, 별도 MCP 등록, 사전 `serve` 명령은 필요 없다.
 
 ```sh
-./bin/codeflow serve \
-  --repo HOME/workspace/sgp-981-app \
-  route:/join
+CodeFlow current로 route:/join의 사용자 흐름을 설명해줘.
 ```
 
-`serve`가 출력한 `CodeFlow review URL`은 분석 결과가 저장된 뒤에만
-노출된다. MCP는 이 Core에 연결할 뿐 Core, SQLite 또는 Dart adapter를
-별도로 시작하지 않는다.
-
-MCP 설정은 다음과 같다.
-
-```json
-{
-  "mcpServers": {
-    "codeflow": {
-      "command": "HOME/workspace/codeflow/bin/codeflow",
-      "args": [
-        "mcp",
-        "--repo",
-        "HOME/workspace/sgp-981-app"
-      ]
-    }
-  }
-}
-```
-
-실행 파일이 `PATH`에 있다면 `command`는 `codeflow`로 줄일 수 있다.
 MCP를 사용할 수 없는 LLM은 아래 CLI 명령의 JSON을 읽어도 된다.
 
 ```sh

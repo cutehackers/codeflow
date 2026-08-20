@@ -17,24 +17,25 @@ make local
 이 명령은 `bin/codeflow`와 로컬 분석용 AOT Dart adapter를 만듭니다. 한 번
 빌드한 adapter를 재사용하므로 매 분석마다 Dart JIT를 준비하는 시간을 줄입니다.
 
-Codex에서 MCP로 사용하려면 한 번만 등록합니다.
+Codex까지 포함해 한 번에 준비하려면, 빌드한 번들에서 아래 한 명령만 실행합니다.
 
 ```sh
-codex mcp add codeflow -- \
-  HOME/workspace/codeflow/bin/codeflow \
-  mcp \
-  --repo HOME/workspace/sgp-981-app
+./bin/codeflow install
 ```
 
-등록을 확인한 뒤 Codex 앱을 재시작합니다.
+이 명령은 Core와 AOT Dart adapter를 `HOME/.codeflow`에 함께 설치하고, 포함된
+Codex plugin을 등록·활성화한다. adapter 환경 변수, PATH 설정, 별도 MCP 등록은
+필요 없다. 설치가 끝나면 새 Codex task에서 바로 CodeFlow를 요청한다. 새 task는
+Codex가 새 MCP 도구를 읽는 경계다.
 
-```sh
-codex mcp get codeflow
-```
+배포된 패키지는 `bin/codeflow install`로 실행한다. 개발 중에는 위의 `make local`
+다음에 `./bin/codeflow install`을 실행하면 같은 흐름을 검증할 수 있다.
 
 ## 실행
 
-FlowView를 검토하는 동안 별도 터미널에서 Core를 실행해 둡니다.
+Codex MCP는 첫 `current` 또는 `open` 요청에서 요청된 `route:/...` 화면 기준으로
+Core를 자동 시작한다. FlowView를 검토하는 동안 별도 터미널을 열 필요가 없다.
+터미널에서 오래 유지할 runtime이 필요할 때만 다음 명령을 사용한다.
 
 ```sh
 HOME/workspace/codeflow/bin/codeflow serve \
@@ -52,8 +53,8 @@ CodeFlow current로 route:/join을 코드 → 상태 변화 → 화면 결과 �
 unknown은 추측하지 말고 따로 알려줘.
 ```
 
-MCP는 실행 중인 Core에 연결하며 Core를 대신 시작하지 않습니다. 제공 도구는
-`workspace`, `current`, `step`, `unknowns`, `refresh`, `diff`, `open`입니다.
+MCP는 실행 중인 Core를 재사용하고, 없으면 첫 요청에 필요한 Core 하나만 시작한다.
+제공 도구는 `workspace`, `current`, `step`, `unknowns`, `refresh`, `diff`, `open`입니다.
 
 관련된 여러 화면을 같은 코드 기준으로 검토하려면 `--flow`를 최대 세 번
 반복합니다.

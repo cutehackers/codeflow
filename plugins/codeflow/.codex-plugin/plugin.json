@@ -1,6 +1,6 @@
 {
   "name": "codeflow",
-  "version": "0.1.0",
+  "version": "0.1.2+codex.20260820052754",
   "description": "Evidence-first CodeFlow workflow delegated to the local Core.",
   "author": {
     "name": "Local developer"
