@@ -19,6 +19,7 @@ import (
 	flowcore "codeflow/core/internal/core"
 	"codeflow/core/internal/entrypoint"
 	"codeflow/core/internal/runtime"
+	"codeflow/core/internal/subgraph"
 )
 
 const (
@@ -28,6 +29,7 @@ const (
 
 var tools = []map[string]any{
 	{"name": "entry_points", "description": "Discover exact supported route and system entry points before preparing a business journey workspace", "inputSchema": noArguments()},
+	{"name": "domain_subgraph", "description": "Extract end-to-end multi-step domain flows and business journeys (e.g. push token, payments, auth session, carts) using bidirectional graph traversal", "inputSchema": domainSubgraphArguments()},
 	{"name": "prepare_workspace", "description": "Compile one to three exact route or system entry points into the same current-basis workspace for review or BusinessJourney registration", "inputSchema": workspaceArguments()},
 	{"name": "workspace", "description": "Read the current same-basis workspace, including route and system-entry flows, before inspecting individual flows", "inputSchema": noArguments()},
 	{"name": "business_journeys", "description": "List reviewer-approved BusinessJourney definitions in the prepared workspace", "inputSchema": noArguments()},
@@ -104,6 +106,28 @@ func businessJourneyArguments() map[string]any {
 			},
 		},
 		"required": []string{"id", "title", "segments"}, "additionalProperties": false,
+	}
+}
+
+func domainSubgraphArguments() map[string]any {
+	return map[string]any{
+		"type": "object",
+		"properties": map[string]any{
+			"query": map[string]any{
+				"type":        "string",
+				"minLength":   1,
+				"description": "Domain topic, concept, or user inquiry (e.g. '푸시 토큰 등록', 'payment checkout', 'auth session refresh')",
+			},
+			"depth": map[string]any{
+				"type":        "integer",
+				"minimum":     1,
+				"maximum":     4,
+				"default":     2,
+				"description": "Traversal depth for caller/callee and causal hops",
+			},
+		},
+		"required":             []string{"query"},
+		"additionalProperties": false,
 	}
 }
 
@@ -196,6 +220,9 @@ func (s *Server) call(ctx context.Context, req request) response {
 	if name == "entry_points" {
 		return s.entryPoints(ctx, req.ID)
 	}
+	if name == "domain_subgraph" {
+		return s.domainSubgraph(ctx, req.ID, args)
+	}
 	if name == "prepare_workspace" {
 		return s.prepareWorkspace(ctx, req.ID, args)
 	}
@@ -274,6 +301,36 @@ func (s *Server) entryPoints(ctx context.Context, id any) response {
 	}
 	envelope := map[string]any{"status": status, "data": data, "unknowns": unknowns}
 	return toolResponse(id, "entry_points", envelope)
+}
+
+func (s *Server) domainSubgraph(ctx context.Context, id any, args map[string]any) response {
+	query, _ := args["query"].(string)
+	if strings.TrimSpace(query) == "" {
+		return errorResponse(id, -32602, "QUERY_REQUIRED", "query argument is required")
+	}
+	depth := 2
+	if d, ok := args["depth"].(float64); ok && d > 0 {
+		depth = int(d)
+	}
+	res, err := subgraph.Extract(ctx, s.Repo, query, depth, nil, nil)
+	if err != nil {
+		return errorResponse(id, -32010, "DOMAIN_SUBGRAPH_FAILED", err.Error())
+	}
+	data := map[string]any{
+		"topic":       res.Topic,
+		"backend":     res.Backend,
+		"nodes_count": len(res.Nodes),
+		"edges_count": len(res.Edges),
+		"nodes":       res.Nodes,
+		"edges":       res.Edges,
+		"journey":     res.Journey,
+	}
+	envelope := map[string]any{
+		"status":   "observed",
+		"data":     data,
+		"unknowns": []any{},
+	}
+	return toolResponse(id, "domain_subgraph", envelope)
 }
 
 func (s *Server) prepareWorkspace(ctx context.Context, id any, args map[string]any) response {
@@ -502,6 +559,12 @@ func mcpSummary(name string, envelope map[string]any) string {
 		}
 		if ids, ok := data["flow_ids"].([]any); ok {
 			steps = len(ids)
+		}
+		if name == "domain_subgraph" {
+			topic, _ := data["topic"].(string)
+			nodes, _ := data["nodes_count"].(int)
+			edges, _ := data["edges_count"].(int)
+			return fmt.Sprintf("CodeFlow domain_subgraph: topic=%q nodes=%d edges=%d status=%s", topic, nodes, edges, status)
 		}
 	}
 	unknowns := 0

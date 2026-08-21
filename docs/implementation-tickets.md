@@ -1128,6 +1128,74 @@ Release signing, production hosting, or remote deployment instructions.
 
 ---
 
+## CF-G24 — High-Performance AST Symbol Table & In-Memory Indexing for Structural Subgraph
+
+**Type:** AFK
+**Blocked by:** CF-G13B
+**Status:** Backlog
+
+### Goal
+
+Scale the offline `DartStructuralDomainSubgraph` extractor to repositories with tens of thousands of source files by indexing declaration and call-site symbols in memory instead of executing full-file linear regex scans per query.
+
+### What to build
+
+1. Implement an in-memory symbol table cache within `core/internal/codegraph` that records file-to-symbol, class-to-method, and receiver-to-callsite mappings on first scan or worktree change.
+2. Invalidate symbol indices only when file fingerprints or Git revisions change.
+3. Replace linear multi-file regex matching in caller/callee resolution with instant map lookups while preserving byte-accurate source anchors (`flowir.Anchor`).
+
+### Acceptance criteria
+
+- [ ] Symbol indexing executes lazily on the first structural query or basis change.
+- [ ] Subsequent `domain_subgraph` requests execute in sub-millisecond time on large repositories.
+- [ ] Modifying a single file invalidates and rebuilds only that file's index entry without dropping repository-wide graph consistency.
+- [ ] Preserves byte-range precision and file hash validation for all generated `Anchor` nodes.
+
+### Completion evidence
+
+- Benchmark tests demonstrating <10ms lookup latency on a 1,000+ file mock Dart repository.
+- Unit and integration tests verifying identical subgraph outputs between indexed and unindexed traversals.
+
+### Non-goals
+
+Writing persistent index files to disk or replacing the full CodeGraph daemon when running.
+
+---
+
+## CF-G25 — Configurable Multi-Hop Depth & Framework Boundary Filtering
+
+**Type:** AFK
+**Blocked by:** CF-G24
+**Status:** Backlog
+
+### Goal
+
+Allow domain subgraph traversal to safely expand to deeper depths (e.g. 1-10 hops) without getting polluted by internal Flutter SDK framework boilerplate, low-level HTTP primitives, or synthetic generated code.
+
+### What to build
+
+1. Introduce an extensible boundary filter (`FrameworkFilter` / `Denylist`) in `core/internal/subgraph` that excludes framework-internal calls (e.g. `Widget.createElement`, `ChangeNotifier.addListener`, raw `http.Client.send`) from the high-level business journey.
+2. Support configurable traversal depth with automatic cycle detection and pruning when reaching external boundaries.
+3. Enhance edge synthesis to surface high-value domain hops (e.g., UI Action -> Riverpod Provider -> Domain Repository -> API Service -> Stream Consumer) clearly.
+
+### Acceptance criteria
+
+- [ ] Queries with `depth > 2` traverse deep domain dependency chains without noise from framework lifecycle internals.
+- [ ] Generated code (`*.g.dart`, `*.freezed.dart`) is treated as implementation details and mapped back to user-declared domain models.
+- [ ] Cycles in call chains or event loops are detected and pruned deterministically.
+- [ ] `domain_subgraph` MCP tool and CLI accept explicit depth arguments up to the safe maximum.
+
+### Completion evidence
+
+- Fixture tests verifying clean 4-hop and 5-hop domain journeys with no SDK boilerplate noise.
+- Automated tests confirming cycle termination and consistent node deduplication.
+
+### Non-goals
+
+AST-level dynamic code execution or runtime bytecode instrumentation.
+
+---
+
 ## Delivery order and parallelism
 
 The first usable tracer bullet is:
@@ -1143,4 +1211,4 @@ After CF-G05, these goals can proceed independently:
 - CF-G10 — automatic refresh
 - CF-G11 — dual-era MCP
 
-CF-G12 adds optional semantic meaning after the deterministic path exists. CF-G13 is the sole mandatory human validation gate. CF-G14 and CF-G15 productize the validated system. CF-G16 deepens the locally validated experience around causal state changes and cognitive-debt closure. CF-G17 extends that proven single-flow experience into an atomic, same-Basis multi-flow workspace.
+CF-G12 adds optional semantic meaning after the deterministic path exists. CF-G13 is the sole mandatory human validation gate. CF-G14 and CF-G15 productize the validated system. CF-G16 deepens the locally validated experience around causal state changes and cognitive-debt closure. CF-G17 extends that proven single-flow experience into an atomic, same-Basis multi-flow workspace. CF-G24 and CF-G25 scale and refine domain subgraph extraction across large codebases.

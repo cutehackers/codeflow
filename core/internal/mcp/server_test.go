@@ -16,6 +16,7 @@ import (
 	flowcore "codeflow/core/internal/core"
 	"codeflow/core/internal/entrypoint"
 	"codeflow/core/internal/flowir"
+	"codeflow/core/internal/subgraph"
 )
 
 func TestBothProtocolErasReturnTheSameCoreEnvelope(t *testing.T) {
@@ -166,10 +167,44 @@ func TestWorkspaceAndOpenKeepTheRequestedMultiFlowBasis(t *testing.T) {
 	for _, tool := range tools {
 		toolNames[tool["name"].(string)] = true
 	}
-	for _, name := range []string{"entry_points", "prepare_workspace", "business_journeys", "upsert_business_journey", "open_business_journey"} {
+	for _, name := range []string{"entry_points", "domain_subgraph", "prepare_workspace", "business_journeys", "upsert_business_journey", "open_business_journey"} {
 		if !toolNames[name] {
-			t.Fatalf("BusinessJourney MCP tool %q was not advertised", name)
+			t.Fatalf("MCP tool %q was not advertised", name)
 		}
+	}
+}
+
+func TestDomainSubgraphMCPTool(t *testing.T) {
+	repo := fixture(t)
+	server := &Server{Repo: repo}
+	res := toolCall(t, server, "domain_subgraph", map[string]any{
+		"query": "signup auth session",
+		"depth": 2,
+	})
+	if res.Error != nil {
+		t.Fatalf("domain_subgraph tool call failed: %#v", res.Error)
+	}
+	content := structuredContent(t, res)
+	if content["status"] != "observed" {
+		t.Fatalf("expected observed status, got: %#v", content["status"])
+	}
+	data, ok := content["data"].(map[string]any)
+	if !ok {
+		t.Fatalf("expected data map, got: %#v", content["data"])
+	}
+	if data["topic"] != "signup auth session" {
+		t.Fatalf("expected topic, got: %#v", data["topic"])
+	}
+	if journey, ok := data["journey"].(*subgraph.DomainJourney); ok {
+		if journey == nil || journey.Title == "" {
+			t.Fatalf("expected valid journey struct: %#v", journey)
+		}
+	} else if jMap, ok := data["journey"].(map[string]any); ok {
+		if jMap["title"] == "" {
+			t.Fatalf("expected journey title in map: %#v", jMap)
+		}
+	} else {
+		t.Fatalf("expected journey in data, got: %#v", data["journey"])
 	}
 }
 

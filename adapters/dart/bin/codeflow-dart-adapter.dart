@@ -2100,7 +2100,17 @@ List<Map<String, Object>> _systemEntries(String source, String relative) {
           ? '푸시 토큰 갱신'
           : kind == 'session'
           ? '세션 갱신'
-          : '앱 생명주기',
+          : kind == 'payment'
+          ? '결제 처리'
+          : kind == 'bluetooth'
+          ? '블루투스 이벤트'
+          : kind == 'cart'
+          ? '장바구니 갱신'
+          : kind == 'chat'
+          ? '채팅 메시지'
+          : kind == 'lifecycle'
+          ? '앱 생명주기'
+          : '$kind 이벤트',
       'anchor': {
         'path': relative,
         'line_start': '\n'.allMatches(prefix).length + 1,
@@ -2171,17 +2181,45 @@ class _SystemSubscriptionVisitor extends RecursiveAstVisitor<void> {
       final callback = node.argumentList.arguments.single;
       if (callback is SimpleIdentifier) {
         final receiver = node.target?.toSource() ?? '';
+        final lower = receiver.toLowerCase();
         final owner =
             node.thisOrAncestorOfType<ClassDeclaration>()?.name.lexeme ??
             'top-level';
-        if (receiver.contains('onTokenRefresh')) {
+        if (receiver.contains('onTokenRefresh') ||
+            receiver.contains('onMessage') ||
+            lower.contains('firebasemessaging') ||
+            lower.contains('notification')) {
           subscriptions.add(
             _SystemSubscription('push-token', owner, callback.name, node),
           );
-        } else if (receiver.toLowerCase().contains('session')) {
+        } else if (lower.contains('session') || lower.contains('auth')) {
           subscriptions.add(
             _SystemSubscription('session', owner, callback.name, node),
           );
+        } else if (lower.contains('payment') || lower.contains('pay') || lower.contains('order')) {
+          subscriptions.add(
+            _SystemSubscription('payment', owner, callback.name, node),
+          );
+        } else if (lower.contains('bluetooth') || lower.contains('ble')) {
+          subscriptions.add(
+            _SystemSubscription('bluetooth', owner, callback.name, node),
+          );
+        } else if (lower.contains('cart')) {
+          subscriptions.add(
+            _SystemSubscription('cart', owner, callback.name, node),
+          );
+        } else if (lower.contains('chat')) {
+          subscriptions.add(
+            _SystemSubscription('chat', owner, callback.name, node),
+          );
+        } else {
+          // General stream domain subscription
+          final streamName = receiver.split('.').last;
+          if (streamName.isNotEmpty && streamName.length < 32) {
+            subscriptions.add(
+              _SystemSubscription(streamName, owner, callback.name, node),
+            );
+          }
         }
       }
     }

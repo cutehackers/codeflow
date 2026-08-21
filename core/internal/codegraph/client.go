@@ -116,6 +116,80 @@ func (c *Client) Relationships(ctx context.Context, repository, flowID string) (
 	return rels, nil
 }
 
+// DomainSubgraph extracts the multi-hop causal graph for domain seeds.
+// It queries CodeGraph or falls back to the owned structural domain extractor.
+func (c *Client) DomainSubgraph(ctx context.Context, repository string, seeds []string, depth int) ([]Relationship, error) {
+	if c == nil || c.BaseURL == "" {
+		rels, err := DartStructuralDomainSubgraph(repository, seeds, depth)
+		if err == nil {
+			c.Backend = "owned_dart_structural"
+		}
+		return rels, err
+	}
+	if err := c.getJSON(ctx, "/health", nil); err != nil {
+		if rels, localErr := DartStructuralDomainSubgraph(repository, seeds, depth); localErr == nil {
+			c.Backend = "owned_dart_structural"
+			return rels, nil
+		}
+		return nil, err
+	}
+	var tools any
+	if err := c.getJSON(ctx, "/api/v1/tools", &tools); err != nil {
+		if rels, localErr := DartStructuralDomainSubgraph(repository, seeds, depth); localErr == nil {
+			c.Backend = "owned_dart_structural"
+			return rels, nil
+		}
+		return nil, err
+	}
+	shape := relationshipSchema(tools)
+	if shape == "" {
+		if rels, localErr := DartStructuralDomainSubgraph(repository, seeds, depth); localErr == nil {
+			c.Backend = "owned_dart_structural"
+			return rels, nil
+		}
+		return nil, &Failure{"CODEGRAPH_INCOMPATIBLE", "CodeGraph analyze_code_relationships does not expose a supported argument schema"}
+	}
+	if shape == "cgc" && hasTool(tools, "add_code_to_graph") && hasTool(tools, "check_job_status") {
+		if err := c.ensureIndexed(ctx, repository); err != nil {
+			return nil, err
+		}
+	}
+	allRels := []Relationship{}
+	seen := map[string]bool{}
+	for _, seed := range seeds {
+		var raw json.RawMessage
+		args := map[string]any{}
+		if shape == "codeflow" {
+			args = map[string]any{"repository": repository, "entry_point": seed, "contract_version": ContractVersion}
+		} else {
+			args = map[string]any{"query_type": "find_all_callees", "target": seed, "context": repository, "repo_path": repository}
+		}
+		if err := c.postJSON(ctx, "/api/v1/tools/call", map[string]any{"name": "analyze_code_relationships", "arguments": args}, &raw); err == nil {
+			if rels, err := decodeRelationships(raw); err == nil {
+				for _, r := range rels {
+					k := fmt.Sprintf("%s:%s->%s:%s", r.From.Path, r.From.Symbol, r.To.Path, r.To.Symbol)
+					if !seen[k] {
+						seen[k] = true
+						allRels = append(allRels, r)
+					}
+				}
+			}
+		}
+	}
+	if len(allRels) == 0 {
+		if local, localErr := DartStructuralDomainSubgraph(repository, seeds, depth); localErr == nil {
+			c.Backend = "owned_dart_structural"
+			return local, nil
+		}
+		return nil, &Failure{"CODEGRAPH_UNKNOWN", "no domain relationships found"}
+	}
+	if err := reanchor(repository, allRels); shape == "cgc" && err != nil {
+		return nil, &Failure{"CODEGRAPH_UNANCHORED", err.Error()}
+	}
+	c.Backend = "external_codegraphcontext"
+	return allRels, nil
+}
+
 // ensureIndexed uses CodeGraphContext's public tool contracts when present.
 // Listing is deliberately attempted first; indexing jobs are then polled under
 // the caller deadline. A service without these tools remains query-compatible.

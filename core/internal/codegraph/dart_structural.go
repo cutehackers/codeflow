@@ -5,6 +5,7 @@ package codegraph
 // bounded relationship. Anything dynamic stays outside this bridge.
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -266,4 +267,243 @@ func findClass(all map[string][]byte, class string) (string, []byte) {
 }
 func makeAnchor(path, symbol string, b []byte, start, end int, revision string) Anchor {
 	return Anchor{Path: path, Symbol: symbol, ByteStart: start, ByteEnd: end, FileHash: sha256sum(b), Revision: revision}
+}
+
+// DartStructuralDomainSubgraph discovers relationships across the repository
+// related to a set of domain seed keywords (e.g. push, token, auth, pay, cart).
+// It traverses callers, callees, state emissions, and stream bindings.
+func DartStructuralDomainSubgraph(repository string, seeds []string, depth int) ([]Relationship, error) {
+	if depth <= 0 {
+		depth = 2
+	}
+	if depth > 4 {
+		depth = 4
+	}
+	revision := gitRevision(repository)
+	if revision == "" {
+		revision = "local"
+	}
+	files, err := dartFiles(repository)
+	if err != nil {
+		return nil, &Failure{"DART_STRUCTURAL_UNAVAILABLE", err.Error()}
+	}
+	contents := map[string][]byte{}
+	for _, path := range files {
+		b, _ := os.ReadFile(filepath.Join(repository, filepath.FromSlash(path)))
+		if len(b) > 0 {
+			contents[path] = b
+		}
+	}
+
+	normalizedSeeds := make([]string, 0, len(seeds))
+	for _, s := range seeds {
+		trimmed := strings.ToLower(strings.TrimSpace(s))
+		if len(trimmed) >= 2 {
+			normalizedSeeds = append(normalizedSeeds, trimmed)
+		}
+	}
+	if len(normalizedSeeds) == 0 {
+		return nil, &Failure{"SEEDS_REQUIRED", "at least one non-empty search seed is required"}
+	}
+
+	// 1. Find all seed anchors across files
+	type symbolLocation struct {
+		path      string
+		symbol    string
+		class     string
+		byteStart int
+		byteEnd   int
+		source    []byte
+	}
+
+	matchSeed := func(name string) bool {
+		lower := strings.ToLower(name)
+		for _, seed := range normalizedSeeds {
+			if strings.Contains(lower, seed) {
+				return true
+			}
+		}
+		return false
+	}
+
+	seedLocations := []symbolLocation{}
+	methodDeclRegex := regexp.MustCompile(`(?m)^\s*(?:@\w+\s+)*(?:(?:Future|Stream|void|[A-Za-z_][A-Za-z0-9_<>?]*)\s+)?([A-Za-z_][A-Za-z0-9_]*)\s*\([^)]*\)\s*(?:async\s*)?[{=>]`)
+	classDeclRegex := regexp.MustCompile(`(?m)^class\s+([A-Za-z_][A-Za-z0-9_]*)`)
+
+	for path, b := range contents {
+		source := string(b)
+		// Match classes
+		for _, cm := range classDeclRegex.FindAllStringSubmatchIndex(source, -1) {
+			className := source[cm[2]:cm[3]]
+			if matchSeed(className) {
+				seedLocations = append(seedLocations, symbolLocation{
+					path:      path,
+					symbol:    className,
+					class:     className,
+					byteStart: cm[0],
+					byteEnd:   cm[1],
+					source:    b,
+				})
+			}
+		}
+		// Match methods/functions
+		for _, mm := range methodDeclRegex.FindAllStringSubmatchIndex(source, -1) {
+			methodName := source[mm[2]:mm[3]]
+			if matchSeed(methodName) {
+				// find enclosing class
+				prefix := source[:mm[0]]
+				classMatches := classDeclRegex.FindAllStringSubmatchIndex(prefix, -1)
+				currentClass := "top-level"
+				if len(classMatches) > 0 {
+					lastClass := classMatches[len(classMatches)-1]
+					currentClass = prefix[lastClass[2]:lastClass[3]]
+				}
+				seedLocations = append(seedLocations, symbolLocation{
+					path:      path,
+					symbol:    currentClass + "." + methodName,
+					class:     currentClass,
+					byteStart: mm[0],
+					byteEnd:   mm[1],
+					source:    b,
+				})
+			}
+		}
+	}
+
+	if len(seedLocations) == 0 {
+		// Fallback: look for general substring occurrences in identifiers
+		identRegex := regexp.MustCompile(`\b([A-Za-z_][A-Za-z0-9_]*)\b`)
+		for path, b := range contents {
+			source := string(b)
+			for _, m := range identRegex.FindAllStringSubmatchIndex(source, -1) {
+				ident := source[m[2]:m[3]]
+				if matchSeed(ident) {
+					seedLocations = append(seedLocations, symbolLocation{
+						path:      path,
+						symbol:    ident,
+						class:     "ident",
+						byteStart: m[0],
+						byteEnd:   m[1],
+						source:    b,
+					})
+					if len(seedLocations) >= 10 {
+						break
+					}
+				}
+			}
+		}
+	}
+
+	rels := []Relationship{}
+	seenRels := map[string]bool{}
+	addRel := func(kind string, from, to Anchor) {
+		key := fmt.Sprintf("%s:%s:%s->%s:%s", kind, from.Path, from.Symbol, to.Path, to.Symbol)
+		if seenRels[key] || (from.Path == to.Path && from.Symbol == to.Symbol) {
+			return
+		}
+		seenRels[key] = true
+		rels = append(rels, Relationship{Kind: kind, From: from, To: to})
+	}
+
+	// 2. Traversal: expand callers & callees of seed locations
+	for _, loc := range seedLocations {
+		fromAnchor := makeAnchor(loc.path, loc.symbol, loc.source, loc.byteStart, loc.byteEnd, revision)
+
+		// A. Find Callers (who invokes loc.symbol or loc.class across all files)
+		searchNames := []string{loc.symbol}
+		if parts := strings.Split(loc.symbol, "."); len(parts) == 2 {
+			searchNames = append(searchNames, parts[1])
+		}
+		if loc.class != "" && loc.class != "top-level" && loc.class != "ident" {
+			searchNames = append(searchNames, loc.class)
+		}
+
+		for otherPath, otherBytes := range contents {
+			otherSource := string(otherBytes)
+			for _, searchName := range searchNames {
+				callRegex := regexp.MustCompile(`\b` + regexp.QuoteMeta(searchName) + `\b`)
+				for _, match := range callRegex.FindAllStringSubmatchIndex(otherSource, -1) {
+					if otherPath == loc.path && match[0] >= loc.byteStart && match[1] <= loc.byteEnd {
+						continue // skip self definition
+					}
+					// Find enclosing method/class of caller
+					prefix := otherSource[:match[0]]
+					callerClass := "top-level"
+					if cMatches := classDeclRegex.FindAllStringSubmatchIndex(prefix, -1); len(cMatches) > 0 {
+						lastC := cMatches[len(cMatches)-1]
+						callerClass = prefix[lastC[2]:lastC[3]]
+					}
+					callerMethod := "body"
+					if mMatches := methodDeclRegex.FindAllStringSubmatchIndex(prefix, -1); len(mMatches) > 0 {
+						lastM := mMatches[len(mMatches)-1]
+						callerMethod = prefix[lastM[2]:lastM[3]]
+					}
+					callerSymbol := callerClass + "." + callerMethod
+					callerAnchor := makeAnchor(otherPath, callerSymbol, otherBytes, match[0], match[1], revision)
+					addRel("call", callerAnchor, fromAnchor)
+				}
+			}
+		}
+
+		// B. Find Callees inside loc.source (what does loc call?)
+		sourceStr := string(loc.source)
+		sliceStart := loc.byteStart
+		sliceEnd := loc.byteEnd + 1500
+		if sliceEnd > len(sourceStr) {
+			sliceEnd = len(sourceStr)
+		}
+		bodySnippet := sourceStr[sliceStart:sliceEnd]
+
+		invocRegex := regexp.MustCompile(`(?:([A-Za-z_][A-Za-z0-9_]*)\.)?([A-Za-z_][A-Za-z0-9_]*)\s*\(`)
+		for _, invMatch := range invocRegex.FindAllStringSubmatchIndex(bodySnippet, -1) {
+			var receiverName, calleeName string
+			if invMatch[2] >= 0 && invMatch[3] >= 0 {
+				receiverName = bodySnippet[invMatch[2]:invMatch[3]]
+			}
+			if invMatch[4] >= 0 && invMatch[5] >= 0 {
+				calleeName = bodySnippet[invMatch[4]:invMatch[5]]
+			}
+			if calleeName == "if" || calleeName == "for" || calleeName == "while" || calleeName == "switch" || calleeName == "catch" {
+				continue
+			}
+
+			// If receiver is a class (e.g. DeviceRepository.saveToken)
+			if receiverName != "" && receiverName != "this" && receiverName != "super" {
+				for targetPath, targetBytes := range contents {
+					targetSource := string(targetBytes)
+					if strings.Contains(targetSource, "class "+receiverName) {
+						targetAnchor := makeAnchor(targetPath, receiverName, targetBytes, 0, len(targetBytes), revision)
+						addRel("call", fromAnchor, targetAnchor)
+					}
+				}
+			}
+
+			// Search for definition of callee across files
+			for targetPath, targetBytes := range contents {
+				targetSource := string(targetBytes)
+				defMatch := regexp.MustCompile(`(?m)^\s*(?:(?:static|final|const|Future|Stream|void|[A-Za-z_][A-Za-z0-9_<>?]*)\s+)*` + regexp.QuoteMeta(calleeName) + `\s*\([^)]*\)\s*[{=>]`).FindStringSubmatchIndex(targetSource)
+				if defMatch != nil {
+					targetAnchor := makeAnchor(targetPath, calleeName, targetBytes, defMatch[0], defMatch[1], revision)
+					addRel("call", fromAnchor, targetAnchor)
+					break
+				}
+			}
+		}
+
+		// C. Find Event / State / Stream Bindings
+		// Look for `.listen(callback)` or `emit(...)` or `notifyListeners()` or `add(event)`
+		streamMatch := regexp.MustCompile(`\.listen\s*\(\s*([A-Za-z_][A-Za-z0-9_]*)`).FindAllStringSubmatchIndex(bodySnippet, -1)
+		for _, sm := range streamMatch {
+			cbName := bodySnippet[sm[2]:sm[3]]
+			for targetPath, targetBytes := range contents {
+				targetSource := string(targetBytes)
+				if strings.Contains(targetSource, cbName+"(") {
+					cbAnchor := makeAnchor(targetPath, cbName, targetBytes, 0, len(targetBytes), revision)
+					addRel("stream_listen", fromAnchor, cbAnchor)
+				}
+			}
+		}
+	}
+
+	return rels, nil
 }

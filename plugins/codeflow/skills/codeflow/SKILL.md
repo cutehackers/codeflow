@@ -15,13 +15,19 @@ and unknown reason verbatim in responses. Request `refresh` only when current
 source may have changed. Use `open` only when the user explicitly asks to view
 the local FlowView.
 
+## Domain Subgraph & Flow Extraction
+
+When the user asks about an arbitrary business flow or domain process (e.g., push token registration and reception, payment/order processing, user auth/session refresh, BLE device pairing):
+- Use `domain_subgraph(query: "...")` to extract the full multi-step causal graph across UI triggers, service logic, state mutations, and remote I/O endpoints.
+- The returned structured result contains ordered lifecycle stages (Trigger -> Execution -> State Mutation -> I/O -> Reaction) and evidence-backed code anchors.
+
 ## Business journeys
 
 When the user asks to create, update, list, or open a BusinessJourney, use MCP
 only; never ask the user for a runtime token, port, scenario hash, or HTTP
 command.
 
-1. Call `entry_points` to discover exact route and system entry IDs.
+1. Call `domain_subgraph` or `entry_points` to discover relevant flow and system entry IDs.
 2. Call `prepare_workspace` with one to three exact IDs needed by the journey.
 3. Read `workspace` and, where needed, `current` to select only returned
    `flow_id` and `scenario_id` values.
@@ -32,9 +38,7 @@ command.
    verbatim. Do not replace another active workspace.
 6. Call `open_business_journey` only when the user asks to view the FlowView.
 
-For a system-triggered request such as push-token registration, begin with
-`entry_points`, not a route. A supported system event remains distinct from a
-user action. Core is the authority for scenario existence, causal edges, and
+For system-triggered or cross-layer requests, use `domain_subgraph` or `entry_points`. Core is the authority for scenario existence, causal edges, and
 journey approval; do not create a sequential journey from independent
 same-flow scenarios.
 
