@@ -52,8 +52,15 @@ To review up to three related screens against one exact worktree snapshot:
 ```
 
 The screen-flow map changes the selected flow; its Architecture map, vertical
-timeline, step detail, source lens, and **VS Code에서 열기** action then use that
+timeline, Hero Code Lens, inline causal delta bar, and **VS Code에서 열기** action then use that
 flow only. CodeFlow never flattens steps from several screens into one timeline.
+FlowView provides:
+- **Business Journey Bar**: User/domain business flow status at top.
+- **Sequential Timeline & Impact Chain**: Step-by-step state and UI causal links.
+- **Hero Code Lens**: Full-width (~80% panel) high-readability source viewer (520px height) with line highlight.
+- **Architecture Map (코드 인과 지도)**: Preserved 3-lane visual architecture map with synchronized 3-way highlighting.
+- **Monochrome Black & White Theme**: Crisp, accessible, high-contrast engineering aesthetic.
+Detailed specifications are documented in [business-flow-redesign-spec-ko.md](./design/business-flow-redesign-spec-ko.md).
 
 The first output line is the review URL. If the current repository has exactly
 one supported route, the selector may be omitted. If it has multiple routes,

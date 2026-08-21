@@ -1,7 +1,7 @@
 # CodeFlow
 
-CodeFlow는 Flutter/Dart 코드의 사용자 동작, 상태 변화, 조건 분기, 화면 결과를
-현재 소스 근거와 함께 FlowView 타임라인으로 보여 주는 로컬 도구입니다.
+CodeFlow는 사용자의 **비즈니스 및 도메인 흐름(Business Flow)**을 직관적으로 파악하고,
+그에 따른 상태 변화와 코드 인과를 **Hero Code Lens(대화면 코드창)** 및 **Architecture Map(코드 인과 지도)**으로 검증하는 로컬 도구입니다.
 
 현재는 로컬 사용만 지원합니다. 분석 대상 product source는 수정하지 않습니다.
 
@@ -113,4 +113,5 @@ export 파일은 분석 당시 Basis와 코드 근거를 보존하지만 로컬 
 - [LLM과 MCP 사용 규칙](./docs/llm-usage.md)
 - [Multi-flow Workspace 계약](./docs/contracts/multi-flow-workspace-v1.md)
 - [Business Journey 계약](./docs/contracts/business-journeys-v1.md)
+- [CodeFlow 비즈니스 흐름 중심 개편 설계 명세](./docs/design/business-flow-redesign-spec-ko.md)
 - [CodeFlow 설계 명세](./docs/codeflow-production-design-ko.md)

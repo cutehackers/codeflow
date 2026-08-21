@@ -1,9 +1,13 @@
 # CodeFlow LLM usage
 
 이 문서는 LLM 또는 코딩 에이전트가 CodeFlow의 결과를 정확하게 읽고,
-사용자에게 이해하기 쉬운 코드 흐름으로 설명하기 위한 사용 계약이다.
-CodeFlow는 코드 흐름의 근거를 만들고, LLM은 그 근거를 설명한다. LLM이
-FlowIR의 빈 부분을 자체 추론으로 채우면 안 된다.
+사용자에게 이해하기 쉬운 **비즈니스 및 도메인 흐름**으로 설명하기 위한 사용 계약이다.
+자세한 UX 및 아키텍처 원칙은 [비즈니스 흐름 중심 FlowView 재설계 스펙](./design/business-flow-redesign-spec-ko.md)을 참조한다.
+
+### 핵심 가치 및 설명 우선순위
+1. **1순위 (최우선)**: **사용자의 비즈니스/도메인 목적 파악** (예: 회원가입, 결제, 프로필 변경 등 사용자가 완수하려는 핵심 여정 중심 설명).
+2. **2순위 (보조 근거)**: **코드 인과 및 상태 전이 검증** (Hero Code Lens의 실제 소스 코드, Architecture Map 계층 전이, State Delta).
+3. **규칙**: CodeFlow는 코드 흐름의 검증된 근거를 만들고, LLM은 그 근거를 사용자 관점의 언어로 설명한다. LLM이 FlowIR의 빈 부분을 자체 추론으로 왜곡해서는 안 된다.
 
 ## 1. 가장 짧은 사용 흐름
 
@@ -22,7 +26,7 @@ Core를 시작한다. BusinessJourney를 다룰 때는 먼저 `entry_points`로 
 따라서 adapter 경로, PATH, 별도 MCP 등록, 사전 `serve` 명령은 필요 없다.
 
 ```sh
-CodeFlow current로 route:/join의 사용자 흐름을 설명해줘.
+CodeFlow current로 route:/join의 비즈니스 여정과 사용자 흐름을 설명해줘.
 ```
 
 MCP를 사용할 수 없는 LLM은 아래 CLI 명령의 JSON을 읽어도 된다.
@@ -167,9 +171,12 @@ LLM의 세션 기억, 파일명 유추, 일반적인 Flutter 관례는 `observed
 
 ## 5. 사용자에게 설명하는 형식
 
-내부 ID와 analyzer 용어를 그대로 나열하지 말고 다음 형식을 사용한다.
+내부 ID와 analyzer 용어를 그대로 나열하지 말고 다음 형식을 사용한다. 비즈니스 목적 및 결과가 가장 먼저 오고, 상태 변화와 코드 근거가 뒤를 잇는다.
 
 ```text
+비즈니스 여정 요약
+회원가입 중 사용자가 가입 취소를 선택하여 초기 인증 화면으로 복귀하는 경로입니다.
+
 현재 코드 흐름
 1. 사용자가 뒤로가기를 누릅니다.
 2. 가입이 끝났으면 /home으로 이동합니다.
@@ -178,15 +185,16 @@ LLM의 세션 기억, 파일명 유추, 일반적인 Flutter 관례는 `observed
 5. 취소하면 JoinCancelEvent가 전달되고 isCanceled=true로 바뀝니다.
 6. listener가 상태를 감지해 /auth로 이동합니다.
 
-상태 변화
+상태 변화 (State Delta)
 JoinCancelEvent → JoinState.isCanceled=true → listener 감지 → /auth
 
 확인되지 않은 부분
-없음
+없음 (현재 코드 기준 모든 인과 연결 확인됨)
 ```
 
 설명에는 다음 원칙을 적용한다.
 
+- **비즈니스 목적(사용자 의도 및 결과)**을 첫 문장에 명확히 밝힌다.
 - 사용자 동작, 코드 호출, 상태 변화, 화면 결과를 원인 순서로 쓴다.
 - `symbol_id`, hash, 내부 reason code는 사용자가 근거를 요청할 때만
   부가 정보로 제공한다.
@@ -194,7 +202,7 @@ JoinCancelEvent → JoinState.isCanceled=true → listener 감지 → /auth
   코드”로 바꿔 쓴다.
 - 소스 위치는 `evidence.path:line_range`를 사용한다. 기억한 경로나 줄
   번호를 만들지 않는다.
-- FlowView를 열어 달라는 요청에는 `open`의 `view_url`을 제공한다.
+- FlowView를 열어 달라는 요청에는 `open`의 `view_url`을 제공하며, FlowView에서 대화면 Hero Code Lens와 Architecture Map(코드 인과 지도)을 통해 시각적으로 교차 검증할 수 있음을 안내한다.
 
 ## 6. 변경 후 재확인
 
