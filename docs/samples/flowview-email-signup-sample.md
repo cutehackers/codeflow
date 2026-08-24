@@ -17,7 +17,11 @@ triggerClass: user_action / markerKind: notifier_method / score 0.735
 
 `analyze_flow` 없이 `publish`된 10개 중 해당 flow를 `open_review`로 오픈. `query`가 없으면 후보 10개 중 `Submit`을 Agent가 직접 선택 — 스킬(`skills/codeflow/SKILL.md` 5단계)이 이 매칭을 안내.
 
-## 2. FlowView에서 보이는 화면 (실 게시 결과 기반)
+## 2. FlowView에서 보이는 화면 — 흑백 모노크롬 웹페이지 (레거시 스타일 유지)
+
+> 레거시 `docs/samples/flowview-legacy-email-signup.html`의 흑백 스타일(`--ink:#111, --paper:#fff, --line:#bdbdbd`, 세로 타임라인·Hero Code Lens·Architecture Map)을 그대로 유지. `internal/flowview/embedded_html.go`는 다크 테마가 아닌 **흑백 모노크롬**으로 복구됨.
+
+실 게시 결과 기반
 
 > 실제 `testdata/example_app`에서 `CODEFLOW_ADAPTER_DART_BIN="dartrun:$PWD/adapters/dart" bin/codeflow publish` 후
 > `flow-7232d63b96bd6efa.json`을 렌더한 결과. `bin/codeflow view`로 여는 화면과 동일.
