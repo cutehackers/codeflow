@@ -275,13 +275,20 @@ anchor = {
 ### 8.1 Agent 세션 (E2) — MCP 구조화 제출만
 
 ```text
-harvest_flows        # 후보 목록 (점수순)
+harvest_flows        # 후보 목록 (점수순, intent-matching 신호 포함)
 get_flow_payload     # 특정 flow의 SlicedPayload
+analyze_flow         # 마커가 놓친 임의 진입점(resolved symbol) 즉석 분석 요청
 submit_flow_draft    # agent가 작성한 journey 초안 제출 (앵커 필수)
 report_unknowns      # agent도 모르는 것 기록
 open_review          # FlowView 해당 flow 열기
 approve_step         # agent 제안의 승인 큐잉
 ```
+
+> **자연어 프롬프트 시나리오**: 사용자가 "이메일 회원가입 흐름을 분석해서 flowview로"라고
+> 요청하면, 의도 해석은 호스팅 agent(LLM)의 몫이고 CORE는 개입하지 않는다(결정 #5).
+> agent는 harvest_flows의 신호 세트(심볼·클래스·trigger class·derived 이름·doc 라인)로
+> 후보를 매칭하고, 놓친 진입점은 analyze_flow로 지정한다 — 이 절차를 codeflow 스킬이 각인한다.
+> 검증: 이 경로의 종단 시연을 MCP 티켓(M3) 수용 기준으로 명시했다.
 
 > **transcript 로그 파싱은 코어 스코프에서 제외했다 (검토 결론 R7·R12).**
 >

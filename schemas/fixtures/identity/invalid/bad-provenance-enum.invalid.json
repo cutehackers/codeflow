@@ -1,0 +1,6 @@
+{
+  "flowId": "flow-7232d63b96bd6efa",
+  "canonicalEntrySymbolPath": "lib/features/auth/email_signup_notifier.dart#EmailSignupNotifier.submit",
+  "provenance": "guessed",
+  "freshness": "fresh"
+}

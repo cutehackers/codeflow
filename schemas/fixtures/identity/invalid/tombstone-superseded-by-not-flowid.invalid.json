@@ -1,0 +1,9 @@
+{
+  "flowId": "flow-827178019675e32d",
+  "canonicalEntrySymbolPath": "lib/features/auth/signup_controller.dart#SignupController.submit",
+  "tombstone": {
+    "tombstoned": true,
+    "tombstonedAt": "2026-08-20T09:15:00Z",
+    "supersededBy": "not-a-flow-id"
+  }
+}

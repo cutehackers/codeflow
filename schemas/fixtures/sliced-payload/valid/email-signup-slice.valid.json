@@ -1,0 +1,69 @@
+{
+  "candidateId": "cand-7232d63b96bd6efa",
+  "language": "dart",
+  "entrySymbolPath": "lib/features/auth/email_signup_notifier.dart#EmailSignupNotifier.submit",
+  "steps": [
+    {
+      "ordinal": 1,
+      "kind": "guard",
+      "description": "이메일 형식과 비밀번호 길이(8자 이상)를 검사한다",
+      "symbolPath": "EmailSignupNotifier.submit",
+      "anchor": {
+        "repoRelativePath": "lib/features/auth/email_signup_notifier.dart",
+        "byteRange": [1024, 1180],
+        "fileHash": "c147efcfc2d7ea666a9e4f5187b115c90903f0fc896a56df9a6ef5d8f3fc9f31",
+        "spanHash": "f5bc8648d6c1b4c1b06d4e666e74f568696cec867fd7c566828db6ceb7b21223",
+        "enclosingSymbolPath": "EmailSignupNotifier.submit",
+        "canonicalAstFingerprint": "75fb260f169bbb3862ca2cc146cb4a1aca9f32e11f0867594b3e67d192bed2d8"
+      },
+      "guardCondition": "email.contains('@') && password.length >= 8"
+    },
+    {
+      "ordinal": 2,
+      "kind": "mutation",
+      "description": "가입 진행 상태로 갱신한다",
+      "symbolPath": "EmailSignupNotifier.submit",
+      "anchor": {
+        "repoRelativePath": "lib/features/auth/email_signup_notifier.dart",
+        "byteRange": [1181, 1240],
+        "fileHash": "c147efcfc2d7ea666a9e4f5187b115c90903f0fc896a56df9a6ef5d8f3fc9f31",
+        "spanHash": "b98a24eaface9648ba753c7f52b8efbd555658e7e37168efc80f83339d5764b3",
+        "enclosingSymbolPath": "EmailSignupNotifier.submit",
+        "canonicalAstFingerprint": "522340bac2f6a8e8fd6bc6cd472828c2d6a3a3bcc014ebd24c2fe4a485c736b6"
+      },
+      "stateBefore": "status: idle",
+      "stateAfter": "status: submitting"
+    },
+    {
+      "ordinal": 3,
+      "kind": "call",
+      "description": "유스케이스 실행으로 가입을 위임한다",
+      "symbolPath": "EmailSignupUseCase.call",
+      "anchor": {
+        "repoRelativePath": "lib/features/auth/email_signup_usecase.dart",
+        "byteRange": [88, 210],
+        "fileHash": "84d5afec2f91c505ebfc2e6c9966a2d26c0a3fd7f87845de3dd381000b21479e",
+        "spanHash": "84d5afec2f91c505ebfc2e6c9966a2d26c0a3fd7f87845de3dd381000b21479e",
+        "enclosingSymbolPath": "EmailSignupUseCase.call",
+        "canonicalAstFingerprint": "f5bc8648d6c1b4c1b06d4e666e74f568696cec867fd7c566828db6ceb7b21223"
+      }
+    }
+  ],
+  "edges": [
+    {
+      "kind": "resolved_cross_file",
+      "toSymbolPath": "lib/features/auth/email_signup_usecase.dart#EmailSignupUseCase.call",
+      "resolutionStatus": "resolved",
+      "depth": 1
+    },
+    {
+      "kind": "boundary_call",
+      "toSymbolPath": "lib/features/auth/auth_repository.dart#AuthRepository.signUpWithEmail",
+      "resolutionStatus": "resolved",
+      "depth": 2
+    }
+  ],
+  "truncated": false,
+  "visitedCycleDetected": false,
+  "redactedCount": 0
+}

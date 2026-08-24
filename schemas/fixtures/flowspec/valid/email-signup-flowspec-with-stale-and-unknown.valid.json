@@ -1,0 +1,72 @@
+{
+  "flowId": "flow-7232d63b96bd6efa",
+  "title": "이메일 회원가입",
+  "basisSha": "84d5afec2f91c505ebfc2e6c9966a2d26c0a3fd7f87845de3dd381000b21479e",
+  "generatedAt": "2026-08-24T05:12:00Z",
+  "steps": [
+    {
+      "stepId": "step-75fb260f169bbb38",
+      "ordinal": 1,
+      "name": "입력 규칙을 검증한다",
+      "provenance": "approved",
+      "freshness": "fresh",
+      "confidence": 0.95,
+      "basisSha": "84d5afec2f91c505ebfc2e6c9966a2d26c0a3fd7f87845de3dd381000b21479e",
+      "anchor": {
+        "repoRelativePath": "lib/features/auth/email_signup_notifier.dart",
+        "byteRange": [1024, 1180],
+        "fileHash": "c147efcfc2d7ea666a9e4f5187b115c90903f0fc896a56df9a6ef5d8f3fc9f31",
+        "spanHash": "f5bc8648d6c1b4c1b06d4e666e74f568696cec867fd7c566828db6ceb7b21223",
+        "enclosingSymbolPath": "EmailSignupNotifier.submit",
+        "canonicalAstFingerprint": "75fb260f169bbb3862ca2cc146cb4a1aca9f32e11f0867594b3e67d192bed2d8"
+      }
+    },
+    {
+      "stepId": "step-522340bac2f6a8e8",
+      "ordinal": 2,
+      "name": "유스케이스로 가입을 위임한다",
+      "provenance": "session",
+      "freshness": "stale",
+      "confidence": 0.55,
+      "basisSha": "84d5afec2f91c505ebfc2e6c9966a2d26c0a3fd7f87845de3dd381000b21479e",
+      "anchor": {
+        "repoRelativePath": "lib/features/auth/email_signup_usecase.dart",
+        "byteRange": [88, 210],
+        "fileHash": "84d5afec2f91c505ebfc2e6c9966a2d26c0a3fd7f87845de3dd381000b21479e",
+        "spanHash": "84d5afec2f91c505ebfc2e6c9966a2d26c0a3fd7f87845de3dd381000b21479e",
+        "enclosingSymbolPath": "EmailSignupUseCase.call",
+        "canonicalAstFingerprint": "f5bc8648d6c1b4c1b06d4e666e74f568696cec867fd7c566828db6ceb7b21223"
+      },
+      "stateDelta": { "before": "status: submitting", "after": "status: done" },
+      "sideEffect": null
+    },
+    {
+      "stepId": "step-b98a24eaface9648",
+      "ordinal": 3,
+      "name": "? 결과 코드가 어디서 결정되는지 모른다",
+      "provenance": "unknown",
+      "freshness": "orphaned",
+      "confidence": 0.1,
+      "basisSha": "84d5afec2f91c505ebfc2e6c9966a2d26c0a3fd7f87845de3dd381000b21479e",
+      "anchor": {
+        "repoRelativePath": "lib/features/auth/email_signup_notifier.dart",
+        "byteRange": [1400, 1480],
+        "fileHash": "c147efcfc2d7ea666a9e4f5187b115c90903f0fc896a56df9a6ef5d8f3fc9f31",
+        "spanHash": "522340bac2f6a8e8fd6bc6cd472828c2d6a3a3bcc014ebd24c2fe4a485c736b6",
+        "enclosingSymbolPath": "EmailSignupNotifier.submit",
+        "canonicalAstFingerprint": "b98a24eaface9648ba753c7f52b8efbd555658e7e37168efc80f83339d5764b3"
+      },
+      "codeLens": {
+        "path": "lib/features/auth/email_signup_notifier.dart",
+        "startLine": 42,
+        "endLine": 58
+      }
+    }
+  ],
+  "unknowns": [
+    {
+      "subject": "lib/features/auth/email_signup_notifier.dart#EmailSignupNotifier.onFirebaseTokenRefresh",
+      "reason": "unresolved_dynamic_call"
+    }
+  ]
+}

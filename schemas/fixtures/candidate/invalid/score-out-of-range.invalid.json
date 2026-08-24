@@ -1,0 +1,17 @@
+{
+  "candidateId": "cand-7232d63b96bd6efa",
+  "triggerClass": "system_event",
+  "markerKind": "lifecycle_callback",
+  "entrySymbolPath": "lib/features/auth/email_signup_notifier.dart#EmailSignupNotifier.submit",
+  "intentSignals": {
+    "className": "EmailSignupNotifier",
+    "derivedName": "이메일 회원가입을 제출한다",
+    "docLine": null,
+    "packageName": "example_app"
+  },
+  "score": 1.5,
+  "fanIn": 0,
+  "boundaryReachable": false,
+  "rootEquivalenceKey": "flow.email.signup.submit",
+  "tieBreakRank": 0
+}

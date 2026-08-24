@@ -1,0 +1,10 @@
+{
+  "id": "req-0002",
+  "ok": false,
+  "err": {
+    "code": "E_BACKPRESSURE",
+    "message": "inbound queue exceeded 128 pending envelopes",
+    "retryable": true,
+    "detail": "queue depth 129 > bound 128; retry after draining"
+  }
+}

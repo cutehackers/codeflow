@@ -1,0 +1,26 @@
+{
+  "candidateId": "cand-7232d63b96bd6efa",
+  "language": "dart",
+  "entrySymbolPath": "lib/features/auth/email_signup_notifier.dart#EmailSignupNotifier.submit",
+  "steps": [
+    {
+      "ordinal": 1,
+      "kind": "effect",
+      "description": "가입 확인 이메일 발송을 요청한다",
+      "symbolPath": "EmailSignupNotifier.submit",
+      "anchor": {
+        "repoRelativePath": "lib/features/auth/email_signup_notifier.dart",
+        "byteRange": [1240, 1320],
+        "fileHash": "c147efcfc2d7ea666a9e4f5187b115c90903f0fc896a56df9a6ef5d8f3fc9f31",
+        "spanHash": "75fb260f169bbb3862ca2cc146cb4a1aca9f32e11f0867594b3e67d192bed2d8",
+        "enclosingSymbolPath": "EmailSignupNotifier.submit",
+        "canonicalAstFingerprint": "b98a24eaface9648ba753c7f52b8efbd555658e7e37168efc80f83339d5764b3"
+      },
+      "effectTarget": "AuthRepository.signUpWithEmail"
+    }
+  ],
+  "edges": [],
+  "truncated": false,
+  "visitedCycleDetected": false,
+  "redactedCount": -1
+}

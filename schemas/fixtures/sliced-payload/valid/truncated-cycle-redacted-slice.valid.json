@@ -1,0 +1,53 @@
+{
+  "candidateId": "cand-3b1127b216389740",
+  "language": "dart",
+  "entrySymbolPath": "lib/features/orders/place_order_notifier.dart#PlaceOrderNotifier.confirmOrder",
+  "steps": [
+    {
+      "ordinal": 1,
+      "kind": "branch",
+      "description": "재고 확인 결과에 따라 분기한다",
+      "symbolPath": "PlaceOrderNotifier.confirmOrder",
+      "anchor": {
+        "repoRelativePath": "lib/features/orders/place_order_notifier.dart",
+        "byteRange": [512, 700],
+        "fileHash": "84d5afec2f91c505ebfc2e6c9966a2d26c0a3fd7f87845de3dd381000b21479e",
+        "spanHash": "522340bac2f6a8e8fd6bc6cd472828c2d6a3a3bcc014ebd24c2fe4a485c736b6",
+        "enclosingSymbolPath": "PlaceOrderNotifier.confirmOrder",
+        "canonicalAstFingerprint": "75fb260f169bbb3862ca2cc146cb4a1aca9f32e11f0867594b3e67d192bed2d8"
+      }
+    },
+    {
+      "ordinal": 2,
+      "kind": "effect",
+      "description": "주문 접수 이벤트를 발행한다",
+      "symbolPath": "PlaceOrderNotifier.confirmOrder",
+      "anchor": {
+        "repoRelativePath": "lib/features/orders/place_order_notifier.dart",
+        "byteRange": [701, 780],
+        "fileHash": "84d5afec2f91c505ebfc2e6c9966a2d26c0a3fd7f87845de3dd381000b21479e",
+        "spanHash": "3377870dfeaaa7adf79a374d2702a3fdb13e5e5ea0dd8aa95a802ad39044a92f",
+        "enclosingSymbolPath": "PlaceOrderNotifier.confirmOrder",
+        "canonicalAstFingerprint": "f5bc8648d6c1b4c1b06d4e666e74f568696cec867fd7c566828db6ceb7b21223"
+      },
+      "effectTarget": "OrderEventPublisher.publish"
+    }
+  ],
+  "edges": [
+    {
+      "kind": "unknown_edge",
+      "toSymbolPath": "lib/features/orders/place_order_notifier.dart#confirmOrder.dynamicDispatch",
+      "resolutionStatus": "unresolved_dynamic",
+      "depth": 1
+    },
+    {
+      "kind": "boundary_call",
+      "toSymbolPath": "lib/features/orders/order_api_client.dart#OrderApiClient.place",
+      "resolutionStatus": "resolved",
+      "depth": 5
+    }
+  ],
+  "truncated": true,
+  "visitedCycleDetected": true,
+  "redactedCount": 2
+}

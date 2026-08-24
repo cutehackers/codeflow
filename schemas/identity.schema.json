@@ -1,0 +1,125 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://codeflow.local/schemas/identity.schema.json",
+  "title": "CodeFlow Identity & Shared Vocabulary",
+  "$comment": "Ticket 01 (contract foundation). Shared $defs referenced by all other contracts via absolute URL, e.g. {\"$ref\":\"https://codeflow.local/schemas/identity.schema.json#/$defs/anchor\"}.",
+  "type": "object",
+  "description": "Root document is an 'identity card' used by golden fixtures to exercise the shared vocabulary end-to-end. Producers embed the individual $defs in their own contracts; they do not emit this card. flowId derivation (normative): sha256 over the UTF-8 bytes of the canonicalEntrySymbolPath string, lowercase hex digest, first 16 hex chars, prefixed => 'flow-<16 hex>'. Move/rename stability: the id derives from the canonical entry symbol path, which survives file moves/renames because it is resolved through enclosingSymbolPath relink, not raw path. Collision rule (normative): if the derived flowId is already registered for a DIFFERENT canonical entry symbol path, append suffix '-2', '-3', ... '-N' until unique ('flow-<16hex>-2'); the registry keeps the mapping. stepId derivation: sha256 over UTF-8 bytes of '<flowId>#<ordinal>:<symbolPath>', first 16 hex chars, prefixed 'step-'; same collision suffix rule.",
+  "required": ["flowId", "canonicalEntrySymbolPath"],
+  "additionalProperties": false,
+  "properties": {
+    "flowId": { "$ref": "#/$defs/flowId" },
+    "stepId": { "$ref": "#/$defs/stepId" },
+    "canonicalEntrySymbolPath": { "$ref": "#/$defs/canonicalEntrySymbolPath" },
+    "supersedes": { "$ref": "#/$defs/supersedes" },
+    "tombstone": { "$ref": "#/$defs/tombstone" },
+    "provenance": { "$ref": "#/$defs/provenance" },
+    "freshness": { "$ref": "#/$defs/freshness" },
+    "anchors": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/anchor" },
+      "minItems": 2,
+      "description": "Fixture-only convenience: a sequence of anchors for the same logical location demonstrating move/rename + line-shift relink stability."
+    }
+  },
+  "$defs": {
+    "flowId": {
+      "type": "string",
+      "pattern": "^flow-[a-z0-9]{8,32}(-[2-9][0-9]*)?$",
+      "description": "Stable flow identifier: 'flow-' + first 16 lowercase-hex chars of sha256(canonicalEntrySymbolPath UTF-8 bytes). Collision suffix '-2'..'-N' per registry rule. Stable under file move/rename because derivation keys on the canonical entry SYMBOL path, not the filesystem path."
+    },
+    "stepId": {
+      "type": "string",
+      "pattern": "^step-[a-z0-9]{8,32}(-[2-9][0-9]*)?$",
+      "description": "'step-' + first 16 lowercase-hex chars of sha256('<flowId>#<ordinal>:<symbolPath>' UTF-8 bytes). Same collision suffix rule as flowId."
+    },
+    "canonicalEntrySymbolPath": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9_./-]+\\.dart#[A-Za-z_$][A-Za-z0-9_$]*(\\.[A-Za-z_$][A-Za-z0-9_$]*)*$",
+      "description": "Exact format (normative): '<repoRelativeSourceFilePath>#<TopLevelSymbol>(.<NestedMember>)*'. The left side is the repo-relative Dart file path with forward slashes and a .dart extension (segments are lower_snake_case dirs/files). The right side is the dotted chain from a top-level declaration down to the entry member, e.g. 'lib/features/auth/email_signup_notifier.dart#EmailSignupNotifier.submit'. No whitespace anywhere; '#' separates exactly one file part from the symbol chain. This string is THE stable key: hashing it yields the flowId."
+    },
+    "supersedes": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/flowId" },
+      "uniqueItems": true,
+      "minItems": 1,
+      "description": "Ordered list of predecessor flowIds this identity replaces (split/merge chains). A split emits one new flow whose supersedes lists the old root plus sibling branches; a merge emits one successor listing every absorbed branch. Chains must remain acyclic and terminate at flows with empty supersedes."
+    },
+    "tombstone": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["tombstoned", "tombstonedAt", "supersededBy"],
+      "properties": {
+        "tombstoned": { "const": true },
+        "tombstonedAt": { "type": "string", "format": "date-time" },
+        "supersededBy": {
+          "oneOf": [
+            { "$ref": "#/$defs/flowId" },
+            { "type": "null" }
+          ]
+        }
+      },
+      "description": "Lifecycle tombstone. tombstoned=true means the flow no longer resolves at HEAD; supersededBy points at the successor flowId when the flow was renamed/split/merged, or null when the flow simply vanished without a successor. Tombstones keep historical event-ledger references resolvable (R9)."
+    },
+    "anchor": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "repoRelativePath",
+        "byteRange",
+        "fileHash",
+        "spanHash",
+        "enclosingSymbolPath",
+        "canonicalAstFingerprint"
+      ],
+      "properties": {
+        "repoRelativePath": {
+          "type": "string",
+          "pattern": "^[^/].*$",
+          "description": "Repo-relative POSIX path, MUST NOT start with '/'. Never a line number."
+        },
+        "byteRange": {
+          "type": "array",
+          "prefixItems": [
+            { "type": "integer", "minimum": 0 },
+            { "type": "integer", "minimum": 0 }
+          ],
+          "minItems": 2,
+          "maxItems": 2,
+          "description": "[startByte, endByte) half-open into the current file content; normative expectation start <= end (enforced by producers, cross-item inequality not expressible here)."
+        },
+        "fileHash": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$",
+          "description": "sha256 lowercase hex (64 chars) of the full file bytes."
+        },
+        "spanHash": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$",
+          "description": "sha256 lowercase hex of exactly the bytes inside byteRange."
+        },
+        "enclosingSymbolPath": {
+          "type": "string",
+          "pattern": "^[A-Za-z_$][A-Za-z0-9_$]*(\\.[A-Za-z_$][A-Za-z0-9_$]*)*$",
+          "description": "Dotted symbol chain containing the span (e.g. 'EmailSignupNotifier.submit'). Invariant under pure line shifts."
+        },
+        "canonicalAstFingerprint": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$",
+          "description": "sha256 lowercase hex of the canonical (whitespace/format-insensitive) serialization of the anchored AST node's behavior-bearing structure."
+        }
+      },
+      "description": "R3 anchor contract. Anchoring NEVER uses line numbers alone. Relink rule (normative): after code edits, re-resolve by matching enclosingSymbolPath AND canonicalAstFingerprint; on match, rewrite byteRange/fileHash/spanHash and the anchor stays linked (line-shift-only edits therefore never orphan an approval); on fingerprint mismatch the anchor is stale and goes to the approval queue; if enclosingSymbolPath no longer exists the anchor is orphaned."
+    },
+    "provenance": {
+      "type": "string",
+      "enum": ["approved", "session", "derived", "unknown"],
+      "description": "Who produced a semantic value. Authority order: approved (E3 human approval) > session (E2 agent MCP submission) > derived (E1 deterministic identifier-rule transform) > unknown. E1 structural facts cannot be overwritten by E2/E3 regardless of provenance order."
+    },
+    "freshness": {
+      "type": "string",
+      "enum": ["fresh", "stale", "orphaned"],
+      "description": "Currentness of a value against the live worktree. fresh = anchor verified now; stale = anchor's canonicalAstFingerprint mismatches current code (structure cards remain, value goes to approval queue); orphaned = enclosingSymbolPath vanished. Independent of provenance."
+    }
+  }
+}

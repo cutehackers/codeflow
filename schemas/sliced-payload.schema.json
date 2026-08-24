@@ -1,0 +1,107 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://codeflow.local/schemas/sliced-payload.schema.json",
+  "title": "CodeFlow SlicedPayload (Slice -> Fusion contract)",
+  "$comment": "Ticket 02. Stage 2 Structural Slice output; language-neutral input to Stage 3 Semantic Fusion.",
+  "type": "object",
+  "description": "Determinism (normative): identical input bytes + slice opts + profile version + adapter/schema version MUST reproduce a byte-identical SlicedPayload — the slice cache key is exactly that tuple, so any semantic difference must be a schema-visible field. Traversal rules encoded here: import-resolved direct references are followed across files (resolved_cross_file), dynamic/type-unresolved calls become unknown_edge cards and are NOT followed, boundary markers (Repository/ApiClient) terminate traversal as boundary_call cards, depth <= 5 with visited-set cycle blocking and truncated flag on overflow. Secret redaction (normative): every string leaving the adapter passes the common secret scanner; redactedCount records how many secret matches were replaced by '***REDACTED***' (0 = clean payload).",
+  "required": [
+    "candidateId",
+    "language",
+    "entrySymbolPath",
+    "steps",
+    "edges",
+    "truncated",
+    "visitedCycleDetected",
+    "redactedCount"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "candidateId": {
+      "type": "string",
+      "pattern": "^cand-[a-z0-9]{8,32}$"
+    },
+    "language": {
+      "type": "string",
+      "const": "dart",
+      "description": "Payload is language-neutral in shape but M1 ships only the Dart adapter; new languages extend this enum."
+    },
+    "entrySymbolPath": {
+      "$ref": "https://codeflow.local/schemas/identity.schema.json#/$defs/canonicalEntrySymbolPath"
+    },
+    "steps": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["ordinal", "kind", "description", "symbolPath", "anchor"],
+        "properties": {
+          "ordinal": { "type": "integer", "minimum": 1 },
+          "kind": {
+            "type": "string",
+            "enum": ["guard", "mutation", "effect", "call", "branch"],
+            "description": "Structural kinds from AST statement slicing."
+          },
+          "description": { "type": "string", "minLength": 1 },
+          "symbolPath": {
+            "type": "string",
+            "pattern": "^[A-Za-z_$][A-Za-z0-9_$]*(\\.[A-Za-z_$][A-Za-z0-9_$]*)*$"
+          },
+          "anchor": {
+            "$ref": "https://codeflow.local/schemas/identity.schema.json#/$defs/anchor"
+          },
+          "guardCondition": { "type": ["string", "null"] },
+          "stateBefore": { "type": ["string", "null"] },
+          "stateAfter": { "type": ["string", "null"] },
+          "effectTarget": {
+            "type": ["string", "null"],
+            "description": "Boundary/system target of an effect step (e.g. repository method)."
+          }
+        }
+      }
+    },
+    "edges": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["kind", "toSymbolPath", "resolutionStatus", "depth"],
+        "properties": {
+          "kind": {
+            "type": "string",
+            "enum": ["resolved_cross_file", "unknown_edge", "boundary_call"]
+          },
+          "toSymbolPath": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9_./$-]+#[A-Za-z0-9_.$-]+$",
+            "description": "Best-known target reference; for unknown_edge this is the unresolved call site description rather than a verified symbol."
+          },
+          "resolutionStatus": {
+            "type": "string",
+            "enum": ["resolved", "unresolved_dynamic", "unresolved_type", "truncated"]
+          },
+          "depth": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 5,
+            "description": "Traversal depth at which this edge was recorded; hard cap 5 per draft-spec inheritance."
+          }
+        }
+      }
+    },
+    "truncated": {
+      "type": "boolean",
+      "description": "True when depth cap or denylist stopped traversal before exhaustion; consumers must surface truncation."
+    },
+    "visitedCycleDetected": {
+      "type": "boolean",
+      "description": "True when the visited-set blocked a call cycle during traversal."
+    },
+    "redactedCount": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "Count of secret scanner matches replaced with '***REDACTED***'; >0 means redaction actually occurred, 0 means the payload was clean. Values are never negative."
+    }
+  }
+}

@@ -1,0 +1,19 @@
+{
+  "candidateId": "cand-3b1127b216389740",
+  "triggerClass": "user_action",
+  "markerKind": "notifier_method",
+  "entrySymbolPath": "lib/features/orders/place_order_notifier.dart#PlaceOrderNotifier.confirmOrder",
+  "intentSignals": {
+    "className": "PlaceOrderNotifier",
+    "derivedName": "주문을 확정한다",
+    "docLine": null,
+    "packageName": "example_app"
+  },
+  "score": 0.41,
+  "fanIn": 1,
+  "boundaryReachable": false,
+  "rootEquivalenceKey": "flow.orders.place.confirm",
+  "dedupedInto": "cand-7232d63b96bd6efa",
+  "tieBreakRank": 1,
+  "manifestOverride": "excluded"
+}

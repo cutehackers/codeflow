@@ -1,0 +1,11 @@
+{
+  "candidateId": "cand-7232d63b96bd6efa",
+  "triggerClass": "use_case_invocation",
+  "markerKind": "usecase_call",
+  "entrySymbolPath": "lib/features/auth/email_signup_usecase.dart#EmailSignupUseCase.call",
+  "score": 0.5,
+  "fanIn": 2,
+  "boundaryReachable": true,
+  "rootEquivalenceKey": "flow.email.signup.submit",
+  "tieBreakRank": 1
+}

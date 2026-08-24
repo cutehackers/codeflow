@@ -1,0 +1,80 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://codeflow.local/schemas/session-artifact.schema.json",
+  "title": "CodeFlow Session Artifact (MCP submit_flow_draft -> Fusion contract)",
+  "$comment": "Ticket 03. E2 channel: agent journey draft via MCP structured submission (transcript parsing is out of scope, R7/R12).",
+  "type": "object",
+  "description": "REJECTION CONTRACT (normative): a draft step WITHOUT a verified anchor is schema-invalid — CORE must reject the whole artifact and park it as 'unlinked' (design §12). anchorsMustPassVerification is a const true: submissions cannot opt out of anchor re-verification; Fusion adopts only drafts whose anchors pass the R3 relink check. A journeyDraft identifies its flow either by an existing flowIdRef or by proposedEntrySymbolPath for analyze_flow-style new entries — at least one MUST be present.",
+  "required": [
+    "artifactId",
+    "submittedByAgent",
+    "submittedAt",
+    "journeyDraft",
+    "anchorsMustPassVerification"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "artifactId": {
+      "type": "string",
+      "pattern": "^art-[a-z0-9]{8,32}$",
+      "description": "'art-' + first 16 lowercase-hex chars of sha256(sessionId + submittedAt + firstStepAnchorSpanHash); collision suffix rule as flowId."
+    },
+    "submittedByAgent": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "sessionId"],
+      "properties": {
+        "name": { "type": "string", "minLength": 1 },
+        "sessionId": { "type": "string", "minLength": 1 }
+      }
+    },
+    "submittedAt": { "type": "string", "format": "date-time" },
+    "journeyDraft": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["steps"],
+      "anyOf": [
+        { "required": ["flowIdRef"] },
+        { "required": ["proposedEntrySymbolPath"] }
+      ],
+      "properties": {
+        "flowIdRef": {
+          "$ref": "https://codeflow.local/schemas/identity.schema.json#/$defs/flowId"
+        },
+        "proposedEntrySymbolPath": {
+          "$ref": "https://codeflow.local/schemas/identity.schema.json#/$defs/canonicalEntrySymbolPath"
+        },
+        "steps": {
+          "type": "array",
+          "minItems": 1,
+          "allOf": [
+            {
+              "description": "Every draft step REQUIRES a full R3 anchor: an unanchored step makes this document invalid and the artifact is rejected as 'unlinked'."
+            }
+          ],
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["ordinal", "name", "rationale", "anchor"],
+            "properties": {
+              "ordinal": { "type": "integer", "minimum": 1 },
+              "name": { "type": "string", "minLength": 1 },
+              "rationale": {
+                "type": "string",
+                "minLength": 1,
+                "description": "Why the agent asserts this step belongs to the journey."
+              },
+              "anchor": {
+                "$ref": "https://codeflow.local/schemas/identity.schema.json#/$defs/anchor"
+              }
+            }
+          }
+        }
+      }
+    },
+    "anchorsMustPassVerification": {
+      "const": true,
+      "description": "Cannot be false. Fusion re-verifies every submitted anchor against the current worktree before adoption."
+    }
+  }
+}

@@ -1,0 +1,23 @@
+{
+  "artifactId": "art-7232d63b96bd6efa",
+  "submittedByAgent": { "name": "codex", "sessionId": "sess-20260824-a" },
+  "submittedAt": "2026-08-24T06:00:00Z",
+  "journeyDraft": {
+    "flowIdRef": "flow-7232d63b96bd6efa",
+    "steps": [
+      {
+        "ordinal": 1,
+        "name": "입력 규칙을 검증한다",
+        "rationale": "guard 앵커의 fileHash를 누락한 제출은 R3 계약 위반이다",
+        "anchor": {
+          "repoRelativePath": "lib/features/auth/email_signup_notifier.dart",
+          "byteRange": [1024, 1180],
+          "spanHash": "f5bc8648d6c1b4c1b06d4e666e74f568696cec867fd7c566828db6ceb7b21223",
+          "enclosingSymbolPath": "EmailSignupNotifier.submit",
+          "canonicalAstFingerprint": "75fb260f169bbb3862ca2cc146cb4a1aca9f32e11f0867594b3e67d192bed2d8"
+        }
+      }
+    ]
+  },
+  "anchorsMustPassVerification": true
+}

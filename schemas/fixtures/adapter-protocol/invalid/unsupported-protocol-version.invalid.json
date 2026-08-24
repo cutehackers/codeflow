@@ -1,0 +1,6 @@
+{
+  "v": 2,
+  "id": "req-0005",
+  "op": "ping",
+  "params": { "timeoutMs": 5000 }
+}

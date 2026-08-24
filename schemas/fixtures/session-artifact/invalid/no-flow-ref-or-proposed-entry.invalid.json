@@ -1,0 +1,23 @@
+{
+  "artifactId": "art-7232d63b96bd6efa",
+  "submittedByAgent": { "name": "codex", "sessionId": "sess-20260824-a" },
+  "submittedAt": "2026-08-24T06:00:00Z",
+  "journeyDraft": {
+    "steps": [
+      {
+        "ordinal": 1,
+        "name": "가입 정보를 입력한다",
+        "rationale": "flowIdRef와 proposedEntrySymbolPath가 모두 없는 제출은 귀속 대상을 알 수 없다",
+        "anchor": {
+          "repoRelativePath": "lib/features/auth/email_signup_notifier.dart",
+          "byteRange": [1024, 1180],
+          "fileHash": "c147efcfc2d7ea666a9e4f5187b115c90903f0fc896a56df9a6ef5d8f3fc9f31",
+          "spanHash": "f5bc8648d6c1b4c1b06d4e666e74f568696cec867fd7c566828db6ceb7b21223",
+          "enclosingSymbolPath": "EmailSignupNotifier.submit",
+          "canonicalAstFingerprint": "75fb260f169bbb3862ca2cc146cb4a1aca9f32e11f0867594b3e67d192bed2d8"
+        }
+      }
+    ]
+  },
+  "anchorsMustPassVerification": true
+}

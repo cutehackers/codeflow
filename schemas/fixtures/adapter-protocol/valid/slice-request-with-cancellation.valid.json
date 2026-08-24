@@ -1,0 +1,12 @@
+{
+  "v": 1,
+  "id": "req-0002",
+  "op": "slice",
+  "params": {
+    "repoRoot": ".",
+    "candidateId": "cand-7232d63b96bd6efa",
+    "entrySymbolPath": "lib/features/auth/email_signup_notifier.dart#EmailSignupNotifier.submit",
+    "timeoutMs": 30000,
+    "cancellationToken": "run-42-step-3"
+  }
+}

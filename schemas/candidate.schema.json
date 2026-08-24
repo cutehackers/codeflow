@@ -1,0 +1,106 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://codeflow.local/schemas/candidate.schema.json",
+  "title": "CodeFlow Candidate (Harvest -> Slice contract)",
+  "$comment": "Ticket 02. Stage 1 Domain Harvest output; input to Stage 2 Structural Slice.",
+  "type": "object",
+  "description": "One harvestable flow candidate discovered from a domain marker. Normative rules carried by this contract: trigger class enum is closed; intentSignals are REQUIRED so an agent can natural-language-match candidates without re-reading code; scoring fields feed the automatic priority order (marker specificity x fan-in x boundary reachability); dedup fields encode root-equivalence merging and tie-breaking (marker specificity > declaration order) per R11; state-mutation points are attributed as steps inside a root flow, never independent roots.",
+  "required": [
+    "candidateId",
+    "triggerClass",
+    "markerKind",
+    "entrySymbolPath",
+    "intentSignals",
+    "score",
+    "fanIn",
+    "boundaryReachable",
+    "rootEquivalenceKey",
+    "tieBreakRank"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "candidateId": {
+      "type": "string",
+      "pattern": "^cand-[a-z0-9]{8,32}$",
+      "description": "'cand-' + first 16 lowercase-hex chars of sha256(canonicalEntrySymbolPath UTF-8 bytes); same collision suffix rule as flowId."
+    },
+    "triggerClass": {
+      "type": "string",
+      "enum": ["user_action", "use_case_invocation", "system_event", "state_transition"],
+      "description": "Closed domain-marker classes from design §4.2."
+    },
+    "markerKind": {
+      "type": "string",
+      "enum": [
+        "notifier_method",
+        "bloc_handler",
+        "route_callback",
+        "usecase_call",
+        "lifecycle_callback",
+        "state_mutation"
+      ],
+      "description": "Concrete marker matched by the framework profile pack (e.g. profiles/riverpod.yaml). New kinds arrive with new profile packs and require a schema minor version bump, never silent extension."
+    },
+    "entrySymbolPath": {
+      "$ref": "https://codeflow.local/schemas/identity.schema.json#/$defs/canonicalEntrySymbolPath"
+    },
+    "intentSignals": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["className", "derivedName", "docLine", "packageName"],
+      "properties": {
+        "className": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Declaring class/type name of the entry symbol."
+        },
+        "derivedName": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Deterministic identifier-rule transform (e.g. 'submitOrder' -> '주문을 제출한다'). Not LLM output."
+        },
+        "docLine": {
+          "oneOf": [{ "type": "string" }, { "type": "null" }],
+          "description": "First doc-comment line on the symbol if present, else null."
+        },
+        "packageName": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Dart package name the entry file resolves to."
+        }
+      },
+      "description": "REQUIRED agent-facing signal bundle for natural-language candidate matching (design §8.1)."
+    },
+    "score": {
+      "type": "number",
+      "minimum": 0,
+      "maximum": 1
+    },
+    "fanIn": { "type": "integer", "minimum": 0 },
+    "boundaryReachable": { "type": "boolean" },
+    "rootEquivalenceKey": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Key under which candidates converging on the same business-flow root are deduplicated (R11): equal keys => same flow root; the winner is decided by tieBreakRank and losers set dedupedInto."
+    },
+    "dedupedInto": {
+      "oneOf": [
+        { "type": "string", "pattern": "^cand-[a-z0-9]{8,32}$" },
+        { "type": "null" }
+      ],
+      "default": null,
+      "description": "candidateId of the surviving representative when this candidate lost root-equivalence dedup; null when this candidate is itself the root."
+    },
+    "tieBreakRank": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "Rank within one rootEquivalenceKey group after applying tie-breakers (marker specificity > declaration order). Lower wins."
+    },
+    "manifestOverride": {
+      "type": "string",
+      "enum": ["none", "pinned", "excluded"],
+      "default": "none",
+      "description": "Override from codeflow.flows.yaml manifest; manifest always wins over automatic scoring."
+    }
+  }
+}

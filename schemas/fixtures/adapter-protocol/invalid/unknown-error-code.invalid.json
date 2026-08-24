@@ -1,0 +1,9 @@
+{
+  "id": "req-0003",
+  "ok": false,
+  "err": {
+    "code": "E_KABOOM",
+    "message": "adapter exploded",
+    "retryable": false
+  }
+}

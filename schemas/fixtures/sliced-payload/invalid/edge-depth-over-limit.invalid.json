@@ -1,0 +1,32 @@
+{
+  "candidateId": "cand-7232d63b96bd6efa",
+  "language": "dart",
+  "entrySymbolPath": "lib/features/auth/email_signup_notifier.dart#EmailSignupNotifier.submit",
+  "steps": [
+    {
+      "ordinal": 1,
+      "kind": "call",
+      "description": "유스케이스 실행으로 가입을 위임한다",
+      "symbolPath": "EmailSignupUseCase.call",
+      "anchor": {
+        "repoRelativePath": "lib/features/auth/email_signup_usecase.dart",
+        "byteRange": [88, 210],
+        "fileHash": "84d5afec2f91c505ebfc2e6c9966a2d26c0a3fd7f87845de3dd381000b21479e",
+        "spanHash": "84d5afec2f91c505ebfc2e6c9966a2d26c0a3fd7f87845de3dd381000b21479e",
+        "enclosingSymbolPath": "EmailSignupUseCase.call",
+        "canonicalAstFingerprint": "f5bc8648d6c1b4c1b06d4e666e74f568696cec867fd7c566828db6ceb7b21223"
+      }
+    }
+  ],
+  "edges": [
+    {
+      "kind": "resolved_cross_file",
+      "toSymbolPath": "lib/features/auth/email_signup_usecase.dart#EmailSignupUseCase.call",
+      "resolutionStatus": "resolved",
+      "depth": 6
+    }
+  ],
+  "truncated": false,
+  "visitedCycleDetected": false,
+  "redactedCount": 0
+}

@@ -1,0 +1,136 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://codeflow.local/schemas/flowspec.schema.json",
+  "title": "CodeFlow FlowSpec (Fusion/Publish -> FlowView contract)",
+  "$comment": "Tickets 02 + 12 target shape. E1 invariant: structural facts cannot be overwritten by E2/E3.",
+  "type": "object",
+  "description": "E1-OVERRIDES-BLOCKED INVARIANT (normative, design §3/§16 R2): steps originating as E1 structural evidence keep their structure cards forever. E2 (session) and E3 (approved) semantics may fill names/rules/state interpretations and outrank derived text by authority order approved > session > derived > unknown, but they can NEVER rewrite or delete an E1 structural step. When a semantic value's anchor no longer matches current code, that value flips freshness to 'stale' — the stale value is displayed but the structural card remains; only the approval queue resolves it. provenance (who made it) and freshness (currentness) are therefore separate REQUIRED fields on every step. basisSha (document-level) is the sha256 lowercase hex of the read-set fingerprint manifest captured before analysis; per-step basisSha pins the worktree state each step was fused against. unknowns[] MUST always be emitted (possibly empty): unresolvable blanks are preserved explicitly, never guessed away.",
+  "required": [
+    "flowId",
+    "title",
+    "basisSha",
+    "generatedAt",
+    "steps",
+    "unknowns"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "flowId": {
+      "$ref": "https://codeflow.local/schemas/identity.schema.json#/$defs/flowId"
+    },
+    "title": { "type": "string", "minLength": 1 },
+    "basisSha": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$",
+      "description": "sha256 lowercase hex of the read-set fingerprint; mismatch at publish => discard & re-analyze."
+    },
+    "generatedAt": { "type": "string", "format": "date-time" },
+    "steps": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "ordinal",
+          "name",
+          "provenance",
+          "freshness",
+          "confidence",
+          "basisSha",
+          "anchor"
+        ],
+        "properties": {
+          "ordinal": { "type": "integer", "minimum": 1 },
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Rendered step name; authority-resolved text, never an E1 overwrite."
+          },
+          "provenance": {
+            "$ref": "https://codeflow.local/schemas/identity.schema.json#/$defs/provenance"
+          },
+          "freshness": {
+            "$ref": "https://codeflow.local/schemas/identity.schema.json#/$defs/freshness"
+          },
+          "confidence": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 1
+          },
+          "basisSha": {
+            "type": "string",
+            "pattern": "^[a-f0-9]{64}$"
+          },
+          "anchor": {
+            "$ref": "https://codeflow.local/schemas/identity.schema.json#/$defs/anchor"
+          },
+          "stepId": {
+            "$ref": "https://codeflow.local/schemas/identity.schema.json#/$defs/stepId"
+          },
+          "rules": {
+            "type": "array",
+            "items": { "type": "string" },
+            "description": "Business rules shown in the 규칙 line."
+          },
+          "stateDelta": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["before", "after"],
+            "properties": {
+              "before": { "type": "string" },
+              "after": { "type": "string" }
+            }
+          },
+          "sideEffect": { "type": ["string", "null"] },
+          "branch": {
+            "type": ["string", "null"],
+            "description": "guard -> outcome rendering for branch steps."
+          },
+          "codeLens": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["path", "startLine", "endLine"],
+            "properties": {
+              "path": {
+                "type": "string",
+                "pattern": "^[^/].*$",
+                "description": "Repo-relative path. Lines are PRESENTATION-ONLY here: FlowView lens ranges are derived from the verified anchor at render time, never trusted for identity."
+              },
+              "startLine": { "type": "integer", "minimum": 1 },
+              "endLine": { "type": "integer", "minimum": 1 }
+            }
+          }
+        }
+      }
+    },
+    "unknowns": {
+      "type": "array",
+      "description": "Explicitly preserved unknowns (design principle #3). Empty array allowed; field itself mandatory so producers must decide.",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["subject", "reason"],
+        "properties": {
+          "subject": {
+            "type": "string",
+            "minLength": 1,
+            "description": "What could not be determined (symbol path / question)."
+          },
+          "reason": {
+            "type": "string",
+            "minLength": 1,
+            "enum": [
+              "unresolved_dynamic_call",
+              "unresolved_type",
+              "truncated_traversal",
+              "no_evidence",
+              "stale_anchor",
+              "adapter_error"
+            ]
+          }
+        }
+      }
+    }
+  }
+}

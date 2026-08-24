@@ -1,0 +1,18 @@
+{
+  "candidateId": "cand-7232d63b96bd6efa",
+  "triggerClass": "state_transition",
+  "markerKind": "state_mutation",
+  "entrySymbolPath": "lib/features/auth/email_signup_state.dart#EmailSignupState.copyWith",
+  "intentSignals": {
+    "className": "EmailSignupState",
+    "derivedName": "가입 상태를 갱신한다",
+    "docLine": null,
+    "packageName": "example_app"
+  },
+  "score": 0.3,
+  "fanIn": 0,
+  "boundaryReachable": false,
+  "rootEquivalenceKey": "flow.email.signup.submit",
+  "dedupedInto": "CAND-SHORT",
+  "tieBreakRank": 0
+}

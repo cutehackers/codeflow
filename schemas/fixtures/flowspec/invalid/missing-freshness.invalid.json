@@ -1,0 +1,26 @@
+{
+  "flowId": "flow-7232d63b96bd6efa",
+  "title": "이메일 회원가입",
+  "basisSha": "84d5afec2f91c505ebfc2e6c9966a2d26c0a3fd7f87845de3dd381000b21479e",
+  "generatedAt": "2026-08-24T05:12:00Z",
+  "steps": [
+    {
+      "ordinal": 1,
+      "name": "입력 규칙을 검증한다",
+      "provenance": "approved",
+      "confidence": 0.98,
+      "basisSha": "84d5afec2f91c505ebfc2e6c9966a2d26c0a3fd7f87845de3dd381000b21479e",
+      "anchor": {
+        "repoRelativePath": "lib/features/auth/email_signup_notifier.dart",
+        "byteRange": [1024, 1180],
+        "fileHash": "3377870dfeaaa7adf79a374d2702a3fdb13e5e5ea0dd8aa95a802ad39044a92f",
+        "spanHash": "f5bc8648d6c1b4c1b06d4e666e74f568696cec867fd7c566828db6ceb7b21223",
+        "enclosingSymbolPath": "EmailSignupNotifier.submit",
+        "canonicalAstFingerprint": "75fb260f169bbb3862ca2cc146cb4a1aca9f32e11f0867594b3e67d192bed2d8"
+      },
+      "rules": ["이메일 형식 검사", "비밀번호 8자 이상"],
+      "branch": "검사 실패 → ArgumentError, 진행 중단"
+    }
+  ],
+  "unknowns": []
+}

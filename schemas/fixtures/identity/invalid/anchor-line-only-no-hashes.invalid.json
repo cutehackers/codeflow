@@ -1,0 +1,11 @@
+{
+  "flowId": "flow-7232d63b96bd6efa",
+  "canonicalEntrySymbolPath": "lib/features/auth/email_signup_notifier.dart#EmailSignupNotifier.submit",
+  "anchors": [
+    {
+      "repoRelativePath": "lib/features/auth/email_signup_notifier.dart",
+      "byteRange": [1024, 1180],
+      "enclosingSymbolPath": "EmailSignupNotifier.submit"
+    }
+  ]
+}

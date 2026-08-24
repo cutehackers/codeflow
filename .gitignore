@@ -33,3 +33,10 @@ build/
 # Web dependencies and generated bundles
 node_modules/
 /view/dist/
+
+# CodeFlow v2 core (ticket 04)
+.codeflow/
+bin/
+*.test
+coverage.out
+.DS_Store

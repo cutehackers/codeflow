@@ -1,0 +1,9 @@
+{
+  "schemaVersion": "2.0",
+  "adapters": {
+    "dart": {
+      "pinned": "0.1.0",
+      "min": "0.1.0"
+    }
+  }
+}
