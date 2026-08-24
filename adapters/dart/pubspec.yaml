@@ -1,0 +1,13 @@
+name: codeflow_dart_adapter
+description: >-
+  CodeFlow v2 Dart language adapter. Speaks the CORE adapter protocol
+  (NDJSON over stdio): ping, detect, harvest_candidates, slice, shutdown.
+  Runtime uses only Dart SDK libraries (dart:async, dart:convert, dart:io,
+  dart:typed_data) - no external dependencies.
+version: 0.1.0
+environment:
+  sdk: ^3.0.0
+executables:
+  codeflow_dart_adapter:
+dev_dependencies:
+  test: ^1.24.0

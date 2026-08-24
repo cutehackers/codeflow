@@ -1,0 +1,16 @@
+name: shop_app
+description: >-
+  Minimal fake Flutter-ish project feeding CodeFlow v2 regex harvesting
+  (tickets 06/07/08 end-to-end fixture). NOT required to compile.
+publish_to: none
+version: 0.1.0
+
+environment:
+  sdk: ">=3.0.0 <4.0.0"
+
+dependencies:
+  flutter:
+    sdk: flutter
+  flutter_riverpod: ^2.4.0
+  go_router: ^12.0.0
+  firebase_messaging: ^14.7.0
