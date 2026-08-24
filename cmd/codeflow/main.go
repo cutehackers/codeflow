@@ -385,14 +385,22 @@ func runServe(args []string) {
 	fs := flag.NewFlagSet("view", flag.ContinueOnError)
 	portFlag := fs.Int("port", 4567, "loopback port for FlowView UI")
 	var flagArgs, posArgs []string
-	for _, a := range args {
+	for i := 0; i < len(args); i++ {
+		a := args[i]
+		if a == "--port" && i+1 < len(args) {
+			flagArgs = append(flagArgs, "--port="+args[i+1])
+			i++
+			continue
+		}
 		if strings.HasPrefix(a, "-") {
 			flagArgs = append(flagArgs, a)
 		} else {
 			posArgs = append(posArgs, a)
 		}
 	}
-	_ = fs.Parse(flagArgs)
+	if err := fs.Parse(flagArgs); err != nil {
+		os.Exit(2)
+	}
 	target := "."
 	if len(posArgs) == 1 {
 		target = posArgs[0]

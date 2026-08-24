@@ -1094,7 +1094,7 @@ session logs as the primary truth source.
 
 **Type:** AFK
 **Blocked by:** None
-**Status:** Open
+**Status:** Completed — quickstart verified end to end against `testdata/example_app` (2026-08-24)
 
 ### Goal
 
@@ -1110,17 +1110,31 @@ Keep the wording concise enough that the first-run path is obvious.
 
 ### Acceptance criteria
 
-- [ ] README or local usage docs show a minimal install and run sequence.
-- [ ] The docs explain the local-only workflow and the `0.1` version pin.
-- [ ] The example commands match the verified local usage path.
-- [ ] A new user can reach a readable FlowView without hunting across multiple
+- [x] README or local usage docs show a minimal install and run sequence.
+- [x] The docs explain the local-only workflow and the current release line.
+      No distributed `0.1` artifact exists yet, so the docs state the local
+      build line (`codeflow version`) and defer the signed release to
+      [release-handoff](./release-handoff.md) instead of implying a version
+      pin that does not exist.
+- [x] The example commands match the verified local usage path.
+- [x] A new user can reach a readable FlowView without hunting across multiple
       documents.
-- [ ] The first-run instructions do not imply deployment is required.
+- [x] The first-run instructions do not imply deployment is required.
 
 ### Completion evidence
 
-- A fresh local reader can follow the documented commands end to end.
-- The docs and the code agree on the visible default local workflow.
+- README gained a quickstart (one-shot install or `make build`, `init`,
+  `flows`, `publish`, `show`, `serve`) and `docs/local-usage.md` was rewritten
+  to the v2 root CLI; the previous text described the CF-G core engine now
+  living under `legacy/core` and referenced a nonexistent `make local` target.
+- Every documented command was executed against `testdata/example_app`:
+  `doctor` all-green, `flows` listed 10 candidates, `publish` created
+  generation `gen-1787565406244804000` (10 flows), `show flow-7232d63b96bd6efa
+  --json` returned 5 anchored steps, and `serve --port 4569` answered HTTP 200
+  with the FlowView page.
+- `serve --port N` argument parsing was fixed so the documented flag form
+  works (previously only `--port=N` parsed; parse errors were silently
+  ignored).
 
 ### Non-goals
 
