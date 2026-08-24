@@ -19,6 +19,8 @@ import (
 	"codeflow/internal/fusion"
 	"codeflow/internal/harvest"
 	"codeflow/internal/initcmd"
+	"codeflow/internal/installation"
+	"codeflow/internal/installstate"
 	"codeflow/internal/mcp"
 	"codeflow/internal/naming"
 	"codeflow/internal/protocol"
@@ -49,6 +51,7 @@ Usage:
   codeflow serve [path]       alias for 'codeflow view'
   codeflow mcp [path]         start MCP stdio JSON-RPC server for AI agents.
   codeflow doctor [path]      check environment, adapter, and workspace integrity.
+  codeflow uninstall          remove the CodeFlow MCP, skill, and owned files.
   codeflow version            print version information
 `
 
@@ -76,6 +79,10 @@ func main() {
 		runMCP(args)
 	case "doctor":
 		runDoctor(args)
+	case "uninstall":
+		runUninstall(args)
+	case "install-record":
+		runInstallRecord(args)
 	case "version":
 		fmt.Printf("codeflow %s (commit=%s, built=%s)\n", version, commit, date)
 	default:
@@ -459,6 +466,43 @@ func runDoctor(args []string) {
 	fmt.Println(strings.Repeat("=", 60))
 	if !allPassed {
 		os.Exit(1)
+	}
+}
+
+func runInstallRecord(args []string) {
+	fs := flag.NewFlagSet("install-record", flag.ContinueOnError)
+	state := installstate.State{Version: 1}
+	fs.StringVar(&state.Binary, "binary", "", "installed binary path")
+	fs.StringVar(&state.SourceRoot, "source-root", "", "installer source path")
+	fs.BoolVar(&state.OwnedSource, "owned-source", false, "whether the installer created source-root")
+	fs.StringVar(&state.AdapterSpec, "adapter-spec", "", "adapter configuration")
+	fs.StringVar(&state.SkillPath, "skill-path", "", "installed skill path")
+	fs.StringVar(&state.SkillSHA256, "skill-sha256", "", "installed SKILL.md sha256")
+	fs.StringVar(&state.MCPName, "mcp-name", "", "Codex MCP registration name")
+	if err := fs.Parse(args); err != nil {
+		os.Exit(2)
+	}
+	if err := installstate.Save(state); err != nil {
+		fmt.Fprintf(os.Stderr, "record installation: %v\n", err)
+		os.Exit(1)
+	}
+}
+
+func runUninstall(args []string) {
+	if len(args) != 0 {
+		fmt.Fprintln(os.Stderr, "usage: codeflow uninstall")
+		os.Exit(2)
+	}
+	result, err := installation.Uninstall(context.Background())
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "codeflow uninstall: %v\n", err)
+		os.Exit(1)
+	}
+	for _, item := range result.Removed {
+		fmt.Printf("removed: %s\n", item)
+	}
+	for _, item := range result.Kept {
+		fmt.Printf("kept: %s\n", item)
 	}
 }
 

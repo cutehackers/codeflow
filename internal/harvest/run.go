@@ -16,6 +16,7 @@ import (
 	"strings"
 
 	"codeflow/internal/contractharness"
+	"codeflow/internal/installstate"
 	"codeflow/internal/protocol"
 )
 
@@ -41,13 +42,18 @@ const (
 )
 
 // ResolveDartAdapter turns a $CODEFLOW_ADAPTER_DART_BIN value into a
-// protocol.Config. spec may be empty (→ actionable error), an absolute
-// executable path, or "dartrun:<absolute package dir>".
+// protocol.Config. An empty value uses the one-shot installer record, so CLI
+// and MCP do not require shell-profile mutations.
 func ResolveDartAdapter(spec string) (protocol.Config, error) {
 	spec = strings.TrimSpace(spec)
 	if spec == "" {
+		if state, err := installstate.Load(); err == nil {
+			spec = strings.TrimSpace(state.AdapterSpec)
+		}
+	}
+	if spec == "" {
 		return protocol.Config{}, fmt.Errorf(
-			"no Dart adapter configured: set %s to an absolute adapter binary path, or to %s<path-to-adapters/dart>",
+			"no Dart adapter configured: set %s to an absolute adapter binary path, or to %s<path-to-adapters/dart> — or re-run bash scripts/install.sh (one-shot)",
 			DartAdapterEnvVar, dartrunScheme)
 	}
 	if dir, ok := strings.CutPrefix(spec, dartrunScheme); ok {
@@ -84,8 +90,8 @@ func ResolveDartAdapter(spec string) (protocol.Config, error) {
 // persistent process pool. It is safe to reuse across Run calls; Close
 // drains the pool.
 type Runner struct {
-	pool       *protocol.Pool
-	ownedPool  bool
+	pool      *protocol.Pool
+	ownedPool bool
 }
 
 // NewRunner builds a Runner whose adapter subprocesses are spawned with

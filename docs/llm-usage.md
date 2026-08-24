@@ -2,39 +2,55 @@
 
 이 문서는 LLM/코딩 에이전트가 CodeFlow v2 결과를 읽고 **비즈니스 흐름**으로 설명하기 위한 계약. CodeFlow는 코드 근거를 만들고 LLM은 사용자 언어로 설명한다 — `unknown`을 추론으로 메우지 않는다.
 
-## 0. 설치 — LLM이 직접 실행 (one-shot)
+## 0. 설치 — one-shot (이것만 실행)
+
+> 한 명령으로 바이너리, Dart 어댑터 설정, Codex MCP, CodeFlow 스킬까지 설치한다. 셸 rc와 분석 대상 저장소는 수정하지 않는다.
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/OWNER/codeflow/main/scripts/install.sh | bash
-# 로컬 클론이 있으면
 bash scripts/install.sh
-# 확인
-codeflow version
-CODEFLOW_ADAPTER_DART_BIN="dartrun:$HOME/.codeflow-src/adapters/dart" codeflow doctor .
 ```
 
-`$HOME/.local/bin`이 PATH에 없으면 `export PATH="$HOME/.local/bin:$PATH"`를 rc에 추가. Dart SDK 3.x 필요 — 없으면 `harvest/slice` 실패.
+`scripts/install.sh`가 수행하는 일:
+1. `bin/codeflow`를 `$HOME/.local/bin/codeflow`에 설치한다.
+2. Codex에 `codeflow mcp`를 등록하고, 등록 시 Dart 어댑터 경로를 함께 전달한다.
+3. `$HOME/.codex/skills/codeflow`에 스킬을 설치한다. 새 Codex task에서 “이메일 회원가입 흐름을 FlowView로 만들어줘”라고 바로 요청할 수 있다.
 
-로컬 빌드 대체:
+Codex MCP 이름이 이미 다른 명령에 사용 중이거나 기존 CodeFlow 스킬을 사용자가 바꿨다면 설치를 중단한다. 각각 `CODEFLOW_MCP_NAME` 또는 별도 스킬 정리 후 다시 실행한다. 사용자 설정을 덮어쓰지 않기 위한 보호다.
+
+설치 직후 확인 (LLM이 그대로 실행):
+
 ```sh
-make build  # bin/codeflow 생성
+$HOME/.local/bin/codeflow version
+$HOME/.local/bin/codeflow doctor .
 ```
+
+Dart SDK 3.x, Go, Codex CLI가 필요하다. 하나라도 없으면 설치가 실패하며, 불완전한 MCP 등록을 남기지 않는다.
+
+### 삭제
+
+설치 상태 파일이 CodeFlow가 만든 MCP·스킬·바이너리만 추적하므로 다음 한 명령으로 되돌릴 수 있다.
+
+```sh
+$HOME/.local/bin/codeflow uninstall
+```
+
+수정된 스킬, 다른 명령을 가리키는 동명 MCP, 설치기가 소유하지 않은 소스 체크아웃은 삭제하지 않고 남긴 이유를 출력한다.
 
 ## 1. 가장 짧은 사용 흐름
 
 사용자 프롬프트 예: "이메일을 이용한 회원가입 흐름을 분석하고 flowview로 만들어줘"
 
-에이전트는 CodeFlow 스킬(`skills/codeflow/SKILL.md`) 5단계를 따른다:
+에이전트는 설치된 CodeFlow 스킬(`skills/codeflow/SKILL.md`)을 따른다:
 
 ```
-1. harvest_flows (query로 의도 매칭) → 2. 모호하면 질문 → 3. 없으면 analyze_flow → 4. get_flow_payload → 5. open_review
+harvest_flows (의도 매칭) → 후보 선택/모호성 해소 → get_flow_payload + unknowns 확인 → 요청한 경우 open_review
 ```
 
 ```sh
-# MCP 없으면 CLI JSON으로 대체
-CODEFLOW_ADAPTER_DART_BIN="dartrun:$PWD/adapters/dart" bin/codeflow flows --json ./testdata/example_app
-CODEFLOW_ADAPTER_DART_BIN="dartrun:$PWD/adapters/dart" bin/codeflow publish ./testdata/example_app
-bin/codeflow show flow-7232d63b96bd6efa --json | python3 -m json.tool
+# MCP가 없는 환경의 CLI 대체 (설치 후에는 env 없이도 동작)
+codeflow flows --json ./testdata/example_app
+codeflow publish ./testdata/example_app
+codeflow show flow-7232d63b96bd6efa --json | python3 -m json.tool
 ```
 
 MCP가 있으면 기존 Core 재사용 — 매번 `init/serve` 불필요.
@@ -113,8 +129,8 @@ FlowView에서 코드 렌즈(5-20줄)와 함께 시각 검증 가능 — URL: ht
 
 코드 변경 시 이전 결과 재사용 금지 — `watch`가 500ms 폴링+mtime 필터로 감지하나 즉시 필요하면:
 ```sh
-CODEFLOW_ADAPTER_DART_BIN="dartrun:$PWD/adapters/dart" bin/codeflow publish <repo>
-bin/codeflow show <flowId> --json
+codeflow publish <repo>
+codeflow show <flowId> --json
 ```
 `basisSha`가 바뀌었는지 확인 후 다시 설명.
 
