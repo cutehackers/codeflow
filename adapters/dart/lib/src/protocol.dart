@@ -11,6 +11,7 @@ library;
 import 'dart:convert';
 
 import 'harvest.dart';
+import 'slice.dart';
 
 /// Protocol major version this adapter speaks.
 const int protocolVersion = 1;
@@ -19,19 +20,21 @@ class AdapterServer {
   AdapterServer({
     required Stream<String> requests,
     required void Function(String line) respond,
-    Map<String, Object?> Function(Map<Object?, Object?> params)?
-        harvestFn,
+    Map<String, Object?> Function(Map<Object?, Object?> params)? harvestFn,
     Map<String, Object?> Function({required String repoRoot})? detectFn,
+    Map<String, Object?> Function(Map<Object?, Object?> params)? sliceFn,
   })  : _requests = requests,
         _respond = respond,
         _harvest = harvestFn ?? _defaultHarvest,
         _detect = detectFn ??
-            (({required String repoRoot}) => detectRepo(repoRoot: repoRoot));
+            (({required String repoRoot}) => detectRepo(repoRoot: repoRoot)),
+        _slice = sliceFn ?? _defaultSlice;
 
   final Stream<String> _requests;
   final void Function(String line) _respond;
   final Map<String, Object?> Function(Map<Object?, Object?> params) _harvest;
   final Map<String, Object?> Function({required String repoRoot}) _detect;
+  final Map<String, Object?> Function(Map<Object?, Object?> params) _slice;
 
   bool _shutdownRequested = false;
 
@@ -111,8 +114,22 @@ class AdapterServer {
         return _ok(id, _harvest(params));
 
       case 'slice':
-        // Structural slice lands with ticket 07.
-        return _error(id, 'E_BAD_REQUEST', 'not implemented yet');
+        final repoRoot = _requireRepoRoot(params);
+        final candidateId = params['candidateId'];
+        if (candidateId is! String || candidateId.isEmpty) {
+          throw ArgumentError('params.candidateId (non-empty string) is required');
+        }
+        final entrySymbolPath = params['entrySymbolPath'];
+        if (entrySymbolPath is! String || entrySymbolPath.isEmpty) {
+          throw ArgumentError('params.entrySymbolPath (non-empty string) is required');
+        }
+        final opts = params['opts'] is Map ? params['opts'] as Map<String, Object?> : <String, Object?>{};
+        return _ok(id, _slice({
+          'repoRoot': repoRoot,
+          'candidateId': candidateId,
+          'entrySymbolPath': entrySymbolPath,
+          'opts': opts,
+        }));
 
       case 'shutdown':
         _shutdownRequested = true;
@@ -125,6 +142,14 @@ class AdapterServer {
 
   static Map<String, Object?> _defaultHarvest(Map<Object?, Object?> params) =>
       harvestCandidates(params);
+
+  static Map<String, Object?> _defaultSlice(Map<Object?, Object?> params) =>
+      sliceCandidate(
+        repoRoot: params['repoRoot'] as String,
+        candidateId: params['candidateId'] as String,
+        entrySymbolPath: params['entrySymbolPath'] as String,
+        opts: (params['opts'] as Map?)?.cast<String, Object?>() ?? const {},
+      );
 
   String _requireRepoRoot(Map<Object?, Object?> params) {
     final repoRoot = params['repoRoot'];

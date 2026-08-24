@@ -9,3 +9,5 @@ export 'src/profile.dart';
 export 'src/protocol.dart';
 export 'src/scanner.dart';
 export 'src/sha256.dart';
+export 'src/slice.dart';
+

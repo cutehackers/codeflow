@@ -84,18 +84,24 @@ func ResolveDartAdapter(spec string) (protocol.Config, error) {
 // persistent process pool. It is safe to reuse across Run calls; Close
 // drains the pool.
 type Runner struct {
-	pool *protocol.Pool
+	pool       *protocol.Pool
+	ownedPool  bool
 }
 
 // NewRunner builds a Runner whose adapter subprocesses are spawned with
 // adapterCfg and of which at most maxIdle stay warm.
 func NewRunner(adapterCfg protocol.Config, maxIdle int) *Runner {
-	return &Runner{pool: protocol.NewPool(adapterCfg, maxIdle)}
+	return &Runner{pool: protocol.NewPool(adapterCfg, maxIdle), ownedPool: true}
 }
 
-// Close drains every pooled adapter process.
+// NewRunnerWithPool builds a Runner that shares an existing pool (caller retains ownership).
+func NewRunnerWithPool(pool *protocol.Pool) *Runner {
+	return &Runner{pool: pool, ownedPool: false}
+}
+
+// Close drains every pooled adapter process if this Runner owns the pool.
 func (r *Runner) Close() {
-	if r.pool != nil {
+	if r.pool != nil && r.ownedPool {
 		r.pool.Close()
 	}
 }

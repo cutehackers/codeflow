@@ -76,13 +76,33 @@ void main() {
     expect((r['err']! as Map)['code'], 'E_BAD_REQUEST');
   });
 
-  test('slice answers the ticket-07 placeholder error', () {
+  test('slice without repoRoot is E_BAD_REQUEST', () {
     final r = handle('{"v":1,"id":"s","op":"slice","params":{}}');
     expect(r['ok'], false);
     final err = r['err']! as Map;
     expect(err['code'], 'E_BAD_REQUEST');
-    expect(err['message'], 'not implemented yet');
+    expect(err['message'], contains('repoRoot'));
   });
+
+  test('slice with valid params executes successfully', () {
+    final r = handle(jsonEncode({
+      'v': 1,
+      'id': 's2',
+      'op': 'slice',
+      'params': {
+        'repoRoot': exampleAppRoot().replaceAll('\\', '/'),
+        'candidateId': 'cand-7232d63b96bd6efa',
+        'entrySymbolPath': 'lib/features/auth/email_signup_notifier.dart#EmailSignupNotifier.submit',
+      },
+    }));
+    expect(r['ok'], true);
+
+    final result = r['result']! as Map;
+    expect(result['candidateId'], 'cand-7232d63b96bd6efa');
+    expect(result['language'], 'dart');
+    expect(result['steps'], isNotEmpty);
+  });
+
 
   test('shutdown acks and stops the loop', () async {
     final responses = <String>[];

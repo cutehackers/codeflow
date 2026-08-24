@@ -110,12 +110,13 @@ void main() {
       expect(candidates.first['candidateId'],
           matches(RegExp(r'^cand-[a-z0-9]{16}$')));
 
-      // 8. slice is deferred to ticket 07.
+      // 8. slice without repoRoot returns typed E_BAD_REQUEST error.
       expect(responses[7]['id'], 's1');
       expect(responses[7]['ok'], false);
       expect((responses[7]['err']! as Map)['code'], 'E_BAD_REQUEST');
-      expect((responses[7]['err']! as Map)['message'], 'not implemented yet');
+      expect((responses[7]['err']! as Map)['message'], contains('repoRoot'));
       expect((responses[7]['err']! as Map)['retryable'], false);
+
 
       // 9. shutdown ack; exit 0 asserted above.
       expect(responses[8]['id'], 'x1');
