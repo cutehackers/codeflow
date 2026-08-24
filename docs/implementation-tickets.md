@@ -1210,6 +1210,64 @@ AST-level dynamic code execution or runtime bytecode instrumentation.
 
 ---
 
+### CF-G26 — Review several flows together in one FlowView
+
+**Type:** AFK
+**Blocked by:** None
+**Status:** Backlog
+
+### Goal
+
+A reviewer can open one local FlowView and read several flows of the current
+published generation together — like the legacy workspace page — while every
+step keeps its own evidence and no steps are merged across flows.
+
+Today's v2 FlowView reaches other flows only through the Cmd+K switcher,
+which replaces the displayed flow one at a time. There is no simultaneous
+display and no screen-level view of how the flows connect.
+
+### What to build
+
+Add an opt-in stacked reading mode that renders each selected flow's timeline
+sequentially under one page header, and an optional screen-level map of
+cross-flow connections derived only from evidence-backed visible-result or
+route-transition facts inside the same published generation. One generation is
+one Basis by construction, so the legacy mixed-snapshot hazard cannot occur;
+the work is presentation plus conservative edge synthesis. Keep the existing
+single-flow rendering as the default.
+
+### Acceptance criteria
+
+- [ ] Stacked mode renders two or more flows from one published generation on
+      one page with clear per-flow headers and intact ordering.
+- [ ] Every step keeps its own anchors, trust labels, and code lens; nothing
+      is deduplicated or merged across flow boundaries.
+- [ ] Cross-flow edges are drawn only when both endpoints belong to the same
+      generation and the connecting fact status is `observed`; unknown facts
+      produce no edge.
+- [ ] The switcher, `?flow=` deep links, and stacked mode stay consistent
+      after republishing: stale flow IDs degrade to an explanatory empty state,
+      never a broken page.
+- [ ] Stacked mode stays usable at 320px width, with keyboard navigation and
+      no horizontal overflow.
+- [ ] With stacked mode off, the default single-flow page behaves exactly as
+      before.
+
+### Completion evidence
+
+- An integration test publishes the `testdata/example_app` generation and
+  asserts the stacked DOM contains both requested flows' headers and their
+  ordered timelines.
+- Tests prove no cross-flow edge is synthesized from unknown facts or from
+  flows outside the active generation.
+
+### Non-goals
+
+Merging steps into one combined timeline, historical replay, cross-revision
+flow maps, runtime trace collection, or color themes.
+
+---
+
 ## Delivery order and parallelism
 
 The first usable tracer bullet is:
@@ -1225,4 +1283,4 @@ After CF-G05, these goals can proceed independently:
 - CF-G10 — automatic refresh
 - CF-G11 — dual-era MCP
 
-CF-G12 adds optional semantic meaning after the deterministic path exists. CF-G13 is the sole mandatory human validation gate. CF-G14 and CF-G15 productize the validated system. CF-G16 deepens the locally validated experience around causal state changes and cognitive-debt closure. CF-G17 extends that proven single-flow experience into an atomic, same-Basis multi-flow workspace. CF-G24 and CF-G25 scale and refine domain subgraph extraction across large codebases.
+CF-G12 adds optional semantic meaning after the deterministic path exists. CF-G13 is the sole mandatory human validation gate. CF-G14 and CF-G15 productize the validated system. CF-G16 deepens the locally validated experience around causal state changes and cognitive-debt closure. CF-G17 extends that proven single-flow experience into an atomic, same-Basis multi-flow workspace. CF-G24 and CF-G25 scale and refine domain subgraph extraction across large codebases. CF-G26 brings the legacy multi-flow reading experience into the v2 FlowView.
