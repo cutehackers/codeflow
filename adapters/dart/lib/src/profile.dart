@@ -73,7 +73,7 @@ class FrameworkProfile {
 const Map<String, ProfilePatterns> _builtinProfiles = {
   // Mirrors profiles/riverpod.yaml.
   'riverpod': ProfilePatterns(
-    domainMarkers: [r'[A-Za-z0-9_]+Notifier$'],
+    domainMarkers: [r'[A-Za-z0-9_]+Notifier$', r'[A-Za-z0-9_]+Controller$'],
     stateMutations: [r'\bstate\s*=[^=]', r'\.copyWith\s*\('],
     boundarySuffixes: ['Repository', 'ApiClient'],
   ),

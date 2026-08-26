@@ -33,12 +33,13 @@ type Pointer struct {
 
 // FlowSummary is a lightweight entry in the generation index.
 type FlowSummary struct {
-	FlowID           string `json:"flowId"`
-	Title            string `json:"title"`
-	EntrySymbolPath  string `json:"entrySymbolPath"`
-	StepCount        int    `json:"stepCount"`
-	HasStaleSteps    bool   `json:"hasStaleSteps"`
-	HasUnknownSteps  bool   `json:"hasUnknownSteps"`
+	FlowID          string `json:"flowId"`
+	Title           string `json:"title"`
+	Description     string `json:"description,omitempty"`
+	EntrySymbolPath string `json:"entrySymbolPath"`
+	StepCount       int    `json:"stepCount"`
+	HasStaleSteps   bool   `json:"hasStaleSteps"`
+	HasUnknownSteps bool   `json:"hasUnknownSteps"`
 }
 
 // GenerationIndex maps all published flows in a generation.
@@ -221,11 +222,11 @@ func atomicWrite(targetPath string, data []byte) error {
 
 // StagingSession coordinates a new generation build and atomic commit.
 type StagingSession struct {
-	storage      *Storage
-	generationID string
-	stagingDir   string
-	flowsDir     string
-	summaries    []FlowSummary
+	storage          *Storage
+	generationID     string
+	stagingDir       string
+	flowsDir         string
+	summaries        []FlowSummary
 	basisFingerprint string
 }
 

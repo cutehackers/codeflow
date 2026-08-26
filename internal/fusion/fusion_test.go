@@ -195,3 +195,22 @@ func TestEventLogAppendAndMaterialize(t *testing.T) {
 		t.Errorf("approved map mismatch: %+v", approved)
 	}
 }
+
+func TestFuseCarriesDescription(t *testing.T) {
+	sliced := &slicing.SlicedPayload{
+		CandidateID:     "cand-desc-000001",
+		Language:        "dart",
+		EntrySymbolPath: "lib/src/sample.dart#Sample.submit",
+		Steps: []slicing.SliceStep{{Ordinal: 1, Kind: "mutation", Description: "상태를 갱신한다", SymbolPath: "Sample.submit", Anchor: slicing.Anchor{RepoRelativePath: "lib/src/sample.dart", ByteRange: [2]int{0, 10}, FileHash: "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef", SpanHash: "fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210", EnclosingSymbolPath: "Sample.submit", CanonicalAstFingerprint: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}}},
+	}
+	spec, err := fusion.Fuse(sliced, fusion.FuseOptions{CustomDescription: "이메일 인증 후 세션을 생성한다."})
+	if err != nil { t.Fatalf("Fuse: %v", err) }
+	if spec.Description != "이메일 인증 후 세션을 생성한다." {
+		t.Errorf("description = %q", spec.Description)
+	}
+	// empty description omitted via omitempty — Marshal should not emit field when empty
+	spec2, _ := fusion.Fuse(sliced, fusion.FuseOptions{})
+	if spec2.Description != "" {
+		t.Errorf("empty description must stay empty, got %q", spec2.Description)
+	}
+}

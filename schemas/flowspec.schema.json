@@ -19,6 +19,10 @@
       "$ref": "https://codeflow.local/schemas/identity.schema.json#/$defs/flowId"
     },
     "title": { "type": "string", "minLength": 1 },
+    "description": {
+      "type": "string",
+      "description": "OPTIONAL 1-2 line human-readable summary of the business flow, shown in FlowView tabs. Derived from the entry symbol's doc comment (candidate intentSignals.docLine) when available, otherwise absent — consumers must degrade gracefully."
+    },
     "basisSha": {
       "type": "string",
       "pattern": "^[a-f0-9]{64}$",
@@ -87,6 +91,11 @@
             "type": ["string", "null"],
             "description": "guard -> outcome rendering for branch steps."
           },
+          "kind": {
+            "type": "string",
+            "enum": ["guard", "mutation", "call", "branch"],
+            "description": "OPTIONAL structural kind carried over from the slice step so FlowView can label the step in natural language (조건 확인/상태 변경/기능 실행/흐름 분기). Presentation-only; never used for identity."
+          },
           "codeLens": {
             "type": "object",
             "additionalProperties": false,
@@ -98,8 +107,19 @@
                 "description": "Repo-relative path. Lines are PRESENTATION-ONLY here: FlowView lens ranges are derived from the verified anchor at render time, never trusted for identity."
               },
               "startLine": { "type": "integer", "minimum": 1 },
-              "endLine": { "type": "integer", "minimum": 1 }
-            }
+              "endLine": { "type": "integer", "minimum": 1 },
+              "viewStartLine": {
+                "type": "integer",
+                "minimum": 1,
+                "description": "OPTIONAL: first line of the symbol-scoped view (enclosing function body). FlowView defaults to this range so readers see the flow, not a lone line. Absent => view falls back to focus ± margin."
+              },
+              "viewEndLine": {
+                "type": "integer",
+                "minimum": 1,
+                "description": "OPTIONAL: last line of the symbol-scoped view. MUST be >= startLine when present (producer-enforced)."
+              }
+            },
+            "description": "focus = [startLine, endLine] (the step's exact evidence lines); view = [viewStartLine, viewEndLine] (the enclosing symbol body, presentation-only, derived from the anchor's symbolRange at render time)."
           }
         }
       }
@@ -131,6 +151,38 @@
           }
         }
       }
+    },
+    "edges": {
+      "type": "array",
+      "description": "OPTIONAL call/delegation edges between steps and their targets, carried over from the slice so FlowView can show where a step hands work off to. Presentation-only; identity never depends on it. Absent in older published specs — consumers must degrade gracefully.",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["kind", "toSymbolPath", "resolutionStatus"],
+        "properties": {
+          "kind": {
+            "type": "string",
+            "enum": ["resolved_cross_file", "boundary_call", "unknown_edge"]
+          },
+          "toSymbolPath": {
+            "type": "string",
+            "description": "Best-known target reference (repo-relative path # symbol)."
+          },
+          "resolutionStatus": {
+            "type": "string",
+            "enum": ["resolved", "unresolved_dynamic", "unresolved_type", "truncated"]
+          },
+          "stepOrdinal": {
+            "type": "integer",
+            "minimum": 1,
+            "description": "1-based ordinal of the step that produces this edge. Absent in older payloads — consumers must not guess."
+          }
+        }
+      }
+    },
+    "truncated": {
+      "type": "boolean",
+      "description": "OPTIONAL: true when slice traversal stopped early (depth cap or cycle). FlowView must surface this honestly — the reader is seeing part of the flow, not all of it."
     }
   }
 }

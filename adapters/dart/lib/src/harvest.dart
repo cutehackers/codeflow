@@ -180,6 +180,53 @@ List<String> _collectDartFiles(String libDirPosix) {
   return results;
 }
 
+bool _isWorkspaceRepo(String repoRootPosix) {
+  try {
+    final content = File(_join(repoRootPosix, 'pubspec.yaml')).readAsStringSync();
+    return content.contains(RegExp(r'^\s*workspace\s*:', multiLine: true));
+  } catch (_) {
+    return false;
+  }
+}
+
+List<String> _collectWorkspaceDartFiles(String repoRootPosix) {
+  final results = <String>[];
+  final rootDir = Directory(repoRootPosix);
+  if (!rootDir.existsSync()) return results;
+  // Walk repoRoot looking for `lib` directories, collect dart files within.
+  void walkRoot(String absDir) {
+    final dir = Directory(absDir);
+    List<FileSystemEntity> entities;
+    try {
+      entities = dir.listSync(followLinks: false)
+        ..sort((a, b) => a.path.compareTo(b.path));
+    } catch (_) {
+      return;
+    }
+    for (final entity in entities) {
+      final abs = _toPosix(entity.path);
+      final base = _basename(abs);
+      if (base.startsWith('.') || base == 'build' || base == '.dart_tool') continue;
+      if (entity is Directory) {
+        if (base == 'lib') {
+          // Found a lib dir — collect all dart files under it, repo-relative.
+          final relLibPrefix = abs.substring(repoRootPosix.length + 1); // e.g. packages/foo/lib
+          final libFiles = _collectDartFiles(abs);
+          for (final f in libFiles) {
+            results.add('$relLibPrefix/$f');
+          }
+        } else {
+          walkRoot(abs);
+        }
+      }
+    }
+  }
+
+  walkRoot(repoRootPosix);
+  results.sort();
+  return results;
+}
+
 /// Resolves the owning Dart package name per file: nearest pubspec.yaml
 /// walking up toward [repoRoot]; falls back to "unknown" (schema requires
 /// intentSignals.packageName to be non-empty).
@@ -225,27 +272,36 @@ Map<String, Object?> harvestCandidates(Map<Object?, Object?> params) {
   final profile = resolveProfiles(params['profiles']);
 
   final libDirPosix = _join(repoRoot, libSubdir);
-  if (!Directory(libDirPosix).existsSync()) {
+  List<String> relFiles;
+  var isWorkspaceFallback = false;
+  if (Directory(libDirPosix).existsSync()) {
+    relFiles = _collectDartFiles(libDirPosix);
+  } else if (libSubdir == 'lib' && _isWorkspaceRepo(repoRoot)) {
+    // Monorepo workspace fallback: collect from all `lib` dirs under repoRoot
+    // (e.g. packages/*/lib, apps/*/lib) when root lib/ is absent.
+    relFiles = _collectWorkspaceDartFiles(repoRoot);
+    if (relFiles.isEmpty) {
+      return {'candidates': const <Object?>[]};
+    }
+    isWorkspaceFallback = true;
+  } else {
     return {'candidates': const <Object?>[]};
   }
 
   final resolver = _PackageNameResolver(repoRoot);
   final candidates = <Map<String, Object?>>[];
-  final relFiles = _collectDartFiles(libDirPosix);
-  // Candidate paths are REPO-relative ("<repoRelPath>#symbol"); files are
-  // walked relative to libSubdir, so re-base them here.
   final subdirPrefix =
       libSubdir == '.' || libSubdir == '' ? '' : '${_toPosix(libSubdir)}/';
 
   for (final rel in relFiles) {
-    final absFile = _join(libDirPosix, rel);
+    final absFile = isWorkspaceFallback ? _join(repoRoot, rel) : _join(libDirPosix, rel);
     ScanResult scanned;
     try {
       scanned = scanSource(File(absFile).readAsStringSync());
     } catch (_) {
       continue; // unreadable file: skip deterministically, never crash
     }
-    final posixRel = '$subdirPrefix$rel';
+    final posixRel = isWorkspaceFallback ? rel : '$subdirPrefix$rel';
     final fileStem = _stem(rel);
     final packageName = resolver.packageNameFor(_dirname(absFile));
 
@@ -317,6 +373,7 @@ _Marker? _classifyMethod({
 }) {
   final lowerClass = className.toLowerCase();
   final endsNotifier = lowerClass.endsWith('notifier');
+  final endsController = lowerClass.endsWith('controller');
   final endsCubit = lowerClass.endsWith('cubit');
   final endsBloc = lowerClass.endsWith('bloc');
   final endsUseCase =
@@ -337,7 +394,7 @@ _Marker? _classifyMethod({
       profile.stateMutationRegexes.any((re) => re.hasMatch(bodyText));
   if (mutationEvidence &&
       _notifyStyleCall.hasMatch(bodyText) &&
-      (endsNotifier || endsCubit)) {
+      (endsNotifier || endsController || endsCubit)) {
     return const _Marker(triggerStateTransition, markerStateMutation);
   }
 
@@ -349,13 +406,13 @@ _Marker? _classifyMethod({
     return const _Marker(triggerUseCaseInvocation, markerUsecaseCall);
   }
 
-  // 4. Bloc event handlers (`void _on<Event>(...)` registration shape).
-  if ((endsBloc || endsCubit) && _blocHandlerName.hasMatch(methodName)) {
+  // 4. Bloc / Controller event handlers (`void _on<Event>(...)` registration shape).
+  if ((endsBloc || endsCubit || endsController) && _blocHandlerName.hasMatch(methodName)) {
     return const _Marker(triggerUserAction, markerBlocHandler);
   }
 
-  // 5. Notifier action methods (anything except build / plumbing names).
-  if (endsNotifier && !_excludedMethodNames.contains(methodName)) {
+  // 5. Notifier / Controller action methods (anything except build / plumbing names).
+  if ((endsNotifier || endsController) && !_excludedMethodNames.contains(methodName)) {
     return const _Marker(triggerUserAction, markerNotifierMethod);
   }
 

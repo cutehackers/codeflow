@@ -27,6 +27,10 @@ type Anchor struct {
 	SpanHash                string `json:"spanHash"`
 	EnclosingSymbolPath     string `json:"enclosingSymbolPath"`
 	CanonicalAstFingerprint string `json:"canonicalAstFingerprint"`
+	// SymbolRange is an OPTIONAL presentation hint: [startByte, endByte) of the
+	// enclosing symbol (signature line through closing brace). Never used for
+	// identity; freshness/relink ignore it.
+	SymbolRange *[2]int `json:"symbolRange,omitempty"`
 }
 
 // SliceStep represents a single guard, mutation, call, or branch step extracted from AST.
@@ -48,6 +52,9 @@ type SliceEdge struct {
 	ToSymbolPath     string `json:"toSymbolPath"`
 	ResolutionStatus string `json:"resolutionStatus"`
 	Depth            int    `json:"depth"`
+	// StepOrdinal is OPTIONAL: 1-based ordinal of the step that produced this
+	// edge. Absent in older adapter payloads — consumers must not guess.
+	StepOrdinal *int `json:"stepOrdinal,omitempty"`
 }
 
 // SlicedPayload is the language-neutral contract output returned by adapters.
@@ -156,7 +163,7 @@ func computeSliceCacheKey(repoRoot, candidateID, entrySymbolPath string, opts ma
 			fileByteHash = hex.EncodeToString(h[:])
 		}
 	}
-	versionInfo := "v2"
+	versionInfo := "v3"
 	optsHash := ""
 	if opts != nil {
 		if b, err := json.Marshal(opts); err == nil {

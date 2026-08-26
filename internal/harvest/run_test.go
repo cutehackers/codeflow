@@ -117,6 +117,7 @@ func byEntry(cs []Candidate) map[string]Candidate {
 
 func TestResolveDartAdapterForms(t *testing.T) {
 	t.Run("missing spec is an actionable error", func(t *testing.T) {
+		t.Setenv("HOME", t.TempDir())
 		_, err := ResolveDartAdapter("")
 		if err == nil || !strings.Contains(err.Error(), DartAdapterEnvVar) {
 			t.Fatalf("err = %v, want mention of %s", err, DartAdapterEnvVar)

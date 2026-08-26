@@ -193,6 +193,10 @@ func (s *Server) handleGetFlow(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Decorate with presentation-only layers for the architecture causal map.
+	// The stored spec on disk is never modified.
+	data = applyLayers(data)
+
 	w.Header().Set("Content-Type", "application/json")
 	_, _ = w.Write(data)
 }
@@ -221,11 +225,36 @@ func (s *Server) handleGetSource(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Lens 5-20 lines: respect ?startLine&endLine if present, else cap at 20 lines.
-	// startLine/endLine are 1-indexed inclusive.
+	// Lens slicing: the client passes the symbol-scoped view range
+	// (codeLens.viewStartLine..viewEndLine) so readers see the flow a line
+	// lives in, not a lone statement. Default cap 160 lines; mode=file returns
+	// the whole file (capped) for the 파일 전체 view.
 	content := string(data)
 	lines := strings.Split(content, "\n")
 	totalLines := len(lines)
+
+	const (
+		defaultLensLines = 160
+		maxLensLines     = 400
+		maxFileLines     = 2000
+	)
+
+	if r.URL.Query().Get("mode") == "file" {
+		if totalLines > maxFileLines {
+			content = strings.Join(lines[:maxFileLines], "\n")
+		}
+		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+		_, _ = w.Write([]byte(content))
+		return
+	}
+
+	maxLines := defaultLensLines
+	if v, err := strconv.Atoi(r.URL.Query().Get("maxLines")); err == nil && v > 0 {
+		maxLines = v
+	}
+	if maxLines > maxLensLines {
+		maxLines = maxLensLines
+	}
 
 	startLineStr := r.URL.Query().Get("startLine")
 	endLineStr := r.URL.Query().Get("endLine")
@@ -255,20 +284,20 @@ func (s *Server) handleGetSource(w http.ResponseWriter, r *http.Request) {
 		if startLine > endLine {
 			startLine = endLine
 		}
-		// Clamp to max 20 lines per spec
-		if endLine-startLine+1 > 20 {
-			endLine = startLine + 19
+		// Cap the view window; widen asymmetrically is not needed — the client
+		// centers on the focus lines when the symbol exceeds the cap.
+		if endLine-startLine+1 > maxLines {
+			endLine = startLine + maxLines - 1
 			if endLine > totalLines {
 				endLine = totalLines
 			}
 		}
-		// Enforce min 5 lines when possible, but don't exceed file bounds
 		sliced := lines[startLine-1 : endLine]
 		content = strings.Join(sliced, "\n")
 	} else {
-		// No explicit range: cap at 20 lines from start (CodeLens context)
-		if totalLines > 20 {
-			content = strings.Join(lines[:20], "\n")
+		// No explicit range: cap the window from the top.
+		if totalLines > maxLines {
+			content = strings.Join(lines[:maxLines], "\n")
 		}
 	}
 

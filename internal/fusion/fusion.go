@@ -9,6 +9,7 @@
 package fusion
 
 import (
+	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -26,10 +27,15 @@ import (
 )
 
 // CodeLens specifies presentation line ranges derived at render time.
+// Focus = [StartLine, EndLine] (the step's exact evidence lines).
+// View = [ViewStartLine, ViewEndLine] (the enclosing symbol body) so FlowView
+// can show the flow a line lives in instead of a lone statement.
 type CodeLens struct {
-	Path      string `json:"path"`
-	StartLine int    `json:"startLine"`
-	EndLine   int    `json:"endLine"`
+	Path          string `json:"path"`
+	StartLine     int    `json:"startLine"`
+	EndLine       int    `json:"endLine"`
+	ViewStartLine int    `json:"viewStartLine,omitempty"`
+	ViewEndLine   int    `json:"viewEndLine,omitempty"`
 }
 
 // StateDelta represents before/after states for mutation steps.
@@ -40,19 +46,30 @@ type StateDelta struct {
 
 // FlowStep represents a fused business flow step ready for FlowView rendering.
 type FlowStep struct {
-	Ordinal    int         `json:"ordinal"`
-	Name       string      `json:"name"`
-	Provenance string      `json:"provenance"` // approved | session | derived | unknown
-	Freshness  string      `json:"freshness"`  // fresh | stale | orphaned (schemas/identity $defs/freshness)
-	Confidence float64     `json:"confidence"` // 0.0 - 1.0
-	BasisSha   string      `json:"basisSha"`
+	Ordinal    int            `json:"ordinal"`
+	Name       string         `json:"name"`
+	Provenance string         `json:"provenance"` // approved | session | derived | unknown
+	Freshness  string         `json:"freshness"`  // fresh | stale | orphaned (schemas/identity $defs/freshness)
+	Confidence float64        `json:"confidence"` // 0.0 - 1.0
+	BasisSha   string         `json:"basisSha"`
 	Anchor     slicing.Anchor `json:"anchor"`
-	StepID     *string     `json:"stepId,omitempty"`
-	Rules      []string    `json:"rules,omitempty"`
-	StateDelta *StateDelta `json:"stateDelta,omitempty"`
-	SideEffect *string     `json:"sideEffect,omitempty"`
-	Branch     *string     `json:"branch,omitempty"`
-	CodeLens   *CodeLens   `json:"codeLens,omitempty"`
+	StepID     *string        `json:"stepId,omitempty"`
+	Rules      []string       `json:"rules,omitempty"`
+	StateDelta *StateDelta    `json:"stateDelta,omitempty"`
+	SideEffect *string        `json:"sideEffect,omitempty"`
+	Branch     *string        `json:"branch,omitempty"`
+	Kind       string         `json:"kind,omitempty"` // guard | mutation | call | branch (presentation-only)
+	CodeLens   *CodeLens      `json:"codeLens,omitempty"`
+}
+
+// FlowEdge is a presentation-only delegation target: which symbol a step hands
+// work off to. Carried over from the slice so FlowView can show the causal
+// hand-off, not just the timeline order.
+type FlowEdge struct {
+	Kind             string `json:"kind"` // resolved_cross_file | boundary_call | unknown_edge
+	ToSymbolPath     string `json:"toSymbolPath"`
+	ResolutionStatus string `json:"resolutionStatus"`
+	StepOrdinal      *int   `json:"stepOrdinal,omitempty"`
 }
 
 // Unknown represents an unresolvable item preserved explicitly.
@@ -65,10 +82,15 @@ type Unknown struct {
 type FlowSpec struct {
 	FlowID      string     `json:"flowId"`
 	Title       string     `json:"title"`
+	Description string     `json:"description,omitempty"`
 	BasisSha    string     `json:"basisSha"`
 	GeneratedAt string     `json:"generatedAt"`
 	Steps       []FlowStep `json:"steps"`
 	Unknowns    []Unknown  `json:"unknowns"`
+	// Edges is OPTIONAL (absent in older specs): delegation targets per step.
+	Edges []FlowEdge `json:"edges,omitempty"`
+	// Truncated is OPTIONAL: true when the slice traversal stopped early.
+	Truncated bool `json:"truncated,omitempty"`
 }
 
 // ComputeFlowID derives 'flow-<16hex>' from the canonical entry symbol path.
@@ -88,11 +110,12 @@ func ComputeStepID(flowID string, ordinal int, symbolPath string) string {
 
 // FuseOptions parameterizes the fusion process with optional overrides.
 type FuseOptions struct {
-	CustomTitle     string
-	SessionDrafts   map[string]SessionDraftStep // keyed by enclosingSymbolPath or stepId
-	ApprovedLedger  map[string]ApprovedStep    // keyed by enclosingSymbolPath or stepId
-	RepoRoot        string
-	BasisSha        string
+	CustomTitle       string
+	CustomDescription string
+	SessionDrafts     map[string]SessionDraftStep // keyed by enclosingSymbolPath or stepId
+	ApprovedLedger    map[string]ApprovedStep     // keyed by enclosingSymbolPath or stepId
+	RepoRoot          string
+	BasisSha          string
 }
 
 // SessionDraftStep represents an agent proposed step in E2.
@@ -104,8 +127,8 @@ type SessionDraftStep struct {
 
 // ApprovedStep represents a human approved step in E3.
 type ApprovedStep struct {
-	Name      string
-	Rules     []string
+	Name       string
+	Rules      []string
 	ApprovedAt time.Time
 }
 
@@ -217,10 +240,23 @@ func Fuse(sliced *slicing.SlicedPayload, opts FuseOptions) (*FlowSpec, error) {
 			StateDelta: stateDelta,
 			SideEffect: s.EffectTarget,
 			Branch:     branch,
+			Kind:       s.Kind,
 			CodeLens:   lens,
 		}
 
 		steps = append(steps, step)
+	}
+
+	// Presentation edges: keep every slice edge with its producing step so
+	// FlowView can show where each step hands work off to.
+	var edges []FlowEdge
+	for _, edge := range sliced.Edges {
+		edges = append(edges, FlowEdge{
+			Kind:             edge.Kind,
+			ToSymbolPath:     edge.ToSymbolPath,
+			ResolutionStatus: edge.ResolutionStatus,
+			StepOrdinal:      edge.StepOrdinal,
+		})
 	}
 
 	// Unknowns from sliced edges
@@ -243,10 +279,13 @@ func Fuse(sliced *slicing.SlicedPayload, opts FuseOptions) (*FlowSpec, error) {
 	spec := &FlowSpec{
 		FlowID:      flowID,
 		Title:       title,
+		Description: opts.CustomDescription,
 		BasisSha:    basisSha,
 		GeneratedAt: time.Now().UTC().Format(time.RFC3339),
 		Steps:       steps,
 		Unknowns:    unknowns,
+		Edges:       edges,
+		Truncated:   sliced.Truncated,
 	}
 
 	// Secret scan & validate against schema
@@ -379,7 +418,8 @@ func checkFreshness(repoRoot string, anchor slicing.Anchor) string {
 	return "stale"
 }
 
-// deriveCodeLens calculates 1-indexed start and end line numbers for presentation.
+// deriveCodeLens calculates 1-indexed presentation line ranges: focus from the
+// anchor's byte range, and view from the enclosing symbol range when present.
 func deriveCodeLens(repoRoot string, anchor slicing.Anchor) *CodeLens {
 	fullPath := filepath.Join(repoRoot, anchor.RepoRelativePath)
 	data, err := os.ReadFile(fullPath)
@@ -391,32 +431,99 @@ func deriveCodeLens(repoRoot string, anchor slicing.Anchor) *CodeLens {
 		}
 	}
 
-	startByte := anchor.ByteRange[0]
-	endByte := anchor.ByteRange[1]
-	if startByte > len(data) {
-		startByte = len(data)
-	}
-	if endByte > len(data) {
-		endByte = len(data)
+	startByte := clampOffset(anchor.ByteRange[0], len(data))
+	endByte := clampOffset(anchor.ByteRange[1], len(data))
+
+	focusStart := lineAtOffset(data, startByte)
+	focusEnd := lineAtOffset(data, endByte)
+	if focusEnd < focusStart {
+		focusEnd = focusStart
 	}
 
-	startLine := 1
-	for i := 0; i < startByte; i++ {
-		if data[i] == '\n' {
-			startLine++
-		}
-	}
-
-	endLine := startLine
-	for i := startByte; i < endByte; i++ {
-		if data[i] == '\n' {
-			endLine++
-		}
-	}
-
-	return &CodeLens{
+	lens := &CodeLens{
 		Path:      anchor.RepoRelativePath,
-		StartLine: startLine,
-		EndLine:   endLine,
+		StartLine: focusStart,
+		EndLine:   focusEnd,
 	}
+
+	// Symbol-scoped view: prefer the adapter-provided symbol range, fall back
+	// to a margin around the focus lines. Presentation-only, best effort.
+	totalLines := 1 + bytes.Count(data, []byte("\n"))
+	viewStart, viewEnd := focusStart, focusEnd
+	if anchor.SymbolRange != nil {
+		symStart := clampOffset((*anchor.SymbolRange)[0], len(data))
+		symEnd := clampOffset((*anchor.SymbolRange)[1], len(data))
+		if symEnd > symStart {
+			symStartLine := lineAtOffset(data, symStart)
+			symEndLine := lineAtOffset(data, symEnd)
+			viewStart = symStartLine
+			viewEnd = symEndLine
+			if viewEnd-viewStart+1 > maxViewLines {
+				// Cap the window centered on the focus lines, inside the symbol.
+				viewStart = focusStart - maxViewLines/2
+				if viewStart < symStartLine {
+					viewStart = symStartLine
+				}
+				viewEnd = viewStart + maxViewLines - 1
+				if viewEnd > symEndLine {
+					viewEnd = symEndLine
+					viewStart = viewEnd - maxViewLines + 1
+					if viewStart < symStartLine {
+						viewStart = symStartLine
+					}
+				}
+			}
+		}
+	} else {
+		viewStart = focusStart - fallbackViewMargin
+		viewEnd = focusEnd + fallbackViewMargin
+	}
+	if viewEnd < viewStart {
+		viewStart, viewEnd = focusStart, focusEnd
+	}
+	if viewStart > focusStart {
+		viewStart = focusStart
+	}
+	if viewEnd < focusEnd {
+		viewEnd = focusEnd
+	}
+	if viewStart < 1 {
+		viewStart = 1
+	}
+	if viewEnd > totalLines {
+		viewEnd = totalLines
+	}
+	if viewEnd > viewStart {
+		lens.ViewStartLine = viewStart
+		lens.ViewEndLine = viewEnd
+	}
+	return lens
+}
+
+const (
+	// maxViewLines caps the symbol-scoped view window rendered by FlowView.
+	maxViewLines = 120
+	// fallbackViewMargin widens the view around focus when no symbol range exists.
+	fallbackViewMargin = 12
+)
+
+func clampOffset(offset, size int) int {
+	if offset < 0 {
+		return 0
+	}
+	if offset > size {
+		return size
+	}
+	return offset
+}
+
+// lineAtOffset returns the 1-indexed line containing the given byte offset.
+func lineAtOffset(data []byte, offset int) int {
+	line := 1
+	for i := 0; i < offset && i < len(data); i++ {
+		if data[i] == '\n' {
+			line++
+		}
+	}
+	return line
 }

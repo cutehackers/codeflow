@@ -428,6 +428,9 @@ func (c *Conn) Call(ctx context.Context, op string, params any, result any) erro
 	case <-ctx.Done():
 		c.removePending(fr.env.ID)
 		c.sendCancelHint(fr.env.ID)
+		if errors.Is(ctx.Err(), context.DeadlineExceeded) {
+			return TimeoutError(fmt.Sprintf("op %s exceeded %v", op, wait))
+		}
 		return CancelledError(fmt.Sprintf("op %s: %v", op, ctx.Err()))
 	}
 }

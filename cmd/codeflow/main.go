@@ -91,22 +91,40 @@ func main() {
 	}
 }
 
+// reorderFlags moves flag tokens (and, for value-taking flags, their values)
+// ahead of positional arguments so flags work in any position — e.g.
+// `codeflow publish . -limit 5` — while keeping Go flag's parsing semantics.
+func reorderFlags(fs *flag.FlagSet, args []string) []string {
+	var flags, pos []string
+	for i := 0; i < len(args); i++ {
+		a := args[i]
+		if !strings.HasPrefix(a, "-") {
+			pos = append(pos, a)
+			continue
+		}
+		flags = append(flags, a)
+		if strings.Contains(a, "=") {
+			continue
+		}
+		if f := fs.Lookup(strings.TrimLeft(a, "-")); f != nil {
+			if _, isBool := f.Value.(interface{ IsBoolFlag() bool }); !isBool && i+1 < len(args) {
+				i++
+				flags = append(flags, args[i])
+			}
+		}
+	}
+	return append(flags, pos...)
+}
+
 func runInit(args []string) {
 	fs := flag.NewFlagSet("init", flag.ContinueOnError)
 	fs.Usage = func() {
 		fmt.Fprintln(os.Stderr, "usage: codeflow init [path]")
 	}
-	var flagArgs, posArgs []string
-	for _, a := range args {
-		if strings.HasPrefix(a, "-") {
-			flagArgs = append(flagArgs, a)
-		} else {
-			posArgs = append(posArgs, a)
-		}
-	}
-	if err := fs.Parse(flagArgs); err != nil {
+	if err := fs.Parse(reorderFlags(fs, args)); err != nil {
 		os.Exit(2)
 	}
+	posArgs := fs.Args()
 	target := "."
 	if len(posArgs) == 1 {
 		target = posArgs[0]
@@ -128,17 +146,10 @@ func runFlows(args []string) {
 	}
 	jsonOut := fs.Bool("json", false, "emit the raw candidates JSON array instead of a table")
 
-	var flagArgs, posArgs []string
-	for _, a := range args {
-		if strings.HasPrefix(a, "-") {
-			flagArgs = append(flagArgs, a)
-		} else {
-			posArgs = append(posArgs, a)
-		}
-	}
-	if err := fs.Parse(flagArgs); err != nil {
+	if err := fs.Parse(reorderFlags(fs, args)); err != nil {
 		os.Exit(2)
 	}
+	posArgs := fs.Args()
 	target := "."
 	if len(posArgs) == 1 {
 		target = posArgs[0]
@@ -178,15 +189,10 @@ func runFlows(args []string) {
 func runPublish(args []string) {
 	fs := flag.NewFlagSet("publish", flag.ContinueOnError)
 	limitFlag := fs.Int("limit", 50, "maximum number of top-scored flows to slice and publish")
-	var flagArgs, posArgs []string
-	for _, a := range args {
-		if strings.HasPrefix(a, "-") {
-			flagArgs = append(flagArgs, a)
-		} else {
-			posArgs = append(posArgs, a)
-		}
+	if err := fs.Parse(reorderFlags(fs, args)); err != nil {
+		os.Exit(2)
 	}
-	_ = fs.Parse(flagArgs)
+	posArgs := fs.Args()
 	target := "."
 	if len(posArgs) == 1 {
 		target = posArgs[0]
@@ -223,7 +229,19 @@ func runPublish(args []string) {
 		os.Exit(1)
 	}
 
-	toPublish := candidates
+	// Business flows only: prioritize manifest pinned flows first, then root
+	// user/system flows spanning layers. Deduped members (unless pinned) and
+	// standalone internal use cases are excluded from top-level flow publishing.
+	var pinned, unpinned []harvest.Candidate
+	for _, c := range candidates {
+		if c.ManifestOverride == "pinned" {
+			pinned = append(pinned, c)
+		} else if c.DedupedInto == nil && c.TriggerClass != "use_case_invocation" {
+			unpinned = append(unpinned, c)
+		}
+	}
+
+	toPublish := append(pinned, unpinned...)
 	if len(toPublish) > *limitFlag {
 		toPublish = toPublish[:*limitFlag]
 	}
@@ -276,13 +294,18 @@ func runPublish(args []string) {
 		if title == "" {
 			title = naming.DeriveTitle(c.EntrySymbolPath)
 		}
+		desc := ""
+		if c.IntentSignals.DocLine != nil {
+			desc = *c.IntentSignals.DocLine
+		}
 
 		spec, err := fusion.Fuse(sliced, fusion.FuseOptions{
-			CustomTitle:    title,
-			RepoRoot:       absTarget,
-			ApprovedLedger: approved,
-			SessionDrafts:  session,
-			BasisSha:       basisSha,
+			CustomTitle:       title,
+			CustomDescription: desc,
+			RepoRoot:          absTarget,
+			ApprovedLedger:    approved,
+			SessionDrafts:     session,
+			BasisSha:          basisSha,
 		})
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "warning: fuse failed for %s: %v\n", c.EntrySymbolPath, err)
@@ -293,6 +316,7 @@ func runPublish(args []string) {
 		_ = sess.AddFlowSpec(spec.FlowID, specBytes, storage.FlowSummary{
 			FlowID:          spec.FlowID,
 			Title:           spec.Title,
+			Description:     spec.Description,
 			EntrySymbolPath: c.EntrySymbolPath,
 			StepCount:       len(spec.Steps),
 		})
@@ -310,15 +334,10 @@ func runPublish(args []string) {
 func runShow(args []string) {
 	fs := flag.NewFlagSet("show", flag.ContinueOnError)
 	jsonOut := fs.Bool("json", false, "emit flow as JSON")
-	var flagArgs, posArgs []string
-	for _, a := range args {
-		if strings.HasPrefix(a, "-") {
-			flagArgs = append(flagArgs, a)
-		} else {
-			posArgs = append(posArgs, a)
-		}
+	if err := fs.Parse(reorderFlags(fs, args)); err != nil {
+		os.Exit(2)
 	}
-	_ = fs.Parse(flagArgs)
+	posArgs := fs.Args()
 
 	if len(posArgs) == 0 {
 		fmt.Fprintln(os.Stderr, "usage: codeflow show <flowId|entrySymbolPath> [repoPath]")
@@ -384,23 +403,10 @@ func runShow(args []string) {
 func runServe(args []string) {
 	fs := flag.NewFlagSet("view", flag.ContinueOnError)
 	portFlag := fs.Int("port", 4567, "loopback port for FlowView UI")
-	var flagArgs, posArgs []string
-	for i := 0; i < len(args); i++ {
-		a := args[i]
-		if a == "--port" && i+1 < len(args) {
-			flagArgs = append(flagArgs, "--port="+args[i+1])
-			i++
-			continue
-		}
-		if strings.HasPrefix(a, "-") {
-			flagArgs = append(flagArgs, a)
-		} else {
-			posArgs = append(posArgs, a)
-		}
-	}
-	if err := fs.Parse(flagArgs); err != nil {
+	if err := fs.Parse(reorderFlags(fs, args)); err != nil {
 		os.Exit(2)
 	}
+	posArgs := fs.Args()
 	target := "."
 	if len(posArgs) == 1 {
 		target = posArgs[0]
@@ -487,7 +493,7 @@ func runInstallRecord(args []string) {
 	fs.StringVar(&state.SkillPath, "skill-path", "", "installed skill path")
 	fs.StringVar(&state.SkillSHA256, "skill-sha256", "", "installed SKILL.md sha256")
 	fs.StringVar(&state.MCPName, "mcp-name", "", "Codex MCP registration name")
-	if err := fs.Parse(args); err != nil {
+	if err := fs.Parse(reorderFlags(fs, args)); err != nil {
 		os.Exit(2)
 	}
 	if err := installstate.Save(state); err != nil {

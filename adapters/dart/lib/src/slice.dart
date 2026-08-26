@@ -8,11 +8,18 @@
 // language-neutral SlicedPayload.
 library;
 
+import 'dart:convert';
 import 'dart:io';
 
 import 'humanize.dart';
 import 'scanner.dart';
 import 'sha256.dart';
+
+int _byteOffset(String source, int charOffset) {
+  if (charOffset <= 0) return 0;
+  if (charOffset >= source.length) return utf8.encode(source).length;
+  return utf8.encode(source.substring(0, charOffset)).length;
+}
 
 // --- Secret scanner & redaction ---------------------------------------------
 
@@ -97,6 +104,11 @@ bool _isBoundarySymbol(String symbolPath, List<String> boundarySuffixes) {
   return false;
 }
 
+/// Returns a schema-safe placeholder for a call whose target cannot be
+/// resolved statically. The edge still records that uncertainty explicitly.
+String _unresolvedDynamicSymbol(String methodName) =>
+    'unresolved_dynamic.$methodName';
+
 // --- Slicing Data Structures ------------------------------------------------
 
 class _SliceStep {
@@ -144,6 +156,7 @@ class _SliceEdge {
     required this.toSymbolPath,
     required this.resolutionStatus,
     required this.depth,
+    required this.stepOrdinal,
   });
 
   final String kind;
@@ -151,11 +164,16 @@ class _SliceEdge {
   final String resolutionStatus;
   final int depth;
 
+  /// 1-based ordinal of the step that produced this edge, so FlowView can
+  /// attach the delegation target to the right timeline card.
+  final int stepOrdinal;
+
   Map<String, Object?> toJson() => {
         'kind': kind,
         'toSymbolPath': toSymbolPath,
         'resolutionStatus': resolutionStatus,
         'depth': depth,
+        'stepOrdinal': stepOrdinal,
       };
 }
 
@@ -245,9 +263,13 @@ List<String> _extractImports(String source) {
   return imports;
 }
 
-/// Resolves an import URI to a repo-relative path.
-String? _resolveImportPath(
-    String importUri, String currentRelPath, String packageName) {
+/// Resolves an import URI to a repo-relative path. [packageName] is the
+/// owning package of the importing file (used to map `package:<pkg>/...`
+/// onto its `lib/`); [workspacePackages] maps every other package name in a
+/// monorepo workspace onto its package root so cross-package imports
+/// resolve too.
+String? _resolveImportPath(String importUri, String currentRelPath,
+    String packageName, Map<String, String> workspacePackages) {
   if (importUri.startsWith('package:')) {
     final rest = importUri.substring('package:'.length);
     final slash = rest.indexOf('/');
@@ -256,6 +278,10 @@ String? _resolveImportPath(
     final subpath = rest.substring(slash + 1);
     if (pkg == packageName) {
       return 'lib/$subpath';
+    }
+    final pkgRoot = workspacePackages[pkg];
+    if (pkgRoot != null) {
+      return '$pkgRoot/lib/$subpath';
     }
     return null; // External package
   }
@@ -278,9 +304,18 @@ String? _resolveImportPath(
   return parts.join('/');
 }
 
+/// Extracts the provider variable name from a `ref.read(x)` / `ref.watch(x)`
+/// receiver, or null when the receiver is not a ref-read.
+String? _providerNameFromReceiver(String receiverOrFunc) {
+  final m = RegExp(r'^ref\.(?:read|watch)\(\s*([A-Za-z0-9_$]+)\s*\)$')
+      .firstMatch(receiverOrFunc.trim());
+  return m?.group(1);
+}
+
 /// Attempts to resolve a called method on a receiver/function to a target file & method.
 _ResolvedTarget? _resolveCallTarget({
   required _ResolverContext ctx,
+  required Map<String, String> workspacePackages,
   required String currentRelPath,
   required String currentClassName,
   required String receiverOrFunc,
@@ -305,21 +340,59 @@ _ResolvedTarget? _resolveCallTarget({
       targetClassName = m.group(1);
     }
 
-    // Look for Provider / DI: `final fooProvider = Provider<FooService>(...)` or `ref.read(fooProvider)`
+    // Look for Provider / DI: `final fooProvider = Provider<FooService>(...)` or `ref.read(fooProvider)`.
+    // The provider variable usually lives in the same file OR in an imported
+    // domain file, so search the import closure too.
     if (targetClassName == null) {
-      final cleanReceiver = receiverOrFunc.replaceAll(RegExp(r'^ref\.read\('), '').replaceAll(RegExp(r'\)$'), '');
+      final cleanReceiver = _providerNameFromReceiver(receiverOrFunc) ??
+          receiverOrFunc
+              .replaceAll(RegExp(r'^ref\.read\('), '')
+              .replaceAll(RegExp(r'\)$'), '');
       final providerRe = RegExp(
-        RegExp.escape(cleanReceiver) +
-            r'\s*=\s*(?:StateNotifierProvider|NotifierProvider|Provider|ChangeNotifierProvider|FutureProvider)\s*<([A-Za-z0-9_$]+)',
+        r'(?:final\s+)?' +
+            RegExp.escape(cleanReceiver) +
+            r'\s*=\s*(?:StateNotifierProvider|NotifierProvider|Provider|ChangeNotifierProvider|FutureProvider|StreamProvider)\s*<([^>]+)>',
       );
       final pm = providerRe.firstMatch(currentContent);
       if (pm != null) {
-        targetClassName = pm.group(1);
+        // `Provider<EstablishSessionAfterJoinUseCase>` — take the first type
+        // argument's head as the class the call resolves to.
+        final typeArg = pm.group(1)!.split(',')[0].trim();
+        targetClassName = typeArg.split('<')[0].trim();
+      } else {
+        // Search imported files for the provider definition.
+        for (final uri in _extractImports(currentContent)) {
+          final resolvedPath =
+              _resolveImportPath(uri, currentRelPath, ctx.packageName, workspacePackages);
+          if (resolvedPath == null) continue;
+          final importedContent = ctx.readFile(resolvedPath);
+          if (importedContent == null) continue;
+          final im = providerRe.firstMatch(importedContent);
+          if (im != null) {
+            final typeArg = im.group(1)!.split(',')[0].trim();
+            targetClassName = typeArg.split('<')[0].trim();
+            break;
+          }
+        }
       }
     }
   } else if (receiverOrFunc.isEmpty) {
-    // Direct function or method in current class
-    targetClassName = currentClassName;
+    // Direct function or method in current class — unless the name is a
+    // callable field (`final SignUpUseCase _signUp;` then `_signUp(draft)`
+    // invokes `SignUpUseCase.call`). Resolve the field's declared type and
+    // follow its `call` method so UseCase delegation traverses.
+    final fieldRe = RegExp(
+      r'(?:final|late|var|const)?\s*([A-Z][A-Za-z0-9_$]*)\s+' +
+          RegExp.escape(methodName) +
+          r'\s*[;=]',
+    );
+    final fm = fieldRe.firstMatch(currentContent);
+    if (fm != null) {
+      targetClassName = fm.group(1);
+      methodName = 'call';
+    } else {
+      targetClassName = currentClassName;
+    }
   }
 
   // If targetClassName is still null, but receiver matches a ClassName pattern (PascalCase), it might be static method or constructor
@@ -366,7 +439,7 @@ _ResolvedTarget? _resolveCallTarget({
   final importUris = _extractImports(currentContent);
   for (final uri in importUris) {
     final resolvedPath =
-        _resolveImportPath(uri, currentRelPath, ctx.packageName);
+        _resolveImportPath(uri, currentRelPath, ctx.packageName, workspacePackages);
     if (resolvedPath == null) continue;
     final importedScan = ctx.scanFile(resolvedPath);
     if (importedScan == null) continue;
@@ -418,6 +491,46 @@ _ResolvedTarget? _resolveCallTarget({
 
 // --- Main Slicing Engine ----------------------------------------------------
 
+
+/// Walks [repoRootPosix] for nested `pubspec.yaml` files (packages/*,
+/// apps/*) and records `<package name> -> <package dir>` pairs so
+/// cross-package imports resolve inside a monorepo workspace. Bounded to
+/// two directory levels to stay deterministic and cheap.
+void _collectWorkspacePackages(String repoRootPosix, Map<String, String> out) {
+  final rootDir = Directory(repoRootPosix);
+  if (!rootDir.existsSync()) return;
+  void scanPackageDir(String dirPath) {
+    final pubspec = File('$dirPath/pubspec.yaml');
+    if (pubspec.existsSync()) {
+      try {
+        for (final line in pubspec.readAsStringSync().split('\n')) {
+          final m = RegExp(r'^name:\s*([^\s#]+)').firstMatch(line.trimLeft());
+          if (m != null) {
+            final rel = dirPath.startsWith(repoRootPosix)
+                ? dirPath.substring(repoRootPosix.length + 1)
+                : dirPath;
+            out[m.group(1)!] = rel;
+            return;
+          }
+        }
+      } catch (_) {
+        // unreadable pubspec: skip deterministically
+      }
+    }
+  }
+
+  for (final top in ['packages', 'apps']) {
+    final topDir = Directory('$repoRootPosix/$top');
+    if (!topDir.existsSync()) continue;
+    for (final entity in topDir.listSync(followLinks: false)
+      ..sort((a, b) => a.path.compareTo(b.path))) {
+      if (entity is Directory) {
+        scanPackageDir(entity.path);
+      }
+    }
+  }
+}
+
 /// Performs Stage 2 Structural Slice for a given candidate.
 Map<String, Object?> sliceCandidate({
   required String repoRoot,
@@ -436,6 +549,37 @@ Map<String, Object?> sliceCandidate({
     }
   }
 
+  // Split entrySymbolPath: e.g. "lib/features/auth/email_signup_notifier.dart#EmailSignupNotifier.submit"
+  final hashIndex = entrySymbolPath.indexOf('#');
+  if (hashIndex < 0) {
+    throw ArgumentError('Invalid entrySymbolPath format: $entrySymbolPath');
+  }
+  final initialRelPath0 = entrySymbolPath.substring(0, hashIndex);
+  final initialSymbol = entrySymbolPath.substring(hashIndex + 1);
+  // Repo-relative path as published (may already carry packages/ prefix).
+  final initialRelPath = initialRelPath0;
+
+  // Monorepo workspace: map every sibling package's name onto its root so
+  // `package:<pkg>/...` imports resolve across packages. The owning package
+  // of the entry file wins via [packageName] above; when the entry lives in
+  // a nested package (workspace layout), that package's name is used.
+  var effectivePackageName = packageName;
+  final workspacePackages = <String, String>{};
+  _collectWorkspacePackages(posixRoot, workspacePackages);
+  if (effectivePackageName.isEmpty && workspacePackages.isNotEmpty) {
+    // Infer from the entry file path: packages/<name>/lib/...
+    final m = RegExp(r'^packages/([^/]+)/').firstMatch(initialRelPath0);
+    if (m != null) {
+      final pkgDir = 'packages/${m.group(1)}';
+      for (final entry in workspacePackages.entries) {
+        if (entry.value == pkgDir) {
+          effectivePackageName = entry.key;
+          break;
+        }
+      }
+    }
+  }
+
   final boundarySuffixes = <String>[..._defaultBoundarySuffixes];
   final customBoundaries = opts['boundaryMarkers'];
   if (customBoundaries is List) {
@@ -448,7 +592,7 @@ Map<String, Object?> sliceCandidate({
 
   final ctx = _ResolverContext(
     repoRoot: posixRoot,
-    packageName: packageName,
+    packageName: effectivePackageName,
     boundarySuffixes: boundarySuffixes,
   );
 
@@ -458,14 +602,6 @@ Map<String, Object?> sliceCandidate({
   var truncated = false;
   var visitedCycleDetected = false;
   var totalRedactedCount = 0;
-
-  // Split entrySymbolPath: e.g. "lib/features/auth/email_signup_notifier.dart#EmailSignupNotifier.submit"
-  final hashIndex = entrySymbolPath.indexOf('#');
-  if (hashIndex < 0) {
-    throw ArgumentError('Invalid entrySymbolPath format: $entrySymbolPath');
-  }
-  final initialRelPath = entrySymbolPath.substring(0, hashIndex);
-  final initialSymbol = entrySymbolPath.substring(hashIndex + 1);
 
   String initialClass = '';
   String initialMethod = initialSymbol;
@@ -482,7 +618,8 @@ Map<String, Object?> sliceCandidate({
     required String methodName,
     required int depth,
   }) {
-    final fullSym = className.isNotEmpty ? '$className.$methodName' : methodName;
+    final fullSym =
+        className.isNotEmpty ? '$className.$methodName' : methodName;
     final entryKey = '$relPath#$fullSym';
 
     if (visitedSet.contains(entryKey)) {
@@ -526,11 +663,20 @@ Map<String, Object?> sliceCandidate({
     if (targetMethod == null) return;
 
     final fileHash = sha256Hex(fileContent);
-    final bodySource = fileContent.substring(targetMethod.bodyStart, targetMethod.bodyEnd);
+    final bodySource =
+        fileContent.substring(targetMethod.bodyStart, targetMethod.bodyEnd);
     final bodyStartOffset = targetMethod.bodyStart;
 
+    // Symbol-scoped view range for FlowView: signature line through the end
+    // of the method body. Presentation-only; never used for identity.
+    final symbolRange = [
+      _byteOffset(fileContent, _lineStartOffset(fileContent, targetMethod.nameLine)),
+      _byteOffset(fileContent, targetMethod.bodyEnd),
+    ];
+
     // Slice statements in body
-    final stmtList = _extractStatements(bodySource, bodyStartOffset, fileContent);
+    final stmtList =
+        _extractStatements(bodySource, bodyStartOffset, fileContent);
 
     for (final stmt in stmtList) {
       final spanBytes = fileContent.substring(stmt.startOffset, stmt.endOffset);
@@ -543,11 +689,15 @@ Map<String, Object?> sliceCandidate({
 
       final anchor = <String, Object?>{
         'repoRelativePath': relPath,
-        'byteRange': [stmt.startOffset, stmt.endOffset],
+        'byteRange': [
+          _byteOffset(fileContent, stmt.startOffset),
+          _byteOffset(fileContent, stmt.endOffset)
+        ],
         'fileHash': fileHash,
         'spanHash': spanHash,
         'enclosingSymbolPath': fullSym,
         'canonicalAstFingerprint': canonicalAst,
+        'symbolRange': symbolRange,
       };
 
       // Guard check
@@ -607,9 +757,8 @@ Map<String, Object?> sliceCandidate({
           continue;
         }
 
-        final callTargetSym = receiver.isNotEmpty
-            ? '$receiver.$calledMethod'
-            : calledMethod;
+        final callTargetSym =
+            receiver.isNotEmpty ? '$receiver.$calledMethod' : calledMethod;
 
         // Determine receiver type if receiver is a variable or provider
         String? receiverType;
@@ -623,16 +772,33 @@ Map<String, Object?> sliceCandidate({
           if (m != null) {
             receiverType = m.group(1);
           } else {
-            final cleanReceiver = receiver
-                .replaceAll(RegExp(r'^ref\.read\('), '')
-                .replaceAll(RegExp(r'\)$'), '');
+            final cleanReceiver = _providerNameFromReceiver(receiver) ??
+                receiver
+                    .replaceAll(RegExp(r'^ref\.read\('), '')
+                    .replaceAll(RegExp(r'\)$'), '');
             final providerRe = RegExp(
-              RegExp.escape(cleanReceiver) +
-                  r'\s*=\s*(?:StateNotifierProvider|NotifierProvider|Provider|ChangeNotifierProvider|FutureProvider)\s*<([A-Za-z0-9_$]+)',
+              r'(?:final\s+)?' +
+                  RegExp.escape(cleanReceiver) +
+                  r'\s*=\s*(?:StateNotifierProvider|NotifierProvider|Provider|ChangeNotifierProvider|FutureProvider|StreamProvider)\s*<([^>]+)>',
             );
             final pm = providerRe.firstMatch(fileContent);
             if (pm != null) {
-              receiverType = pm.group(1);
+              final typeArg = pm.group(1)!.split(',')[0].trim();
+              receiverType = typeArg.split('<')[0].trim();
+            } else {
+              for (final uri in _extractImports(fileContent)) {
+                final resolvedPath =
+                    _resolveImportPath(uri, relPath, effectivePackageName, workspacePackages);
+                if (resolvedPath == null) continue;
+                final importedContent = ctx.readFile(resolvedPath);
+                if (importedContent == null) continue;
+                final im = providerRe.firstMatch(importedContent);
+                if (im != null) {
+                  final typeArg = im.group(1)!.split(',')[0].trim();
+                  receiverType = typeArg.split('<')[0].trim();
+                  break;
+                }
+              }
             }
           }
         }
@@ -642,8 +808,55 @@ Map<String, Object?> sliceCandidate({
             (receiverType != null &&
                 _isBoundarySymbol(receiverType, boundarySuffixes));
 
-        // Check boundary marker
-        if (isBoundary) {
+        // Attempt cross-file resolution first
+        final resolved = _resolveCallTarget(
+          ctx: ctx,
+          workspacePackages: workspacePackages,
+          currentRelPath: relPath,
+          currentClassName: className,
+          receiverOrFunc: receiver,
+          methodName: calledMethod,
+        );
+
+        if (resolved != null) {
+          final isResolvedBoundary = isBoundary ||
+              _isBoundarySymbol(resolved.symbolPath, boundarySuffixes) ||
+              _isBoundarySymbol(resolved.className, boundarySuffixes);
+          final edgeKind =
+              isResolvedBoundary ? 'boundary_call' : 'resolved_cross_file';
+          final redactDesc = _redactSecrets(
+              _deriveCallDescription(resolved.symbolPath, isBoundary: isResolvedBoundary));
+          totalRedactedCount += redactDesc.count;
+
+          steps.add(_SliceStep(
+            ordinal: steps.length + 1,
+            kind: 'call',
+            description: redactDesc.text,
+            symbolPath: resolved.symbolPath,
+            anchor: anchor,
+            effectTarget: isResolvedBoundary ? resolved.symbolPath : null,
+          ));
+
+          edges.add(_SliceEdge(
+            kind: edgeKind,
+            toSymbolPath: resolved.fullEntryPath,
+            resolutionStatus: 'resolved',
+            depth: depth,
+            stepOrdinal: steps.last.ordinal,
+          ));
+
+          // Traverse target
+          if (depth < 5) {
+            sliceMethodBody(
+              relPath: resolved.repoRelativePath,
+              className: resolved.className,
+              methodName: resolved.methodName,
+              depth: depth + 1,
+            );
+          } else {
+            truncated = true;
+          }
+        } else if (isBoundary) {
           final boundarySym = receiverType != null
               ? '$receiverType.$calledMethod'
               : callTargetSym;
@@ -668,77 +881,37 @@ Map<String, Object?> sliceCandidate({
             toSymbolPath: '$relPath#$boundarySym',
             resolutionStatus: 'resolved',
             depth: depth,
+            stepOrdinal: steps.last.ordinal,
           ));
         } else {
-
-          // Attempt cross-file resolution
-          final resolved = _resolveCallTarget(
-            ctx: ctx,
-            currentRelPath: relPath,
-            currentClassName: className,
-            receiverOrFunc: receiver,
-            methodName: calledMethod,
-          );
-
-          if (resolved != null) {
-            final redactDesc = _redactSecrets(_deriveCallDescription(
-                resolved.symbolPath,
-                isBoundary: false));
+          // Unresolved dynamic call / unknown edge
+          if (calledMethod.isNotEmpty &&
+              !_defaultDenylist.contains(calledMethod)) {
+            final redactDesc = _redactSecrets(
+                _deriveCallDescription(callTargetSym, isBoundary: false));
             totalRedactedCount += redactDesc.count;
 
             steps.add(_SliceStep(
               ordinal: steps.length + 1,
               kind: 'call',
               description: redactDesc.text,
-              symbolPath: resolved.symbolPath,
+              symbolPath: fullSym,
               anchor: anchor,
             ));
 
             edges.add(_SliceEdge(
-              kind: 'resolved_cross_file',
-              toSymbolPath: resolved.fullEntryPath,
-              resolutionStatus: 'resolved',
+              kind: 'unknown_edge',
+              toSymbolPath:
+                  '$relPath#${_unresolvedDynamicSymbol(calledMethod)}',
+              resolutionStatus: 'unresolved_dynamic',
               depth: depth,
+              stepOrdinal: steps.last.ordinal,
             ));
-
-            // Traverse target
-            if (depth < 5) {
-              sliceMethodBody(
-                relPath: resolved.repoRelativePath,
-                className: resolved.className,
-                methodName: resolved.methodName,
-                depth: depth + 1,
-              );
-            } else {
-              truncated = true;
-            }
-          } else {
-            // Unresolved dynamic call / unknown edge
-            if (calledMethod.isNotEmpty &&
-                !_defaultDenylist.contains(calledMethod)) {
-              final redactDesc = _redactSecrets(
-                  _deriveCallDescription(callTargetSym, isBoundary: false));
-              totalRedactedCount += redactDesc.count;
-
-              steps.add(_SliceStep(
-                ordinal: steps.length + 1,
-                kind: 'call',
-                description: redactDesc.text,
-                symbolPath: fullSym,
-                anchor: anchor,
-              ));
-
-              edges.add(_SliceEdge(
-                kind: 'unknown_edge',
-                toSymbolPath: '$relPath#$callTargetSym',
-                resolutionStatus: 'unresolved_dynamic',
-                depth: depth,
-              ));
-            }
           }
         }
       } else if (stmt.type == _StmtType.branch) {
-        final redactDesc = _redactSecrets(_deriveBranchDescription(stmt.rawText));
+        final redactDesc =
+            _redactSecrets(_deriveBranchDescription(stmt.rawText));
         totalRedactedCount += redactDesc.count;
 
         steps.add(_SliceStep(
@@ -772,11 +945,12 @@ Map<String, Object?> sliceCandidate({
       symbolPath: fullSym,
       anchor: {
         'repoRelativePath': initialRelPath,
-        'byteRange': [0, fileContent.length],
+        'byteRange': [0, utf8.encode(fileContent).length],
         'fileHash': fileHash,
         'spanHash': fileHash,
         'enclosingSymbolPath': fullSym,
         'canonicalAstFingerprint': sha256Hex(''),
+        'symbolRange': [0, utf8.encode(fileContent).length],
       },
     ));
   }
@@ -831,7 +1005,9 @@ List<_ExtractedStmt> _extractStatements(
   final results = <_ExtractedStmt>[];
 
   // Regex patterns for statements
-  final guardRe = RegExp(r'\bif\s*\(([^)]+)\)', multiLine: true);
+  // Capture the full balanced paren body of `if (...)` so nested calls in
+  // the condition (`if (await _signUp(draft) case ...)`) survive intact.
+  RegExp guardRe = RegExp(r'\bif\s*\(', multiLine: true);
   final throwRe = RegExp(r'\bthrow\s+([^;]+);', multiLine: true);
   final mutationRe = RegExp(
     r'\b(?:state|_state|value)\s*=\s*([^;]+);'
@@ -843,6 +1019,11 @@ List<_ExtractedStmt> _extractStatements(
     r'(?:await\s+)?([A-Za-z0-9_$.()]+)\s*\(([^)]*)\);',
     multiLine: true,
   );
+  // Condition form: no trailing `;` — used inside `if (...)` guards.
+  final condCallRe = RegExp(
+    r'(?:await\s+)?([A-Za-z0-9_$.()]+)\s*\(([^)]*)\)',
+    multiLine: true,
+  );
   final catchRe = RegExp(
     r'\bon\s+([A-Za-z0-9_$]+)\s*(?:catch\s*\([^)]*\))?\s*\{|\bcatch\s*\([^)]*\)\s*\{',
     multiLine: true,
@@ -852,18 +1033,68 @@ List<_ExtractedStmt> _extractStatements(
     multiLine: true,
   );
 
-  // Guards (if)
+  // Guards (if) — balanced-paren scan
   final occupied = <List<int>>[];
   for (final m in guardRe.allMatches(bodySource)) {
-    final cond = m.group(1)!.trim();
-    occupied.add([m.start, m.end]);
+    // depth counts NESTED opens between the outer parens; the first `)`
+    // seen at depth 0 closes the `if (` itself.
+    var depth = 0;
+    var j = m.end;
+    while (j < bodySource.length) {
+      final ch = bodySource[j];
+      if (ch == '(') {
+        depth++;
+      } else if (ch == ')') {
+        if (depth == 0) break;
+        depth--;
+      }
+      j++;
+    }
+    if (j >= bodySource.length) continue;
+    final condStart = m.end;
+    final condEnd = j; // exclusive, at closing paren
+    final cond = bodySource.substring(condStart, condEnd).trim();
+    occupied.add([m.start, condEnd + 1]);
     results.add(_ExtractedStmt(
       type: _StmtType.guard,
       startOffset: baseOffset + m.start,
-      endOffset: baseOffset + m.end,
-      rawText: m.group(0)!,
+      endOffset: baseOffset + condEnd + 1,
+      rawText: bodySource.substring(m.start, condEnd + 1),
       guardCondition: cond,
     ));
+    // A call awaited inside the condition (`if (await _signUp(draft) ...)`)
+    // is a real delegation step, not just a guard — extract it too so the
+    // slice can follow it across layers.
+    for (final cm in condCallRe.allMatches(cond)) {
+      final cTarget = cm.group(1)!.trim();
+      final cRaw = cm.group(0)!;
+      // Keep genuine invocations only: awaited calls, member calls, or
+      // private callable fields. Skips type checks (`case Error(:final e)`).
+      final genuine = cRaw.startsWith('await') ||
+          cTarget.contains('.') ||
+          cTarget.startsWith('_');
+      if (cTarget.isEmpty || !genuine) {
+        continue;
+      }
+      var cReceiver = '';
+      var cMethod = cTarget;
+      if (cTarget.contains('ref.read(')) {
+        cReceiver = cTarget;
+        cMethod = 'call';
+      } else if (cTarget.contains('.')) {
+        final lastDot = cTarget.lastIndexOf('.');
+        cReceiver = cTarget.substring(0, lastDot);
+        cMethod = cTarget.substring(lastDot + 1);
+      }
+      results.add(_ExtractedStmt(
+        type: _StmtType.call,
+        startOffset: baseOffset + condStart + cm.start,
+        endOffset: baseOffset + condStart + cm.end,
+        rawText: cm.group(0)!,
+        callReceiver: cReceiver,
+        callMethod: cMethod,
+      ));
+    }
   }
 
   // Throws (as guards / failure branches)
@@ -918,7 +1149,14 @@ List<_ExtractedStmt> _extractStatements(
     final raw = m.group(0)!;
     final target = m.group(1)!.trim();
 
-    if (raw.startsWith('if') || raw.startsWith('emit') || raw.contains('copyWith')) {
+    if (raw.startsWith('if') ||
+        raw.startsWith('emit') ||
+        raw.contains('copyWith')) {
+      continue;
+    }
+    // Skip accessor tails like `.error(...)` where the regex started mid-
+    // expression (generics keep the real receiver out of reach).
+    if (target.startsWith('.')) {
       continue;
     }
 
@@ -1021,4 +1259,16 @@ String _deriveBranchDescription(String raw) {
     return '오류 발생 시 예외를 포착하고 대체 처리한다';
   }
   return '분기 처리를 수행한다';
+}
+
+/// Byte offset of the start of the 0-based [line] in [source].
+/// Clamps to the last line start when [line] exceeds the file.
+int _lineStartOffset(String source, int line) {
+  var offset = 0;
+  for (var i = 0; i < line; i++) {
+    final next = source.indexOf('\n', offset);
+    if (next < 0) return offset;
+    offset = next + 1;
+  }
+  return offset;
 }

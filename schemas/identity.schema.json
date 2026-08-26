@@ -107,6 +107,16 @@
           "type": "string",
           "pattern": "^[a-f0-9]{64}$",
           "description": "sha256 lowercase hex of the canonical (whitespace/format-insensitive) serialization of the anchored AST node's behavior-bearing structure."
+        },
+        "symbolRange": {
+          "type": "array",
+          "prefixItems": [
+            { "type": "integer", "minimum": 0 },
+            { "type": "integer", "minimum": 0 }
+          ],
+          "minItems": 2,
+          "maxItems": 2,
+          "description": "OPTIONAL presentation hint: [startByte, endByte) of the enclosing symbol (signature line through closing brace) enabling symbol-scoped code views. Never used for identity; freshness/relink ignore it. Producers SHOULD emit it; consumers MUST degrade gracefully when absent."
         }
       },
       "description": "R3 anchor contract. Anchoring NEVER uses line numbers alone. Relink rule (normative): after code edits, re-resolve by matching enclosingSymbolPath AND canonicalAstFingerprint; on match, rewrite byteRange/fileHash/spanHash and the anchor stays linked (line-shift-only edits therefore never orphan an approval); on fingerprint mismatch the anchor is stale and goes to the approval queue; if enclosingSymbolPath no longer exists the anchor is orphaned."

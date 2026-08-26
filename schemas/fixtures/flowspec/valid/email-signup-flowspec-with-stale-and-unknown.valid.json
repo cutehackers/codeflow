@@ -14,12 +14,16 @@
       "basisSha": "84d5afec2f91c505ebfc2e6c9966a2d26c0a3fd7f87845de3dd381000b21479e",
       "anchor": {
         "repoRelativePath": "lib/features/auth/email_signup_notifier.dart",
-        "byteRange": [1024, 1180],
+        "byteRange": [
+          1024,
+          1180
+        ],
         "fileHash": "c147efcfc2d7ea666a9e4f5187b115c90903f0fc896a56df9a6ef5d8f3fc9f31",
         "spanHash": "f5bc8648d6c1b4c1b06d4e666e74f568696cec867fd7c566828db6ceb7b21223",
         "enclosingSymbolPath": "EmailSignupNotifier.submit",
         "canonicalAstFingerprint": "75fb260f169bbb3862ca2cc146cb4a1aca9f32e11f0867594b3e67d192bed2d8"
-      }
+      },
+      "kind": "guard"
     },
     {
       "stepId": "step-522340bac2f6a8e8",
@@ -31,13 +35,19 @@
       "basisSha": "84d5afec2f91c505ebfc2e6c9966a2d26c0a3fd7f87845de3dd381000b21479e",
       "anchor": {
         "repoRelativePath": "lib/features/auth/email_signup_usecase.dart",
-        "byteRange": [88, 210],
+        "byteRange": [
+          88,
+          210
+        ],
         "fileHash": "84d5afec2f91c505ebfc2e6c9966a2d26c0a3fd7f87845de3dd381000b21479e",
         "spanHash": "84d5afec2f91c505ebfc2e6c9966a2d26c0a3fd7f87845de3dd381000b21479e",
         "enclosingSymbolPath": "EmailSignupUseCase.call",
         "canonicalAstFingerprint": "f5bc8648d6c1b4c1b06d4e666e74f568696cec867fd7c566828db6ceb7b21223"
       },
-      "stateDelta": { "before": "status: submitting", "after": "status: done" },
+      "stateDelta": {
+        "before": "status: submitting",
+        "after": "status: done"
+      },
       "sideEffect": null
     },
     {
@@ -50,7 +60,10 @@
       "basisSha": "84d5afec2f91c505ebfc2e6c9966a2d26c0a3fd7f87845de3dd381000b21479e",
       "anchor": {
         "repoRelativePath": "lib/features/auth/email_signup_notifier.dart",
-        "byteRange": [1400, 1480],
+        "byteRange": [
+          1400,
+          1480
+        ],
         "fileHash": "c147efcfc2d7ea666a9e4f5187b115c90903f0fc896a56df9a6ef5d8f3fc9f31",
         "spanHash": "522340bac2f6a8e8fd6bc6cd472828c2d6a3a3bcc014ebd24c2fe4a485c736b6",
         "enclosingSymbolPath": "EmailSignupNotifier.submit",
@@ -59,7 +72,9 @@
       "codeLens": {
         "path": "lib/features/auth/email_signup_notifier.dart",
         "startLine": 42,
-        "endLine": 58
+        "endLine": 58,
+        "viewStartLine": 35,
+        "viewEndLine": 70
       }
     }
   ],
@@ -68,5 +83,14 @@
       "subject": "lib/features/auth/email_signup_notifier.dart#EmailSignupNotifier.onFirebaseTokenRefresh",
       "reason": "unresolved_dynamic_call"
     }
-  ]
+  ],
+  "edges": [
+    {
+      "kind": "boundary_call",
+      "toSymbolPath": "lib/features/auth/data/auth_repository.dart#AuthRepository.signup",
+      "resolutionStatus": "resolved",
+      "stepOrdinal": 2
+    }
+  ],
+  "truncated": false
 }

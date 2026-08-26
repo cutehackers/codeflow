@@ -120,7 +120,7 @@ idle → submitting → done / failed(error: 'signup failed')
 확인되지 않은 부분
 없음 (stale 0, unknowns 0)
 
-FlowView에서 코드 렌즈(5-20줄)와 함께 시각 검증 가능 — URL: http://127.0.0.1:4567/?token=...&flow=flow-7232d63b96bd6efa
+FlowView에서 코드 렌즈(심볼 단위 함수 본문 + 단계 포커스 강조)와 함께 시각 검증 가능 — URL: http://127.0.0.1:4567/?token=...&flow=flow-7232d63b96bd6efa
 ```
 
 원칙: **비즈니스 목적을 첫 문장에**, 원인 순서로, `unknowns`가 있으면 “왜 남았는지/다음에 확인할 코드”로.
