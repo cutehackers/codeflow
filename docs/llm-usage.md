@@ -73,24 +73,32 @@ MCP가 있으면 기존 Core 재사용 — 매번 `init/serve` 불필요.
 
 `analyze_flow`는 파괴적이지 않음 — 기존 generation을 읽어 병합 후 게시.
 
+publish는 비즈니스 흐름만 발행한다 — UseCase 단독 진입(`use_case_invocation`) 흐름은 제외되며, 유스케이스 내부는 상위 비즈니스 흐름의 call 단계와 `edges[]` 위임으로 드러난다. UseCase 단독 분석이 필요하면 `analyze_flow`로 해당 진입점을 직접 요청한다.
+
 ## 3. 응답을 읽는 순서
 
 FlowSpec envelope:
 ```
-flowId → title → basisSha(64hex) → generatedAt → steps[] → unknowns[] + view URL
+flowId → title → description → basisSha(64hex) → generatedAt → steps[] → edges[] → truncated? → unknowns[] + view URL
 ```
 `steps[]` 각 원소:
 ```
-ordinal → name → provenance(approved|session|derived|unknown) → freshness(fresh|stale|orphaned) → confidence → basisSha → anchor → rules/stateDelta/sideEffect/branch/codeLens
+ordinal → name → kind(mutation|call|guard|branch) → provenance(approved|session|derived|unknown) → freshness(fresh|stale|orphaned) → confidence → basisSha → anchor → rules/stateDelta/sideEffect/branch/codeLens
+```
+`edges[]` 각 원소 (레이어 간 위임):
+```
+stepOrdinal → toSymbolPath → kind(use_case_invocation|resolved_cross_file|boundary_call|unknown_edge) → resolutionStatus(resolved|unresolved_dynamic)
 ```
 
 LLM 읽기 순서:
 1. `basisSha`·`generatedAt`으로 어떤 스냅샷인지 확인.
-2. `steps`를 `ordinal` 순으로 — `provenance` 권위 `approved>session>derived>unknown`, `freshness`가 `stale/orphaned`면 승인 큐로 안내.
-3. `stateDelta {before→after}`, `sideEffect` (예: `SignupService.call`), `branch`로 인과 연결.
-4. `codeLens {path,startLine,endLine}`로 코드 근거 제시 — 줄 번호를 만들지 말고 anchor 그대로 사용.
-5. `unknowns[]`는 반드시 언급 — 비어 있어도 "확인되지 않은 부분 없음"으로 명시.
-6. `open_review`의 `url`은 `?token=` 포함 — 그대로 제공.
+2. `description`(진입점 docLine 융합)으로 비즈니스 목적 첫 문장을 만든다.
+3. `steps`를 `ordinal` 순으로 — `provenance` 권위 `approved>session>derived>unknown`, `freshness`가 `stale/orphaned`면 승인 큐로 안내. `kind`로 핵심(mutation/call)과 보조(guard/branch)를 구분해 설명 밀도를 조절.
+4. `stateDelta {before→after}`, `sideEffect`, `branch`, `edges[]`로 인과와 위임 연결 — `resolutionStatus=unresolved_dynamic`인 엣지는 "동적 호출로 끊긴 곳"이라고 정직하게 말한다.
+5. `truncated=true`면 잘린 하위 흐름이 있음을 함께 안내한다.
+6. `codeLens {path,startLine,endLine}`로 코드 근거 제시 — 줄 번호를 만들지 말고 anchor 그대로 사용.
+7. `unknowns[]`는 반드시 언급 — 비어 있어도 "확인되지 않은 부분 없음"으로 명시.
+8. `open_review`의 `url`은 `?token=` 포함 — 그대로 제공. FlowView는 레이어별 Architecture Map과 핵심 타임라인(전체 보기 토글 포함)을 보여준다.
 
 ## 4. 신뢰 상태 규칙
 
@@ -116,6 +124,9 @@ LLM 읽기 순서:
 
 상태 변화
 idle → submitting → done / failed(error: 'signup failed')
+
+레이어 위임
+컨트롤러 → 유스케이스(SignupService.call, 3단계에서 위임)
 
 확인되지 않은 부분
 없음 (stale 0, unknowns 0)
@@ -148,6 +159,7 @@ codeflow show <flowId> --json
 [ ] query로 harvest_flows 후 candidateId/flowId를 정확히 사용했는가?
 [ ] freshness가 stale/orphaned면 승인 큐로 안내했는가?
 [ ] steps를 ordinal 순, provenance 권위 순으로 읽었는가?
+[ ] edges[]의 위임과 unresolved_dynamic 끊김을 추측 없이 설명했는가?
 [ ] unknowns를 추측 없이 설명했는가?
 [ ] 코드는 anchor/codeLens 그대로 인용했는가?
 [ ] FlowView는 요청 시에만 open_review URL(token 포함)로 제공했는가?
