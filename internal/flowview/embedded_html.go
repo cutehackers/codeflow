@@ -169,6 +169,43 @@ const IndexHTML = `<!doctype html>
     .modal-box{background:var(--paper);border:1px solid var(--ink);border-radius:10px;width:520px;max-width:92vw;padding:18px;box-shadow:0 8px 30px rgba(0,0,0,0.15)}
     [hidden]{display:none!important}
     
+    /* ---- Architecture Map v2: modes, chips, arcs, excerpts ---- */
+    .map-modes{display:flex;gap:4px}
+    .map-modes button{padding:4px 10px;border:1px solid var(--line);border-radius:6px;background:var(--paper);cursor:pointer;font-size:11px;font-weight:700}
+    .map-modes button[aria-pressed="true"]{border-color:var(--ink);background:var(--ink);color:var(--paper)}
+    .legend .status[data-status="uncertain"]::before{content:"?"}
+    #map-lanes{position:relative}
+    #map-arcs{position:absolute;inset:0;width:100%;height:100%;pointer-events:none;z-index:1}
+    .arc{fill:none;stroke:var(--ink);stroke-width:1.4;opacity:.55}
+    .arc-label{pointer-events:all;cursor:pointer;font-size:9px;font-weight:800;paint-order:stroke;stroke:#fff;stroke-width:3px;fill:var(--ink)}
+    .arc-hit{fill:none;stroke:transparent;stroke-width:10;pointer-events:all;cursor:pointer}
+    .node[data-uncertain]{border-style:dashed;border-color:var(--muted)}
+    .node[data-uncertain] strong::after{content:" ?";color:var(--warn);font-weight:900}
+    .conf{font-size:9px;color:var(--muted);font-weight:700}
+    .node[aria-pressed="true"] .conf{color:#ccc}
+    /* project-mode chips */
+    .proj-track{display:flex;flex-wrap:wrap;gap:8px;padding:12px;min-height:56px}
+    .chip{display:inline-flex;flex-direction:column;gap:2px;min-width:150px;max-width:280px;min-height:52px;padding:7px 10px;border:1px solid var(--ink);border-radius:7px;background:var(--paper);text-align:left;cursor:pointer;font-size:11px}
+    .chip:hover{transform:translateY(-1px);box-shadow:2px 2px 0 var(--line)}
+    .chip strong{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:11px}
+    .chip .sig{font-family:ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,monospace;font-size:9px;color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:260px}
+    .chip .meta{display:flex;gap:6px;align-items:center;font-size:9px;color:var(--muted)}
+    .chip.on-path{box-shadow:3px 3px 0 var(--ink);background:#fafafa}
+    .chip.dim,.lane.dim .lane-label,.lane.dim .proj-track{opacity:.35}
+    .proj-empty{padding:18px;color:var(--muted);font-size:12px}
+    /* excerpt slide-over */
+    #excerpt-panel{position:fixed;top:0;right:0;height:100vh;width:min(520px,92vw);background:var(--paper);border-left:1px solid var(--ink);box-shadow:-6px 0 24px rgba(0,0,0,.12);z-index:90;display:none;flex-direction:column}
+    #excerpt-panel.open{display:flex}
+    .ex-head{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:14px 16px;border-bottom:1px solid var(--ink);background:var(--soft)}
+    .ex-head h3{margin:0;font-size:14px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+    .ex-sub{padding:8px 16px;border-bottom:1px solid var(--line);font-size:11px;color:var(--muted);display:grid;gap:6px}
+    .ex-flows{display:flex;flex-wrap:wrap;gap:6px}
+    .ex-lanes{display:flex;flex-wrap:wrap;gap:6px;align-items:center}
+    .ex-lanes button{padding:3px 8px;border:1px solid var(--line);border-radius:5px;background:var(--paper);cursor:pointer;font-size:10px;font-weight:700}
+    .ex-lanes button.current{background:var(--ink);color:var(--paper);border-color:var(--ink)}
+    .ex-code{flex:1;overflow:auto;background:#fafafa;padding:8px 0}
+    .ex-note{padding:6px 16px;border-top:1px solid var(--line);font-size:11px;color:var(--muted)}
+
     @media(max-width:960px){
       .workbench{grid-template-columns:1fr}
       .impact{grid-template-columns:minmax(0,1fr)}
@@ -220,17 +257,22 @@ const IndexHTML = `<!doctype html>
     <nav class="flow-tabs" id="flow-tabs"></nav>
   </section>
 
-  <!-- 2. 5-Lane Architecture Map -->
-  <section class="map-panel" data-region="map" aria-label="5레인 아키텍처 맵">
+  <!-- 2. Architecture Map (flow view / project view) -->
+  <section class="map-panel" data-region="map" aria-label="아키텍처 맵">
     <div class="map-head">
       <div>
-        <h2>Architecture Map (5-Lane)</h2>
-        <p>비즈니스 흐름이 화면에서 외부 연동까지 전달되는 5계층 구조입니다.</p>
+        <h2 id="map-title">Architecture Map</h2>
+        <p id="map-sub">비즈니스 흐름이 화면에서 외부 연동까지 전달되는 계층 구조입니다.</p>
+      </div>
+      <div class="map-modes" role="group" aria-label="맵 모드">
+        <button id="mode-flow-map" aria-pressed="true" onclick="setMapMode('flow')">흐름 맵</button>
+        <button id="mode-project-map" aria-pressed="false" onclick="setMapMode('project')">전체 보기</button>
       </div>
       <div class="legend" aria-label="신뢰 범례">
         <span class="status" data-status="fresh">확인됨</span>
         <span class="status" data-status="stale">재확인 필요</span>
         <span class="status" data-status="orphaned">찾을 수 없음</span>
+        <span class="status" data-status="uncertain" title="계층 판단 근거가 약한 심볼 — 추측이 아닌 불확실 표시">판단 보류</span>
       </div>
     </div>
     <div class="map-scroll" id="map-scroll"><div id="map-lanes"></div></div>
@@ -333,6 +375,21 @@ const IndexHTML = `<!doctype html>
   </section>
 </main>
 
+<!-- Component excerpt slide-over (project map) -->
+<aside id="excerpt-panel" aria-label="심볼 코드 근거">
+  <div class="ex-head">
+    <h3 id="ex-title">—</h3>
+    <button class="btn-sm" onclick="closeExcerpt()">닫기</button>
+  </div>
+  <div class="ex-sub">
+    <span class="mono" id="ex-sig">—</span>
+    <div class="ex-flows" id="ex-flows"></div>
+    <div class="ex-lanes" id="ex-lanes"></div>
+  </div>
+  <div class="ex-code"><div class="code" id="ex-code">—</div></div>
+  <div class="ex-note">계층 재분류는 codeflow.flows.yaml 의 laneOverrides 에 저장되고 다음 렌더부터 확정 적용됩니다.</div>
+</aside>
+
 <div id="switcher-modal" class="modal" onclick="if(event.target===this)closeSwitcher()">
   <div class="modal-box">
     <div style="font-weight:800;font-size:15px;margin-bottom:10px">비즈니스 흐름 전환 (⌘K)</div>
@@ -345,6 +402,7 @@ const IndexHTML = `<!doctype html>
 const params=new URLSearchParams(location.search),token=params.get('token')||'';
 let currentFlowId=params.get('flow')||'',cachedFlows=[],currentSpec=null,selected=0,viewMode='symbol';
 let showAllTimeline=false;
+let mapMode='flow',cachedMap=null,excerptSymbol=null;
 
 async function api(path,opts={}){
   const u=new URL(path,location.origin);
@@ -358,6 +416,12 @@ async function api(path,opts={}){
 
 function esc(s){
   return (s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+/* escJs: for values interpolated into single-quoted JS strings inside HTML
+   attributes — HTML-escape first, then neutralize the JS string delimiter. */
+function escJs(s){
+  return esc(s).replace(/'/g,"\\'");
 }
 
 const LAYER_ORDER=['ui','application','state','data','external'];
@@ -432,6 +496,7 @@ async function loadFlow(id){
     selected=0;
     viewMode='symbol';
     renderAll();
+    if(mapMode==='project')highlightFlowPath();
   }catch(e){
     document.getElementById('flow-title').textContent='흐름 로드 오류: '+e.message;
   }
@@ -441,9 +506,143 @@ function renderAll(){
   renderHeader();
   renderStale();
   renderFlowTabs();
-  renderMap();
+  if(mapMode==='project'){renderProjectMap();}else{renderMap();}
   renderTimeline();
   selectStep(nearestCoreIndex(selected),false);
+}
+
+/* ---- Map modes: flow view vs whole-project view ---- */
+
+async function setMapMode(m){
+  mapMode=m;
+  document.getElementById('mode-flow-map').setAttribute('aria-pressed',String(m==='flow'));
+  document.getElementById('mode-project-map').setAttribute('aria-pressed',String(m==='project'));
+  if(m==='project'){
+    await loadProjectMap();
+    highlightFlowPath();
+  }else{
+    renderMap();
+  }
+}
+
+async function loadProjectMap(force=false){
+  if(cachedMap&&!force){renderProjectMap();return;}
+  try{
+    const r=await api('/api/map');
+    cachedMap=await r.json();
+  }catch(e){
+    cachedMap=null;
+  }
+  renderProjectMap();
+}
+
+const LANE_FALLBACK_LABELS={ui:'화면(UI)',application:'흐름 제어(Application)',state:'상태(State)',data:'데이터(Data)',external:'외부 연동(External)'};
+
+function renderProjectMap(){
+  const el=document.getElementById('map-lanes');
+  document.getElementById('map-title').textContent='Architecture Map — 전체 프로젝트';
+  document.getElementById('map-sub').textContent='발행된 모든 흐름을 합쳐 이 프로젝트의 계층 구조를 요약합니다. 레인은 프로젝트 구조에서 유도됩니다.';
+  if(!cachedMap||!cachedMap.lanes||!cachedMap.components){
+    el.innerHTML='<div class="proj-empty">프로젝트 맵을 불러올 수 없습니다.</div>';
+    return;
+  }
+  const lanes=cachedMap.lanes, comps=cachedMap.components||[];
+  const unknown=comps.filter(c=>!lanes.some(l=>l.id===c.layer));
+  let html='';
+  for(const l of lanes){
+    const items=comps.filter(c=>c.layer===l.id);
+    html+='<div class="lane"><div class="lane-label">'+esc(l.label)+'</div><div class="proj-track">'+
+      (items.length?items.map(chipHTML).join(''):'<span class="conf">구성요소 없음</span>')+
+    '</div></div>';
+  }
+  if(unknown.length){
+    html+='<div class="lane"><div class="lane-label">판단 보류</div><div class="proj-track">'+unknown.map(chipHTML).join('')+'</div></div>';
+  }
+  if(!lanes.length&&!comps.length){
+    html='<div class="proj-empty">발행된 흐름이 없어 프로젝트 맵이 비어 있습니다.</div>';
+  }
+  el.innerHTML=html;
+  document.querySelectorAll('[data-chip]').forEach(n=>n.addEventListener('click',()=>openExcerpt(n.dataset.chip)));
+}
+
+function chipHTML(c){
+  const name=c.symbolPath.includes('#')?c.symbolPath.split('#').pop():c.symbolPath;
+  const confPct=Math.round((c.confidence||0)*100);
+  return '<button class="chip" data-chip="'+esc(c.symbolPath)+'" '+(c.uncertain?'data-uncertain="1"':'')+'>'+
+    '<strong>'+esc(name)+'</strong>'+
+    (c.signature?'<span class="sig">'+esc(c.signature)+'</span>':'<span class="sig">'+esc(c.path||'')+'</span>')+
+    '<span class="meta"><span>'+c.flows.length+'개 흐름</span><span>·</span><span class="conf">'+confPct+'%</span>'+
+    (c.uncertain?'<span title="계층 판단 근거 부족 — 클릭 후 재분류 가능">· 판단 보류</span>':'')+'</span>'+
+  '</button>';
+}
+
+/* Selected business flow path emphasis on the project map */
+function highlightFlowPath(){
+  const inFlow=new Set((cachedMap&&cachedMap.components||[]).filter(c=>(c.flows||[]).includes(currentFlowId)).map(c=>c.symbolPath));
+  document.querySelectorAll('[data-chip]').forEach(n=>{
+    n.classList.toggle('on-path',inFlow.has(n.dataset.chip));
+    n.classList.toggle('dim',currentFlowId&&inFlow.size>0&&!inFlow.has(n.dataset.chip));
+  });
+  document.querySelectorAll('.lane').forEach(lane=>{
+    const anyOn=lane.querySelector('.chip.on-path');
+    lane.classList.toggle('dim',!!anyOn?false:(currentFlowId&&inFlow.size>0));
+  });
+}
+
+/* ---- Component excerpt slide-over with manual lane override ---- */
+
+function findComponent(sym){
+  return ((cachedMap&&cachedMap.components)||[]).find(c=>c.symbolPath===sym)||null;
+}
+
+async function openExcerpt(sym){
+  excerptSymbol=sym;
+  const c=findComponent(sym);
+  const panel=document.getElementById('excerpt-panel');
+  const name=sym.includes('#')?sym.split('#').pop():sym;
+  document.getElementById('ex-title').textContent=name;
+  document.getElementById('ex-sig').textContent=c&&c.signature?c.signature:sym;
+  const pubFlows=((c&&c.flows)||[]).filter(fid=>!fid.startsWith('coverage:'));
+  document.getElementById('ex-flows').innerHTML=pubFlows.map(fid=>{
+    const f=cachedFlows.find(x=>x.flowId===fid);
+    return '<button class="pill" onclick="loadFlow(\''+escJs(fid)+'\');closeExcerpt()">'+esc(f?f.title:fid)+'</button>';
+  }).join('')||'<span class="conf">발행된 흐름 연결 없음'+(((c&&c.flows)||[]).length?' · 구조 조사 근거만 존재':'')+'</span>';
+  const lanes=(currentSpec&&Array.isArray(currentSpec.lanes)&&currentSpec.lanes.length)?currentSpec.lanes:Object.entries(LANE_FALLBACK_LABELS).map(([id,label])=>({id,label}));
+  document.getElementById('ex-lanes').innerHTML='<span class="conf">계층:</span>'+
+    lanes.map(l=>'<button data-lane="'+esc(l.id)+'" class="'+(c&&c.layer===l.id?'current':'')+'" onclick="applyLaneOverride(\''+escJs(sym)+'\',\''+escJs(l.id)+'\')">'+esc(l.label)+'</button>').join('');
+  panel.classList.add('open');
+
+  const codeEl=document.getElementById('ex-code');
+  codeEl.textContent='불러오는 중…';
+  if(!c||!c.path){codeEl.textContent='파일 정보가 없어 코드를 표시할 수 없습니다.';return;}
+  const start=Math.max(1,(c.line||1)-4), end=start+40;
+  try{
+    const r=await api('/api/source?path='+encodeURIComponent(c.path)+'&startLine='+start+'&endLine='+end+'&maxLines=60');
+    const text=await r.text();
+    if(excerptSymbol!==sym)return;
+    const lines=text.replace(/\n$/,'').split('\n');
+    codeEl.innerHTML=lines.map((ln,i)=>'<div class="line"><span class="num">'+(start+i)+'</span><span class="gut"></span><span class="src">'+esc(ln)+'</span></div>').join('');
+  }catch(e){
+    if(excerptSymbol===sym)codeEl.textContent='코드 로드 실패: '+e.message;
+  }
+}
+
+function closeExcerpt(){
+  excerptSymbol=null;
+  document.getElementById('excerpt-panel').classList.remove('open');
+}
+
+async function applyLaneOverride(sym,lane){
+  try{
+    const r=await api('/api/map/override',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({symbol:sym,lane})});
+    if(!r.ok)throw new Error(await r.text());
+    cachedMap=null;
+    closeExcerpt();
+    await loadProjectMap(true);
+    highlightFlowPath();
+  }catch(e){
+    alert('계층 재분류 실패: '+e.message);
+  }
 }
 
 function coreIndices(){
@@ -518,7 +717,7 @@ function renderFlowTabs(){
     const active=f.flowId===currentFlowId;
     const desc=esc(f.description||'');
     const entryShort=esc((f.entrySymbolPath||'').split('#').pop()||'');
-    return '<button class="flow-tab'+(active?' active':'')+'" onclick="loadFlow(\''+esc(f.flowId)+'\')" aria-current="'+(active?'true':'false')+'">'+
+    return '<button class="flow-tab'+(active?' active':'')+'" onclick="loadFlow(\''+escJs(f.flowId)+'\')" aria-current="'+(active?'true':'false')+'">'+
       '<div class="tab-title">'+esc(f.title)+'</div>'+
       (desc?'<div class="tab-desc">'+desc+'</div>':'<div class="tab-desc" style="color:var(--muted)">'+entryShort+'</div>')+
       '<div class="tab-meta"><span>'+f.stepCount+'단계</span><span style="margin-left:auto" class="badge">'+esc(f.flowId.slice(0,8))+'</span></div>'+
@@ -527,14 +726,73 @@ function renderFlowTabs(){
 }
 
 function renderMap(){
+  const el=document.getElementById('map-lanes');
+  if(!currentSpec){
+    el.innerHTML='<div class="proj-empty">발행된 흐름이 없어 흐름 맵이 비어 있습니다.</div>';
+    return;
+  }
   const lanes=(Array.isArray(currentSpec.lanes)&&currentSpec.lanes.length?currentSpec.lanes:LAYER_ORDER.filter(l=>currentSpec.steps.some(st=>(st.layer||'application')===l)).map(l=>({id:l,label:LAYER_LABELS[l]})));
-  document.getElementById('map-lanes').innerHTML=lanes.map(l=>{
+  document.getElementById('map-title').textContent='Architecture Map — '+((cachedFlows.find(x=>x.flowId===currentFlowId)||{}).title||'현재 흐름');
+  document.getElementById('map-sub').textContent='계층 간 화살표는 실제 위임 관계입니다. 레인 이름은 이 프로젝트의 어휘에서 유도됩니다.';
+  el.innerHTML='<svg id="map-arcs"></svg>'+lanes.map(l=>{
     const inLayer=currentSpec.steps.map((st,i)=>({st,i})).filter(x=>(x.st.layer||'application')===l.id);
     return '<div class="lane"><div class="lane-label">'+esc(l.label)+'</div><div class="lane-track" style="--cols:'+currentSpec.steps.length+'">'+
-      inLayer.map(x=>'<button class="node" style="grid-column:'+(x.i+1)+'" data-map-step="'+x.i+'" data-status="'+esc(x.st.freshness)+'" aria-pressed="false"><strong>'+esc(x.st.name)+'</strong><small>'+esc(nodeSub(x.st))+'</small></button>').join('')+
+      inLayer.map(x=>{
+        const conf=(x.st.layerConfidence!=null)?Math.round(x.st.layerConfidence*100)+'%':'';
+        return '<button class="node" style="grid-column:'+(x.i+1)+'" data-map-step="'+x.i+'" data-symbol="'+esc(x.st.anchor.enclosingSymbolPath||'')+'" '+(x.st.layerUncertain?'data-uncertain="1" title="계층 판단 근거가 약합니다"':'')+' data-status="'+esc(x.st.freshness)+'" aria-pressed="false"><strong>'+esc(x.st.name)+'</strong><small>'+esc(nodeSub(x.st))+'</small>'+(conf?'<span class="conf">'+conf+'</span>':'')+'</button>';
+      }).join('')+
     '</div></div>';
   }).join('');
   document.querySelectorAll('[data-map-step]').forEach(n=>n.addEventListener('click',()=>selectStep(Number(n.dataset.mapStep))));
+  drawArcs();
+}
+
+/* Cross-layer delegation arcs between map nodes (flow mode). */
+function drawArcs(){
+  const svg=document.getElementById('map-arcs'),host=document.getElementById('map-lanes');
+  if(!svg||!host)return;
+  svg.innerHTML='';
+  if(mapMode!=='flow'||!currentSpec)return;
+  host.style.position='relative';
+  requestAnimationFrame(()=>{
+    const hb=host.getBoundingClientRect();
+    svg.setAttribute('width',hb.width);svg.setAttribute('height',hb.height);
+    svg.setAttribute('viewBox','0 0 '+hb.width+' '+hb.height);
+    const bySymbol={};
+    document.querySelectorAll('[data-map-step]').forEach(n=>{
+      const s=normSym(n.dataset.symbol);
+      if(s&&!(s in bySymbol))bySymbol[s]=n;
+    });
+    let drawn=0;
+    for(const e of (currentSpec.edges||[])){
+      if(e.kind==='unknown_edge'||e.stepOrdinal==null)continue;
+      const fromN=document.querySelector('[data-map-step="'+(e.stepOrdinal-1)+'"]');
+      const toN=bySymbol[normSym(e.toSymbolPath)];
+      if(!fromN||!toN||fromN===toN)continue;
+      const fb=fromN.getBoundingClientRect(),tb=toN.getBoundingClientRect();
+      const x1=fb.left-hb.left+fb.width/2, y1=fb.bottom-hb.top;
+      const x2=tb.left-hb.left+tb.width/2, y2=tb.top-hb.top;
+      if(y2<=y1+8)continue; // same lane or backwards — the pills in the detail card cover it
+      const midY=(y1+y2)/2;
+      const g=document.createElementNS('http://www.w3.org/2000/svg','g');
+      const path=document.createElementNS('http://www.w3.org/2000/svg','path');
+      path.setAttribute('d','M'+x1+' '+y1+' C'+x1+' '+midY+','+x2+' '+midY+','+x2+' '+(y2-3));
+      path.setAttribute('class','arc');
+      const hit=document.createElementNS('http://www.w3.org/2000/svg','path');
+      hit.setAttribute('d',path.getAttribute('d'));
+      hit.setAttribute('class','arc-hit');
+      hit.addEventListener('click',()=>selectStep(e.stepOrdinal-1));
+      const label=document.createElementNS('http://www.w3.org/2000/svg','text');
+      label.setAttribute('x',(x1+x2)/2);label.setAttribute('y',midY);
+      label.setAttribute('text-anchor','middle');label.setAttribute('class','arc-label');
+      label.textContent=symbolName(e.toSymbolPath);
+      label.addEventListener('click',()=>selectStep(e.stepOrdinal-1));
+      g.appendChild(hit);g.appendChild(path);g.appendChild(label);
+      svg.appendChild(g);
+      drawn++;
+    }
+    svg.style.display=drawn?'block':'none';
+  });
 }
 
 function renderTimeline(){
@@ -656,8 +914,15 @@ function renderDetail(){
 }
 
 function symbolName(toSymbolPath){
-  const h=(toSymbolPath||'').indexOf('#');
-  return h>=0?toSymbolPath.slice(h+1):toSymbolPath;
+  return normSym(toSymbolPath);
+}
+
+/* normSym mirrors the server's normSymbol: edge targets may be
+   file-qualified ("lib/a.dart#Class.method") while node keys are bare. */
+function normSym(s){
+  s=s||'';
+  const h=s.lastIndexOf('#');
+  return h>=0?s.slice(h+1):s;
 }
 
 function prevStep(){
@@ -783,7 +1048,7 @@ function filterFlows(){
   const q=document.getElementById('switcher-input').value.toLowerCase();
   const el=document.getElementById('switcher-list');
   const f=cachedFlows.filter(x=>x.title.toLowerCase().includes(q)||x.entrySymbolPath.toLowerCase().includes(q));
-  el.innerHTML=f.map(x=>'<div style="padding:10px 12px;border:1px solid var(--line);border-radius:7px;cursor:pointer" onclick="loadFlow(\''+x.flowId+'\');closeSwitcher()">'+
+  el.innerHTML=f.map(x=>'<div style="padding:10px 12px;border:1px solid var(--line);border-radius:7px;cursor:pointer" onclick="loadFlow(\''+escJs(x.flowId)+'\');closeSwitcher()">'+
     '<div style="font-weight:800;font-size:13px">'+esc(x.title)+'</div>'+
     (x.description?'<div style="font-size:11px;color:var(--muted);margin-top:2px">'+esc(x.description)+'</div>':'')+
     '<div style="font-size:10px;color:var(--muted);margin-top:4px">'+esc(x.entrySymbolPath)+' · '+x.stepCount+'단계</div>'+
@@ -812,7 +1077,7 @@ document.addEventListener('keydown',e=>{
     e.preventDefault();
     openSwitcher();
   }
-  if(e.key==='Escape')closeSwitcher();
+  if(e.key==='Escape'){closeSwitcher();closeExcerpt();}
   if(e.key==='ArrowLeft'&&document.activeElement.tagName!=='INPUT'){
     e.preventDefault();
     prevStep();
@@ -821,6 +1086,10 @@ document.addEventListener('keydown',e=>{
     e.preventDefault();
     nextStep();
   }
+});
+
+window.addEventListener('resize',()=>{
+  if(mapMode==='flow')drawArcs();
 });
 
 init();

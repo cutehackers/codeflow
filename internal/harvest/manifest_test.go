@@ -229,3 +229,132 @@ func TestManifestIsPinned(t *testing.T) {
 		t.Error("IsPinned = true for unknown entry")
 	}
 }
+
+func TestParseManifestLaneOverrides(t *testing.T) {
+	src := `flows:
+  - entry: lib/a.dart#A.b
+
+laneOverrides:
+  - symbol: JoinRepository.cancel
+    lane: data
+  - symbol: 'Panel.show'
+    lane: ui
+`
+	m, err := ParseManifest(src)
+	if err != nil {
+		t.Fatalf("ParseManifest: %v", err)
+	}
+	if len(m.LaneOverrides) != 2 {
+		t.Fatalf("laneOverrides = %d items, want 2: %+v", len(m.LaneOverrides), m.LaneOverrides)
+	}
+	if m.LaneOverrides[0].Symbol != "JoinRepository.cancel" || m.LaneOverrides[0].Lane != "data" {
+		t.Errorf("laneOverrides[0] = %+v", m.LaneOverrides[0])
+	}
+	if m.LaneOverrides[1].Symbol != "Panel.show" || m.LaneOverrides[1].Lane != "ui" {
+		t.Errorf("laneOverrides[1] = %+v", m.LaneOverrides[1])
+	}
+	got := m.LaneOverrideMap()
+	if got["JoinRepository.cancel"] != "data" || got["Panel.show"] != "ui" {
+		t.Errorf("LaneOverrideMap = %v", got)
+	}
+}
+
+func TestParseManifestLaneOverrideRejectsBadLane(t *testing.T) {
+	src := `laneOverrides:
+  - symbol: X.y
+    lane: Not-A-Lane
+`
+	if _, err := ParseManifest(src); err == nil || !strings.Contains(err.Error(), "single lowercase word") {
+		t.Fatalf("err = %v, want lane shape error", err)
+	}
+}
+
+func TestWriteLaneOverrideCreatesFileAndRoundTrips(t *testing.T) {
+	dir := t.TempDir()
+	if err := WriteLaneOverride(dir, "Vault.put", "data"); err != nil {
+		t.Fatalf("WriteLaneOverride (create): %v", err)
+	}
+	m, err := LoadManifest(dir)
+	if err != nil {
+		t.Fatalf("LoadManifest: %v", err)
+	}
+	if len(m.Flows) != 0 || len(m.Excluded) != 0 {
+		t.Fatalf("unexpected sections: %+v", m)
+	}
+	if m.LaneOverrideMap()["Vault.put"] != "data" {
+		t.Fatalf("override map = %v", m.LaneOverrideMap())
+	}
+
+	// Second write appends a second override; first survives.
+	if err := WriteLaneOverride(dir, "Panel.show", "ui"); err != nil {
+		t.Fatalf("WriteLaneOverride (append): %v", err)
+	}
+	m, _ = LoadManifest(dir)
+	mp := m.LaneOverrideMap()
+	if mp["Vault.put"] != "data" || mp["Panel.show"] != "ui" {
+		t.Fatalf("override map after append = %v", mp)
+	}
+
+	// Third write replaces the lane of an existing symbol in place.
+	if err := WriteLaneOverride(dir, "Vault.put", "external"); err != nil {
+		t.Fatalf("WriteLaneOverride (replace): %v", err)
+	}
+	m, _ = LoadManifest(dir)
+	if got := m.LaneOverrideMap()["Vault.put"]; got != "external" {
+		t.Fatalf("replaced lane = %q, want external; overrides=%+v", got, m.LaneOverrides)
+	}
+	if len(m.LaneOverrides) != 2 {
+		t.Fatalf("replace duplicated entries: %+v", m.LaneOverrides)
+	}
+}
+
+func TestWriteLaneOverridePreservesExistingSections(t *testing.T) {
+	dir := t.TempDir()
+	src := "# header comment\nflows:\n  - entry: lib/a.dart#A.b\n    name: 회원가입\n"
+	if err := os.WriteFile(filepath.Join(dir, ManifestFileName), []byte(src), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := WriteLaneOverride(dir, "Keeper.watch", "state"); err != nil {
+		t.Fatalf("WriteLaneOverride: %v", err)
+	}
+	raw, _ := os.ReadFile(filepath.Join(dir, ManifestFileName))
+	if !strings.HasPrefix(string(raw), "# header comment") {
+		t.Errorf("header lost:\n%s", raw)
+	}
+	if !strings.Contains(string(raw), "name: 회원가입") {
+		t.Errorf("existing flow item lost:\n%s", raw)
+	}
+	m, err := ParseManifest(string(raw))
+	if err != nil {
+		t.Fatalf("re-parse: %v", err)
+	}
+	if len(m.Flows) != 1 || m.Flows[0].Name != "회원가입" {
+		t.Errorf("flows damaged: %+v", m.Flows)
+	}
+	if m.LaneOverrideMap()["Keeper.watch"] != "state" {
+		t.Errorf("override missing: %+v", m.LaneOverrides)
+	}
+}
+
+func TestWriteLaneOverrideAppendsBeforeFollowingSection(t *testing.T) {
+	// Regression: laneOverrides followed by flows — a new override must be
+	// spliced INSIDE its own section, never into the next one.
+	dir := t.TempDir()
+	src := "laneOverrides:\n  - symbol: A.a\n    lane: ui\nflows:\n  - entry: lib/x.dart#X.y\n    name: 첫 흐름\n"
+	if err := os.WriteFile(filepath.Join(dir, ManifestFileName), []byte(src), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := WriteLaneOverride(dir, "B.b", "data"); err != nil {
+		t.Fatalf("WriteLaneOverride: %v", err)
+	}
+	m, err := LoadManifest(dir)
+	if err != nil {
+		t.Fatalf("LoadManifest after splice: %v", err)
+	}
+	if m.LaneOverrideMap()["B.b"] != "data" || m.LaneOverrideMap()["A.a"] != "ui" {
+		t.Fatalf("overrides = %+v", m.LaneOverrides)
+	}
+	if len(m.Flows) != 1 || m.Flows[0].Entry != "lib/x.dart#X.y" || m.Flows[0].Name != "첫 흐름" {
+		t.Fatalf("following section damaged: %+v", m.Flows)
+	}
+}

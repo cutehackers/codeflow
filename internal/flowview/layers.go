@@ -1,7 +1,6 @@
 package flowview
 
 import (
-	"encoding/json"
 	"strings"
 )
 
@@ -153,61 +152,7 @@ func laneLabel(layer string, conventions []string) string {
 	return layerFallbackLabels[layer]
 }
 
-// applyLayers decorates a FlowSpec JSON document with read-time presentation
-// fields: a per-step "layer", and a "lanes" array naming each layer with the
-// project's own vocabulary. The stored spec on disk is never modified.
-func applyLayers(specJSON []byte) []byte {
-	var doc map[string]any
-	if err := json.Unmarshal(specJSON, &doc); err != nil {
-		return specJSON
-	}
-	rawSteps, ok := doc["steps"].([]any)
-	if !ok {
-		return specJSON
-	}
-
-	type laneAcc struct {
-		conventions []string
-	}
-	acc := map[string]*laneAcc{}
-	present := map[string]bool{}
-
-	for _, rawStep := range rawSteps {
-		step, ok := rawStep.(map[string]any)
-		if !ok {
-			continue
-		}
-		path, sym := "", ""
-		if anchor, ok := step["anchor"].(map[string]any); ok {
-			path, _ = anchor["repoRelativePath"].(string)
-			sym, _ = anchor["enclosingSymbolPath"].(string)
-		}
-		_, hasStateDelta := step["stateDelta"]
-		_, hasSideEffect := step["sideEffect"]
-		layer, convention := InferLayer(path, sym, hasStateDelta, hasSideEffect)
-		step["layer"] = layer
-		present[layer] = true
-		if acc[layer] == nil {
-			acc[layer] = &laneAcc{}
-		}
-		acc[layer].conventions = append(acc[layer].conventions, convention)
-	}
-
-	lanes := []any{}
-	for _, layer := range LayerOrder {
-		if !present[layer] {
-			continue
-		}
-		lanes = append(lanes, map[string]any{
-			"id":    layer,
-			"label": laneLabel(layer, acc[layer].conventions),
-		})
-	}
-	doc["lanes"] = lanes
-
-	out, err := json.Marshal(doc)
-	if err != nil {
-		return specJSON
-	}
-	return out
-}
+// applyLayers moved to lanes.go: it now runs the adaptive engine
+// (seed-and-propagate classification, confidence, manual overrides) while
+// keeping the same read-time decoration contract: per-step "layer" and a
+// "lanes" array naming each layer with the project's own vocabulary.

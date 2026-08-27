@@ -19,6 +19,7 @@ import (
 	"time"
 
 	"codeflow/internal/fusion"
+	"codeflow/internal/harvest"
 	"codeflow/internal/storage"
 )
 
@@ -32,6 +33,7 @@ type Server struct {
 	httpServer *http.Server
 	mu         sync.Mutex
 	addr       string
+	genCache   *generationCache
 }
 
 // Config configures the FlowView server.
@@ -68,6 +70,8 @@ func NewServer(cfg Config) (*Server, error) {
 	mux.HandleFunc("/api/flow", s.handleGetFlow)
 	mux.HandleFunc("/api/source", s.handleGetSource)
 	mux.HandleFunc("/api/approve", s.handleApprove)
+	mux.HandleFunc("/api/map", s.handleGetMap)
+	mux.HandleFunc("/api/map/override", s.handlePostLaneOverride)
 
 	port := cfg.Port
 	ln, err := net.Listen("tcp", fmt.Sprintf("127.0.0.1:%d", port))
@@ -187,18 +191,159 @@ func (s *Server) handleGetFlow(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Fast path: the generation cache holds this flow's decorated bytes.
+	if gd := s.generationData(); gd != nil {
+		if out, ok := gd.decorated[flowID]; ok {
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write(out)
+			return
+		}
+	}
+
 	data, err := s.storage.ReadActiveFlowSpec(flowID)
 	if err != nil {
 		http.Error(w, fmt.Sprintf("flow %s not found: %v", flowID, err), http.StatusNotFound)
 		return
 	}
 
-	// Decorate with presentation-only layers for the architecture causal map.
-	// The stored spec on disk is never modified.
-	data = applyLayers(data)
+	// Slow path fallback: classify solo so a spec listed in the index but
+	// absent from the cache still renders. The stored spec is never modified.
+	data = applyLayersWith(data, s.laneOverrides())
 
 	w.Header().Set("Content-Type", "application/json")
 	_, _ = w.Write(data)
+}
+
+// generationCache memoizes the per-generation work shared by /api/flow and
+// /api/map: raw spec documents plus every flow's decorated bytes. A new
+// generation or a modified manifest (lane overrides, possibly hand-edited)
+// invalidates it; within one generation, requests are pure memory work.
+type generationCache struct {
+	genID         string
+	manifestMtime time.Time
+	manifestSize  int64
+	docs          [][]byte          // published flow specs (index order)
+	coverage      [][]byte          // synthetic specs from slice facts (map-only)
+	decorated     map[string][]byte // flowID -> decorated spec JSON
+}
+
+// generationData returns the current cache, rebuilding it when the active
+// generation changed or codeflow.flows.yaml was touched. Returns nil when no
+// generation has been published yet.
+func (s *Server) generationData() *generationCache {
+	idx, err := s.storage.ReadLatestIndex()
+	if err != nil || idx == nil {
+		return nil
+	}
+	mt, sz := s.manifestStamp()
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if c := s.genCache; c != nil &&
+		c.genID == idx.GenerationID &&
+		c.manifestMtime.Equal(mt) && c.manifestSize == sz {
+		return c
+	}
+
+	docs := make([][]byte, 0, len(idx.Flows))
+	for _, f := range idx.Flows {
+		d, err := s.storage.ReadActiveFlowSpec(f.FlowID)
+		if err != nil {
+			continue // specs listed in the index but missing on disk are skipped
+		}
+		docs = append(docs, d)
+	}
+	gd := &generationCache{
+		genID:         idx.GenerationID,
+		manifestMtime: mt,
+		manifestSize:  sz,
+		docs:          docs,
+		coverage:      synthesizeCoverageDocs(s.storage.ReadAllSliceCaches(maxCoverageFiles)),
+		decorated:     decorateAll(docs, s.laneOverrides()),
+	}
+	s.genCache = gd
+	return gd
+}
+
+// manifestStamp fingerprints codeflow.flows.yaml cheaply; a missing file
+// yields zero values (the "no overrides" state).
+func (s *Server) manifestStamp() (time.Time, int64) {
+	info, err := os.Stat(filepath.Join(s.repoRoot, harvest.ManifestFileName))
+	if err != nil {
+		return time.Time{}, 0
+	}
+	return info.ModTime(), info.Size()
+}
+
+// laneOverrides loads manual symbol→lane assignments from the repo manifest.
+// A missing or unreadable manifest degrades to "no overrides" — the map must
+// render even when the override file is broken (the error is not silent at
+// write time).
+func (s *Server) laneOverrides() map[string]string {
+	m, err := harvest.LoadManifest(s.repoRoot)
+	if err != nil || m == nil {
+		return nil
+	}
+	return m.LaneOverrideMap()
+}
+
+func (s *Server) handleGetMap(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	idx, err := s.storage.ReadLatestIndex()
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	amap := &ArchitectureMap{Lanes: []MapLane{}, Components: []MapComponent{}, EntryPoints: []string{}, Relations: []MapRelation{}}
+	if gd := s.generationData(); gd != nil && idx != nil {
+		entryPoints := make([]string, 0, len(idx.Flows))
+		for _, f := range idx.Flows {
+			entryPoints = append(entryPoints, f.EntrySymbolPath)
+		}
+		allDocs := make([][]byte, 0, len(gd.docs)+len(gd.coverage))
+		allDocs = append(allDocs, gd.docs...)
+		allDocs = append(allDocs, gd.coverage...)
+		amap = buildArchitectureMap(s.repoRoot, gd.genID, allDocs, s.laneOverrides(), entryPoints)
+	}
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(amap)
+}
+
+func (s *Server) handlePostLaneOverride(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	body, err := io.ReadAll(io.LimitReader(r.Body, 1<<20))
+	if err != nil {
+		http.Error(w, "read error", http.StatusBadRequest)
+		return
+	}
+	var req struct {
+		Symbol string `json:"symbol"`
+		Lane   string `json:"lane"`
+	}
+	if err := json.Unmarshal(body, &req); err != nil {
+		http.Error(w, "invalid json", http.StatusBadRequest)
+		return
+	}
+	if strings.TrimSpace(req.Symbol) == "" {
+		http.Error(w, "missing required field (symbol)", http.StatusBadRequest)
+		return
+	}
+	if !validLayerName(req.Lane) {
+		http.Error(w, fmt.Sprintf("invalid lane %q (allowed: %s)", req.Lane, strings.Join(LayerOrder, ", ")), http.StatusBadRequest)
+		return
+	}
+	if err := harvest.WriteLaneOverride(s.repoRoot, req.Symbol, req.Lane); err != nil {
+		http.Error(w, fmt.Sprintf("write override failed: %v", err), http.StatusInternalServerError)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(map[string]string{"status": "overridden", "symbol": req.Symbol, "lane": req.Lane})
 }
 
 func (s *Server) handleGetSource(w http.ResponseWriter, r *http.Request) {

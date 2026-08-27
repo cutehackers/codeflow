@@ -12,6 +12,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
 	"time"
 
 	"codeflow/internal/secret"
@@ -192,6 +193,41 @@ func (s *Storage) ReadSliceCache(cacheKey string) ([]byte, bool) {
 func (s *Storage) WriteSliceCache(cacheKey string, data []byte) error {
 	path := filepath.Join(s.baseDir, "facts", "slice", cacheKey+".json")
 	return atomicWrite(path, data)
+}
+
+// ReadAllSliceCaches returns up to max cached SlicedPayload documents from
+// facts/slice/, in deterministic (sorted filename) order. Missing or empty
+// cache directories yield nil: coverage aggregation is best-effort and must
+// never fail the map. Consumers parse defensively — cache entries are
+// adapter output, not a contract surface.
+func (s *Storage) ReadAllSliceCaches(max int) [][]byte {
+	if max <= 0 {
+		return nil
+	}
+	dir := filepath.Join(s.baseDir, "facts", "slice")
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return nil
+	}
+	names := make([]string, 0, len(entries))
+	for _, e := range entries {
+		if e.Type().IsRegular() && strings.HasSuffix(e.Name(), ".json") {
+			names = append(names, e.Name())
+		}
+	}
+	sort.Strings(names)
+	out := make([][]byte, 0, min(len(names), max))
+	for _, name := range names {
+		if len(out) >= max {
+			break
+		}
+		data, err := os.ReadFile(filepath.Join(dir, name))
+		if err != nil || len(data) == 0 {
+			continue
+		}
+		out = append(out, data)
+	}
+	return out
 }
 
 // AtomicWrite atomically writes data to targetPath via a temporary file.

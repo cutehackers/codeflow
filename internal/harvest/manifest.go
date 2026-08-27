@@ -22,11 +22,21 @@ type PinnedFlow struct {
 	Name  string // optional display name; overrides intentSignals.derivedName
 }
 
+// LaneOverride is one entry under `laneOverrides:`: a manual architectural
+// lane assignment for a symbol (architecture map v2). The symbol matches a
+// FlowStep anchor's enclosingSymbolPath; the lane is applied verbatim by the
+// consumer (flowview validates it against its canonical layer set).
+type LaneOverride struct {
+	Symbol string
+	Lane   string
+}
+
 // Manifest is the parsed codeflow.flows.yaml. A missing file means "no
 // overrides": LoadManifest returns a zero-value manifest and no error.
 type Manifest struct {
-	Flows    []PinnedFlow
-	Excluded []string
+	Flows         []PinnedFlow
+	Excluded      []string
+	LaneOverrides []LaneOverride
 }
 
 // LoadManifest reads <repoRoot>/codeflow.flows.yaml. A missing file yields
@@ -58,9 +68,11 @@ var entryShapeRe = regexp.MustCompile(
 // The grammar (decision #14 v1 — deliberately tiny, zero dependencies):
 //
 //	document := (section)+                       sections in any order, repeatable
-//	section  := 'flows:' NL | 'excluded:' NL     nothing may follow the colon
+//	section  := 'flows:' NL | 'excluded:' NL | 'laneOverrides:' NL
+//	                                             nothing may follow the colon
 //	item     := '-' 'entry:' value ('name:' value)?   under flows:, first key inline
 //	           | '-' value                              under excluded:, plain scalar
+//	           | '-' 'symbol:' value ('lane:' value)?   under laneOverrides:
 //	value    := bare | 'single quoted' | "double quoted"
 //
 // Comments (# preceded by whitespace or at line start), blank lines and
@@ -74,19 +86,29 @@ func ParseManifest(src string) (*Manifest, error) {
 	}
 
 	m := &Manifest{}
-	section := ""       // "", "flows" or "excluded"
-	var cur *PinnedFlow // flow item currently being assembled
-	curStartLine := 0   // line where the current '- ' item began
+	section := ""           // "", "flows", "excluded" or "laneOverrides"
+	var cur *PinnedFlow     // flow item currently being assembled
+	var curOv *LaneOverride // lane-override item currently being assembled
+	curStartLine := 0       // line where the current '- ' item began
 
 	finishItem := func() error {
-		if cur == nil {
+		if cur == nil && curOv == nil {
 			return nil
 		}
-		if cur.Entry == "" {
-			return fail(curStartLine, "flow item has no 'entry:' key")
+		if cur != nil {
+			if cur.Entry == "" {
+				return fail(curStartLine, "flow item has no 'entry:' key")
+			}
+			m.Flows = append(m.Flows, *cur)
+			cur = nil
 		}
-		m.Flows = append(m.Flows, *cur)
-		cur = nil
+		if curOv != nil {
+			if curOv.Symbol == "" {
+				return fail(curStartLine, "laneOverride item has no 'symbol:' key")
+			}
+			m.LaneOverrides = append(m.LaneOverrides, *curOv)
+			curOv = nil
+		}
 		curStartLine = 0
 		return nil
 	}
@@ -117,8 +139,10 @@ func ParseManifest(src string) (*Manifest, error) {
 				section = "flows"
 			case "excluded":
 				section = "excluded"
+			case "laneOverrides":
+				section = "laneOverrides"
 			default:
-				return nil, fail(lineNo, "unknown top-level key %q (allowed: flows, excluded)", key)
+				return nil, fail(lineNo, "unknown top-level key %q (allowed: flows, excluded, laneOverrides)", key)
 			}
 
 		case strings.HasPrefix(trimmed, "-"):
@@ -145,6 +169,23 @@ func ParseManifest(src string) (*Manifest, error) {
 				continue
 			}
 
+			if section == "laneOverrides" {
+				key, value, ok := splitKeyValue(body)
+				if !ok || key != "symbol" {
+					return nil, fail(lineNo, "laneOverride items must start with '- symbol: <path>'")
+				}
+				symbol, err := unquoteScalar(value)
+				if err != nil {
+					return nil, fail(lineNo, "%v", err)
+				}
+				if strings.TrimSpace(symbol) == "" {
+					return nil, fail(lineNo, "laneOverride symbol must not be empty")
+				}
+				curStartLine = lineNo
+				curOv = &LaneOverride{Symbol: symbol}
+				continue
+			}
+
 			key, value, ok := splitKeyValue(body)
 			if !ok {
 				return nil, fail(lineNo, "flow items must start with '- entry: <file>.dart#<symbol>'")
@@ -158,10 +199,23 @@ func ParseManifest(src string) (*Manifest, error) {
 
 		default:
 			if section == "" {
-				return nil, fail(lineNo, "unexpected content outside a 'flows:'/'excluded:' section: %q", trimmed)
+				return nil, fail(lineNo, "unexpected content outside a 'flows:'/'excluded:'/'laneOverrides:' section: %q", trimmed)
 			}
 			if section == "excluded" {
 				return nil, fail(lineNo, "excluded entries are single-line scalars; got %q", trimmed)
+			}
+			if section == "laneOverrides" {
+				if curOv == nil {
+					return nil, fail(lineNo, "indented line %q does not belong to a '- symbol:' item", trimmed)
+				}
+				key, value, ok := splitKeyValue(trimmed)
+				if !ok {
+					return nil, fail(lineNo, "expected 'key: value', got %q", trimmed)
+				}
+				if err := assignOverrideKey(curOv, key, value, lineNo, fail); err != nil {
+					return nil, err
+				}
+				continue
 			}
 			if cur == nil {
 				return nil, fail(lineNo, "indented line %q does not belong to a '- entry:' item", trimmed)
@@ -198,6 +252,50 @@ func assignFlowKey(item *PinnedFlow, key, value string, lineNo int, fail func(in
 		return fail(lineNo, "unknown flow key %q (allowed: entry, name)", key)
 	}
 	return nil
+}
+
+// laneShapeRe constrains override lanes to a single lowercase word; semantic
+// validation against the consumer's canonical layer set happens at apply
+// time (flowview), keeping this parser dependency-free.
+var laneShapeRe = regexp.MustCompile(`^[a-z]+$`)
+
+func assignOverrideKey(item *LaneOverride, key, value string, lineNo int, fail func(int, string, ...any) error) error {
+	v, err := unquoteScalar(value)
+	if err != nil {
+		return fail(lineNo, "%v", err)
+	}
+	switch key {
+	case "symbol":
+		if strings.TrimSpace(v) == "" {
+			return fail(lineNo, "laneOverride symbol must not be empty")
+		}
+		item.Symbol = v
+	case "lane":
+		if !laneShapeRe.MatchString(v) {
+			return fail(lineNo, "lane %q must be a single lowercase word", v)
+		}
+		item.Lane = v
+	default:
+		return fail(lineNo, "unknown laneOverride key %q (allowed: symbol, lane)", key)
+	}
+	return nil
+}
+
+// LaneOverrideMap flattens LaneOverrides into a symbol→lane map. When the
+// same symbol appears twice, the FIRST entry wins — matching flows:, where
+// earlier pins are authoritative and later duplicates are ignored.
+func (m *Manifest) LaneOverrideMap() map[string]string {
+	out := make(map[string]string, len(m.LaneOverrides))
+	for _, ov := range m.LaneOverrides {
+		if ov.Symbol == "" || ov.Lane == "" {
+			continue
+		}
+		if _, dup := out[ov.Symbol]; dup {
+			continue
+		}
+		out[ov.Symbol] = ov.Lane
+	}
+	return out
 }
 
 // splitKeyValue splits "key: value" on the first colon. ok=false when the
@@ -312,4 +410,159 @@ func (m *Manifest) IsPinned(path string) bool {
 		}
 	}
 	return false
+}
+
+// WriteLaneOverride persists one symbol→lane assignment into
+// <repoRoot>/codeflow.flows.yaml under laneOverrides:, creating the file or
+// section when missing and replacing the lane in place when the symbol is
+// already overridden. The write is atomic (temp file + rename) and the
+// spliced text is re-parsed before commit so a malformed edit never lands.
+func WriteLaneOverride(repoRoot, symbol, lane string) error {
+	path := filepath.Join(repoRoot, ManifestFileName)
+	srcBytes, err := os.ReadFile(path)
+	src := ""
+	switch {
+	case err == nil:
+		src = string(srcBytes)
+	case errors.Is(err, fs.ErrNotExist):
+		// fresh manifest below
+	default:
+		return fmt.Errorf("write %s: %w", path, err)
+	}
+
+	out := spliceLaneOverride(src, symbol, lane)
+	parsed, parseErr := ParseManifest(out)
+	if parseErr != nil {
+		return fmt.Errorf("write %s: spliced manifest does not parse: %w", path, parseErr)
+	}
+	found := false
+	for _, ov := range parsed.LaneOverrides {
+		if ov.Symbol == symbol && ov.Lane == lane {
+			found = true
+			break
+		}
+	}
+	if !found {
+		return fmt.Errorf("write %s: override for %q missing after splice", path, symbol)
+	}
+
+	tmp := path + ".tmp"
+	if err := os.WriteFile(tmp, []byte(out), 0o644); err != nil {
+		return fmt.Errorf("write %s: %w", path, err)
+	}
+	if err := os.Rename(tmp, path); err != nil {
+		_ = os.Remove(tmp)
+		return fmt.Errorf("write %s: %w", path, err)
+	}
+	return nil
+}
+
+// spliceLaneOverride returns src with exactly one laneOverrides: entry for
+// symbol mapped to lane. Existing sections and comments elsewhere in the
+// file are preserved byte-for-byte.
+func spliceLaneOverride(src, symbol, lane string) string {
+	lines := strings.Split(src, "\n")
+	sectionIdx := -1
+	for i, raw := range lines {
+		trimmed := strings.TrimSpace(raw)
+		if strings.HasSuffix(trimmed, ":") && strings.TrimSuffix(trimmed, ":") == "laneOverrides" && len(raw)-len(strings.TrimLeft(raw, " ")) == 0 {
+			sectionIdx = i
+			break
+		}
+	}
+
+	newItem := []string{
+		"  - symbol: " + symbol,
+		"    lane: " + lane,
+	}
+
+	if sectionIdx < 0 {
+		out := src
+		if out != "" && !strings.HasSuffix(out, "\n") {
+			out += "\n"
+		}
+		out += "laneOverrides:\n" + strings.Join(newItem, "\n") + "\n"
+		return out
+	}
+
+	// Walk items inside the section: each starts at "- " depth ≥1.
+	type ovItem struct {
+		start, end   int // inclusive line indexes of this item block
+		symbol       string
+		hasLane      bool
+		laneLineIdx  int
+		symbolIndent int
+	}
+	var items []ovItem
+	curItem := -1
+	for i := sectionIdx + 1; i < len(lines); i++ {
+		raw := lines[i]
+		trimmed := strings.TrimSpace(raw)
+		first := strings.TrimLeft(raw, " ")
+		if trimmed == "" || strings.HasPrefix(first, "#") {
+			continue // blank or full-line comment
+		}
+		indent := len(raw) - len(strings.TrimLeft(raw, " "))
+		if indent == 0 {
+			// Next top-level section: the current item's block ends here,
+			// NOT at EOF — otherwise a new item would be spliced into the
+			// following section.
+			if curItem >= 0 {
+				items[curItem].end = i - 1
+				curItem = -1
+			}
+			break
+		}
+		isItemStart := strings.HasPrefix(trimmed, "- ") || trimmed == "-"
+		if isItemStart && curItem >= 0 {
+			items[curItem].end = i - 1
+			curItem = -1
+		}
+		if isItemStart {
+			body := strings.TrimSpace(strings.TrimPrefix(trimmed, "-"))
+			key, value, ok := splitKeyValue(body)
+			it := ovItem{start: i, end: len(lines) - 1, symbolIndent: indent}
+			if ok && key == "symbol" {
+				if v, err := unquoteScalar(value); err == nil {
+					it.symbol = v
+				}
+			}
+			items = append(items, it)
+			curItem = len(items) - 1
+			continue
+		}
+		if curItem >= 0 {
+			if key, _, ok := splitKeyValue(trimmed); ok && key == "lane" {
+				items[curItem].hasLane = true
+				items[curItem].laneLineIdx = i
+			}
+		}
+	}
+	if curItem >= 0 {
+		items[curItem].end = len(lines) - 1
+	}
+
+	for _, it := range items {
+		if it.symbol != symbol {
+			continue
+		}
+		if it.hasLane {
+			lines[it.laneLineIdx] = strings.Repeat(" ", it.symbolIndent+2) + "lane: " + lane
+			return strings.Join(lines, "\n")
+		}
+		return strings.Join(append(lines[:it.start+1], append([]string{strings.Repeat(" ", it.symbolIndent+2) + "lane: " + lane}, lines[it.start+1:]...)...), "\n")
+	}
+
+	insertAt := sectionIdx + 1
+	if len(items) > 0 {
+		insertAt = items[len(items)-1].end + 1
+		// Skip trailing blank/comment lines of the last item block.
+		for insertAt-1 > sectionIdx && strings.TrimSpace(lines[insertAt-1]) == "" {
+			insertAt--
+		}
+	}
+	updated := append([]string{}, lines[:insertAt]...)
+	updated = append(updated, newItem...)
+	updated = append(updated, lines[insertAt:]...)
+	return strings.Join(updated, "\n")
 }
