@@ -18,7 +18,7 @@
         "required": ["name"],
         "additionalProperties": false,
         "properties": {
-          "name": { "type": "string", "enum": ["presentation","controller","usecase","domain","data","infra","external","unknown"] },
+          "name": { "type": "string", "enum": ["presentation","controller","usecase","domain","data","infra","external"] },
           "aliases": { "type": "array", "items": {"type":"string"}, "default": [] },
           "pathPatterns": { "type": "array", "items": {"type":"string"}, "default": [] }
         }

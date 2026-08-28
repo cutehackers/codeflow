@@ -1,0 +1,42 @@
+{
+  "version": 1,
+  "strictOrder": true,
+  "allowUnknownLayer": false,
+  "layers": [
+    {
+      "name": "presentation",
+      "aliases": ["ui", "view", "widget"],
+      "pathPatterns": ["**/presentation/**", "**/features/*/presentation/**"]
+    },
+    {
+      "name": "controller",
+      "aliases": ["controller"],
+      "pathPatterns": ["**/controller/**", "**/notifier/**"]
+    },
+    {
+      "name": "usecase",
+      "aliases": ["application", "service", "interactor", "use_case"],
+      "pathPatterns": ["**/usecase/**", "**/domain/usecase/**"]
+    },
+    {
+      "name": "domain",
+      "aliases": ["domain", "entity"],
+      "pathPatterns": ["**/domain/**"]
+    },
+    {
+      "name": "data",
+      "aliases": ["repository", "datasource", "data_source"],
+      "pathPatterns": ["**/data/**", "**/repository/**"]
+    },
+    {
+      "name": "infra",
+      "aliases": ["infrastructure", "platform"],
+      "pathPatterns": ["**/infra/**"]
+    },
+    {
+      "name": "external",
+      "aliases": ["api", "remote", "gateway", "client"],
+      "pathPatterns": ["**/api/**", "**/external/**"]
+    }
+  ]
+}

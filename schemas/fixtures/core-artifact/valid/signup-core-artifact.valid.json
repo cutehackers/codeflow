@@ -1,0 +1,56 @@
+{
+  "flowId": "flow-7232d63b96bd6efa",
+  "entrySymbolPath": "lib/features/auth/email_signup_notifier.dart#EmailSignupNotifier.submit",
+  "title": "이메일 회원가입 핵심 흐름",
+  "description": "사용자 이메일 회원가입 요청의 계층 간 전체 흐름",
+  "layers": [
+    "presentation",
+    "controller",
+    "usecase",
+    "data"
+  ],
+  "steps": [
+    {
+      "ordinal": 1,
+      "name": "입력 폼 제출 버튼 탭",
+      "layer": "presentation",
+      "kind": "call",
+      "anchor": {
+        "repoRelativePath": "lib/features/auth/email_signup_page.dart",
+        "byteRange": [120, 240],
+        "fileHash": "c147efcfc2d7ea666a9e4f5187b115c90903f0fc896a56df9a6ef5d8f3fc9f31",
+        "spanHash": "f5bc8648d6c1b4c1b06d4e666e74f568696cec867fd7c566828db6ceb7b21223",
+        "enclosingSymbolPath": "EmailSignupPage.build",
+        "canonicalAstFingerprint": "75fb260f169bbb3862ca2cc146cb4a1aca9f32e11f0867594b3e67d192bed2d8"
+      }
+    },
+    {
+      "ordinal": 2,
+      "name": "입력 유효성 검증 및 유스케이스 호출",
+      "layer": "controller",
+      "kind": "guard",
+      "anchor": {
+        "repoRelativePath": "lib/features/auth/email_signup_notifier.dart",
+        "byteRange": [1024, 1180],
+        "fileHash": "c147efcfc2d7ea666a9e4f5187b115c90903f0fc896a56df9a6ef5d8f3fc9f31",
+        "spanHash": "f5bc8648d6c1b4c1b06d4e666e74f568696cec867fd7c566828db6ceb7b21223",
+        "enclosingSymbolPath": "EmailSignupNotifier.submit",
+        "canonicalAstFingerprint": "75fb260f169bbb3862ca2cc146cb4a1aca9f32e11f0867594b3e67d192bed2d8"
+      },
+      "stateDelta": {
+        "before": "status: initial",
+        "after": "status: submitting"
+      }
+    }
+  ],
+  "edges": [
+    {
+      "stepOrdinal": 1,
+      "toSymbolPath": "lib/features/auth/email_signup_notifier.dart#EmailSignupNotifier.submit",
+      "toLayer": "controller",
+      "kind": "resolved_cross_file",
+      "resolutionStatus": "resolved"
+    }
+  ],
+  "unknowns": []
+}

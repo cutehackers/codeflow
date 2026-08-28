@@ -98,6 +98,18 @@ func (s *Server) handlePublishCoreFlow(ctx context.Context, args map[string]any)
 	if len(sanitized) > maxCoreArtifactBytes {
 		return nil, coreFlowError("artifact_too_large", fmt.Sprintf("artifact JSON after redaction %d bytes exceeds %d", len(sanitized), maxCoreArtifactBytes), []map[string]any{{"field": "artifact", "reason": "artifact_too_large", "limit": maxCoreArtifactBytes, "actual": len(sanitized)}}, false)
 	}
+	// Check step/edge bounds BEFORE schema validation so exceeding 64 returns artifact_too_large (retryable: false, spec §7) rather than schema_validation_failed
+	var countProbe struct {
+		Steps []any `json:"steps"`
+		Edges []any `json:"edges"`
+	}
+	if err := json.Unmarshal(sanitized, &countProbe); err == nil {
+		if len(countProbe.Steps) > 64 || len(countProbe.Edges) > 64 {
+			return nil, coreFlowError("artifact_too_large", fmt.Sprintf("steps (%d) or edges (%d) exceed max 64", len(countProbe.Steps), len(countProbe.Edges)), []map[string]any{
+				{"reason": "artifact_too_large", "steps": len(countProbe.Steps), "edges": len(countProbe.Edges), "limit": 64},
+			}, false)
+		}
+	}
 	if err := contractharness.Validate(contractharness.BaseURL+"core-artifact.schema.json", sanitized); err != nil {
 		return nil, coreFlowError("schema_validation_failed", fmt.Sprintf("core-artifact schema validation failed: %v", err), []map[string]any{{"reason": "schema_validation_failed", "details": err.Error()}}, true)
 	}
@@ -107,9 +119,6 @@ func (s *Server) handlePublishCoreFlow(ctx context.Context, args map[string]any)
 	}
 	if len(artifact.Steps) == 0 {
 		return nil, coreFlowError("schema_validation_failed", "steps must not be empty", nil, true)
-	}
-	if len(artifact.Steps) > 64 || len(artifact.Edges) > 64 {
-		return nil, coreFlowError("artifact_too_large", fmt.Sprintf("steps %d edges %d exceed 64", len(artifact.Steps), len(artifact.Edges)), []map[string]any{{"reason": "artifact_too_large", "steps": len(artifact.Steps), "edges": len(artifact.Edges)}}, false)
 	}
 	// Verify ordinals are 1..N contiguous and sorted
 	for i, st := range artifact.Steps {
@@ -202,15 +211,19 @@ func (s *Server) handlePublishCoreFlow(ctx context.Context, args map[string]any)
 	}
 	// Path-pattern advisory warnings as unknowns-style warnings
 	stepsForPath := make([]struct {
+		Ordinal          int
 		Layer            string
 		RepoRelativePath string
 	}, len(artifact.Steps))
 	for i, st := range artifact.Steps {
+		stepsForPath[i].Ordinal = st.Ordinal
 		stepsForPath[i].Layer = normalizedLayers[i]
 		stepsForPath[i].RepoRelativePath = st.Anchor.RepoRelativePath
 	}
-	pathWarnings := fusion.ValidatePathPatterns(stepsForPath, layersCfg)
-	warnings = append(warnings, pathWarnings...)
+	pathMismatches := fusion.ValidatePathPatterns(stepsForPath, layersCfg)
+	for _, pm := range pathMismatches {
+		warnings = append(warnings, pm.Message)
+	}
 
 	// 10. Compute basisSha
 	// Unique file parts from steps + entrySymbolPath file part + codeflow.layers.yaml when present
@@ -320,14 +333,16 @@ func (s *Server) handlePublishCoreFlow(ctx context.Context, args map[string]any)
 	if err != nil {
 		return nil, coreFlowError("storage_commit_failed", fmt.Sprintf("fuse error: %v", err), []map[string]any{{"reason": "fuse_failed", "details": err.Error()}}, true)
 	}
-	// Merge artifact unknowns and path warnings into spec.Unknowns
+	// Merge artifact unknowns and path advisory mismatches into spec.Unknowns (spec §5.2 step 8)
 	if len(artifact.Unknowns) > 0 {
 		spec.Unknowns = append(spec.Unknowns, artifact.Unknowns...)
 	}
-	for _, pw := range pathWarnings {
-		spec.Unknowns = append(spec.Unknowns, fusion.Unknown{Subject: pw, Reason: "unresolved_type"})
+	for _, pm := range pathMismatches {
+		spec.Unknowns = append(spec.Unknowns, fusion.Unknown{
+			Subject: fmt.Sprintf("step:%d", pm.Ordinal),
+			Reason:  "unresolved_type",
+		})
 	}
-	// Order warnings are not unknowns per se — but spec says advisory warning → unknowns[] entry with reason unresolved_type for path mismatches only. Layer order warnings stay as warnings slice.
 	// Ensure spec.Unknowns is non-nil (schema requires array, may be empty)
 	if spec.Unknowns == nil {
 		spec.Unknowns = []fusion.Unknown{}

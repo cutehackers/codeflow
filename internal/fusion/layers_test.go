@@ -175,15 +175,53 @@ layers:
 `
 	os.WriteFile(filepath.Join(dir, "codeflow.layers.yaml"), []byte(yamlContent), 0644)
 	cfg, _ := LoadLayersConfig(dir)
-	steps := []struct{Layer string; RepoRelativePath string}{
-		{"presentation", "lib/features/auth/presentation/join_page.dart"},
-		{"presentation", "lib/features/auth/data/repo.dart"},
-		{"data", "lib/data/repo.dart"},
-		{"data", "lib/presentation/page.dart"},
+	steps := []struct {
+		Ordinal          int
+		Layer            string
+		RepoRelativePath string
+	}{
+		{1, "presentation", "lib/features/auth/presentation/join_page.dart"},
+		{2, "presentation", "lib/features/auth/data/repo.dart"},
+		{3, "data", "lib/data/repo.dart"},
+		{4, "data", "lib/presentation/page.dart"},
 	}
-	warnings := ValidatePathPatterns(steps, cfg)
-	if len(warnings) != 2 {
-		t.Errorf("expected 2 warnings, got %d: %v", len(warnings), warnings)
+	mismatches := ValidatePathPatterns(steps, cfg)
+	if len(mismatches) != 2 {
+		t.Errorf("expected 2 mismatches, got %d: %v", len(mismatches), mismatches)
+	}
+	if mismatches[0].Ordinal != 2 || mismatches[1].Ordinal != 4 {
+		t.Errorf("unexpected mismatch ordinals: %v", mismatches)
+	}
+}
+
+func TestNormalizeLayer_ConfigFileIsSourceOfTruth(t *testing.T) {
+	dir := t.TempDir()
+	// Config defines only presentation, controller, usecase, data (infra/external omitted)
+	yamlContent := `version: 1
+strictOrder: true
+allowUnknownLayer: false
+layers:
+  - name: presentation
+  - name: controller
+  - name: usecase
+  - name: data
+`
+	os.WriteFile(filepath.Join(dir, "codeflow.layers.yaml"), []byte(yamlContent), 0644)
+	cfg, err := LoadLayersConfig(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// presentation is in config -> valid
+	if got, unk := NormalizeLayer("presentation", cfg); got != "presentation" || unk {
+		t.Errorf("presentation -> %q unk=%v", got, unk)
+	}
+	// infra is a canonical enum name, but NOT in this repo's codeflow.layers.yaml -> must be unknown
+	if got, unk := NormalizeLayer("infra", cfg); got != LayerUnknown || !unk {
+		t.Errorf("infra not in cfg should be unknown, got %q unk=%v", got, unk)
+	}
+	// external is NOT in this repo's codeflow.layers.yaml -> must be unknown
+	if got, unk := NormalizeLayer("external", cfg); got != LayerUnknown || !unk {
+		t.Errorf("external not in cfg should be unknown, got %q unk=%v", got, unk)
 	}
 }
 

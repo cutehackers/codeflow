@@ -195,11 +195,8 @@ func NormalizeLayer(raw string, cfg *LayersConfig) (string, bool) {
 	if s == "" {
 		return LayerUnknown, true
 	}
-	// Direct canonical match
-	if _, ok := LayerOrder[s]; ok && s != LayerUnknown {
-		return s, false
-	}
-	// If cfg present (file-defined aliases), search there first
+	// If cfg present (file-defined aliases), the file is source of truth (§4.1.3).
+	// Search cfg layers and aliases first.
 	if cfg != nil {
 		for _, ld := range cfg.Layers {
 			if s == ld.Name {
@@ -211,14 +208,18 @@ func NormalizeLayer(raw string, cfg *LayersConfig) (string, bool) {
 				}
 			}
 		}
-		// cfg present but not found → unknown
+		// cfg present but not found in configured layers/aliases → unknown
 		return LayerUnknown, true
+	}
+	// Direct canonical match when cfg is absent
+	if _, ok := LayerOrder[s]; ok && s != LayerUnknown {
+		return s, false
 	}
 	// Fallback builtin alias table when cfg is nil/absent
 	if canon, ok := builtinAliasToCanonical[s]; ok {
 		return canon, false
 	}
-	// Also try direct canonical check for unknown itself
+	// Direct canonical check for unknown itself
 	if s == LayerUnknown {
 		return LayerUnknown, false
 	}
@@ -227,49 +228,38 @@ func NormalizeLayer(raw string, cfg *LayersConfig) (string, bool) {
 
 // ValidateLayerOrder validates monotonic layer progression for steps.
 // If declaredLayers is non-empty, it is the authoritative order (artifact.layers).
-// Otherwise order is inferred from first occurrence (no error, only used for render, but we still detect backward hops if StrictOrder).
+// If declaredLayers is absent, spec §5.2 step 8 states:
+// "infer expected order from first occurrence of each distinct layer in steps[] order — no error, only used for render."
 // branchKind == "branch" allows backward hops.
 // When StrictOrder==false, backward hops become warnings (returned as warnings, not errors).
-// Returns warnings (unknowns-style entries should be built by caller) and error for strict violations.
+// Returns warnings and error for strict violations.
 func ValidateLayerOrder(steps []struct {
 	Layer string
 	Kind  string
 }, declaredLayers []string, cfg *LayersConfig) (warnings []string, err error) {
+	if len(declaredLayers) == 0 {
+		// When artifact.layers is absent, no order validation error per spec §5.2 step 8
+		return nil, nil
+	}
 	strict := true
 	if cfg != nil {
 		strict = cfg.StrictOrder
 	}
 	orderIndex := map[string]int{}
-	if len(declaredLayers) > 0 {
-		for i, l := range declaredLayers {
-			canon, unk := NormalizeLayer(l, cfg)
-			if unk {
-				// declared layer itself unknown → validation error when strict
-				if strict {
-					return nil, fmt.Errorf("layer_order_violation: declared layers contains unknown %q", l)
-				}
-				continue
+	for i, l := range declaredLayers {
+		canon, unk := NormalizeLayer(l, cfg)
+		if unk {
+			// declared layer itself unknown → validation error when strict
+			if strict {
+				return nil, fmt.Errorf("layer_order_violation: declared layers contains unknown %q", l)
 			}
-			if _, ok := orderIndex[canon]; !ok {
-				orderIndex[canon] = i
-			}
+			continue
 		}
-	} else {
-		// Infer order from first occurrence
-		nextIdx := 0
-		for _, st := range steps {
-			canon, unk := NormalizeLayer(st.Layer, cfg)
-			if unk {
-				canon = LayerUnknown
-			}
-			if _, ok := orderIndex[canon]; !ok {
-				orderIndex[canon] = nextIdx
-				nextIdx++
-			}
+		if _, ok := orderIndex[canon]; !ok {
+			orderIndex[canon] = i
 		}
 	}
 	// Ensure every canonical in declared set has an index; steps not in declared set get append order
-	// For steps, map canonical to order index; if not in declared set, treat as after all declared (strict violation only if backward)
 	maxIdx := len(orderIndex)
 	for _, st := range steps {
 		canon, unk := NormalizeLayer(st.Layer, cfg)
@@ -307,12 +297,21 @@ func ValidateLayerOrder(steps []struct {
 	return warnings, nil
 }
 
-// ValidatePathPatterns checks each step's repoRelativePath against the pathPatterns for its canonical layer.
-// Returns warnings for mismatches; never errors by itself (advisory). Caller may combine with layer order check.
-func ValidatePathPatterns(steps []struct {
+// PathPatternMismatch records one advisory mismatch per spec §5.2 step 8.
+type PathPatternMismatch struct {
+	Ordinal          int
 	Layer            string
 	RepoRelativePath string
-}, cfg *LayersConfig) []string {
+	Message          string
+}
+
+// ValidatePathPatterns checks each step's repoRelativePath against the pathPatterns for its canonical layer.
+// Returns mismatches; never errors by itself (advisory). Caller records unknowns[] and warnings.
+func ValidatePathPatterns(steps []struct {
+	Ordinal          int
+	Layer            string
+	RepoRelativePath string
+}, cfg *LayersConfig) []PathPatternMismatch {
 	if cfg == nil {
 		return nil
 	}
@@ -323,8 +322,8 @@ func ValidatePathPatterns(steps []struct {
 			patternsByLayer[ld.Name] = ld.PathPatterns
 		}
 	}
-	var warnings []string
-	for i, st := range steps {
+	var mismatches []PathPatternMismatch
+	for _, st := range steps {
 		canon, unk := NormalizeLayer(st.Layer, cfg)
 		if unk {
 			continue
@@ -341,10 +340,15 @@ func ValidatePathPatterns(steps []struct {
 			}
 		}
 		if !matched {
-			warnings = append(warnings, fmt.Sprintf("step %d layer %q path %q does not match any pathPatterns %v", i+1, canon, st.RepoRelativePath, pats))
+			mismatches = append(mismatches, PathPatternMismatch{
+				Ordinal:          st.Ordinal,
+				Layer:            canon,
+				RepoRelativePath: st.RepoRelativePath,
+				Message:          fmt.Sprintf("step %d layer %q path %q does not match any pathPatterns %v in codeflow.layers.yaml", st.Ordinal, canon, st.RepoRelativePath, pats),
+			})
 		}
 	}
-	return warnings
+	return mismatches
 }
 
 // matchDoublestar matches path against a doublestar glob like "**/presentation/**".

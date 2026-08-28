@@ -1,0 +1,9 @@
+{
+  "version": 1,
+  "layers": [
+    {
+      "name": "custom_unknown_layer",
+      "aliases": ["custom"]
+    }
+  ]
+}

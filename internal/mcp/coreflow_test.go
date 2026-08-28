@@ -277,6 +277,22 @@ func TestPublishCoreFlow_Errors(t *testing.T) {
 		}
 	})
 
+	t.Run("anchor byte_range_out_of_bounds", func(t *testing.T) {
+		anc := computeAnchor(t, repoRoot, "lib/a.dart", 0, 5, "A.foo")
+		anc["byteRange"] = []int{0, 99999} // out of file bounds
+		art := map[string]any{
+			"entrySymbolPath": "lib/a.dart#A.foo",
+			"title":           "t",
+			"steps": []map[string]any{
+				{"ordinal": 1, "name": "s1", "layer": "presentation", "kind": "call", "anchor": anc},
+			},
+		}
+		isErr, txt := call(art, nil)
+		if !isErr || !strings.Contains(txt, "byte_range_out_of_bounds") {
+			t.Errorf("expected byte_range_out_of_bounds, got %v", txt)
+		}
+	})
+
 	t.Run("layer_order_violation strict", func(t *testing.T) {
 		anc1 := computeAnchor(t, repoRoot, "lib/a.dart", 0, 5, "A.foo")
 		anc2 := computeAnchor(t, repoRoot, "lib/a.dart", 5, 10, "A.foo")
@@ -295,7 +311,27 @@ func TestPublishCoreFlow_Errors(t *testing.T) {
 		}
 	})
 
-	t.Run("artifact_too_large", func(t *testing.T) {
+	t.Run("omitted layers allows revisit without layer_order_violation", func(t *testing.T) {
+		anc1 := computeAnchor(t, repoRoot, "lib/a.dart", 0, 5, "A.foo")
+		anc2 := computeAnchor(t, repoRoot, "lib/a.dart", 5, 10, "A.foo")
+		anc3 := computeAnchor(t, repoRoot, "lib/a.dart", 10, 15, "A.foo")
+		art := map[string]any{
+			"entrySymbolPath": "lib/a.dart#A.foo",
+			"title":           "revisit flow",
+			// layers omitted -> spec §5.2 step 8 says inferred for render only, no error
+			"steps": []map[string]any{
+				{"ordinal": 1, "name": "s1", "layer": "presentation", "kind": "call", "anchor": anc1},
+				{"ordinal": 2, "name": "s2", "layer": "data", "kind": "call", "anchor": anc2},
+				{"ordinal": 3, "name": "s3", "layer": "presentation", "kind": "call", "anchor": anc3},
+			},
+		}
+		isErr, txt := call(art, nil)
+		if isErr {
+			t.Fatalf("expected success for omitted layers, got error: %v", txt)
+		}
+	})
+
+	t.Run("artifact_too_large json size", func(t *testing.T) {
 		anc := computeAnchor(t, repoRoot, "lib/a.dart", 0, 5, "A.foo")
 		huge := strings.Repeat("x", 600*1024)
 		art := map[string]any{
@@ -308,6 +344,168 @@ func TestPublishCoreFlow_Errors(t *testing.T) {
 		isErr, txt := call(art, nil)
 		if !isErr || !strings.Contains(txt, "artifact_too_large") {
 			t.Errorf("expected artifact_too_large, got %v", txt)
+		}
+		if strings.Contains(txt, `"retryable":true`) {
+			t.Errorf("artifact_too_large must be retryable: false")
+		}
+	})
+
+	t.Run("artifact_too_large step count > 64", func(t *testing.T) {
+		steps := make([]map[string]any, 65)
+		for i := 0; i < 65; i++ {
+			anc := computeAnchor(t, repoRoot, "lib/a.dart", 0, 5, "A.foo")
+			steps[i] = map[string]any{
+				"ordinal": i + 1,
+				"name":    "step",
+				"layer":   "presentation",
+				"kind":    "call",
+				"anchor":  anc,
+			}
+		}
+		art := map[string]any{
+			"entrySymbolPath": "lib/a.dart#A.foo",
+			"title":           "too many steps",
+			"steps":           steps,
+		}
+		isErr, txt := call(art, nil)
+		if !isErr || !strings.Contains(txt, "artifact_too_large") {
+			t.Errorf("expected artifact_too_large for 65 steps, got %v", txt)
+		}
+		if strings.Contains(txt, `"retryable":true`) {
+			t.Errorf("artifact_too_large must be retryable: false")
+		}
+	})
+
+	t.Run("allowUnknownLayer true vs false", func(t *testing.T) {
+		repoStrict := t.TempDir()
+		writeTestFile(t, repoStrict, "lib/a.dart", content)
+		os.WriteFile(filepath.Join(repoStrict, "codeflow.layers.yaml"), []byte("version: 1\nstrictOrder: true\nallowUnknownLayer: false\nlayers:\n  - name: presentation\n"), 0644)
+		anc := computeAnchor(t, repoStrict, "lib/a.dart", 0, 5, "A.foo")
+		srvStrict, _ := mcp.NewServer(mcp.Config{RepoRoot: repoStrict})
+		defer srvStrict.Close()
+
+		art := map[string]any{
+			"entrySymbolPath": "lib/a.dart#A.foo",
+			"title":           "t",
+			"steps": []map[string]any{
+				{"ordinal": 1, "name": "s1", "layer": "unknown_layer", "kind": "call", "anchor": anc},
+			},
+		}
+		// strict allowUnknownLayer: false -> error
+		var buf bytes.Buffer
+		req := map[string]any{"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": map[string]any{"name": "publish_core_flow", "arguments": map[string]any{"artifact": art}}}
+		line, _ := json.Marshal(req)
+		buf.Write(line)
+		buf.WriteByte('\n')
+		var out bytes.Buffer
+		srvStrict.Serve(ctx, &buf, &out)
+		var resp struct {
+			Result struct {
+				Content []struct{ Text string `json:"text"` } `json:"content"`
+				IsError bool `json:"isError"`
+			} `json:"result"`
+		}
+		json.Unmarshal([]byte(strings.TrimSpace(out.String())), &resp)
+		if !resp.Result.IsError || !strings.Contains(resp.Result.Content[0].Text, "layer_order_violation") {
+			t.Errorf("expected layer_order_violation for unknown layer in strict mode, got %v", resp.Result.Content[0].Text)
+		}
+
+		// allowUnknownLayer: true -> succeeds with normalized unknown warning
+		repoPermissive := t.TempDir()
+		writeTestFile(t, repoPermissive, "lib/a.dart", content)
+		os.WriteFile(filepath.Join(repoPermissive, "codeflow.layers.yaml"), []byte("version: 1\nstrictOrder: true\nallowUnknownLayer: true\nlayers:\n  - name: presentation\n"), 0644)
+		anc2 := computeAnchor(t, repoPermissive, "lib/a.dart", 0, 5, "A.foo")
+		srvPermissive, _ := mcp.NewServer(mcp.Config{RepoRoot: repoPermissive})
+		defer srvPermissive.Close()
+
+		artPerm := map[string]any{
+			"entrySymbolPath": "lib/a.dart#A.foo",
+			"title":           "t",
+			"steps": []map[string]any{
+				{"ordinal": 1, "name": "s1", "layer": "custom_raw", "kind": "call", "anchor": anc2},
+			},
+		}
+		buf.Reset()
+		out.Reset()
+		reqPerm := map[string]any{"jsonrpc": "2.0", "id": 2, "method": "tools/call", "params": map[string]any{"name": "publish_core_flow", "arguments": map[string]any{"artifact": artPerm}}}
+		linePerm, _ := json.Marshal(reqPerm)
+		buf.Write(linePerm)
+		buf.WriteByte('\n')
+		srvPermissive.Serve(ctx, &buf, &out)
+		var respPerm struct {
+			Result struct {
+				Content []struct{ Text string `json:"text"` } `json:"content"`
+				IsError bool `json:"isError"`
+			} `json:"result"`
+		}
+		json.Unmarshal([]byte(strings.TrimSpace(out.String())), &respPerm)
+		if respPerm.Result.IsError {
+			t.Fatalf("expected success with allowUnknownLayer: true, got error: %v", respPerm.Result.Content[0].Text)
+		}
+	})
+
+	t.Run("pathPatterns advisory generates unknowns with subject step:ordinal", func(t *testing.T) {
+		repoPats := t.TempDir()
+		writeTestFile(t, repoPats, "lib/data/some_file.dart", content)
+		os.WriteFile(filepath.Join(repoPats, "codeflow.layers.yaml"), []byte("version: 1\nlayers:\n  - name: presentation\n    pathPatterns: [\"**/presentation/**\"]\n"), 0644)
+		anc := computeAnchor(t, repoPats, "lib/data/some_file.dart", 0, 5, "A.foo")
+		srvPats, _ := mcp.NewServer(mcp.Config{RepoRoot: repoPats})
+		defer srvPats.Close()
+
+		art := map[string]any{
+			"entrySymbolPath": "lib/data/some_file.dart#A.foo",
+			"title":           "path pattern test",
+			"steps": []map[string]any{
+				{"ordinal": 1, "name": "s1", "layer": "presentation", "kind": "call", "anchor": anc},
+			},
+		}
+		var buf bytes.Buffer
+		req := map[string]any{"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": map[string]any{"name": "publish_core_flow", "arguments": map[string]any{"artifact": art}}}
+		line, _ := json.Marshal(req)
+		buf.Write(line)
+		buf.WriteByte('\n')
+		var out bytes.Buffer
+		srvPats.Serve(ctx, &buf, &out)
+		var resp struct {
+			Result struct {
+				Content []struct{ Text string `json:"text"` } `json:"content"`
+				IsError bool `json:"isError"`
+			} `json:"result"`
+		}
+		json.Unmarshal([]byte(strings.TrimSpace(out.String())), &resp)
+		if resp.Result.IsError {
+			t.Fatalf("pathPatterns is advisory and should succeed, got: %v", resp.Result.Content[0].Text)
+		}
+		var succ map[string]any
+		json.Unmarshal([]byte(resp.Result.Content[0].Text), &succ)
+		flowID := succ["flowId"].(string)
+
+		// Check stored spec unknowns
+		buf.Reset()
+		out.Reset()
+		getReq := map[string]any{"jsonrpc": "2.0", "id": 2, "method": "tools/call", "params": map[string]any{"name": "get_flow_payload", "arguments": map[string]any{"flowId": flowID}}}
+		lineGet, _ := json.Marshal(getReq)
+		buf.Write(lineGet)
+		buf.WriteByte('\n')
+		srvPats.Serve(ctx, &buf, &out)
+		var getResp struct {
+			Result struct {
+				Content []struct{ Text string `json:"text"` } `json:"content"`
+			} `json:"result"`
+		}
+		json.Unmarshal([]byte(strings.TrimSpace(out.String())), &getResp)
+		var spec map[string]any
+		json.Unmarshal([]byte(getResp.Result.Content[0].Text), &spec)
+		unknowns := spec["unknowns"].([]any)
+		if len(unknowns) == 0 {
+			t.Fatalf("expected unknowns for pathPatterns mismatch")
+		}
+		firstUnk := unknowns[0].(map[string]any)
+		if firstUnk["subject"] != "step:1" {
+			t.Errorf("unknown subject = %q want 'step:1'", firstUnk["subject"])
+		}
+		if firstUnk["reason"] != "unresolved_type" {
+			t.Errorf("unknown reason = %q want 'unresolved_type'", firstUnk["reason"])
 		}
 	})
 

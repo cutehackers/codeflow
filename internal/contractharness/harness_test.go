@@ -59,16 +59,19 @@ func TestValidateGoldenFixtures(t *testing.T) {
 		}
 	}
 
-	for schema, c := range counts {
+	for _, id := range SchemaIDs {
+		// id is BaseURL + "<name>.schema.json"
+		name := strings.TrimSuffix(strings.TrimPrefix(id, BaseURL), ".schema.json")
+		c := counts[name]
 		if c[0] == 0 || c[1] < 2 {
 			t.Errorf("schema %q has insufficient golden coverage (valid=%d, invalid=%d); need >=1 valid and >=2 invalid fixtures each targeting a distinct normative rejection",
-				schema, c[0], c[1])
+				name, c[0], c[1])
 		}
 	}
 
 	var b strings.Builder
 	fmt.Fprintf(&b, "golden fixtures: %d valid + %d invalid = %d exercised\n", passedValid, passedInvalid, passedValid+passedInvalid)
-	for _, s := range []string{"identity", "candidate", "sliced-payload", "flowspec", "session-artifact", "adapter-protocol"} {
+	for _, s := range []string{"identity", "candidate", "sliced-payload", "flowspec", "session-artifact", "adapter-protocol", "core-artifact", "layers-config"} {
 		if c, ok := counts[s]; ok {
 			fmt.Fprintf(&b, "  %-17s valid=%d invalid=%d\n", s, c[0], c[1])
 		}

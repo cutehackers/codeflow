@@ -13,7 +13,7 @@
     "description": { "type": "string", "maxLength": 300 },
     "layers": {
       "type": "array",
-      "items": { "type": "string", "enum": ["presentation","controller","usecase","domain","data","infra","external"] },
+      "items": { "type": "string", "minLength": 1, "maxLength": 80 },
       "description": "Ordered layer traversal declared by the agent for this flow, e.g. [\"presentation\",\"controller\",\"usecase\",\"data\",\"external\"]. Used to validate step layer ordering."
     },
     "steps": {
@@ -27,7 +27,7 @@
         "properties": {
           "ordinal": { "type": "integer", "minimum": 1 },
           "name": { "type": "string", "minLength": 1, "maxLength": 120 },
-          "layer": { "type": "string", "enum": ["presentation","controller","usecase","domain","data","infra","external"] },
+          "layer": { "type": "string", "minLength": 1, "maxLength": 80 },
           "kind": { "type": "string", "enum": ["guard","mutation","call","branch"] },
           "description": { "type": "string", "maxLength": 400 },
           "anchor": { "$ref": "https://codeflow.local/schemas/identity.schema.json#/$defs/anchor" },

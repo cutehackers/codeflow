@@ -1,0 +1,19 @@
+{
+  "entrySymbolPath": "lib/features/auth/email_signup_notifier.dart#EmailSignupNotifier.submit",
+  "title": "Missing Layer Step",
+  "steps": [
+    {
+      "ordinal": 1,
+      "name": "입력 폼 제출",
+      "kind": "call",
+      "anchor": {
+        "repoRelativePath": "lib/features/auth/email_signup_page.dart",
+        "byteRange": [120, 240],
+        "fileHash": "c147efcfc2d7ea666a9e4f5187b115c90903f0fc896a56df9a6ef5d8f3fc9f31",
+        "spanHash": "f5bc8648d6c1b4c1b06d4e666e74f568696cec867fd7c566828db6ceb7b21223",
+        "enclosingSymbolPath": "EmailSignupPage.build",
+        "canonicalAstFingerprint": "75fb260f169bbb3862ca2cc146cb4a1aca9f32e11f0867594b3e67d192bed2d8"
+      }
+    }
+  ]
+}

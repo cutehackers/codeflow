@@ -1,0 +1,12 @@
+{
+  "entrySymbolPath": "lib/features/auth/email_signup_notifier.dart#EmailSignupNotifier.submit",
+  "title": "Missing Anchor Step",
+  "steps": [
+    {
+      "ordinal": 1,
+      "name": "입력 폼 제출",
+      "layer": "presentation",
+      "kind": "call"
+    }
+  ]
+}
