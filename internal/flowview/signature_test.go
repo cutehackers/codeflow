@@ -69,7 +69,7 @@ func TestBuildArchitectureMapAggregates(t *testing.T) {
 			t.Errorf("lane %q has empty label", l.ID)
 		}
 	}
-	for _, want := range []string{LayerUI, LayerApplication, LayerState, LayerData, LayerExternal} {
+	for _, want := range []string{LayerPresentation, LayerUsecase, LayerState, LayerData, LayerExternal} {
 		if !laneIDs[want] {
 			t.Errorf("lane %q missing; got %v", want, m.Lanes)
 		}

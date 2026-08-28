@@ -92,8 +92,8 @@ func TestMCPServerToolsAndExecution(t *testing.T) {
 	if err := json.Unmarshal([]byte(lines[1]), &respList); err != nil {
 		t.Fatalf("unmarshal tools/list response: %v", err)
 	}
-	if len(respList.Result.Tools) != 7 {
-		t.Errorf("expected 7 MCP tools, got %d", len(respList.Result.Tools))
+	if len(respList.Result.Tools) != 8 {
+		t.Errorf("expected 8 MCP tools, got %d", len(respList.Result.Tools))
 	}
 
 	// 2. Call submit_flow_draft without token -> must fail

@@ -250,8 +250,8 @@ func TestArchitectureMapEndpoints(t *testing.T) {
 	for _, c := range amap.Components {
 		if c.SymbolPath == "Dispatcher.run" {
 			foundDisp = true
-			if c.Layer != flowview.LayerApplication {
-				t.Errorf("Dispatcher.run layer = %q, want application", c.Layer)
+			if c.Layer != flowview.LayerUsecase {
+				t.Errorf("Dispatcher.run layer = %q, want usecase", c.Layer)
 			}
 			if c.Confidence <= 0 || c.Confidence > 1 {
 				t.Errorf("Dispatcher.run confidence out of range: %v", c.Confidence)

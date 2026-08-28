@@ -50,8 +50,10 @@ const (
 // call and are called) never inherit them through votes, because a UI node
 // calling an orchestrator does not make the orchestrator UI.
 var boundaryLayers = map[string]bool{
-	LayerUI:       true,
-	LayerExternal: true,
+	LayerPage:         true,
+	LayerPresentation: true,
+	LayerUI:           true,
+	LayerExternal:     true,
 }
 
 // Extended project vocabulary beyond InferLayer's classic keywords: real
@@ -232,7 +234,7 @@ func classifyNode(n *symbolNode, overrides map[string]string) (string, string) {
 	}
 	if containsAny(path, dataPathSegments...) {
 		n.confidence = confKeyword
-		return LayerData, "persist"
+		return LayerRepository, "persist"
 	}
 
 	layer, convention := InferLayer(joinPaths(n), n.symbol, n.hasStateDelta, false)
@@ -250,7 +252,7 @@ func classifyNode(n *symbolNode, overrides map[string]string) (string, string) {
 
 	if n.isEntry {
 		n.confidence = confEntrySeed
-		return LayerUI, "entry"
+		return LayerPage, "entry"
 	}
 	n.confidence = confDefault
 	return "", ""
@@ -285,24 +287,32 @@ func inferLanes(nodes map[string]*symbolNode, overrides map[string]string) LaneP
 	// can still be pulled into their true lane by their callees.
 	resolveByVotes(nodes, unresolved)
 
-	// Remaining structural middles become application: they orchestrate in
+	// Remaining structural middles become usecase: they orchestrate in
 	// both directions without any stronger evidence.
 	for _, n := range unresolved {
 		if n.layer == "" && n.inDeg >= 1 && n.outDeg >= 1 {
-			n.layer = LayerApplication
+			n.layer = LayerUsecase
 			n.confidence = confStructuralMiddle
 			n.locked = true
 		}
 	}
 
-	// Everything still unlabeled is honestly unknown: application by
+	// Everything still unlabeled is honestly unknown: usecase by
 	// contract default, flagged uncertain so the UI never shows a confident
 	// guess.
 	for _, n := range unresolved {
 		if n.layer == "" {
-			n.layer = LayerApplication
+			n.layer = LayerUsecase
 			n.confidence = confDefault
 			n.uncertain = true
+		}
+	}
+	// Canonicalize legacy layers (page→presentation, repository→data, etc.)
+	// so all lanes and components use v3 canonical IDs. This keeps the
+	// adaptive engine deterministic while the stored contract migrates.
+	for _, n := range nodes {
+		if n.layer != "" {
+			n.layer = canonicalLayerForDisplay(n.layer)
 		}
 	}
 
@@ -331,7 +341,7 @@ func resolveByVotes(nodes map[string]*symbolNode, unresolved []*symbolNode) {
 				if other.layer == "" || other.confidence <= 0 {
 					return
 				}
-				cand := other.layer
+				cand := canonicalLayerForDisplay(other.layer)
 				if n.inDeg >= 1 && n.outDeg >= 1 && boundaryLayers[cand] {
 					return // middle rule: no boundary inheritance
 				}
@@ -388,7 +398,8 @@ func resolveByVotes(nodes map[string]*symbolNode, unresolved []*symbolNode) {
 }
 
 // lanePlanFrom derives present lanes in canonical order with labels named by
-// the project's dominant conventions.
+// the project's dominant conventions. Legacy page/ui → presentation are
+// canonicalized so the same lane does not appear twice.
 func lanePlanFrom(nodes map[string]*symbolNode) LanePlan {
 	present := map[string]bool{}
 	conventions := map[string][]string{}
@@ -396,8 +407,9 @@ func lanePlanFrom(nodes map[string]*symbolNode) LanePlan {
 		if n.layer == "" {
 			continue
 		}
-		present[n.layer] = true
-		conventions[n.layer] = append(conventions[n.layer], n.conventions...)
+		canon := canonicalLayerForDisplay(n.layer)
+		present[canon] = true
+		conventions[canon] = append(conventions[canon], n.conventions...)
 	}
 	labels := map[string]string{}
 	order := []string{}
@@ -413,15 +425,39 @@ func lanePlanFrom(nodes map[string]*symbolNode) LanePlan {
 
 // applyLayersWith decorates one FlowSpec JSON document using the shared
 // engine: per-step layer, confidence and uncertainty, plus the adaptive
-// lanes array. extraDocs contribute graph evidence without being decorated.
-// The stored spec on disk is never modified.
+// lanes array. When steps already carry an explicit `layer` (core flows via
+// publish_core_flow), that layer is preserved and lanes are derived from the
+// explicit set; otherwise the adaptive engine runs. extraDocs contribute graph
+// evidence without being decorated. The stored spec on disk is never modified.
 func applyLayersWith(specJSON []byte, overrides map[string]string, extraDocs ...[]byte) []byte {
 	var doc map[string]any
 	if err := json.Unmarshal(specJSON, &doc); err != nil {
 		return specJSON
 	}
-	if _, ok := doc["steps"].([]any); !ok {
+	rawSteps, ok := doc["steps"].([]any)
+	if !ok {
 		return specJSON
+	}
+	hasExplicit := hasExplicitLayer(rawSteps)
+
+	if hasExplicit {
+		// Explicit core flow — derive lanes directly from stored layers.
+		present := map[string]bool{}
+		for _, rs := range rawSteps {
+			if stepMap, ok := rs.(map[string]any); ok {
+				if lyr, ok := stepMap["layer"].(string); ok && lyr != "" {
+					canon := canonicalLayerForDisplay(lyr)
+					present[canon] = true
+				}
+			}
+		}
+		// Also consider edges' toLayer for completeness, but lanes are step-driven.
+		lanes := lanesFromPresent(present)
+		out, err := json.Marshal(decorateFromGraph(specJSON, nil, lanes))
+		if err != nil {
+			return specJSON
+		}
+		return out
 	}
 
 	docs := append([][]byte{specJSON}, extraDocs...)
@@ -441,8 +477,63 @@ func applyLayersWith(specJSON []byte, overrides map[string]string, extraDocs ...
 	return out
 }
 
+func hasExplicitLayer(rawSteps []any) bool {
+	for _, rs := range rawSteps {
+		if stepMap, ok := rs.(map[string]any); ok {
+			if lyr, ok := stepMap["layer"].(string); ok && strings.TrimSpace(lyr) != "" {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func canonicalLayerForDisplay(raw string) string {
+	s := strings.ToLower(strings.TrimSpace(raw))
+	if canon, ok := canonicalForLegacy[s]; ok {
+		return canon
+	}
+	// Direct canonical stays as-is if known
+	for _, l := range LayerOrder {
+		if l == s {
+			return s
+		}
+	}
+	if s == "" {
+		return LayerUnknown
+	}
+	return s
+}
+
+func lanesFromPresent(present map[string]bool) []any {
+	labels := map[string]string{
+		LayerPresentation: "프레젠테이션",
+		LayerController:   "컨트롤러",
+		LayerUsecase:      "유스케이스",
+		LayerDomain:       "도메인",
+		LayerData:         "데이터",
+		LayerInfra:        "인프라",
+		LayerExternal:     "외부 연동",
+		LayerUnknown:      "미분류",
+		LayerState:        "상태(State)",
+	}
+	lanes := []any{}
+	for _, id := range LayerOrder {
+		if !present[id] {
+			continue
+		}
+		label := labels[id]
+		if label == "" {
+			label = layerFallbackLabels[id]
+		}
+		lanes = append(lanes, map[string]any{"id": id, "label": label})
+	}
+	return lanes
+}
+
 // decorateFromGraph stamps one raw document with shared engine results:
 // per-step layer/confidence/uncertainty plus the precomputed lanes array.
+// When steps already carry an explicit `layer` (core flows), it is preserved.
 // docBytes is re-parsed so callers keep their original bytes untouched.
 func decorateFromGraph(docBytes []byte, graph map[string]*symbolNode, lanes []any) map[string]any {
 	var doc map[string]any
@@ -462,6 +553,19 @@ func decorateFromGraph(docBytes []byte, graph map[string]*symbolNode, lanes []an
 		if !ok {
 			continue
 		}
+		// Preserve explicit layer from publish_core_flow; do not overwrite.
+		if lyr, ok := step["layer"].(string); ok && strings.TrimSpace(lyr) != "" {
+			canon := canonicalLayerForDisplay(lyr)
+			step["layer"] = canon
+			// Ensure confidence is present for UI when explicit (core flows are authoritative)
+			if _, hasConf := step["layerConfidence"]; !hasConf {
+				step["layerConfidence"] = 1.0
+			}
+			continue
+		}
+		if graph == nil {
+			continue
+		}
 		sym := ""
 		if anchor, ok := step["anchor"].(map[string]any); ok {
 			sym, _ = anchor["enclosingSymbolPath"].(string)
@@ -479,15 +583,16 @@ func decorateFromGraph(docBytes []byte, graph map[string]*symbolNode, lanes []an
 		if !ok || n.layer == "" {
 			continue
 		}
-		step["layer"] = n.layer
+		canon := canonicalLayerForDisplay(n.layer)
+		step["layer"] = canon
 		step["layerConfidence"] = float64(n.confidence) / 100
 		if n.uncertain {
 			step["layerUncertain"] = true
 		}
-		if acc[n.layer] == nil {
-			acc[n.layer] = &laneAcc{}
+		if acc[canon] == nil {
+			acc[canon] = &laneAcc{}
 		}
-		acc[n.layer].conventions = append(acc[n.layer].conventions, n.conventions...)
+		acc[canon].conventions = append(acc[canon].conventions, n.conventions...)
 	}
 	doc["lanes"] = lanes
 	return doc
@@ -500,23 +605,49 @@ func applyLayers(specJSON []byte) []byte {
 
 // decorateAll classifies the whole generation once and decorates every flow
 // document from the shared graph — the per-request cost the server caches.
+// Core flows with explicit `layer` keep their own lanes; legacy flows use the shared plan.
 func decorateAll(docs [][]byte, overrides map[string]string) map[string][]byte {
 	graph := buildGraph(docs, overrides)
 	inferLanes(graph, overrides)
 	plan := lanePlanFrom(graph)
 
-	lanes := []any{}
+	sharedLanes := []any{}
 	for _, id := range plan.Order {
-		lanes = append(lanes, map[string]any{"id": id, "label": plan.Labels[id]})
+		sharedLanes = append(sharedLanes, map[string]any{"id": id, "label": plan.Labels[id]})
 	}
 
 	out := make(map[string][]byte, len(docs))
 	for _, doc := range docs {
-		decorated, err := json.Marshal(decorateFromGraph(doc, graph, lanes))
+		var probe struct {
+			Steps []map[string]any `json:"steps"`
+		}
+		hasExplicit := false
+		if err := json.Unmarshal(doc, &probe); err == nil {
+			for _, st := range probe.Steps {
+				if lyr, ok := st["layer"].(string); ok && strings.TrimSpace(lyr) != "" {
+					hasExplicit = true
+					break
+				}
+			}
+		}
+		var decorated map[string]any
+		if hasExplicit {
+			present := map[string]bool{}
+			for _, st := range probe.Steps {
+				if lyr, ok := st["layer"].(string); ok && strings.TrimSpace(lyr) != "" {
+					present[canonicalLayerForDisplay(lyr)] = true
+				}
+			}
+			lanes := lanesFromPresent(present)
+			decorated = decorateFromGraph(doc, nil, lanes)
+		} else {
+			decorated = decorateFromGraph(doc, graph, sharedLanes)
+		}
+		encoded, err := json.Marshal(decorated)
 		if err != nil {
 			continue
 		}
-		out[docFlowID(doc)] = decorated
+		out[docFlowID(doc)] = encoded
 	}
 	return out
 }
@@ -578,6 +709,11 @@ func validLayerName(l string) bool {
 		if l == known {
 			return true
 		}
+	}
+	// Backward aliases for specs published before lane split
+	switch l {
+	case LayerUI, LayerApplication, LayerData, "api", LayerPage, LayerRepository, LayerState:
+		return true
 	}
 	return false
 }

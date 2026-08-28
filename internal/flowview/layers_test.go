@@ -15,11 +15,11 @@ func TestInferLayerDeterministic(t *testing.T) {
 		want       string
 	}{
 		{"boundary call is external", "packages/feature_account/lib/src/features/join/data/join_repository.dart", "JoinRepository.cancel", false, true, LayerExternal},
-		{"presentation page is ui", "packages/feature_account/lib/src/features/join/presentation/join_page.dart", "JoinPageState._requestExit", false, false, LayerUI},
-		{"dialog symbol is ui", "lib/src/features/home/feed_screen.dart", "FeedDialog.show", false, false, LayerUI},
-		{"repository is data", "packages/feature_account/lib/src/features/join/data/join_repository.dart", "JoinRepository.cancel", false, false, LayerData},
+		{"presentation page is ui", "packages/feature_account/lib/src/features/join/presentation/join_page.dart", "JoinPageState._requestExit", false, false, LayerPage},
+		{"dialog symbol is ui", "lib/src/features/home/feed_screen.dart", "FeedDialog.show", false, false, LayerPage},
+		{"repository is data", "packages/feature_account/lib/src/features/join/data/join_repository.dart", "JoinRepository.cancel", false, false, LayerRepository},
 		{"state mutation is state", "packages/feature_account/lib/src/features/join/presentation/join_controller.dart", "JoinController._onJoinCancel", true, false, LayerState},
-		{"controller logic is application", "packages/feature_account/lib/src/features/join/presentation/join_controller.dart", "JoinController.submit", false, false, LayerApplication},
+		{"controller logic is application", "packages/feature_account/lib/src/features/join/presentation/join_controller.dart", "JoinController.submit", false, false, LayerController},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -63,11 +63,12 @@ func TestApplyLayersAdaptiveLaneLabels(t *testing.T) {
 	}
 	// Lane labels use the project's own vocabulary, not fixed generic names.
 	// The state step lives in JoinController, so its lane reads "상태 변경" —
-	// distinct from the application lane that shares the same controller.
+	// distinct from the controller lane that shares the same controller.
+	// v3 canonical: presentation lane replaces legacy page lane.
 	want := map[string]string{
-		"ui":       "화면(Presentation)",
-		"state":    "상태 변경(Controller)",
-		"external": "외부 연동(External)",
+		"presentation": "Page (Flutter)",
+		"state":        "상태 변경(Controller)",
+		"external":     "API (External)",
 	}
 	if len(doc.Lanes) != 3 {
 		t.Fatalf("lanes = %d, want 3 (state lane has no steps)", len(doc.Lanes))
@@ -100,8 +101,9 @@ func TestApplyLayersDecoratesSteps(t *testing.T) {
 	if len(doc.Steps) != 2 {
 		t.Fatalf("steps lost during decoration: %d", len(doc.Steps))
 	}
-	if doc.Steps[0].Layer != LayerUI {
-		t.Errorf("step 1 layer = %q, want %q", doc.Steps[0].Layer, LayerUI)
+	// lib/ui/* is presentation layer in v3 canonical (ui → presentation)
+	if doc.Steps[0].Layer != LayerPresentation {
+		t.Errorf("step 1 layer = %q, want %q", doc.Steps[0].Layer, LayerPresentation)
 	}
 	if doc.Steps[1].Layer != LayerState {
 		t.Errorf("step 2 layer = %q, want %q", doc.Steps[1].Layer, LayerState)

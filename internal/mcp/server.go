@@ -119,6 +119,8 @@ type rpcError struct {
 // Serve reads JSON-RPC requests from in and writes responses to out until EOF.
 func (s *Server) Serve(ctx context.Context, in io.Reader, out io.Writer) error {
 	scanner := bufio.NewScanner(in)
+	// Artifact may be up to 512 KiB plus envelope; allow 2 MiB lines.
+	scanner.Buffer(make([]byte, 0, 64*1024), 2*1024*1024)
 	enc := json.NewEncoder(out)
 
 	for scanner.Scan() {
@@ -194,6 +196,20 @@ func (s *Server) handleRequest(ctx context.Context, req rpcRequest) rpcResponse 
 
 		res, err := s.executeTool(ctx, callParams.Name, callParams.Arguments)
 		if err != nil {
+			msg := err.Error()
+			// Structured core-flow errors are JSON with a "code" field — emit as-is per spec §7.
+			if strings.HasPrefix(strings.TrimSpace(msg), "{") && strings.Contains(msg, "\"code\"") {
+				return rpcResponse{
+					JSONRPC: "2.0",
+					ID:      req.ID,
+					Result: map[string]any{
+						"content": []map[string]string{
+							{"type": "text", "text": msg},
+						},
+						"isError": true,
+					},
+				}
+			}
 			return rpcResponse{
 				JSONRPC: "2.0",
 				ID:      req.ID,
@@ -228,6 +244,18 @@ func (s *Server) handleRequest(ctx context.Context, req rpcRequest) rpcResponse 
 
 func (s *Server) listTools() []map[string]any {
 	return []map[string]any{
+		{
+			"name":        "publish_core_flow",
+			"description": "Publish a verified architecture-layer core flow from an agent-authored intermediate artifact. Verifies every anchor against the current worktree; on mismatch returns a correctable error without persisting.",
+			"inputSchema": map[string]any{
+				"type": "object",
+				"required": []string{"artifact"},
+				"properties": map[string]any{
+					"artifact": map[string]any{"$ref": "https://codeflow.local/schemas/core-artifact.schema.json"},
+					"token":    map[string]any{"type": "string", "description": "Auth token when RequireToken=true (FlowView server). Omitted in local dev."},
+				},
+			},
+		},
 		{
 			"name":        "harvest_flows",
 			"description": "Harvest candidate flows with scoring and intent signals for natural language matching",
@@ -339,6 +367,8 @@ func isSubpath(root, target string) bool {
 
 func (s *Server) executeTool(ctx context.Context, name string, args map[string]any) (any, error) {
 	switch name {
+	case "publish_core_flow":
+		return s.handlePublishCoreFlow(ctx, args)
 	case "harvest_flows":
 		target := s.cfg.RepoRoot
 		if sub, ok := args["target"].(string); ok && sub != "" && sub != "." {

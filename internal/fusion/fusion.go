@@ -59,6 +59,7 @@ type FlowStep struct {
 	SideEffect *string        `json:"sideEffect,omitempty"`
 	Branch     *string        `json:"branch,omitempty"`
 	Kind       string         `json:"kind,omitempty"` // guard | mutation | call | branch (presentation-only)
+	Layer      string         `json:"layer,omitempty"`
 	CodeLens   *CodeLens      `json:"codeLens,omitempty"`
 }
 
@@ -70,6 +71,7 @@ type FlowEdge struct {
 	ToSymbolPath     string `json:"toSymbolPath"`
 	ResolutionStatus string `json:"resolutionStatus"`
 	StepOrdinal      *int   `json:"stepOrdinal,omitempty"`
+	ToLayer          string `json:"toLayer,omitempty"`
 }
 
 // Unknown represents an unresolvable item preserved explicitly.
@@ -241,6 +243,7 @@ func Fuse(sliced *slicing.SlicedPayload, opts FuseOptions) (*FlowSpec, error) {
 			SideEffect: s.EffectTarget,
 			Branch:     branch,
 			Kind:       s.Kind,
+			Layer:      s.Layer,
 			CodeLens:   lens,
 		}
 
@@ -256,6 +259,7 @@ func Fuse(sliced *slicing.SlicedPayload, opts FuseOptions) (*FlowSpec, error) {
 			ToSymbolPath:     edge.ToSymbolPath,
 			ResolutionStatus: edge.ResolutionStatus,
 			StepOrdinal:      edge.StepOrdinal,
+			ToLayer:          edge.ToLayer,
 		})
 	}
 

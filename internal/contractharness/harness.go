@@ -25,7 +25,7 @@ import (
 // disk, so no network access ever happens.
 const BaseURL = "https://codeflow.local/schemas/"
 
-// SchemaIDs lists all six M1 contracts. Cross-file $refs between them are
+// SchemaIDs lists all contracts. Cross-file $refs between them are
 // resolved through the same loader.
 var SchemaIDs = []string{
 	BaseURL + "identity.schema.json",
@@ -34,6 +34,8 @@ var SchemaIDs = []string{
 	BaseURL + "flowspec.schema.json",
 	BaseURL + "session-artifact.schema.json",
 	BaseURL + "adapter-protocol.schema.json",
+	BaseURL + "core-artifact.schema.json",
+	BaseURL + "layers-config.schema.json",
 }
 
 // SchemasDir locates the repo's schemas/ directory relative to this source

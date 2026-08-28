@@ -20,14 +20,14 @@ type evalCase struct {
 }
 
 var evalGroundTruth = []evalCase{
-	{"Panel.show", LayerUI, false},              // published entry point
-	{"AdminSheet.show", LayerUI, false},         // second published entry point
-	{"Dispatcher.run", LayerApplication, false}, // structural middle, unnamed
+	{"Panel.show", LayerPresentation, false},    // published entry point
+	{"AdminSheet.show", LayerPresentation, false}, // second published entry point
+	{"Dispatcher.run", LayerUsecase, false},     // structural middle, unnamed
 	{"Ledger.commit", LayerData, false},         // pure propagation: caller=middle, callee=persist
 	{"Vault.put", LayerData, false},             // /persist/ path segment
 	{"Gateway.send", LayerExternal, false},      // observed side effect
 	{"Keeper.watch", LayerState, false},         // observed state delta
-	{"Util.doIt", LayerApplication, true},       // nothing known: honest uncertainty
+	{"Util.doIt", LayerUsecase, true},          // nothing known: honest uncertainty
 }
 
 func evalDocA() []byte {
@@ -149,10 +149,11 @@ func TestEvalEngineDeterministic(t *testing.T) {
 
 func TestEngineManualOverrideWins(t *testing.T) {
 	docs := [][]byte{evalDocA()}
-	overrides := map[string]string{"Keeper.watch": LayerData} // contradict the state-delta evidence
+	overrides := map[string]string{"Keeper.watch": LayerRepository} // contradict the state-delta evidence (repository → data canonical)
 	graph := buildGraph(docs, overrides)
 	inferLanes(graph, overrides)
 	n := graph["Keeper.watch"]
+	// repository is alias for data in v3 canonical, so overridden layer becomes data
 	if n == nil || n.layer != LayerData {
 		status := "missing"
 		if n != nil {
@@ -183,8 +184,8 @@ func TestEngineRejectsSingleVoterInheritance(t *testing.T) {
 	}
 	// One ui caller is not enough to make a leaf UI: rejected vote falls
 	// through to the honest default instead of boundary inheritance.
-	if n.layer != LayerApplication {
-		t.Errorf("leaf with a single ui voter: layer = %q, want %q", n.layer, LayerApplication)
+	if n.layer != LayerUsecase {
+		t.Errorf("leaf with a single ui voter: layer = %q, want %q", n.layer, LayerUsecase)
 	}
 	if !n.uncertain {
 		t.Errorf("leaf with a single ui voter should be flagged uncertain")
@@ -229,8 +230,8 @@ func TestApplyLayersWithOverridesDecoratesConfidence(t *testing.T) {
 	if u := bySym["Util.doIt"]; u == nil || u.Layer != LayerExternal || u.Conf == nil || *u.Conf != 1.0 {
 		t.Errorf("overridden Util.doIt = %+v, want external conf 1.0", u)
 	}
-	if p := bySym["Panel.show"]; p == nil || p.Layer != LayerUI || p.Conf == nil || *p.Conf < 0.74 {
-		t.Errorf("Panel.show = %+v, want ui conf >=0.75", p)
+	if p := bySym["Panel.show"]; p == nil || p.Layer != LayerPresentation || p.Conf == nil || *p.Conf < 0.74 {
+		t.Errorf("Panel.show = %+v, want presentation conf >=0.75", p)
 	}
 	if u2 := bySym["Util.doIt"]; u2 != nil && u2.Uncertain {
 		t.Errorf("manual override must clear uncertainty")
@@ -239,7 +240,7 @@ func TestApplyLayersWithOverridesDecoratesConfidence(t *testing.T) {
 	for _, l := range doc.Lanes {
 		laneIDs[l.ID] = true
 	}
-	for _, want := range []string{LayerUI, LayerApplication, LayerState, LayerData, LayerExternal} {
+	for _, want := range []string{LayerPresentation, LayerUsecase, LayerState, LayerData, LayerExternal} {
 		if !laneIDs[want] {
 			t.Errorf("lane %q missing from decorated doc", want)
 		}

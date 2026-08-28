@@ -424,8 +424,8 @@ function escJs(s){
   return esc(s).replace(/'/g,"\\'");
 }
 
-const LAYER_ORDER=['ui','application','state','data','external'];
-const LAYER_LABELS={ui:'화면(UI)',application:'흐름 제어(Application)',state:'상태(State)',data:'데이터(Data)',external:'외부 연동(External)'};
+const LAYER_ORDER=['presentation','controller','usecase','domain','data','infra','external','unknown'];
+const LAYER_LABELS={presentation:'프레젠테이션',controller:'컨트롤러',usecase:'유스케이스',domain:'도메인',data:'데이터',infra:'인프라',external:'외부 연동',unknown:'미분류',page:'Page (Flutter)',state:'상태(State)',repository:'Repository',ui:'Page (Flutter)',application:'UseCase'};
 const KIND_LABELS={guard:'조건 확인',mutation:'상태 변경',call:'기능 실행',branch:'흐름 분기'};
 const EDGE_LABELS={resolved_cross_file:'내부 위임',boundary_call:'외부 연동'};
 const FRESH_LABEL={fresh:'확인됨',stale:'재확인 필요',orphaned:'찾을 수 없음'};
@@ -536,7 +536,7 @@ async function loadProjectMap(force=false){
   renderProjectMap();
 }
 
-const LANE_FALLBACK_LABELS={ui:'화면(UI)',application:'흐름 제어(Application)',state:'상태(State)',data:'데이터(Data)',external:'외부 연동(External)'};
+const LANE_FALLBACK_LABELS={page:'Page (Flutter)',controller:'Controller',usecase:'UseCase',state:'상태(State)',repository:'Repository',external:'API (External)',ui:'Page (Flutter)',application:'UseCase',data:'Repository'};
 
 function renderProjectMap(){
   const el=document.getElementById('map-lanes');
@@ -731,15 +731,20 @@ function renderMap(){
     el.innerHTML='<div class="proj-empty">발행된 흐름이 없어 흐름 맵이 비어 있습니다.</div>';
     return;
   }
-  const lanes=(Array.isArray(currentSpec.lanes)&&currentSpec.lanes.length?currentSpec.lanes:LAYER_ORDER.filter(l=>currentSpec.steps.some(st=>(st.layer||'application')===l)).map(l=>({id:l,label:LAYER_LABELS[l]})));
+  const lanes=(Array.isArray(currentSpec.lanes)&&currentSpec.lanes.length?currentSpec.lanes:LAYER_ORDER.filter(l=>currentSpec.steps.some(st=>normLayer(st.layer||'usecase')===l)).map(l=>({id:l,label:LAYER_LABELS[l]})));
   document.getElementById('map-title').textContent='Architecture Map — '+((cachedFlows.find(x=>x.flowId===currentFlowId)||{}).title||'현재 흐름');
-  document.getElementById('map-sub').textContent='계층 간 화살표는 실제 위임 관계입니다. 레인 이름은 이 프로젝트의 어휘에서 유도됩니다.';
+  document.getElementById('map-sub').textContent='레인은 Page → Controller → UseCase → Repository → API 순서로 코드가 외부로 전달되는 경로입니다.';
   el.innerHTML='<svg id="map-arcs"></svg>'+lanes.map(l=>{
-    const inLayer=currentSpec.steps.map((st,i)=>({st,i})).filter(x=>(x.st.layer||'application')===l.id);
+    const inLayer=currentSpec.steps.map((st,i)=>({st,i})).filter(x=>{
+      const lid=normLayer(x.st.layer||'usecase');
+      return lid===l.id;
+    });
     return '<div class="lane"><div class="lane-label">'+esc(l.label)+'</div><div class="lane-track" style="--cols:'+currentSpec.steps.length+'">'+
       inLayer.map(x=>{
         const conf=(x.st.layerConfidence!=null)?Math.round(x.st.layerConfidence*100)+'%':'';
-        return '<button class="node" style="grid-column:'+(x.i+1)+'" data-map-step="'+x.i+'" data-symbol="'+esc(x.st.anchor.enclosingSymbolPath||'')+'" '+(x.st.layerUncertain?'data-uncertain="1" title="계층 판단 근거가 약합니다"':'')+' data-status="'+esc(x.st.freshness)+'" aria-pressed="false"><strong>'+esc(x.st.name)+'</strong><small>'+esc(nodeSub(x.st))+'</small>'+(conf?'<span class="conf">'+conf+'</span>':'')+'</button>';
+        const sym=symbolName(x.st.anchor.enclosingSymbolPath)||x.st.name;
+        const domain=x.st.name;
+        return '<button class="node" style="grid-column:'+(x.i+1)+'" data-map-step="'+x.i+'" data-symbol="'+esc(x.st.anchor.enclosingSymbolPath||'')+'" '+(x.st.layerUncertain?'data-uncertain="1" title="계층 판단 근거가 약합니다"':'')+' data-status="'+esc(x.st.freshness)+'" aria-pressed="false"><strong>'+esc(sym)+'</strong><small>'+esc(domain)+'</small>'+(conf?'<span class="conf">'+conf+'</span>':'')+'</button>';
       }).join('')+
     '</div></div>';
   }).join('');
@@ -923,6 +928,14 @@ function normSym(s){
   s=s||'';
   const h=s.lastIndexOf('#');
   return h>=0?s.slice(h+1):s;
+}
+function normLayer(id){
+  if(id==='ui'||id==='page'||id==='widget')return'presentation';
+  if(id==='application')return'usecase';
+  if(id==='data'||id==='repository')return'data';
+  if(id==='api')return'external';
+  // state stays state for legacy flows; unknown stays unknown
+  return id||'usecase';
 }
 
 function prevStep(){

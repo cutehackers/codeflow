@@ -1,0 +1,74 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://codeflow.local/schemas/core-artifact.schema.json",
+  "title": "CodeFlow Core Artifact (agent → CORE publish_core_flow)",
+  "$comment": "Input to MCP publish_core_flow — agent-authored, CORE-verified. Stricter than flowspec: requires layer and minimal anchor per step. Core publish never writes unknowns silently — they are explicit.",
+  "type": "object",
+  "required": ["entrySymbolPath", "title", "steps"],
+  "additionalProperties": false,
+  "properties": {
+    "flowId": { "$ref": "https://codeflow.local/schemas/identity.schema.json#/$defs/flowId" },
+    "entrySymbolPath": { "$ref": "https://codeflow.local/schemas/identity.schema.json#/$defs/canonicalEntrySymbolPath" },
+    "title": { "type": "string", "minLength": 1, "maxLength": 120 },
+    "description": { "type": "string", "maxLength": 300 },
+    "layers": {
+      "type": "array",
+      "items": { "type": "string", "enum": ["presentation","controller","usecase","domain","data","infra","external"] },
+      "description": "Ordered layer traversal declared by the agent for this flow, e.g. [\"presentation\",\"controller\",\"usecase\",\"data\",\"external\"]. Used to validate step layer ordering."
+    },
+    "steps": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 64,
+      "items": {
+        "type": "object",
+        "required": ["ordinal","name","layer","kind","anchor"],
+        "additionalProperties": false,
+        "properties": {
+          "ordinal": { "type": "integer", "minimum": 1 },
+          "name": { "type": "string", "minLength": 1, "maxLength": 120 },
+          "layer": { "type": "string", "enum": ["presentation","controller","usecase","domain","data","infra","external"] },
+          "kind": { "type": "string", "enum": ["guard","mutation","call","branch"] },
+          "description": { "type": "string", "maxLength": 400 },
+          "anchor": { "$ref": "https://codeflow.local/schemas/identity.schema.json#/$defs/anchor" },
+          "stateDelta": {
+            "type": "object",
+            "required": ["before","after"],
+            "properties": { "before": {"type":"string"}, "after": {"type":"string"} },
+            "additionalProperties": false
+          },
+          "sideEffect": { "type": "string" },
+          "branch": { "type": "string" },
+          "rules": { "type": "array", "items": {"type":"string"} }
+        }
+      }
+    },
+    "edges": {
+      "type": "array",
+      "maxItems": 64,
+      "items": {
+        "type": "object",
+        "required": ["stepOrdinal","toSymbolPath","kind","resolutionStatus"],
+        "additionalProperties": false,
+        "properties": {
+          "stepOrdinal": {"type":"integer","minimum":1},
+          "toSymbolPath": {"type":"string"},
+          "toLayer": {"type":"string","enum":["presentation","controller","usecase","domain","data","infra","external","unknown"]},
+          "kind": {"type":"string","enum":["resolved_cross_file","boundary_call","unknown_edge"]},
+          "resolutionStatus": {"type":"string","enum":["resolved","unresolved_dynamic","unresolved_type","truncated"]}
+        }
+      }
+    },
+    "unknowns": {
+      "type": "array",
+      "items": {
+        "type":"object",
+        "required":["subject","reason"],
+        "properties":{
+          "subject":{"type":"string"},
+          "reason":{"type":"string","enum":["unresolved_dynamic_call","unresolved_type","truncated_traversal","no_evidence","stale_anchor","adapter_error"]}
+        }
+      }
+    }
+  }
+}

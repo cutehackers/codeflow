@@ -1,0 +1,25 @@
+version: 1
+strictOrder: true
+allowUnknownLayer: false
+layers:
+  - name: presentation
+    aliases: [ui, view, widget, page, screen, dialog, presentation, feature]
+    pathPatterns: ["**/presentation/**", "**/features/*/presentation/**", "**/pages/**", "**/lib/**/presentation/**"]
+  - name: controller
+    aliases: [controller]
+    pathPatterns: ["**/controller/**", "**/notifier/**", "**/bloc/**", "**/cubit/**"]
+  - name: usecase
+    aliases: [application, service, interactor, use_case, usecase]
+    pathPatterns: ["**/usecase/**", "**/use_case/**", "**/domain/usecase/**", "**/application/**"]
+  - name: domain
+    aliases: [domain, entity]
+    pathPatterns: ["**/domain/**"]
+  - name: data
+    aliases: [repository, datasource, data_source, data]
+    pathPatterns: ["**/data/**", "**/repository/**", "**/datasource/**", "**/infrastructure/**"]
+  - name: infra
+    aliases: [infrastructure, platform]
+    pathPatterns: ["**/infra/**", "**/platform/**"]
+  - name: external
+    aliases: [api, remote, gateway, client, external, network, http]
+    pathPatterns: ["**/api/**", "**/external/**", "**/network/**", "**/http/**", "**/remote/**"]

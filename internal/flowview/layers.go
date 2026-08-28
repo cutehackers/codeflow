@@ -7,23 +7,51 @@ import (
 // Layer classification for the architecture map. Presentation-only:
 // derived deterministically at read time from existing FlowSpec fields, so the
 // published contract stays unchanged.
+//
+// Baseline lanes mirror spec v3 canonical order (presentation→…→external→unknown)
+// plus legacy aliases (page/ui/application/data/state) for backward compat.
 const (
+	LayerPresentation = "presentation"
+	LayerController   = "controller"
+	LayerUsecase      = "usecase"
+	LayerDomain       = "domain"
+	LayerData         = "data"
+	LayerInfra        = "infra"
+	LayerExternal     = "external"
+	LayerUnknown      = "unknown"
+	// Legacy aliases (pre-v3 specs and lane overrides)
+	LayerPage        = "page"
+	LayerState       = "state"
+	LayerRepository  = "repository"
 	LayerUI          = "ui"
 	LayerApplication = "application"
-	LayerState       = "state"
-	LayerData        = "data"
-	LayerExternal    = "external"
 )
 
-// LayerOrder is the fixed top-to-bottom lane order of the architecture map.
-var LayerOrder = []string{LayerUI, LayerApplication, LayerState, LayerData, LayerExternal}
+// LayerOrder is the fixed top-to-bottom lane order (v3 canonical + legacy state/page/repository for backward compat).
+var LayerOrder = []string{LayerPresentation, LayerController, LayerUsecase, LayerState, LayerDomain, LayerData, LayerInfra, LayerExternal, LayerUnknown}
 
 var layerFallbackLabels = map[string]string{
-	LayerUI:          "화면(UI)",
-	LayerApplication: "흐름 제어(Application)",
-	LayerState:       "상태(State)",
-	LayerData:        "데이터(Data)",
-	LayerExternal:    "외부 연동(External)",
+	LayerPresentation: "Presentation",
+	LayerController:   "Controller",
+	LayerUsecase:      "UseCase",
+	LayerDomain:       "Domain",
+	LayerData:         "Data",
+	LayerInfra:        "Infra",
+	LayerExternal:     "API (External)",
+	LayerUnknown:      "Unknown",
+	// legacy
+	LayerPage:       "Page (Flutter)",
+	LayerState:      "상태(State)",
+	LayerRepository: "Repository",
+}
+
+var canonicalForLegacy = map[string]string{
+	LayerPage:        LayerPresentation,
+	LayerUI:          LayerPresentation,
+	LayerApplication: LayerUsecase,
+	LayerRepository:  LayerData,
+	"api":            LayerExternal,
+	// LayerState and LayerData stay as legacy lanes for backward compat — not remapped to usecase.
 }
 
 // InferLayer deterministically classifies one step into its architectural
@@ -31,12 +59,14 @@ var layerFallbackLabels = map[string]string{
 // matched — the map uses it to name lanes in the project's own vocabulary.
 // Ordered rules (symbol keywords outrank folder paths because real Flutter
 // apps keep controllers under presentation/):
-//  1. side effect present                        -> external
-//  2. controller/notifier/provider symbol        -> state (mutation) else application
-//  3. presentation path/symbol                   -> ui
-//  4. data path/symbol                           -> data
-//  5. state mutation step                        -> state
-//  6. everything else                            -> application
+//  1. side effect present                        -> external (API)
+//  2. controller                                 -> controller / state
+//  3. usecase/service                            -> usecase
+//  4. notifier/provider/bloc                     -> state
+//  5. page/widget/screen/presentation            -> page
+//  6. repository/data                            -> repository
+//  7. state mutation step                        -> state
+//  8. everything else                            -> usecase (business orchestration)
 func InferLayer(repoRelativePath, enclosingSymbolPath string, hasStateDelta, hasSideEffect bool) (string, string) {
 	if hasSideEffect {
 		return LayerExternal, "external"
@@ -48,36 +78,39 @@ func InferLayer(repoRelativePath, enclosingSymbolPath string, hasStateDelta, has
 		if hasStateDelta {
 			return LayerState, "controller"
 		}
-		return LayerApplication, "controller"
+		return LayerController, "controller"
+	}
+	if containsAny(sym, "usecase", "service", "interactor") {
+		return LayerUsecase, "usecase"
 	}
 	if containsAny(sym, "notifier", "provider") {
 		if hasStateDelta {
 			return LayerState, "notifier"
 		}
-		return LayerApplication, "notifier"
+		return LayerState, "notifier"
 	}
 	if containsAny(sym, "bloc", "cubit") {
 		if hasStateDelta {
 			return LayerState, "bloc"
 		}
-		return LayerApplication, "bloc"
+		return LayerState, "bloc"
 	}
-	if containsAny(sym, "usecase", "service") {
-		return LayerApplication, "usecase"
+	if containsAny(path, "/presentation/", "/pages/", "/features/") && containsAny(sym, "page", "widget", "screen", "dialog") {
+		return LayerPage, "widget"
 	}
 	if containsAny(path, "/presentation/") {
-		return LayerUI, "presentation"
+		return LayerPage, "presentation"
 	}
 	if containsAny(path, "page", "widget", "screen", "dialog") ||
 		containsAny(sym, "page", "widget", "screen", "dialog") {
-		return LayerUI, "widget"
+		return LayerPage, "widget"
 	}
 	if containsAny(sym, "repository") {
-		return LayerData, "repository"
+		return LayerRepository, "repository"
 	}
-	if containsAny(path, "/data/", "datasource", "api_client", "dao", "/infrastructure/") ||
+	if containsAny(path, "/data/", "/domain/", "datasource", "api_client", "dao", "/infrastructure/", "/repository/") ||
 		containsAny(sym, "datasource", "apiclient", "store", "dao") {
-		return LayerData, "data"
+		return LayerRepository, "data"
 	}
 	if hasStateDelta || containsAny(sym, "state") {
 		return LayerState, "state"
@@ -95,17 +128,19 @@ func containsAny(haystack string, needles ...string) bool {
 }
 
 var conventionLabels = map[string]string{
-	"presentation": "화면(Presentation)",
-	"widget":       "화면(UI)",
-	"controller":   "컨트롤러(Controller)",
-	"notifier":     "프로바이더(Notifier)",
-	"bloc":         "블록(Bloc)",
-	"usecase":      "유스케이스(Usecase)",
-	"application":  "흐름 제어(Application)",
+	"presentation": "Page (Flutter)",
+	"widget":       "Page (Flutter)",
+	"page":         "Page (Flutter)",
+	"controller":   "Controller",
+	"notifier":     "상태(State)",
+	"bloc":         "상태(State)",
+	"usecase":      "UseCase",
+	"application":  "UseCase",
 	"state":        "상태(State)",
-	"repository":   "리포지토리(Repository)",
-	"data":         "데이터(Data)",
-	"external":     "외부 연동(External)",
+	"repository":   "Repository",
+	"data":         "Repository",
+	"external":     "API (External)",
+	"api":          "API (External)",
 }
 
 // laneLabel picks the most frequent project convention in a layer (first seen

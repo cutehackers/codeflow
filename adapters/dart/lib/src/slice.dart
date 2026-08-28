@@ -1247,11 +1247,109 @@ String _deriveMutationDescription(String raw, String? stateAfter) {
   return '상태를 갱신한다';
 }
 
-String _deriveCallDescription(String target, {required bool isBoundary}) {
-  if (isBoundary) {
-    return '외부 서비스/저장소에 작업을 요청한다: $target';
+// Domain-centric call description: derive business intent from target symbol
+// instead of generic delegation phrase. Uses verb/noun mapping similar to
+// Go's naming.DeriveTitle but in Dart, falls back to humanized English.
+const _koVerbMap = <String, String>{
+  'submit': '제출한다',
+  'send': '전송한다',
+  'create': '생성한다',
+  'save': '저장한다',
+  'update': '갱신한다',
+  'delete': '삭제한다',
+  'remove': '제거한다',
+  'load': '불러온다',
+  'fetch': '가져온다',
+  'check': '검사한다',
+  'validate': '검증한다',
+  'verify': '인증한다',
+  'is': '확인한다',
+  'taken': '확인한다',
+  'available': '확인한다',
+  'exist': '확인한다',
+  'exists': '확인한다',
+  'login': '로그인한다',
+  'signup': '회원가입한다',
+  'register': '가입한다',
+  'handle': '처리한다',
+  'execute': '실행한다',
+  'call': '호출한다',
+  'valid': '검증한다',
+  'invalid': '검증한다',
+};
+
+const _koNounMap = <String, String>{
+  'order': '주문을',
+  'cart': '장바구니를',
+  'user': '사용자를',
+  'email': '이메일을',
+  'password': '비밀번호를',
+  'auth': '인증 정보를',
+  'token': '토큰을',
+  'session': '세션을',
+  'profile': '프로필을',
+  'status': '상태를',
+  'data': '데이터를',
+  'signup': '회원가입을',
+  'account': '계정을',
+  'availability': '가용성을',
+  'validity': '유효성을',
+  'address': '주소를',
+};
+
+String _extractIntentIdentifier(String target) {
+  var t = target;
+  if (t.contains('#')) t = t.split('#').last;
+  if (t.contains('/')) t = t.split('/').last;
+  if (t.contains(':')) t = t.split(':').last;
+  final parts = t.split('.').where((p) => p.isNotEmpty).toList();
+  if (parts.isEmpty) return t;
+  const genericMethods = {'call', 'execute', 'run', 'invoke', 'perform'};
+  var last = parts.last;
+  if (genericMethods.contains(last.toLowerCase()) && parts.length >= 2) {
+    var cls = parts[parts.length - 2];
+    // Strip architecture suffixes to expose domain intent
+    for (final suf in ['UseCase', 'Usecase', 'Repository', 'Controller', 'Service', 'ApiClient', 'DataSource', 'Manager']) {
+      if (cls.endsWith(suf) && cls.length > suf.length) {
+        cls = cls.substring(0, cls.length - suf.length);
+        break;
+      }
+    }
+    return cls.isNotEmpty ? cls : last;
   }
-  return '유스케이스 실행으로 처리를 위임한다: $target';
+  // For isValid style, keep last but caller will combine if needed
+  return last;
+}
+
+String _deriveDomainTitle(String raw) {
+  final words = splitIdentifierWords(raw).map((w) => w.toLowerCase()).toList();
+  if (words.isEmpty) return humanizeIdentifier(raw);
+  String foundVerbKo = '';
+  String foundNounKo = '';
+  String verbWord = '';
+  for (final w in words) {
+    if (_koVerbMap.containsKey(w) && foundVerbKo.isEmpty) {
+      foundVerbKo = _koVerbMap[w]!;
+      verbWord = w;
+    }
+  }
+  for (final w in words) {
+    if (_koNounMap.containsKey(w) && foundNounKo.isEmpty) {
+      if (w == verbWord) continue;
+      foundNounKo = _koNounMap[w]!;
+    }
+  }
+  if (foundVerbKo.isNotEmpty && foundNounKo.isNotEmpty) return '$foundNounKo $foundVerbKo';
+  if (foundVerbKo.isNotEmpty) return foundVerbKo;
+  return humanizeIdentifier(raw);
+}
+
+String _deriveCallDescription(String target, {required bool isBoundary}) {
+  final intent = _extractIntentIdentifier(target);
+  final domain = _deriveDomainTitle(intent);
+  // Keep boundary distinction only in layer/edge kind, not in title.
+  // Title is pure domain intent; FlowView lanes already convey external vs internal.
+  return domain;
 }
 
 String _deriveBranchDescription(String raw) {

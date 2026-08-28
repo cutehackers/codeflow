@@ -44,6 +44,7 @@ type SliceStep struct {
 	StateBefore    *string `json:"stateBefore,omitempty"`
 	StateAfter     *string `json:"stateAfter,omitempty"`
 	EffectTarget   *string `json:"effectTarget,omitempty"`
+	Layer          string  `json:"layer,omitempty"`
 }
 
 // SliceEdge represents a call link between symbols/files or boundaries.
@@ -55,6 +56,7 @@ type SliceEdge struct {
 	// StepOrdinal is OPTIONAL: 1-based ordinal of the step that produced this
 	// edge. Absent in older adapter payloads — consumers must not guess.
 	StepOrdinal *int `json:"stepOrdinal,omitempty"`
+	ToLayer     string `json:"toLayer,omitempty"`
 }
 
 // SlicedPayload is the language-neutral contract output returned by adapters.

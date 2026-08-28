@@ -96,6 +96,11 @@
             "enum": ["guard", "mutation", "call", "branch"],
             "description": "OPTIONAL structural kind carried over from the slice step so FlowView can label the step in natural language (조건 확인/상태 변경/기능 실행/흐름 분기). Presentation-only; never used for identity."
           },
+          "layer": {
+            "type": "string",
+            "enum": ["presentation","controller","usecase","domain","data","infra","external","unknown"],
+            "description": "Architecture layer this step advances. Supplied by the agent in the intermediate artifact; verified steps keep it. Absent in legacy specs — consumers treat as 'unknown'. Used to order and lane the FlowView."
+          },
           "codeLens": {
             "type": "object",
             "additionalProperties": false,
@@ -176,6 +181,11 @@
             "type": "integer",
             "minimum": 1,
             "description": "1-based ordinal of the step that produces this edge. Absent in older payloads — consumers must not guess."
+          },
+          "toLayer": {
+            "type": "string",
+            "enum": ["presentation","controller","usecase","domain","data","infra","external","unknown"],
+            "description": "Layer of the delegation target, when known. Mirrors step layer semantics. OPTIONAL — absent in legacy specs."
           }
         }
       }

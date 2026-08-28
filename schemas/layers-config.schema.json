@@ -1,0 +1,28 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://codeflow.local/schemas/layers-config.schema.json",
+  "title": "CodeFlow Layers Config (codeflow.layers.yaml → CORE validation)",
+  "$comment": "codeflow.layers.yaml is YAML on disk, validated as JSON after yaml->json conversion. CORE reads it on every publish_core_flow.",
+  "type": "object",
+  "required": ["version", "layers"],
+  "additionalProperties": false,
+  "properties": {
+    "version": { "type": "integer", "const": 1 },
+    "strictOrder": { "type": "boolean", "default": true, "description": "When true, layer order violation is an error. When false, violation is a warning + unknowns[]." },
+    "allowUnknownLayer": { "type": "boolean", "default": false, "description": "When false, raw layer not in name/aliases → layer_order_violation error. When true → maps to unknown with warning." },
+    "layers": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": ["name"],
+        "additionalProperties": false,
+        "properties": {
+          "name": { "type": "string", "enum": ["presentation","controller","usecase","domain","data","infra","external","unknown"] },
+          "aliases": { "type": "array", "items": {"type":"string"}, "default": [] },
+          "pathPatterns": { "type": "array", "items": {"type":"string"}, "default": [] }
+        }
+      }
+    }
+  }
+}
