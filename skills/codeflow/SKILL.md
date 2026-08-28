@@ -9,7 +9,7 @@ Use this skill when the user asks to understand, explain, or visualize a code/bu
 
 ## Workflow
 
-1. **Explore**: Locate the entry-layer initial event for the user's intent and trace its layer traversal to completion. Prefer repo structure (`feature/*/presentation|domain|data`) and DI/provider graph over class-name suffixes. If `codeflow.layers.yaml` exists, read it first and honor its `layers`/`aliases`/`pathPatterns`.
+1. **Explore**: Locate the entry-layer initial event for the user's intent and trace its layer traversal to completion. If `codeflow.layers.yaml` exists, read it first and honor its `layers`/`aliases`/`pathPatterns`. If absent, inspect the repo architecture and create `codeflow.layers.yaml` following `docs/llm-usage.md §0.1`. Prefer repo structure and DI/provider graph over class-name suffixes.
 2. **Build & Publish**: Construct the intermediate artifact and call `publish_core_flow`.
    - Every step MUST carry `layer`, `kind` (`guard|mutation|call|branch`), `name`, and a 6-field `anchor` (`repoRelativePath`, `byteRange` [start, end], `fileHash`, `spanHash`, `enclosingSymbolPath`, `canonicalAstFingerprint`).
    - Use canonical English layer values (`presentation, controller, usecase, domain, data, infra, external`).

@@ -36,6 +36,267 @@ $HOME/.local/bin/codeflow uninstall
 
 수정된 스킬, 다른 명령을 가리키는 동명 MCP, 설치기가 소유하지 않은 소스 체크아웃은 삭제하지 않고 남긴 이유를 출력한다.
 
+## 0.1 프로젝트 아키텍처 분석 및 `codeflow.layers.yaml` 작성 가이드
+
+CodeFlow는 핵심 흐름(Core Flow)을 검증할 때 대상 프로젝트 루트의 `codeflow.layers.yaml`을 기준으로 레이어 정규화, 단조 증가 순서 검증(monotonic layer progression), 파일 경로 패턴(`pathPatterns`) 매칭을 수행한다.
+
+> **설치/초기화 시 LLM 핵심 지침**: 대상 프로젝트가 특정 언어나 프레임워크에 국한되지 않고 어떤 아키텍처 패턴(Feature-first, Layer-first, Clean, Hexagonal/Ports & Adapters, FSD, CQRS, MVC/MVVM, Monorepo 등)을 채택하고 있더라도, 에이전트는 **프로젝트의 구조와 역할을 범용적으로 분석하여 최적화된 `codeflow.layers.yaml`을 생성**해야 한다.
+
+### 1) YAML 스키마 및 규격 (`schemas/layers-config.schema.json`)
+
+```yaml
+version: 1 # (필수) 항상 1
+strictOrder: true # (기본값: true) 레이어 역행 시 에러 처리. false면 warning + unknowns[] 기록
+allowUnknownLayer: false # (기본값: false) 미정의 레이어는 에러 처리. true면 unknown으로 매핑 후 경고
+layers: # (필수) 프로젝트 아키텍처에 존재하는 레이어 목록 (진입점 -> 말단 순서로 배치)
+  - name: presentation # (필수) 7대 표준 Canonical 레이어 명칭 중 하나
+    aliases: [ui, view, widget, screen, page] # 프로젝트에서 쓰이는 관용적 별칭/개념명 (소문자 정규화)
+    pathPatterns: ["**/presentation/**", "**/ui/**"] # glob 패턴 목록 (anchor.repoRelativePath 검증)
+```
+
+### 2) 7대 표준 Canonical 레이어 범용 매핑 매트릭스
+
+CodeFlow는 아키텍처 스타일과 언어에 관계없이 모든 계층을 7대 Canonical 레이어로 정규화하여 검증 및 시각화(FlowView Lane)한다. `name`은 반드시 아래 7개 중 하나를 선택한다.
+
+| Canonical `name` | 본질적 책임 (Core Responsibility) | 프론트엔드/모바일 (Flutter, React, iOS/Android 등) | 백엔드/마이크로서비스 (Go, NestJS, Spring, FastAPI 등) | 관용적 별칭 (`aliases`) |
+|---|---|---|---|---|
+| `presentation` | 사용자 인터페이스 렌더링, 뷰 이벤트 수신, 화면 전환 | View, Screen, Page, Widget, Component, Dialog | Template (SSR), CLI View, Swagger/OpenAPI | `ui`, `view`, `widget`, `screen`, `page`, `component` |
+| `controller` | UI 이벤트/HTTP 요청 수신, 상태 관리, 뷰모델, 입력 바인딩 | ViewModel, Notifier, BLoC, Cubit, Store, Hook, Reducer | HTTP Controller, Router, GraphQL Resolver, gRPC Handler | `controller`, `notifier`, `bloc`, `cubit`, `viewmodel`, `store`, `handler`, `resolver` |
+| `usecase` | 애플리케이션 비즈니스 유스케이스 조율, 트랜잭션/워크플로우 실행 | UseCase, Interactor, AppService, Workflow | Application Service, UseCase, Command/Query Handler, Orchestrator | `usecase`, `use_case`, `service`, `application`, `interactor`, `command`, `query` |
+| `domain` | 핵심 엔티티, 도메인 비즈니스 규칙, 값 객체(VO), 순수 계산 | Entity, Model, ValueObject, Policy, Rule | Domain Entity, Aggregate Root, Domain Service, Domain Event | `domain`, `entity`, `model`, `aggregate`, `vo` |
+| `data` | 데이터 영속성 처리, DB/캐시 연동, DTO 변환, 리포지토리 구현 | Repository, DataSource, LocalCache, DAO, DTO | Repository Impl, DAO, ORM Mapper, DataSource, Cache | `data`, `repository`, `datasource`, `data_source`, `dao`, `mapper` |
+| `infra` | OS/플랫폼 연동, 하드웨어 장치 제어, 시스템 보안/스토리지 | SecureStorage, Device/Sensors, Platform Channel | Config, Message Queue, Log/Metrics, Database Driver, OS | `infra`, `infrastructure`, `platform`, `storage`, `system` |
+| `external` | 외부 타사 서비스 연동, 원격 REST/gRPC 통신, 3rd party SDK | HTTP Client, Remote API, Payment SDK, OAuth | Remote REST Client, 3rd-party Gateway, Webhook Sender | `external`, `api`, `remote`, `client`, `gateway`, `network` |
+
+### 3) 범용 아키텍처 분석 4단계 프로세스 (LLM 에이전트 행동 지침)
+
+에이전트는 대상 저장소 분석 시 다음 4단계를 체계적으로 밟는다:
+
+#### Step 1: 프로젝트 프로파일링 (Manifest & Framework 파악)
+- 루트 매니페스트 파일(`package.json`, `pubspec.yaml`, `go.mod`, `pom.xml`, `build.gradle`, `Cargo.toml`, `pyproject.toml` 등)을 확인하여 언어, 런타임, 주요 프레임워크/라이브러리를 파악한다.
+- 모노레포/멀티패키지 구조(`apps/*`, `packages/*`, `modules/*`)인지 단일 프로젝트인지 확인한다.
+
+#### Step 2: 디렉터리 조직 전략 (Organization Strategy) 판별
+- **Feature-Driven / Vertical Slice**: 기능별로 디렉터리가 나뉘고 내부에 계층이 포함된 구조 (`features/<name>/presentation/...`, `modules/<name>/domain/...`)
+- **Layer-Driven / Horizontal**: 최상위에 계층이 나뉘어 있는 구조 (`controllers/`, `services/`, `repositories/`, `views/` 등)
+- **Feature-Sliced Design (FSD)**: 슬라이스 계층 구조 (`app/`, `pages/`, `widgets/`, `features/`, `entities/`, `shared/`)
+- **Hexagonal / Ports & Adapters / Onion**: 내부 도메인과 외부 어댑터가 분리된 구조 (`core/`, `domain/`, `application/`, `adapters/inbound`, `adapters/outbound`, `ports/`)
+
+#### Step 3: 레이어 선별 및 단조 증가 순서 결정 (Layer Pruning & Ordering)
+- **필요한 레이어만 선별**: 프로젝트에 존재하지 않는 레이어는 과감히 생략한다. (예: Usecase 없이 Controller에서 바로 Repository를 호출하는 단순 구조면 `presentation → controller → data`만 선언)
+- **단조 증가 순서 배치**: 이벤트/요청 진입(최상단)부터 데이터/외부(최하단) 방향으로 순서를 구성한다.
+
+#### Step 4: `pathPatterns` 및 `aliases` 추출 및 `codeflow.layers.yaml` 작성
+- 프로젝트의 실제 폴더 구조를 커버하는 doublestar glob 패턴(`**`)을 작성한다.
+- 팀/프로젝트 고유의 명칭(예: `bloc`, `resolver`, `command`, `saga`, `dao` 등)을 `aliases`에 등록한다.
+- 대상 프로젝트 루트 경로(`codeflow.layers.yaml`)에 저장한다.
+
+### 4) 5대 주요 아키텍처 패턴별 작성 템플릿
+
+#### 템플릿 1: Feature-First Clean Architecture (Flutter, React, 모바일/웹 공통)
+```yaml
+version: 1
+strictOrder: true
+allowUnknownLayer: false
+layers:
+  - name: presentation
+    aliases: [ui, view, widget, screen, page, component, dialog]
+    pathPatterns:
+      - "**/features/**/presentation/views/**"
+      - "**/features/**/presentation/widgets/**"
+      - "**/features/**/presentation/components/**"
+      - "**/core/widgets/**"
+  - name: controller
+    aliases: [notifier, provider, controller, bloc, cubit, viewmodel, store]
+    pathPatterns:
+      - "**/features/**/presentation/controllers/**"
+      - "**/features/**/presentation/notifiers/**"
+      - "**/features/**/presentation/blocs/**"
+      - "**/features/**/presentation/viewmodels/**"
+  - name: usecase
+    aliases: [usecase, use_case, application, interactor, workflow]
+    pathPatterns:
+      - "**/features/**/domain/usecases/**"
+      - "**/features/**/domain/interactors/**"
+  - name: domain
+    aliases: [domain, entity, model, aggregate, value_object]
+    pathPatterns:
+      - "**/features/**/domain/entities/**"
+      - "**/features/**/domain/models/**"
+  - name: data
+    aliases: [repository, datasource, data_source, local_source, dao]
+    pathPatterns:
+      - "**/features/**/data/repositories/**"
+      - "**/features/**/data/datasources/**"
+  - name: infra
+    aliases: [infra, infrastructure, platform, storage, device]
+    pathPatterns:
+      - "**/core/platform/**"
+      - "**/core/storage/**"
+      - "**/infrastructure/**"
+  - name: external
+    aliases: [api, remote, client, gateway, network]
+    pathPatterns:
+      - "**/core/network/**"
+      - "**/features/**/data/datasources/remote/**"
+      - "**/external/**"
+```
+
+#### 템플릿 2: Hexagonal / Ports & Adapters Architecture (Go, Java/Spring, NestJS, FastAPI 등 백엔드)
+```yaml
+version: 1
+strictOrder: true
+allowUnknownLayer: false
+layers:
+  - name: controller
+    aliases: [adapter_in, inbound_adapter, http, rest, grpc_handler, resolver, router]
+    pathPatterns:
+      - "**/adapters/inbound/**"
+      - "**/internal/delivery/http/**"
+      - "**/internal/delivery/grpc/**"
+      - "**/interfaces/controllers/**"
+  - name: usecase
+    aliases: [application, app_service, command_handler, query_handler, usecase]
+    pathPatterns:
+      - "**/application/usecases/**"
+      - "**/application/services/**"
+      - "**/application/commands/**"
+      - "**/application/queries/**"
+  - name: domain
+    aliases: [domain, entity, aggregate, domain_service, event]
+    pathPatterns:
+      - "**/domain/entities/**"
+      - "**/domain/models/**"
+      - "**/domain/services/**"
+  - name: data
+    aliases: [adapter_out, outbound_adapter, repository_impl, persistence, dao]
+    pathPatterns:
+      - "**/adapters/outbound/persistence/**"
+      - "**/infrastructure/persistence/**"
+      - "**/internal/repository/**"
+  - name: infra
+    aliases: [infrastructure, config, database, messaging, telemetry]
+    pathPatterns:
+      - "**/infrastructure/config/**"
+      - "**/infrastructure/database/**"
+      - "**/pkg/**"
+  - name: external
+    aliases: [external_client, remote_adapter, 3rd_party, gateway]
+    pathPatterns:
+      - "**/adapters/outbound/clients/**"
+      - "**/infrastructure/external/**"
+```
+
+#### 템플릿 3: Feature-Sliced Design (FSD - 모던 프론트엔드 / Next.js, React, Vue)
+```yaml
+version: 1
+strictOrder: true
+allowUnknownLayer: false
+layers:
+  - name: presentation
+    aliases: [app, pages, widgets, views, ui]
+    pathPatterns:
+      - "src/app/**"
+      - "src/pages/**"
+      - "src/widgets/**"
+      - "src/features/**/ui/**"
+      - "src/entities/**/ui/**"
+      - "src/shared/ui/**"
+  - name: controller
+    aliases: [feature_model, entity_model, hook, store]
+    pathPatterns:
+      - "src/features/**/model/**"
+      - "src/entities/**/model/**"
+      - "src/shared/lib/hooks/**"
+  - name: usecase
+    aliases: [lib, actions, logic, workflow]
+    pathPatterns:
+      - "src/features/**/lib/**"
+      - "src/entities/**/lib/**"
+  - name: domain
+    aliases: [types, contracts, schemas]
+    pathPatterns:
+      - "src/entities/**/types/**"
+      - "src/shared/types/**"
+  - name: external
+    aliases: [api, client, queries, mutations]
+    pathPatterns:
+      - "src/features/**/api/**"
+      - "src/entities/**/api/**"
+      - "src/shared/api/**"
+```
+
+#### 템플릿 4: 경량 Layered MVC / MVVM 아키텍처
+```yaml
+version: 1
+strictOrder: true
+allowUnknownLayer: false
+layers:
+  - name: presentation
+    aliases: [view, ui, screen, pages, template]
+    pathPatterns: ["views/**", "screens/**", "ui/**", "pages/**"]
+  - name: controller
+    aliases: [controller, viewmodel, handler]
+    pathPatterns: ["controllers/**", "viewmodels/**", "handlers/**"]
+  - name: usecase
+    aliases: [service, manager, logic]
+    pathPatterns: ["services/**", "managers/**", "logic/**"]
+  - name: domain
+    aliases: [model, entity, schema]
+    pathPatterns: ["models/**", "entities/**", "schemas/**"]
+  - name: data
+    aliases: [repository, datasource, db, dao]
+    pathPatterns: ["repositories/**", "datasources/**", "db/**", "dao/**"]
+  - name: external
+    aliases: [client, api, remote, network]
+    pathPatterns: ["api/**", "clients/**", "network/**"]
+```
+
+#### 템플릿 5: Monorepo / Multi-Package 아키텍처
+```yaml
+version: 1
+strictOrder: true
+allowUnknownLayer: false
+layers:
+  - name: presentation
+    aliases: [ui_package, app_ui, widgets]
+    pathPatterns:
+      - "apps/**/presentation/**"
+      - "packages/ui/**"
+      - "packages/feature_*/presentation/**"
+  - name: controller
+    aliases: [state, notifiers, controllers]
+    pathPatterns:
+      - "apps/**/controllers/**"
+      - "packages/feature_*/controllers/**"
+      - "packages/state/**"
+  - name: usecase
+    aliases: [domain_services, usecases]
+    pathPatterns:
+      - "packages/domain/**/usecases/**"
+      - "packages/feature_*/domain/usecases/**"
+  - name: domain
+    aliases: [core_domain, entities, models]
+    pathPatterns:
+      - "packages/domain/**/entities/**"
+      - "packages/models/**"
+  - name: data
+    aliases: [data_package, repositories]
+    pathPatterns:
+      - "packages/data/**"
+      - "packages/repositories/**"
+  - name: infra
+    aliases: [core_package, platform]
+    pathPatterns:
+      - "packages/core/**"
+      - "packages/platform/**"
+  - name: external
+    aliases: [api_client, network_package]
+    pathPatterns:
+      - "packages/network/**"
+      - "packages/api_client/**"
+```
+
 ## 1. 가장 짧은 사용 흐름
 
 사용자 프롬프트 예: "이메일 회원가입 핵심 흐름을 FlowView로 만들어줘" / "회원가입 핵심 흐름 보여줘" / "core flow for email signup"
