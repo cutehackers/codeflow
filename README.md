@@ -8,14 +8,16 @@ CodeFlow는 진입 계층(UI 이벤트, API 요청 등)부터 컨트롤러, 유�
 
 ## ⚡ 원샷 설치 (One-Shot Install)
 
-스크립트 한 줄로 바이너리 빌드, Dart 어댑터 설정, Codex MCP 등록, CodeFlow 스킬 설치까지 원스톱으로 완료됩니다.
+터미널에서 아래 명령을 실행하면 Go/Dart 컴파일러 없이도 OS/아키텍처에 맞는 사전 빌드 바이너리, Dart 어댑터, Codex MCP, 스킬까지 한 번에 설치됩니다.
 
 ```sh
-bash scripts/install.sh
+curl -fsSL https://raw.githubusercontent.com/cutehackers/codeflow/main/scripts/install.sh | bash
 ```
 
+> 로컬 저장소 체크아웃 내에서는 `bash scripts/install.sh`를 실행하여 직접 빌드/설치할 수도 있습니다.
+
 - **설치 확인**: `$HOME/.local/bin/codeflow doctor <분석할-저장소-경로>`
-- **요구 사항**: Go 1.26+, Dart SDK 3.x, Codex CLI
+- **지원 환경**: macOS (Apple Silicon / Intel), Linux (x86_64 / arm64)
 - **원클릭 제거**: `$HOME/.local/bin/codeflow uninstall` (셸 rc나 프로젝트 코드를 일체 오염시키지 않습니다)
 
 ---

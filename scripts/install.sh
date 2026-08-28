@@ -1,96 +1,164 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# CodeFlow one-shot installer. It installs an owned binary, registers its MCP
-# with Codex, and installs the accompanying CodeFlow skill. No shell profile
-# or repository files are changed.
-#
-# From a checkout: bash scripts/install.sh
-# From a release script: CODEFLOW_REPO_URL=<repository> bash scripts/install.sh
+# CodeFlow one-shot installer.
+# Supports:
+# 1. Direct one-liner via curl: curl -fsSL https://raw.githubusercontent.com/cutehackers/codeflow/main/scripts/install.sh | bash
+# 2. Local checkout build: bash scripts/install.sh
 
 INSTALL_DIR="${INSTALL_DIR:-$HOME/.local/bin}"
-SRC_DIR="${CODEFLOW_SRC_DIR:-$HOME/.codeflow/src}"
-REPO_URL="${CODEFLOW_REPO_URL:-}"
-BRANCH="${CODEFLOW_BRANCH:-main}"
 MCP_NAME="${CODEFLOW_MCP_NAME:-codeflow}"
 CODEX_HOME_DIR="${CODEX_HOME:-$HOME/.codex}"
+CODEFLOW_REPO="${CODEFLOW_REPO:-cutehackers/codeflow}"
+CODEFLOW_VERSION="${CODEFLOW_VERSION:-v0.3.2}"
 OWNED_SOURCE=false
+SRC_DIR="${CODEFLOW_SRC_DIR:-}"
 
 info() { echo "› $*"; }
 die() { echo "✗ $*" >&2; exit 1; }
 
-require() {
-  command -v "$1" >/dev/null 2>&1 || die "$1 is required: $2"
+calc_sha256() {
+  if command -v shasum >/dev/null 2>&1; then
+    shasum -a 256 "$1" | awk '{print $1}'
+  elif command -v sha256sum >/dev/null 2>&1; then
+    sha256sum "$1" | awk '{print $1}'
+  else
+    echo ""
+  fi
 }
 
-require go "install Go, then run this command again"
-require dart "install Dart SDK 3.x, then run this command again"
-require codex "install Codex, then run this command again to register the MCP"
-
-# Prefer the checkout that contains this script. A remote script can supply a
-# repository URL; an existing managed source is reused without reset/pull.
-SCRIPT_DIR="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
-if [ -f "$SCRIPT_DIR/../go.mod" ] && grep -q '^module codeflow$' "$SCRIPT_DIR/../go.mod"; then
-  SRC_DIR="$(CDPATH= cd -- "$SCRIPT_DIR/.." && pwd)"
-  info "Using current checkout: $SRC_DIR"
-elif [ -d "$SRC_DIR/.git" ]; then
-  info "Using existing managed source: $SRC_DIR"
-elif [ -e "$SRC_DIR" ]; then
-  die "$SRC_DIR already exists and is not a CodeFlow checkout; choose CODEFLOW_SRC_DIR instead"
-else
-  [ -n "$REPO_URL" ] || die "set CODEFLOW_REPO_URL when running outside a CodeFlow checkout"
-  mkdir -p "$(dirname "$SRC_DIR")"
-  info "Cloning CodeFlow source"
-  git clone --depth 1 --branch "$BRANCH" "$REPO_URL" "$SRC_DIR"
-  OWNED_SOURCE=true
+# Determine if we are inside a CodeFlow checkout
+SCRIPT_DIR=""
+if [ -n "${BASH_SOURCE[0]:-}" ] && [ -f "${BASH_SOURCE[0]}" ]; then
+  SCRIPT_DIR="$(CDPATH= cd -- "$(dirname -- "${BASH_SOURCE[0]}")" 2>/dev/null && pwd || true)"
 fi
 
-DART_ADAPTER_DIR="$SRC_DIR/adapters/dart"
-[ -f "$DART_ADAPTER_DIR/bin/codeflow_dart_adapter.dart" ] || die "Dart adapter is missing from $SRC_DIR"
-ADAPTER_SPEC="dartrun:$DART_ADAPTER_DIR"
-INSTALL_PATH="$INSTALL_DIR/codeflow"
-SKILL_SOURCE="$SRC_DIR/skills/codeflow"
-SKILL_DEST="$CODEX_HOME_DIR/skills/codeflow"
-[ -f "$SKILL_SOURCE/SKILL.md" ] || die "CodeFlow skill is missing from $SRC_DIR"
+IS_CHECKOUT=false
+if [ -n "$SCRIPT_DIR" ] && [ -f "$SCRIPT_DIR/../go.mod" ] && grep -q '^module codeflow$' "$SCRIPT_DIR/../go.mod"; then
+  IS_CHECKOUT=true
+  SRC_DIR="$(CDPATH= cd -- "$SCRIPT_DIR/.." && pwd)"
+fi
 
-# Never overwrite a user-owned MCP registration or skill. Re-running the
-# installer is safe only for the exact asset installed by CodeFlow.
-if MCP_CONFIG="$(codex mcp get "$MCP_NAME" --json 2>/dev/null)"; then
-  if ! printf '%s\n' "$MCP_CONFIG" | grep -Fq "$INSTALL_PATH"; then
-    die "Codex MCP '$MCP_NAME' already belongs to another command; use CODEFLOW_MCP_NAME to choose a new name"
+TMP_DIR=""
+cleanup() {
+  if [ -n "$TMP_DIR" ] && [ -d "$TMP_DIR" ]; then
+    rm -rf "$TMP_DIR"
+  fi
+}
+trap cleanup EXIT
+
+INSTALL_PATH="$INSTALL_DIR/codeflow"
+mkdir -p "$INSTALL_DIR"
+
+if [ "$IS_CHECKOUT" = true ]; then
+  info "Installing CodeFlow from local checkout: $SRC_DIR"
+  command -v go >/dev/null 2>&1 || die "Go is required to build from source checkout"
+
+  info "Building CodeFlow binaries"
+  (cd "$SRC_DIR" && go build -o "$INSTALL_PATH" ./cmd/codeflow)
+  chmod 755 "$INSTALL_PATH"
+
+  ADAPTER_BIN="$INSTALL_DIR/dart-adapter"
+  DART_SRC="$SRC_DIR/adapters/dart"
+  if command -v dart >/dev/null 2>&1; then
+    if (cd "$DART_SRC" && dart compile exe bin/codeflow_dart_adapter.dart -o "$ADAPTER_BIN" >/dev/null 2>&1); then
+      chmod 755 "$ADAPTER_BIN"
+      ADAPTER_SPEC="$ADAPTER_BIN"
+    else
+      ADAPTER_SPEC="dartrun:$DART_SRC"
+    fi
+  else
+    ADAPTER_SPEC="dartrun:$DART_SRC"
+  fi
+
+  SKILL_SOURCE="$SRC_DIR/skills/codeflow"
+else
+  info "Installing CodeFlow pre-compiled binary ($CODEFLOW_VERSION)..."
+
+  OS="$(uname -s | tr '[:upper:]' '[:lower:]')"
+  case "$OS" in
+    darwin|linux) ;;
+    *) die "Unsupported operating system: $OS (only macOS and Linux are supported)" ;;
+  esac
+
+  ARCH="$(uname -m)"
+  case "$ARCH" in
+    x86_64|amd64) ARCH="amd64" ;;
+    arm64|aarch64) ARCH="arm64" ;;
+    *) die "Unsupported architecture: $ARCH (only amd64 and arm64 are supported)" ;;
+  esac
+
+  TMP_DIR="$(mktemp -d)"
+  TARBALL_NAME="codeflow-${CODEFLOW_VERSION}-${OS}-${ARCH}.tar.gz"
+  DOWNLOAD_URL="https://github.com/${CODEFLOW_REPO}/releases/download/${CODEFLOW_VERSION}/${TARBALL_NAME}"
+
+  info "Downloading $DOWNLOAD_URL"
+  if command -v curl >/dev/null 2>&1; then
+    if ! curl -fsSL "$DOWNLOAD_URL" -o "$TMP_DIR/$TARBALL_NAME"; then
+      die "Failed to download $DOWNLOAD_URL. Please check release version or network connection."
+    fi
+  elif command -v wget >/dev/null 2>&1; then
+    if ! wget -q "$DOWNLOAD_URL" -O "$TMP_DIR/$TARBALL_NAME"; then
+      die "Failed to download $DOWNLOAD_URL. Please check release version or network connection."
+    fi
+  else
+    die "Neither curl nor wget was found on PATH"
+  fi
+
+  tar -xzf "$TMP_DIR/$TARBALL_NAME" -C "$TMP_DIR"
+
+  cp -f "$TMP_DIR/bin/codeflow" "$INSTALL_PATH"
+  chmod 755 "$INSTALL_PATH"
+
+  ADAPTER_BIN="$INSTALL_DIR/dart-adapter"
+  if [ -f "$TMP_DIR/bin/dart-adapter" ]; then
+    cp -f "$TMP_DIR/bin/dart-adapter" "$ADAPTER_BIN"
+    chmod 755 "$ADAPTER_BIN"
+    ADAPTER_SPEC="$ADAPTER_BIN"
+  else
+    ADAPTER_SPEC=""
+  fi
+
+  SKILL_SOURCE="$TMP_DIR/skills/codeflow"
+fi
+
+SKILL_DEST="$CODEX_HOME_DIR/skills/codeflow"
+if command -v codex >/dev/null 2>&1; then
+  if MCP_CONFIG="$(codex mcp get "$MCP_NAME" --json 2>/dev/null)"; then
+    if ! printf '%s\n' "$MCP_CONFIG" | grep -Fq "$INSTALL_PATH"; then
+      die "Codex MCP '$MCP_NAME' already belongs to another command; use CODEFLOW_MCP_NAME to choose a new name"
+    fi
+  fi
+  if [ -e "$SKILL_DEST" ] && [ -f "$SKILL_SOURCE/SKILL.md" ] && ! cmp -s "$SKILL_SOURCE/SKILL.md" "$SKILL_DEST/SKILL.md"; then
+    die "Codex skill at $SKILL_DEST was changed; refusing to overwrite it"
   fi
 fi
-if [ -e "$SKILL_DEST" ] && ! cmp -s "$SKILL_SOURCE/SKILL.md" "$SKILL_DEST/SKILL.md"; then
-  die "Codex skill at $SKILL_DEST was changed; refusing to overwrite it"
+
+if [ -d "$SKILL_SOURCE" ]; then
+  mkdir -p "$(dirname "$SKILL_DEST")"
+  if [ ! -e "$SKILL_DEST" ]; then
+    cp -R "$SKILL_SOURCE" "$SKILL_DEST"
+    info "Installed CodeFlow skill"
+  fi
 fi
 
-info "Building CodeFlow"
-make -C "$SRC_DIR" build
-mkdir -p "$INSTALL_DIR"
-cp -f "$SRC_DIR/bin/codeflow" "$INSTALL_PATH"
-chmod 755 "$INSTALL_PATH"
-
-if ! command -v codeflow >/dev/null 2>&1 || [ "$(command -v codeflow)" != "$INSTALL_PATH" ]; then
-  info "Installed binary: $INSTALL_PATH (add $INSTALL_DIR to PATH to use 'codeflow' directly)"
+if command -v codex >/dev/null 2>&1; then
+  if codex mcp get "$MCP_NAME" --json >/dev/null 2>&1; then
+    info "Codex MCP '$MCP_NAME' is already registered"
+  else
+    codex mcp add "$MCP_NAME" --env "CODEFLOW_ADAPTER_DART_BIN=$ADAPTER_SPEC" -- "$INSTALL_PATH" mcp
+    info "Registered Codex MCP '$MCP_NAME'"
+  fi
 fi
 
-mkdir -p "$(dirname "$SKILL_DEST")"
-if [ ! -e "$SKILL_DEST" ]; then
-  cp -R "$SKILL_SOURCE" "$SKILL_DEST"
-  info "Installed CodeFlow skill"
+SKILL_SHA256=""
+if [ -f "$SKILL_DEST/SKILL.md" ]; then
+  SKILL_SHA256="$(calc_sha256 "$SKILL_DEST/SKILL.md")"
 fi
 
-if codex mcp get "$MCP_NAME" --json >/dev/null 2>&1; then
-  info "Codex MCP '$MCP_NAME' is already registered"
-else
-  codex mcp add "$MCP_NAME" --env "CODEFLOW_ADAPTER_DART_BIN=$ADAPTER_SPEC" -- "$INSTALL_PATH" mcp
-  info "Registered Codex MCP '$MCP_NAME'"
-fi
-
-SKILL_SHA256="$(shasum -a 256 "$SKILL_DEST/SKILL.md" | awk '{print $1}')"
 "$INSTALL_PATH" install-record \
   --binary "$INSTALL_PATH" \
-  --source-root "$SRC_DIR" \
+  --source-root "${SRC_DIR:-}" \
   --owned-source="$OWNED_SOURCE" \
   --adapter-spec "$ADAPTER_SPEC" \
   --skill-path "$SKILL_DEST" \
@@ -101,9 +169,13 @@ SKILL_SHA256="$(shasum -a 256 "$SKILL_DEST/SKILL.md" | awk '{print $1}')"
 
 cat <<EOF
 
-✓ CodeFlow is ready in Codex.
-  Start a new Codex task and ask: "이메일 회원가입 흐름을 FlowView로 만들어줘"
+✓ CodeFlow installation complete!
+  Binary: $INSTALL_PATH
 
-Remove it later with:
+  To use in Codex / Claude / Cursor / Antigravity:
+  - Command: $INSTALL_PATH mcp
+  - Env: CODEFLOW_ADAPTER_DART_BIN=$ADAPTER_SPEC
+
+  Remove anytime with:
   $INSTALL_PATH uninstall
 EOF

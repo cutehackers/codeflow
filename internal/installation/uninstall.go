@@ -68,6 +68,13 @@ func Uninstall(ctx context.Context) (UninstallResult, error) {
 		result.Kept = append(result.Kept, "source checkout (not installer-owned)")
 	}
 
+	if state.AdapterSpec != "" && !strings.HasPrefix(state.AdapterSpec, "dartrun:") && filepath.IsAbs(state.AdapterSpec) {
+		if err := os.Remove(state.AdapterSpec); err != nil && !os.IsNotExist(err) {
+			return result, fmt.Errorf("remove adapter binary: %w", err)
+		}
+		result.Removed = append(result.Removed, "adapter binary")
+	}
+
 	if err := os.Remove(state.Binary); err != nil && !os.IsNotExist(err) {
 		return result, fmt.Errorf("remove binary: %w", err)
 	}

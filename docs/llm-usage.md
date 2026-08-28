@@ -7,11 +7,15 @@
 > 한 명령으로 바이너리, Dart 어댑터 설정, Codex MCP, CodeFlow 스킬까지 설치한다. 셸 rc와 분석 대상 저장소는 수정하지 않는다.
 
 ```sh
+# 원격 1줄 설치 (Go/Dart SDK 없이도 사전 빌드 바이너리 자동 다운로드)
+curl -fsSL https://raw.githubusercontent.com/cutehackers/codeflow/main/scripts/install.sh | bash
+
+# 또는 소스 체크아웃 내에서 직접 설치
 bash scripts/install.sh
 ```
 
 `scripts/install.sh`가 수행하는 일:
-1. `bin/codeflow`를 `$HOME/.local/bin/codeflow`에 설치한다.
+1. `codeflow` 코어 바이너리와 `dart-adapter`를 `$HOME/.local/bin`에 설치한다.
 2. Codex에 `codeflow mcp`를 등록하고, 등록 시 Dart 어댑터 경로를 함께 전달한다.
 3. `$HOME/.codex/skills/codeflow`에 스킬을 설치한다. 새 Codex task에서 “이메일 회원가입 핵심 흐름을 FlowView로 만들어줘”라고 바로 요청할 수 있다.
 
@@ -23,8 +27,6 @@ Codex MCP 이름이 이미 다른 명령에 사용 중이거나 기존 CodeFlow 
 $HOME/.local/bin/codeflow version
 $HOME/.local/bin/codeflow doctor .
 ```
-
-Dart SDK 3.x, Go, Codex CLI가 필요하다. 하나라도 없으면 설치가 실패하며, 불완전한 MCP 등록을 남기지 않는다.
 
 ### 삭제
 
