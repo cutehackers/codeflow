@@ -28,7 +28,7 @@ tombstone).
 **How CORE consumes these.** All validation goes through the compiled harness:
 `internal/contractharness.Validate(schemaID string, data []byte) error`, with
 `schemaID = contractharness.BaseURL + "<name>.schema.json"`. The harness maps
-`$id`s to this directory on disk and caches compiled schemas; stages call it at
+`$id`s to the embedded `codeflow/schemas` filesystem (`schemas.FS`) and caches compiled schemas; stages call it at
 every contract boundary (harvest output, slice output, fusion input/output, MCP
 submissions, adapter envelopes) instead of hand-rolled checks. A returned error
 is a `*jsonschema.ValidationError` whose text names each failing keyword and its

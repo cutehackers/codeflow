@@ -4,10 +4,11 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
-	"os"
-	"path/filepath"
+	"io/fs"
 	"strings"
 	"testing"
+
+	"codeflow/schemas"
 )
 
 func TestEnsureAllCompiled(t *testing.T) {
@@ -83,8 +84,8 @@ func TestValidateGoldenFixtures(t *testing.T) {
 // future CORE stages consume: a good flowspec passes, the same document with a
 // provenance field removed fails.
 func TestValidateExportedContractBoundary(t *testing.T) {
-	raw, err := os.ReadFile(filepath.Join(SchemasDir(),
-		"fixtures", "flowspec", "valid", "email-signup-flowspec-with-stale-and-unknown.valid.json"))
+	raw, err := fs.ReadFile(schemas.FixturesFS,
+		"fixtures/flowspec/valid/email-signup-flowspec-with-stale-and-unknown.valid.json")
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -1,4 +1,4 @@
-# CodeFlow (v0.3.3)
+# CodeFlow (v0.3.4)
 
 > **대규모 코드베이스에서 비즈니스 핵심 흐름(Core Flow)을 엔드투엔드로 추출하고 시각화하는 다중 언어 개발자 및 AI 에이전트 도구**
 
@@ -7,6 +7,8 @@ CodeFlow는 진입 계층(UI 이벤트, API 요청 등)부터 컨트롤러, 유�
 ---
 
 ## ⚡ 원샷 설치 (One-Shot Install)
+
+> 💡 **AI 에이전트 / LLM 필독 지침**: AI 에이전트(Codex, Claude Desktop, Cursor, Antigravity 등)가 설치나 프로젝트 분석을 진행할 때는 반드시 **[`docs/llm-usage.md`](docs/llm-usage.md)**를 먼저 읽고 지침을 따르세요. 원샷 설치부터 아키텍처 자동 분석(`codeflow.layers.yaml` 생성) 및 핵심 흐름 추출까지의 상세 계약이 정의되어 있습니다.
 
 터미널에서 아래 명령을 실행하면 Go/Dart/Node 컴파일러 없이도 OS/아키텍처에 맞는 사전 빌드 바이너리, 다중 언어 어댑터(Dart & TypeScript), 4대 AI 에이전트(Codex, Claude Desktop, Cursor, Antigravity) MCP 및 스킬까지 한 번에 자동 설치됩니다.
 
@@ -24,13 +26,24 @@ curl -fsSL https://raw.githubusercontent.com/cutehackers/codeflow/main/scripts/i
 
 ---
 
-## 🤖 에이전트 자율 설치 (Zero-Explanation Setup)
+## 🤖 에이전트 자율 설치 및 워크플로우 (Zero-Explanation Setup)
 
-AI 에이전트(Codex, Claude Desktop, Cursor, Antigravity 등)에게 [`docs/llm-usage.md`](docs/llm-usage.md)를 전달하거나 프롬프트에 참조하도록 지정하면, **사용자의 별도 설명 없이도** 에이전트가 다음을 자율적으로 수행합니다:
+AI 에이전트(Codex, Claude Desktop, Cursor, Antigravity 등)는 **[`docs/llm-usage.md`](docs/llm-usage.md)**를 참조하여 **사용자의 추가 설명 없이도** 다음 단계를 순서대로 자율 실행합니다:
 
-1. `bash scripts/install.sh`를 실행하여 CodeFlow 도구, 어댑터, MCP 환경 원클릭 구축
-2. 대상 프로젝트의 구조(Clean, Hexagonal, FSD, MVC 등)를 파악하여 [`codeflow.layers.yaml`](docs/llm-usage.md#01-프로젝트-아키텍처-분석-및-codeflowlayersyaml-작성-가이드) 자동 생성
-3. MCP 도구로 핵심 흐름을 추출·검증(`publish_core_flow`)하고 FlowView 리뷰 URL 제공
+1. **원샷 설치 실행**:
+   ```sh
+   curl -fsSL https://raw.githubusercontent.com/cutehackers/codeflow/main/scripts/install.sh | bash
+   # 또는 소스 체크아웃 내에서
+   bash scripts/install.sh
+   ```
+2. **설치 정상 여부 점검**:
+   ```sh
+   $HOME/.local/bin/codeflow doctor <대상-저장소-경로>
+   ```
+3. **프로젝트 아키텍처 분석 및 레이어 자동 구성**:
+   - 대상 프로젝트 구조(Feature-first, Layer-first, Clean, Hexagonal, FSD, MVC 등)를 파악하여 [`codeflow.layers.yaml`](docs/llm-usage.md#01-프로젝트-아키텍처-분석-및-codeflowlayersyaml-작성-가이드) 자동 생성
+4. **핵심 흐름(Core Flow) 추출 및 시각화**:
+   - MCP 도구로 핵심 흐름을 추출·검증(`publish_core_flow`)하고 FlowView 리뷰 URL 제공
 
 ---
 

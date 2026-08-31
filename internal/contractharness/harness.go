@@ -11,11 +11,13 @@ import (
 	"fmt"
 	"io/fs"
 	"os"
+	"path"
 	"path/filepath"
 	"runtime"
 	"strings"
 	"sync"
 
+	"codeflow/schemas"
 	"github.com/santhosh-tekuri/jsonschema/v6"
 )
 
@@ -39,11 +41,11 @@ var SchemaIDs = []string{
 }
 
 // SchemasDir locates the repo's schemas/ directory relative to this source
-// file, independent of the process working directory.
+// file when running in a source tree, or returns empty string if not found.
 func SchemasDir() string {
 	_, thisFile, _, ok := runtime.Caller(0)
 	if !ok {
-		panic("contractharness: cannot determine source location")
+		return ""
 	}
 	dir := filepath.Dir(thisFile)
 	for {
@@ -53,27 +55,26 @@ func SchemasDir() string {
 		}
 		parent := filepath.Dir(dir)
 		if parent == dir {
-			panic("contractharness: schemas/ directory not found above internal/contractharness")
+			return ""
 		}
 		dir = parent
 	}
 }
 
-// fileLoader maps BaseURL-prefixed $ids onto local schema files. Anything
+// embedLoader maps BaseURL-prefixed $ids onto embedded schema files. Anything
 // outside that namespace (or containing path traversal) is rejected.
-type fileLoader struct {
-	base string
+type embedLoader struct {
+	fsys fs.FS
 }
 
-func (l fileLoader) Load(url string) (any, error) {
+func (l embedLoader) Load(url string) (any, error) {
 	rest, ok := strings.CutPrefix(url, BaseURL)
 	if !ok || rest == "" || strings.Contains(rest, "..") || strings.HasPrefix(rest, "/") {
 		return nil, fmt.Errorf("contractharness: refusing to load non-contract schema url %q", url)
 	}
-	path := filepath.Join(l.base, filepath.FromSlash(rest))
-	f, err := os.Open(path)
+	f, err := l.fsys.Open(filepath.ToSlash(rest))
 	if err != nil {
-		return nil, fmt.Errorf("contractharness: open %s: %w", path, err)
+		return nil, fmt.Errorf("contractharness: open %s: %w", rest, err)
 	}
 	defer f.Close()
 	return jsonschema.UnmarshalJSON(f)
@@ -91,7 +92,7 @@ func compile(id string) (*jsonschema.Schema, error) {
 		return sch, nil
 	}
 	c := jsonschema.NewCompiler()
-	c.UseLoader(fileLoader{base: SchemasDir()})
+	c.UseLoader(embedLoader{fsys: schemas.FS})
 	sch, err := c.Compile(id)
 	if err != nil {
 		return nil, err
@@ -142,8 +143,7 @@ func SchemaIDForFixtureDir(name string) string {
 // reason, so a red CI run points straight at the drifted contract or the
 // mis-labeled fixture.
 func FixtureTree() ([]FixtureResult, error) {
-	root := filepath.Join(SchemasDir(), "fixtures")
-	entries, err := os.ReadDir(root)
+	entries, err := fs.ReadDir(schemas.FixturesFS, "fixtures")
 	if err != nil {
 		return nil, fmt.Errorf("read fixtures root: %w", err)
 	}
@@ -157,19 +157,16 @@ func FixtureTree() ([]FixtureResult, error) {
 			dir      string
 			mustPass bool
 		}{{"valid", true}, {"invalid", false}} {
-			dirPath := filepath.Join(root, entry.Name(), kind.dir)
-			files, err := os.ReadDir(dirPath)
+			dirPath := path.Join("fixtures", entry.Name(), kind.dir)
+			files, err := fs.ReadDir(schemas.FixturesFS, dirPath)
 			if err != nil {
-				if strings.Contains(err.Error(), fs.ErrNotExist.Error()) {
-					continue
-				}
-				return nil, err
+				continue
 			}
 			for _, f := range files {
 				if f.IsDir() || !strings.HasSuffix(f.Name(), ".json") {
 					continue
 				}
-				data, err := os.ReadFile(filepath.Join(dirPath, f.Name()))
+				data, err := fs.ReadFile(schemas.FixturesFS, path.Join(dirPath, f.Name()))
 				if err != nil {
 					return nil, err
 				}
