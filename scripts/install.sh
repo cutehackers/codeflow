@@ -89,6 +89,11 @@ echo "TypeScript adapter entrypoint not found at $TS_TARGET" >&2
 exit 1
 WRAPPER
     chmod 755 "$TS_BIN"
+    ln -sf "$TS_BIN" "$INSTALL_DIR/codeflow_typescript_adapter" 2>/dev/null || cp -f "$TS_BIN" "$INSTALL_DIR/codeflow_typescript_adapter"
+  fi
+
+  if [ -f "$ADAPTER_BIN" ]; then
+    ln -sf "$ADAPTER_BIN" "$INSTALL_DIR/codeflow_dart_adapter" 2>/dev/null || cp -f "$ADAPTER_BIN" "$INSTALL_DIR/codeflow_dart_adapter"
   fi
 
   SKILL_SOURCE="$SRC_DIR/skills/codeflow"
@@ -134,6 +139,7 @@ else
   if [ -f "$TMP_DIR/bin/dart-adapter" ]; then
     cp -f "$TMP_DIR/bin/dart-adapter" "$ADAPTER_BIN"
     chmod 755 "$ADAPTER_BIN"
+    ln -sf "$ADAPTER_BIN" "$INSTALL_DIR/codeflow_dart_adapter" 2>/dev/null || cp -f "$ADAPTER_BIN" "$INSTALL_DIR/codeflow_dart_adapter"
     ADAPTER_SPEC="$ADAPTER_BIN"
   else
     ADAPTER_SPEC=""
@@ -154,6 +160,7 @@ echo "TypeScript adapter entrypoint not found at $TS_TARGET" >&2
 exit 1
 WRAPPER
     chmod 755 "$INSTALL_DIR/codeflow_ts_adapter"
+    ln -sf "$INSTALL_DIR/codeflow_ts_adapter" "$INSTALL_DIR/codeflow_typescript_adapter" 2>/dev/null || cp -f "$INSTALL_DIR/codeflow_ts_adapter" "$INSTALL_DIR/codeflow_typescript_adapter"
   fi
 
   SKILL_SOURCE="$TMP_DIR/skills/codeflow"
@@ -235,7 +242,11 @@ if command -v codex >/dev/null 2>&1; then
   if codex mcp get "$MCP_NAME" --json >/dev/null 2>&1; then
     info "Codex MCP '$MCP_NAME' is already registered"
   else
-    codex mcp add "$MCP_NAME" --env "CODEFLOW_ADAPTER_DART_BIN=$ADAPTER_SPEC" -- "$INSTALL_PATH" mcp
+    if [ -n "$ADAPTER_SPEC" ]; then
+      codex mcp add "$MCP_NAME" --env "CODEFLOW_ADAPTER_DART_BIN=$ADAPTER_SPEC" -- "$INSTALL_PATH" mcp
+    else
+      codex mcp add "$MCP_NAME" -- "$INSTALL_PATH" mcp
+    fi
     info "Registered Codex MCP '$MCP_NAME'"
   fi
 fi

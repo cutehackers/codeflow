@@ -46,13 +46,14 @@ jobs:
 
       - name: Build CodeFlow & Adapter
         run: |
-          mkdir -p dist/bin dist/skills
+          mkdir -p dist/bin dist/skills dist/adapters
           go build -trimpath -ldflags="-s -w" -o dist/bin/codeflow ./cmd/codeflow
           dart compile exe adapters/dart/bin/codeflow_dart_adapter.dart -o dist/bin/dart-adapter
           cp -R skills/codeflow dist/skills/
+          cp -R adapters/typescript dist/adapters/
           
           ASSET_NAME="codeflow-${{ steps.get_version.outputs.VERSION }}-${{ matrix.os }}-${{ matrix.arch }}.tar.gz"
-          tar -czvf "$ASSET_NAME" -C dist bin skills
+          tar -czvf "$ASSET_NAME" -C dist bin skills adapters
           shasum -a 256 "$ASSET_NAME" > "${ASSET_NAME}.sha256"
 
       - name: Upload Artifact

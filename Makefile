@@ -11,7 +11,7 @@ build-all: build build-adapter
 
 package: build-all
 	mkdir -p dist
-	tar -czvf dist/codeflow-local.tar.gz -C . bin/codeflow bin/dart-adapter skills/codeflow
+	tar -czvf dist/codeflow-local.tar.gz -C . bin/codeflow bin/dart-adapter skills/codeflow adapters/typescript
 
 test:
 	go test ./...

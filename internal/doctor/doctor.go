@@ -45,7 +45,8 @@ func Diagnose(repoRoot string, dartAdapterSpec string) []CheckResult {
 	// 2. Detect Project Language
 	det := detect.Detect(repoRoot)
 
-	if det.Language == "typescript" || det.Language == "javascript" {
+	switch det.Language {
+	case "typescript", "javascript":
 		// Node.js toolchain check
 		if nodePath, err := exec.LookPath("node"); err == nil {
 			results = append(results, CheckResult{
@@ -76,8 +77,129 @@ func Diagnose(repoRoot string, dartAdapterSpec string) []CheckResult {
 				Message: fmt.Sprintf("Adapter resolution error: %v", err),
 			})
 		}
-	} else {
-		// Default to Dart checks for Dart or general repos
+
+	case "kotlin", "java":
+		if javaPath, err := exec.LookPath("java"); err == nil {
+			results = append(results, CheckResult{
+				Name:    "Java/JVM Runtime",
+				Passed:  true,
+				Message: fmt.Sprintf("Found java at %s", javaPath),
+			})
+		} else {
+			results = append(results, CheckResult{
+				Name:    "Java/JVM Runtime",
+				Passed:  false,
+				Message: "java executable not found in PATH",
+			})
+		}
+		cfg, err := harvest.ResolveAdapter("kotlin", "")
+		if err == nil {
+			results = append(results, CheckResult{
+				Name:    "Kotlin adapter",
+				Passed:  true,
+				Message: fmt.Sprintf("Adapter ready (%s)", filepath.Base(cfg.BinPath)),
+			})
+		} else {
+			results = append(results, CheckResult{
+				Name:    "Kotlin adapter",
+				Passed:  false,
+				Message: fmt.Sprintf("Adapter resolution error: %v", err),
+			})
+		}
+
+	case "swift":
+		if swiftPath, err := exec.LookPath("swift"); err == nil {
+			results = append(results, CheckResult{
+				Name:    "Swift Toolchain",
+				Passed:  true,
+				Message: fmt.Sprintf("Found swift at %s", swiftPath),
+			})
+		} else {
+			results = append(results, CheckResult{
+				Name:    "Swift Toolchain",
+				Passed:  false,
+				Message: "swift executable not found in PATH",
+			})
+		}
+		cfg, err := harvest.ResolveAdapter("swift", "")
+		if err == nil {
+			results = append(results, CheckResult{
+				Name:    "Swift adapter",
+				Passed:  true,
+				Message: fmt.Sprintf("Adapter ready (%s)", filepath.Base(cfg.BinPath)),
+			})
+		} else {
+			results = append(results, CheckResult{
+				Name:    "Swift adapter",
+				Passed:  false,
+				Message: fmt.Sprintf("Adapter resolution error: %v", err),
+			})
+		}
+
+	case "python":
+		pyPath, err := exec.LookPath("python3")
+		if err != nil {
+			pyPath, err = exec.LookPath("python")
+		}
+		if err == nil {
+			results = append(results, CheckResult{
+				Name:    "Python Runtime",
+				Passed:  true,
+				Message: fmt.Sprintf("Found python at %s", pyPath),
+			})
+		} else {
+			results = append(results, CheckResult{
+				Name:    "Python Runtime",
+				Passed:  false,
+				Message: "python executable not found in PATH",
+			})
+		}
+		cfg, err := harvest.ResolveAdapter("python", "")
+		if err == nil {
+			results = append(results, CheckResult{
+				Name:    "Python adapter",
+				Passed:  true,
+				Message: fmt.Sprintf("Adapter ready (%s)", filepath.Base(cfg.BinPath)),
+			})
+		} else {
+			results = append(results, CheckResult{
+				Name:    "Python adapter",
+				Passed:  false,
+				Message: fmt.Sprintf("Adapter resolution error: %v", err),
+			})
+		}
+
+	case "go":
+		if goPath, err := exec.LookPath("go"); err == nil {
+			results = append(results, CheckResult{
+				Name:    "Go Toolchain",
+				Passed:  true,
+				Message: fmt.Sprintf("Found go at %s", goPath),
+			})
+		} else {
+			results = append(results, CheckResult{
+				Name:    "Go Toolchain",
+				Passed:  false,
+				Message: "go executable not found in PATH",
+			})
+		}
+
+	case "rust":
+		if cargoPath, err := exec.LookPath("cargo"); err == nil {
+			results = append(results, CheckResult{
+				Name:    "Rust Toolchain",
+				Passed:  true,
+				Message: fmt.Sprintf("Found cargo at %s", cargoPath),
+			})
+		} else {
+			results = append(results, CheckResult{
+				Name:    "Rust Toolchain",
+				Passed:  false,
+				Message: "cargo executable not found in PATH",
+			})
+		}
+
+	default: // Dart (or unconfident / general)
 		if dartPath, err := exec.LookPath("dart"); err == nil {
 			results = append(results, CheckResult{
 				Name:    "Dart SDK",

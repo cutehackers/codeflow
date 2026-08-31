@@ -75,6 +75,26 @@ func Uninstall(ctx context.Context) (UninstallResult, error) {
 		result.Removed = append(result.Removed, "adapter binary")
 	}
 
+	home, _ := os.UserHomeDir()
+	if home != "" {
+		extraBinaries := []string{
+			filepath.Join(home, ".local", "bin", "codeflow_dart_adapter"),
+			filepath.Join(home, ".local", "bin", "codeflow_ts_adapter"),
+			filepath.Join(home, ".local", "bin", "codeflow_typescript_adapter"),
+		}
+		for _, eb := range extraBinaries {
+			if err := os.Remove(eb); err == nil {
+				result.Removed = append(result.Removed, filepath.Base(eb))
+			}
+		}
+		tsLibDir := filepath.Join(home, ".local", "share", "codeflow", "adapters", "typescript")
+		if err := os.RemoveAll(tsLibDir); err == nil {
+			result.Removed = append(result.Removed, "typescript adapter library")
+			_ = os.Remove(filepath.Join(home, ".local", "share", "codeflow", "adapters"))
+			_ = os.Remove(filepath.Join(home, ".local", "share", "codeflow"))
+		}
+	}
+
 	if err := os.Remove(state.Binary); err != nil && !os.IsNotExist(err) {
 		return result, fmt.Errorf("remove binary: %w", err)
 	}

@@ -67,8 +67,8 @@ func ResolveAdapter(lang string, spec string) (protocol.Config, error) {
 		}
 	}
 
-	// 2. Check install state
-	if spec == "" {
+	// 2. Check install state (only for dart if recorded)
+	if spec == "" && lang == "dart" {
 		if state, err := installstate.Load(); err == nil {
 			spec = strings.TrimSpace(state.AdapterSpec)
 		}
@@ -81,8 +81,17 @@ func ResolveAdapter(lang string, spec string) (protocol.Config, error) {
 			candidates := []string{
 				filepath.Join(home, ".local", "bin", fmt.Sprintf("codeflow_%s_adapter", lang)),
 			}
+			if lang == "dart" {
+				candidates = append(candidates,
+					filepath.Join(home, ".local", "bin", "dart-adapter"),
+					filepath.Join(home, ".local", "bin", "codeflow_dart_adapter"),
+				)
+			}
 			if lang == "typescript" || lang == "javascript" {
-				candidates = append(candidates, filepath.Join(home, ".local", "bin", "codeflow_ts_adapter"))
+				candidates = append(candidates,
+					filepath.Join(home, ".local", "bin", "codeflow_ts_adapter"),
+					filepath.Join(home, ".local", "bin", "codeflow_typescript_adapter"),
+				)
 			}
 			for _, cand := range candidates {
 				if info, err := os.Stat(cand); err == nil && !info.IsDir() {
@@ -109,6 +118,17 @@ func ResolveAdapter(lang string, spec string) (protocol.Config, error) {
 				} else if info, err := os.Stat(filepath.Join(tsDir, tsEntrypointTS)); err == nil && !info.IsDir() {
 					spec = tsrunScheme + tsDir
 				}
+			}
+		}
+	}
+
+	// 5. Check installed adapter share directory ($HOME/.local/share/codeflow/adapters/...)
+	if spec == "" && (lang == "typescript" || lang == "javascript") {
+		home, err := os.UserHomeDir()
+		if err == nil {
+			installedTS := filepath.Join(home, ".local", "share", "codeflow", "adapters", "typescript")
+			if info, err := os.Stat(filepath.Join(installedTS, tsEntrypointJS)); err == nil && !info.IsDir() {
+				spec = noderunScheme + installedTS
 			}
 		}
 	}
