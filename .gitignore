@@ -53,7 +53,7 @@ coverage.out
 # ------------------------------------------------------------------------------
 .brv/
 ORIGINAL_REQUEST.md
-PROJECT.md
+/PROJECT.md
 TEST_INFRA.md
 TEST_READY.md
 

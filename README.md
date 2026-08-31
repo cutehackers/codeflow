@@ -72,6 +72,7 @@ AI 에이전트에게 다음과 같이 자연어로 요청하세요:
 
 ## 📚 관련 문서
 
+- **프로젝트 개요 (Core Capabilities & Product Surfaces)**: [`docs/PROJECT.md`](docs/PROJECT.md) ([한국어](docs/PROJECT-ko.md))
 - **아키텍처 및 유지보수 가이드**: [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md)
 - **LLM / 에이전트 계약 가이드**: [`docs/llm-usage.md`](docs/llm-usage.md)
 - **다중 언어 어댑터 프로토콜 사양**: [`docs/spec/llm-language-adapter-protocol.md`](docs/spec/llm-language-adapter-protocol.md)
