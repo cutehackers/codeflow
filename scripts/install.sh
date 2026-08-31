@@ -82,8 +82,22 @@ if [ "$IS_CHECKOUT" = true ]; then
     cat << 'WRAPPER' > "$TS_BIN"
 #!/usr/bin/env bash
 TS_TARGET="$HOME/.local/share/codeflow/adapters/typescript/bin/codeflow_ts_adapter.js"
+
+if command -v node >/dev/null 2>&1; then
+  NODE_BIN="$(command -v node)"
+elif [ -x "/opt/homebrew/bin/node" ]; then
+  NODE_BIN="/opt/homebrew/bin/node"
+elif [ -x "/usr/local/bin/node" ]; then
+  NODE_BIN="/usr/local/bin/node"
+elif [ -x "$HOME/.local/bin/node" ]; then
+  NODE_BIN="$HOME/.local/bin/node"
+else
+  echo "Error: Node.js runtime not found on PATH or standard Homebrew locations" >&2
+  exit 1
+fi
+
 if [ -f "$TS_TARGET" ]; then
-  exec node "$TS_TARGET" "$@"
+  exec "$NODE_BIN" "$TS_TARGET" "$@"
 fi
 echo "TypeScript adapter entrypoint not found at $TS_TARGET" >&2
 exit 1
@@ -157,8 +171,22 @@ else
     cat << 'WRAPPER' > "$INSTALL_DIR/codeflow_ts_adapter"
 #!/usr/bin/env bash
 TS_TARGET="$HOME/.local/share/codeflow/adapters/typescript/bin/codeflow_ts_adapter.js"
+
+if command -v node >/dev/null 2>&1; then
+  NODE_BIN="$(command -v node)"
+elif [ -x "/opt/homebrew/bin/node" ]; then
+  NODE_BIN="/opt/homebrew/bin/node"
+elif [ -x "/usr/local/bin/node" ]; then
+  NODE_BIN="/usr/local/bin/node"
+elif [ -x "$HOME/.local/bin/node" ]; then
+  NODE_BIN="$HOME/.local/bin/node"
+else
+  echo "Error: Node.js runtime not found on PATH or standard Homebrew locations" >&2
+  exit 1
+fi
+
 if [ -f "$TS_TARGET" ]; then
-  exec node "$TS_TARGET" "$@"
+  exec "$NODE_BIN" "$TS_TARGET" "$@"
 fi
 echo "TypeScript adapter entrypoint not found at $TS_TARGET" >&2
 exit 1
@@ -172,37 +200,92 @@ fi
 
 SKILL_DEST="$CODEX_HOME_DIR/skills/codeflow"
 
+# Collect robust runtime PATH for GUI desktop clients
+collect_runtime_path() {
+  local extra_paths=()
+  extra_paths+=("$INSTALL_DIR")
+  extra_paths+=("/opt/homebrew/bin" "/opt/homebrew/sbin" "/usr/local/bin")
+  extra_paths+=("$HOME/.local/bin" "$HOME/bin")
+
+  # Detect active Node / NVM / FNM / Volta / ASDF paths
+  if [ -d "$HOME/.nvm/versions/node" ]; then
+    for v in "$HOME/.nvm/versions/node"/*; do
+      if [ -d "$v/bin" ]; then
+        extra_paths+=("$v/bin")
+      fi
+    done
+  fi
+  if [ -d "$HOME/.local/share/fnm/current/bin" ]; then
+    extra_paths+=("$HOME/.local/share/fnm/current/bin")
+  fi
+  if [ -d "$HOME/.asdf/shims" ]; then
+    extra_paths+=("$HOME/.asdf/shims")
+  fi
+  if [ -d "$HOME/.volta/bin" ]; then
+    extra_paths+=("$HOME/.volta/bin")
+  fi
+
+  # Detect Dart / Flutter paths
+  if [ -d "$HOME/.pub-cache/bin" ]; then
+    extra_paths+=("$HOME/.pub-cache/bin")
+  fi
+  if [ -d "$HOME/fvm/default/bin" ]; then
+    extra_paths+=("$HOME/fvm/default/bin")
+  fi
+  if [ -d "$HOME/flutter/bin" ]; then
+    extra_paths+=("$HOME/flutter/bin")
+  fi
+
+  local combined_path="$PATH"
+  for p in "${extra_paths[@]}"; do
+    if [ -d "$p" ]; then
+      case ":$combined_path:" in
+        *":$p:"*) ;;
+        *) combined_path="$combined_path:$p" ;;
+      esac
+    fi
+  done
+  echo "$combined_path"
+}
+
+RUNTIME_PATH="$(collect_runtime_path)"
+
 # Helper to merge codeflow into an MCP JSON config file safely
 register_json_mcp() {
   local json_path="$1"
   local mcp_name="$2"
   local bin_path="$3"
+  local runtime_path="${4:-$RUNTIME_PATH}"
 
   local parent_dir
   parent_dir="$(dirname "$json_path")"
-  if [ ! -d "$parent_dir" ]; then
-    return 0
-  fi
+  mkdir -p "$parent_dir"
 
   if command -v node >/dev/null 2>&1; then
     node -e '
       const fs = require("fs");
-      const [filePath, name, bin] = [process.argv[1], process.argv[2], process.argv[3]];
+      const [filePath, name, bin, rpath] = [process.argv[1], process.argv[2], process.argv[3], process.argv[4]];
       let data = {};
       if (fs.existsSync(filePath)) {
         try { data = JSON.parse(fs.readFileSync(filePath, "utf8")); } catch (_) { data = {}; }
       }
       if (!data || typeof data !== "object") data = {};
       if (!data.mcpServers) data.mcpServers = {};
-      data.mcpServers[name] = { command: bin, args: ["mcp"] };
+      const entry = { command: bin, args: ["mcp"] };
+      if (rpath) {
+        entry.env = entry.env || {};
+        entry.env.PATH = rpath;
+      }
+      data.mcpServers[name] = entry;
       fs.writeFileSync(filePath, JSON.stringify(data, null, 2) + "\n");
-    ' "$json_path" "$mcp_name" "$bin_path" 2>/dev/null && return 0 || true
+    ' "$json_path" "$mcp_name" "$bin_path" "$runtime_path" 2>/dev/null && return 0 || true
   fi
 
   if command -v python3 >/dev/null 2>&1; then
     python3 -c '
 import json, os, sys
 file_path, name, bin_path = sys.argv[1], sys.argv[2], sys.argv[3]
+rpath = sys.argv[4] if len(sys.argv) > 4 else ""
 data = {}
 if os.path.exists(file_path):
     try:
@@ -214,11 +297,15 @@ if not isinstance(data, dict):
     data = {}
 if "mcpServers" not in data or not isinstance(data["mcpServers"], dict):
     data["mcpServers"] = {}
-data["mcpServers"][name] = {"command": bin_path, "args": ["mcp"]}
+entry = {"command": bin_path, "args": ["mcp"]}
+if rpath:
+    entry["env"] = entry.get("env", {})
+    entry["env"]["PATH"] = rpath
+data["mcpServers"][name] = entry
 with open(file_path, "w", encoding="utf-8") as f:
     json.dump(data, f, indent=2)
     f.write("\n")
-' "$json_path" "$mcp_name" "$bin_path" 2>/dev/null && return 0 || true
+' "$json_path" "$mcp_name" "$bin_path" "$runtime_path" 2>/dev/null && return 0 || true
   fi
 }
 
@@ -263,35 +350,34 @@ else
   CLAUDE_CONFIG_DIR="$HOME/.config/Claude"
 fi
 
-if [ -d "$CLAUDE_CONFIG_DIR" ]; then
-  register_json_mcp "$CLAUDE_CONFIG_DIR/claude_desktop_config.json" "$MCP_NAME" "$INSTALL_PATH"
-  info "Configured Claude Desktop MCP ($CLAUDE_CONFIG_DIR/claude_desktop_config.json)"
-fi
+register_json_mcp "$CLAUDE_CONFIG_DIR/claude_desktop_config.json" "$MCP_NAME" "$INSTALL_PATH" "$RUNTIME_PATH"
+info "Configured Claude Desktop MCP ($CLAUDE_CONFIG_DIR/claude_desktop_config.json)"
 
 # 3. Cursor IDE Registration
 CURSOR_CONFIG_DIR="$HOME/.cursor"
-if [ -d "$CURSOR_CONFIG_DIR" ]; then
-  register_json_mcp "$CURSOR_CONFIG_DIR/mcp.json" "$MCP_NAME" "$INSTALL_PATH"
-  if [ -d "$SKILL_SOURCE" ] && [ -d "$CURSOR_CONFIG_DIR/skills" ]; then
-    CURSOR_SKILL="$CURSOR_CONFIG_DIR/skills/codeflow"
-    if [ ! -e "$CURSOR_SKILL" ]; then
-      cp -R "$SKILL_SOURCE" "$CURSOR_SKILL"
-      info "Installed CodeFlow skill for Cursor"
-    fi
+register_json_mcp "$CURSOR_CONFIG_DIR/mcp.json" "$MCP_NAME" "$INSTALL_PATH" "$RUNTIME_PATH"
+if [ -d "$SKILL_SOURCE" ]; then
+  CURSOR_SKILL="$CURSOR_CONFIG_DIR/skills/codeflow"
+  mkdir -p "$(dirname "$CURSOR_SKILL")"
+  if [ ! -e "$CURSOR_SKILL" ]; then
+    cp -R "$SKILL_SOURCE" "$CURSOR_SKILL"
+    info "Installed CodeFlow skill for Cursor"
   fi
-  info "Configured Cursor MCP ($CURSOR_CONFIG_DIR/mcp.json)"
 fi
+info "Configured Cursor MCP ($CURSOR_CONFIG_DIR/mcp.json)"
 
 # 4. Antigravity / Gemini CLI Registration
 GEMINI_DIR="$HOME/.gemini"
-if [ -d "$GEMINI_DIR" ]; then
-  if [ -d "$SKILL_SOURCE" ]; then
-    GEMINI_SKILL="$GEMINI_DIR/antigravity-cli/skills/codeflow"
-    mkdir -p "$(dirname "$GEMINI_SKILL")"
-    if [ ! -e "$GEMINI_SKILL" ]; then
-      cp -R "$SKILL_SOURCE" "$GEMINI_SKILL"
-      info "Installed CodeFlow skill for Antigravity"
-    fi
+GEMINI_CONFIG_DIR="$GEMINI_DIR/config"
+register_json_mcp "$GEMINI_CONFIG_DIR/mcp_config.json" "$MCP_NAME" "$INSTALL_PATH" "$RUNTIME_PATH"
+info "Configured Antigravity MCP ($GEMINI_CONFIG_DIR/mcp_config.json)"
+
+if [ -d "$SKILL_SOURCE" ]; then
+  GEMINI_SKILL="$GEMINI_DIR/antigravity-cli/skills/codeflow"
+  mkdir -p "$(dirname "$GEMINI_SKILL")"
+  if [ ! -e "$GEMINI_SKILL" ]; then
+    cp -R "$SKILL_SOURCE" "$GEMINI_SKILL"
+    info "Installed CodeFlow skill for Antigravity"
   fi
 fi
 
@@ -320,7 +406,7 @@ cat <<EOF
   - Codex: $CODEX_HOME_DIR/skills/codeflow
   - Claude Desktop: $CLAUDE_CONFIG_DIR/claude_desktop_config.json
   - Cursor: $CURSOR_CONFIG_DIR/mcp.json
-  - Antigravity: $GEMINI_DIR/antigravity-cli/skills/codeflow
+  - Antigravity: $GEMINI_CONFIG_DIR/mcp_config.json
 
   Manual run command:
   $INSTALL_PATH mcp
@@ -328,4 +414,17 @@ cat <<EOF
   Remove anytime with:
   $INSTALL_PATH uninstall
 EOF
+
+case ":$PATH:" in
+  *":$INSTALL_DIR:"*) ;;
+  *)
+    cat << EOF
+
+⚠️  Note: '$INSTALL_DIR' is not in your current PATH.
+   To run 'codeflow' directly from your terminal, add this to your shell profile (~/.zshrc or ~/.bashrc):
+   export PATH="$INSTALL_DIR:\$PATH"
+EOF
+    ;;
+esac
+
 

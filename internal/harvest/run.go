@@ -148,7 +148,7 @@ func ResolveAdapter(lang string, spec string) (protocol.Config, error) {
 		if info, err := os.Stat(entry); err != nil || info.IsDir() {
 			return protocol.Config{}, fmt.Errorf("adapter entrypoint %s not found", entry)
 		}
-		dartBin, err := exec.LookPath("dart")
+		dartBin, err := findExecutable("dart")
 		if err != nil {
 			return protocol.Config{}, fmt.Errorf("the dart SDK executable must be on PATH: %v", err)
 		}
@@ -164,7 +164,7 @@ func ResolveAdapter(lang string, spec string) (protocol.Config, error) {
 		if info, err := os.Stat(entry); err != nil || info.IsDir() {
 			return protocol.Config{}, fmt.Errorf("adapter entrypoint %s not found", entry)
 		}
-		nodeBin, err := exec.LookPath("node")
+		nodeBin, err := findExecutable("node")
 		if err != nil {
 			return protocol.Config{}, fmt.Errorf("node must be on PATH: %v", err)
 		}
@@ -180,13 +180,13 @@ func ResolveAdapter(lang string, spec string) (protocol.Config, error) {
 		if info, err := os.Stat(entry); err != nil || info.IsDir() {
 			return protocol.Config{}, fmt.Errorf("adapter entrypoint %s not found", entry)
 		}
-		if tsxBin, err := exec.LookPath("tsx"); err == nil {
+		if tsxBin, err := findExecutable("tsx"); err == nil {
 			return protocol.Config{BinPath: tsxBin, Args: []string{entry}}, nil
 		}
-		if bunBin, err := exec.LookPath("bun"); err == nil {
+		if bunBin, err := findExecutable("bun"); err == nil {
 			return protocol.Config{BinPath: bunBin, Args: []string{"run", entry}}, nil
 		}
-		nodeBin, err := exec.LookPath("node")
+		nodeBin, err := findExecutable("node")
 		if err != nil {
 			return protocol.Config{}, fmt.Errorf("node or tsx must be on PATH: %v", err)
 		}
@@ -200,6 +200,92 @@ func ResolveAdapter(lang string, spec string) (protocol.Config, error) {
 		return protocol.Config{}, fmt.Errorf("adapter binary %q is not an executable file", spec)
 	}
 	return protocol.Config{BinPath: spec}, nil
+}
+
+// findExecutable looks for an executable on PATH, falling back to standard
+// Homebrew, NVM, Flutter, and local binary locations when running in
+// stripped environments (e.g. macOS GUI apps launched from Finder/Dock).
+func findExecutable(name string) (string, error) {
+	if bin, err := exec.LookPath(name); err == nil {
+		return bin, nil
+	}
+
+	home, _ := os.UserHomeDir()
+	var candidates []string
+
+	switch name {
+	case "node":
+		candidates = append(candidates,
+			"/opt/homebrew/bin/node",
+			"/usr/local/bin/node",
+		)
+		if home != "" {
+			candidates = append(candidates,
+				filepath.Join(home, ".local", "bin", "node"),
+				filepath.Join(home, ".local", "share", "fnm", "current", "bin", "node"),
+				filepath.Join(home, ".asdf", "shims", "node"),
+				filepath.Join(home, ".volta", "bin", "node"),
+			)
+			nvmDir := filepath.Join(home, ".nvm", "versions", "node")
+			if entries, err := os.ReadDir(nvmDir); err == nil {
+				for i := len(entries) - 1; i >= 0; i-- {
+					if entries[i].IsDir() {
+						candidates = append(candidates, filepath.Join(nvmDir, entries[i].Name(), "bin", "node"))
+					}
+				}
+			}
+		}
+
+	case "dart":
+		candidates = append(candidates,
+			"/opt/homebrew/bin/dart",
+			"/usr/local/bin/dart",
+		)
+		if home != "" {
+			candidates = append(candidates,
+				filepath.Join(home, ".local", "bin", "dart"),
+				filepath.Join(home, ".pub-cache", "bin", "dart"),
+				filepath.Join(home, "fvm", "default", "bin", "dart"),
+				filepath.Join(home, "flutter", "bin", "dart"),
+				filepath.Join(home, "Library", "flutter", "bin", "dart"),
+				filepath.Join(home, "development", "flutter", "bin", "dart"),
+			)
+		}
+
+	case "tsx":
+		candidates = append(candidates,
+			"/opt/homebrew/bin/tsx",
+			"/usr/local/bin/tsx",
+		)
+		if home != "" {
+			candidates = append(candidates,
+				filepath.Join(home, ".local", "bin", "tsx"),
+				filepath.Join(home, ".asdf", "shims", "tsx"),
+			)
+		}
+
+	case "bun":
+		candidates = append(candidates,
+			"/opt/homebrew/bin/bun",
+			"/usr/local/bin/bun",
+		)
+		if home != "" {
+			candidates = append(candidates,
+				filepath.Join(home, ".bun", "bin", "bun"),
+				filepath.Join(home, ".local", "bin", "bun"),
+			)
+		}
+	}
+
+	for _, cand := range candidates {
+		if info, err := os.Stat(cand); err == nil && !info.IsDir() {
+			if (info.Mode() & 0o111) != 0 {
+				return cand, nil
+			}
+		}
+	}
+
+	return "", fmt.Errorf("%s executable not found in PATH or standard runtime locations", name)
 }
 
 // ResolveDartAdapter turns a $CODEFLOW_ADAPTER_DART_BIN value into a protocol.Config.

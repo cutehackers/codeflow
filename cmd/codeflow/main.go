@@ -457,15 +457,8 @@ func runMCP(args []string) {
 	}
 	absTarget, _ := filepath.Abs(target)
 
-	det := detect.Detect(absTarget)
-	lang := "dart"
-	if det.Confident && det.Language != "" && det.Language != "unknown" {
-		lang = det.Language
-	}
-
 	srv, err := mcp.NewServer(mcp.Config{
 		RepoRoot:     absTarget,
-		Language:     lang,
 		RequireToken: false,
 	})
 	if err != nil {

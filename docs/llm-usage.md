@@ -42,7 +42,7 @@ $HOME/.local/bin/codeflow doctor .
 
 ### 삭제
 
-설치 상태 파일이 CodeFlow가 만든 MCP·스킬·바이너리만 추적하므로 다음 한 명령으로 되돌릴 수 있다.
+설치 상태 파일이 CodeFlow가 만든 멀티 에이전트 MCP 등록(Codex, Claude Desktop, Cursor, Antigravity), 스킬, 바이너리, 어댑터를 완벽하게 추적하므로 다음 한 명령으로 깨끗하게 되돌릴 수 있다.
 
 ```sh
 $HOME/.local/bin/codeflow uninstall
@@ -340,18 +340,23 @@ MCP가 있으면 기존 Core 재사용 — 매번 `init/serve` 불필요. 핵심
 
 ## 2. MCP 도구 선택 (v3 8종)
 
-항상 정확한 `flowId` 또는 `entrySymbolPath`를 전달 — 기본값에 의존 금지.
+항상 정확한 `flowId` 또는 `entrySymbolPath`를 전달 — 기본값에 의존 금지. 모든 도구는 `target` 매개변수를 지원하여 특정 하위 디렉터리나 모노레포 패키지를 격리 분석할 수 있습니다.
 
 | 목적 | 도구 | 입력 | 사용 시점 |
 |---|---|---|---|
-| 핵심 흐름 발행 | `publish_core_flow` | `artifact{entrySymbolPath,title,description?,layers?,steps[anchor+layer],edges?,unknowns?}`, `token?` | 사용자 요청 핵심 흐름 — 앵커/레이어 검증 후 원자적 게시 (`codeflow.layers.yaml` 있으면 그에 맞춰 검증) |
+| 핵심 흐름 발행 | `publish_core_flow` | `artifact{entrySymbolPath,title,description?,layers?,steps[anchor+layer],edges?,unknowns?}`, `target?`, `token?` | 사용자 요청 핵심 흐름 — 앵커/레이어 검증 후 원자적 게시 (`codeflow.layers.yaml` 있으면 그에 맞춰 검증) |
 | 후보 탐색 | `harvest_flows` | `target?`, `query?` (예: "이메일 회원가입") | 브라우징·탐색 — `intentSignals{derivedName, docLine, className}`으로 NL 매칭. 핵심 흐름 발행에는 사용 금지 |
-| 단일 흐름 읽기 | `get_flow_payload` | `flowId` 또는 `entrySymbolPath` | 후보 1개 상세 조회 |
-| 임의 진입점 분석 | `analyze_flow` | `entrySymbolPath` (예: `lib/features/auth/email_signup_notifier.dart#EmailSignupNotifier.submit`) | `harvest`에 없는 진입점 — 즉시 slice+fuse+게시 (기존 generation에 병합) |
-| 세션 근거 제출 | `submit_flow_draft` | `artifact` (anchor 필수), `token?` | 에이전트가 여정 근거를 보강할 때 — `repoRelativePath+byteRange+fileHash+spanHash+enclosingSymbolPath+canonicalAstFingerprint` 전체 필요 |
-| 단계 승인 | `approve_step` | `flowId`, `symbolPath`, `name`, `rules?`, `token?` | 사용자가 이름·규칙 승인 시 (E3, provenance=approved) |
-| 미확정 확인 | `report_unknowns` | `flowId?` (없으면 전체) | 설명이 추론에 의존하는 즉시 |
-| FlowView 열기 | `open_review` | `flowId?` | 사용자가 화면 확인 요청 시만 — MCP가 FlowView를 지연 기동하고 `?token=&flow=` 포함 URL 반환 |
+| 단일 흐름 읽기 | `get_flow_payload` | `flowId?`, `entrySymbolPath?`, `target?` | 후보 1개 상세 조회 |
+| 임의 진입점 분석 | `analyze_flow` | `entrySymbolPath` (예: `lib/features/auth/email_signup_notifier.dart#EmailSignupNotifier.submit`), `target?` | `harvest`에 없는 진입점 — 즉시 slice+fuse+게시 (기존 generation에 병합) |
+| 세션 근거 제출 | `submit_flow_draft` | `artifact` (anchor 필수), `target?`, `token?` | 에이전트가 여정 근거를 보강할 때 — `repoRelativePath+byteRange+fileHash+spanHash+enclosingSymbolPath+canonicalAstFingerprint` 전체 필요 |
+| 단계 승인 | `approve_step` | `flowId`, `symbolPath`, `name`, `rules?`, `target?`, `token?` | 사용자가 이름·규칙 승인 시 (E3, provenance=approved) |
+| 미확정 확인 | `report_unknowns` | `flowId?`, `target?` | 설명이 추론에 의존하는 즉시 |
+| FlowView 열기 | `open_review` | `flowId?`, `target?` | 사용자가 화면 확인 요청 시만 — MCP가 FlowView를 지연 기동하고 `?token=&flow=` 포함 URL 반환 |
+
+### 동적 타겟 라우팅 (Dynamic Target Routing & Zero Pollution)
+
+* **글로벌 실행 지원**: 에이전트는 `codeflow mcp`가 임의의 CWD(예: 홈 디렉터리 등)에서 시작되었더라도 충돌 없이 안전하게 연결됩니다.
+* **온디맨드 분석**: 도구 호출 시 `target: "path/to/repo"`를 넘기면, 해당 디렉터리의 언어(`Dart` 또는 `TypeScript`)를 동적으로 판별하고 해당 대상 저장소의 `.codeflow/`에만 격리하여 분석을 수행합니다. CWD는 절대 오염되지 않습니다.
 
 `query` 예: `harvest_flows {"query":"이메일 회원가입"}` → `candidates[].intentSignals.derivedName="이메일을 회원가입한다"`와 부분일치.
 

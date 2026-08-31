@@ -80,6 +80,12 @@ func (s *Server) handlePublishCoreFlow(ctx context.Context, args map[string]any)
 	if err := s.checkAuth(args["token"]); err != nil {
 		return nil, coreFlowError("unauthorized", err.Error(), nil, false)
 	}
+	targetRoot := s.resolveTarget(args["target"])
+	st, err := s.getStorage(targetRoot)
+	if err != nil {
+		return nil, coreFlowError("storage_commit_failed", fmt.Sprintf("init storage layout: %v", err), nil, false)
+	}
+
 	artRaw, ok := args["artifact"]
 	if !ok || artRaw == nil {
 		return nil, coreFlowError("schema_validation_failed", "artifact is required", nil, true)
@@ -122,27 +128,27 @@ func (s *Server) handlePublishCoreFlow(ctx context.Context, args map[string]any)
 		return nil, coreFlowError("schema_validation_failed", "steps must not be empty", nil, true)
 	}
 	// Verify ordinals are 1..N contiguous and sorted
-	for i, st := range artifact.Steps {
-		if st.Ordinal != i+1 {
-			return nil, coreFlowError("schema_validation_failed", fmt.Sprintf("steps ordinal gap at index %d: expected %d got %d", i, i+1, st.Ordinal), []map[string]any{{"ordinal": st.Ordinal, "expected": i + 1, "reason": "ordinal_gap"}}, true)
+	for i, stStep := range artifact.Steps {
+		if stStep.Ordinal != i+1 {
+			return nil, coreFlowError("schema_validation_failed", fmt.Sprintf("steps ordinal gap at index %d: expected %d got %d", i, i+1, stStep.Ordinal), []map[string]any{{"ordinal": stStep.Ordinal, "expected": i + 1, "reason": "ordinal_gap"}}, true)
 		}
 	}
 
 	// 6. Anchor verification per step (in ordinal order) — first error aborts without persisting.
-	for _, st := range artifact.Steps {
-		if err := verifyAnchor(s.cfg.RepoRoot, st.Anchor, st.Ordinal); err != nil {
+	for _, stStep := range artifact.Steps {
+		if err := verifyAnchor(targetRoot, stStep.Anchor, stStep.Ordinal); err != nil {
 			return nil, err
 		}
 	}
 
 	// 7. Load and apply codeflow.layers.yaml (D6 B)
-	layersCfg, err := fusion.LoadLayersConfig(s.cfg.RepoRoot)
+	layersCfg, err := fusion.LoadLayersConfig(targetRoot)
 	if err != nil {
 		return nil, coreFlowError("layers_config_invalid", fmt.Sprintf("codeflow.layers.yaml invalid: %v", err), []map[string]any{{"reason": "layers_config_invalid", "details": err.Error()}}, false)
 	}
 	var warnings []string
 	// Detect missing file fallback as warning (when default config was used but file exists? Actually Load returns default when absent; we warn when absent)
-	if _, statErr := os.Stat(filepath.Join(s.cfg.RepoRoot, "codeflow.layers.yaml")); os.IsNotExist(statErr) {
+	if _, statErr := os.Stat(filepath.Join(targetRoot, "codeflow.layers.yaml")); os.IsNotExist(statErr) {
 		warnings = append(warnings, "codeflow.layers.yaml not found — using built-in 8 canonical layers")
 	}
 
@@ -237,7 +243,7 @@ func (s *Server) handlePublishCoreFlow(ctx context.Context, args map[string]any)
 	} else {
 		uniqueFiles[artifact.EntrySymbolPath] = true
 	}
-	if _, err := os.Stat(filepath.Join(s.cfg.RepoRoot, "codeflow.layers.yaml")); err == nil {
+	if _, err := os.Stat(filepath.Join(targetRoot, "codeflow.layers.yaml")); err == nil {
 		uniqueFiles["codeflow.layers.yaml"] = true
 	}
 	relPaths := make([]string, 0, len(uniqueFiles))
@@ -245,7 +251,7 @@ func (s *Server) handlePublishCoreFlow(ctx context.Context, args map[string]any)
 		relPaths = append(relPaths, p)
 	}
 	sort.Strings(relPaths)
-	basisSha, err := storage.ComputeWorktreeFingerprint(s.cfg.RepoRoot, relPaths)
+	basisSha, err := storage.ComputeWorktreeFingerprint(targetRoot, relPaths)
 	if err != nil {
 		return nil, coreFlowError("storage_commit_failed", fmt.Sprintf("compute basisSha: %v", err), nil, true)
 	}
@@ -256,7 +262,7 @@ func (s *Server) handlePublishCoreFlow(ctx context.Context, args map[string]any)
 		lang = detect.DetectByExtension(artifact.Steps[0].Anchor.RepoRelativePath)
 	}
 	if lang == "unknown" {
-		det := detect.Detect(s.cfg.RepoRoot)
+		det := detect.Detect(targetRoot)
 		if det.Confident && det.Language != "" && det.Language != "unknown" {
 			lang = det.Language
 		} else {
@@ -339,7 +345,7 @@ func (s *Server) handlePublishCoreFlow(ctx context.Context, args map[string]any)
 
 	// 12. Fuse
 	spec, err := fusion.Fuse(sliced, fusion.FuseOptions{
-		RepoRoot:          s.cfg.RepoRoot,
+		RepoRoot:          targetRoot,
 		CustomTitle:       artifact.Title,
 		CustomDescription: artifact.Description,
 		BasisSha:          basisSha,
@@ -363,12 +369,12 @@ func (s *Server) handlePublishCoreFlow(ctx context.Context, args map[string]any)
 	}
 
 	// 13. Atomically publish as new generation
-	existingPtr, _ := s.storage.ReadPointer()
+	existingPtr, _ := st.ReadPointer()
 	var existingIdx *storage.GenerationIndex
 	if existingPtr != nil {
-		existingIdx, _ = s.storage.ReadLatestIndex()
+		existingIdx, _ = st.ReadLatestIndex()
 	}
-	sess, err := s.storage.BeginGeneration(basisSha)
+	sess, err := st.BeginGeneration(basisSha)
 	if err != nil {
 		return nil, coreFlowError("storage_commit_failed", fmt.Sprintf("begin generation: %v", err), nil, true)
 	}
@@ -378,7 +384,7 @@ func (s *Server) handlePublishCoreFlow(ctx context.Context, args map[string]any)
 			if sum.FlowID == spec.FlowID {
 				continue
 			}
-			raw, err := s.storage.ReadFlowSpec(existingPtr.GenerationID, sum.FlowID)
+			raw, err := st.ReadFlowSpec(existingPtr.GenerationID, sum.FlowID)
 			if err != nil {
 				continue
 			}

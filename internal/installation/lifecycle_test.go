@@ -191,6 +191,26 @@ func TestInstallThenUninstallLifecycle(t *testing.T) {
 	if _, serr := os.Stat(filepath.Join(s.home, ".codeflow", "install-state.json")); !os.IsNotExist(serr) {
 		t.Fatalf("ownership record survived uninstall: %v", serr)
 	}
+
+	// Verify Multi-Agent cleanups (Cursor, Claude, Antigravity)
+	antigravityConfig := filepath.Join(s.home, ".gemini", "config", "mcp_config.json")
+	if b, err := os.ReadFile(antigravityConfig); err == nil {
+		if strings.Contains(string(b), `"codeflow"`) {
+			t.Fatalf("Antigravity MCP entry survived uninstall:\n%s", string(b))
+		}
+	}
+	cursorConfig := filepath.Join(s.home, ".cursor", "mcp.json")
+	if b, err := os.ReadFile(cursorConfig); err == nil {
+		if strings.Contains(string(b), `"codeflow"`) {
+			t.Fatalf("Cursor MCP entry survived uninstall:\n%s", string(b))
+		}
+	}
+	if _, serr := os.Stat(filepath.Join(s.home, ".cursor", "skills", "codeflow")); !os.IsNotExist(serr) {
+		t.Fatalf("Cursor skill survived uninstall: %v", serr)
+	}
+	if _, serr := os.Stat(filepath.Join(s.home, ".gemini", "antigravity-cli", "skills", "codeflow")); !os.IsNotExist(serr) {
+		t.Fatalf("Antigravity skill survived uninstall: %v", serr)
+	}
 }
 
 func TestUninstallKeepsModifiedSkill(t *testing.T) {

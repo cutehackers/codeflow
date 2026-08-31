@@ -43,65 +43,67 @@ type Config struct {
 	RequireToken bool
 }
 
-// Server handles MCP JSON-RPC requests over stdio.
-type Server struct {
-	cfg       Config
-	storage   *storage.Storage
-	eventLog  *fusion.EventLog
-	pool      *protocol.Pool
-	slicer    *slicing.Runner
-	harvester *harvest.Runner
-	fv        *flowview.Server
-	fvMu      sync.Mutex
+// AdapterRegistry manages pooled adapter connections per target repository and language.
+type AdapterRegistry struct {
+	mu    sync.RWMutex
+	pools map[string]*protocol.Pool // key: "absRepoRoot:language"
 }
 
-// NewServer creates a configured MCP Server.
-func NewServer(cfg Config) (*Server, error) {
-	st := storage.New(cfg.RepoRoot)
-	if err := st.InitLayout(); err != nil {
-		return nil, fmt.Errorf("init storage layout: %w", err)
+func newAdapterRegistry() *AdapterRegistry {
+	return &AdapterRegistry{
+		pools: make(map[string]*protocol.Pool),
 	}
+}
 
-	lang := cfg.Language
-	if lang == "" {
-		det := detect.Detect(cfg.RepoRoot)
-		if det.Confident && det.Language != "" && det.Language != "unknown" {
-			lang = det.Language
-		} else {
-			lang = "dart"
+func (r *AdapterRegistry) get(key string) (*protocol.Pool, bool) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	p, ok := r.pools[key]
+	return p, ok
+}
+
+func (r *AdapterRegistry) set(key string, p *protocol.Pool) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.pools[key] = p
+}
+
+func (r *AdapterRegistry) closeAll() {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	for _, p := range r.pools {
+		if p != nil {
+			p.Close()
 		}
 	}
-	spec := cfg.AdapterSpec
-	if spec == "" {
-		spec = cfg.DartAdapter
-	}
-	adapterCfg, err := harvest.ResolveAdapter(lang, spec)
-	if err != nil {
-		return nil, fmt.Errorf("resolve %s adapter: %w", lang, err)
-	}
+	r.pools = make(map[string]*protocol.Pool)
+}
 
-	pool := protocol.NewPool(adapterCfg, 2)
-	slicer := slicing.NewRunner(pool)
-	harvester := harvest.NewRunnerWithPool(pool)
+// Server handles MCP JSON-RPC requests over stdio.
+type Server struct {
+	cfg        Config
+	registry   *AdapterRegistry
+	storageMap sync.Map // key: absRepoRoot -> *storage.Storage
+	eventLogs  sync.Map // key: absRepoRoot -> *fusion.EventLog
+	fv         *flowview.Server
+	fvMu       sync.Mutex
+}
 
+// NewServer creates a configured MCP Server ready for immediate stdio handshake.
+// Adapters, storage layouts, and child process pools are initialized on-demand per tool call.
+func NewServer(cfg Config) (*Server, error) {
 	return &Server{
-		cfg:       cfg,
-		storage:   st,
-		eventLog:  fusion.NewEventLog(cfg.RepoRoot),
-		pool:      pool,
-		slicer:    slicer,
-		harvester: harvester,
+		cfg:      cfg,
+		registry: newAdapterRegistry(),
 	}, nil
 }
 
 // Close releases server resources.
 func (s *Server) Close() {
-	if s.pool != nil {
-		s.pool.Close()
+	if s.registry != nil {
+		s.registry.closeAll()
 	}
-	if s.harvester != nil {
-		s.harvester.Close()
-	}
+
 	s.fvMu.Lock()
 	if s.fv != nil {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
@@ -110,6 +112,96 @@ func (s *Server) Close() {
 		s.fv = nil
 	}
 	s.fvMu.Unlock()
+}
+
+func (s *Server) resolveTarget(targetArg any) string {
+	target := s.cfg.RepoRoot
+	if sub, ok := targetArg.(string); ok && strings.TrimSpace(sub) != "" && sub != "." {
+		if filepath.IsAbs(sub) {
+			target = sub
+		} else if target != "" {
+			target = filepath.Join(target, sub)
+		} else {
+			target = sub
+		}
+	}
+	if target == "" {
+		target = "."
+	}
+	abs, err := filepath.Abs(target)
+	if err != nil {
+		return target
+	}
+	return abs
+}
+
+func (s *Server) getStorage(repoRoot string) (*storage.Storage, error) {
+	absRoot := repoRoot
+	if !filepath.IsAbs(absRoot) {
+		absRoot = s.resolveTarget(repoRoot)
+	}
+	if val, ok := s.storageMap.Load(absRoot); ok {
+		return val.(*storage.Storage), nil
+	}
+	st := storage.New(absRoot)
+	if err := st.InitLayout(); err != nil {
+		return nil, fmt.Errorf("init storage layout in %s: %w", absRoot, err)
+	}
+	s.storageMap.Store(absRoot, st)
+	return st, nil
+}
+
+func (s *Server) getEventLog(repoRoot string) *fusion.EventLog {
+	absRoot := repoRoot
+	if !filepath.IsAbs(absRoot) {
+		absRoot = s.resolveTarget(repoRoot)
+	}
+	if val, ok := s.eventLogs.Load(absRoot); ok {
+		return val.(*fusion.EventLog)
+	}
+	el := fusion.NewEventLog(absRoot)
+	s.eventLogs.Store(absRoot, el)
+	return el
+}
+
+func (s *Server) getPoolAndRunners(ctx context.Context, repoRoot string, explicitLang string) (*protocol.Pool, *harvest.Runner, *slicing.Runner, error) {
+	absRoot := repoRoot
+	if !filepath.IsAbs(absRoot) {
+		absRoot = s.resolveTarget(repoRoot)
+	}
+
+	lang := explicitLang
+	if lang == "" {
+		det := detect.Detect(absRoot)
+		if det.Confident && det.Language != "" && det.Language != "unknown" {
+			lang = det.Language
+		} else if s.cfg.Language != "" {
+			lang = s.cfg.Language
+		} else {
+			return nil, nil, nil, fmt.Errorf("unsupported project at %s: could not confidently detect project language. Supported languages: Dart, TypeScript/JavaScript. Remediation: ensure package.json or pubspec.yaml exists, or specify language explicitly", absRoot)
+		}
+	}
+
+	spec := s.cfg.AdapterSpec
+	if spec == "" && lang == "dart" {
+		spec = s.cfg.DartAdapter
+	}
+
+	adapterCfg, err := harvest.ResolveAdapter(lang, spec)
+	if err != nil {
+		return nil, nil, nil, fmt.Errorf("CodeFlow Adapter Error: %s adapter could not be resolved for target %s.\nRemediation:\n- %v", lang, absRoot, err)
+	}
+
+	key := absRoot + ":" + lang
+	pool, ok := s.registry.get(key)
+	if !ok {
+		pool = protocol.NewPool(adapterCfg, 2)
+		s.registry.set(key, pool)
+	}
+
+	slicer := slicing.NewRunner(pool)
+	harvester := harvest.NewRunnerWithPool(pool)
+	return pool, harvester, slicer, nil
 }
 
 // JSON-RPC Request/Response structures
@@ -259,6 +351,10 @@ func (s *Server) handleRequest(ctx context.Context, req rpcRequest) rpcResponse 
 }
 
 func (s *Server) listTools() []map[string]any {
+	targetProp := map[string]any{
+		"type":        "string",
+		"description": "Target repository path or subdirectory (defaults to working directory)",
+	}
 	return []map[string]any{
 		{
 			"name":        "publish_core_flow",
@@ -268,6 +364,7 @@ func (s *Server) listTools() []map[string]any {
 				"required": []string{"artifact"},
 				"properties": map[string]any{
 					"artifact": map[string]any{"$ref": "https://codeflow.local/schemas/core-artifact.schema.json"},
+					"target":   targetProp,
 					"token":    map[string]any{"type": "string", "description": "Auth token when RequireToken=true (FlowView server). Omitted in local dev."},
 				},
 			},
@@ -278,7 +375,7 @@ func (s *Server) listTools() []map[string]any {
 			"inputSchema": map[string]any{
 				"type": "object",
 				"properties": map[string]any{
-					"target": map[string]any{"type": "string", "description": "Target subdir or '.'"},
+					"target": targetProp,
 					"query":  map[string]any{"type": "string", "description": "Optional case-insensitive substring filter across entrySymbolPath, intentSignals, markerKind, triggerClass"},
 				},
 			},
@@ -291,6 +388,7 @@ func (s *Server) listTools() []map[string]any {
 				"properties": map[string]any{
 					"flowId":          map[string]any{"type": "string"},
 					"entrySymbolPath": map[string]any{"type": "string"},
+					"target":          targetProp,
 				},
 			},
 		},
@@ -302,6 +400,7 @@ func (s *Server) listTools() []map[string]any {
 				"required": []string{"entrySymbolPath"},
 				"properties": map[string]any{
 					"entrySymbolPath": map[string]any{"type": "string"},
+					"target":          targetProp,
 				},
 			},
 		},
@@ -313,6 +412,7 @@ func (s *Server) listTools() []map[string]any {
 				"required": []string{"artifact"},
 				"properties": map[string]any{
 					"artifact": map[string]any{"type": "object"},
+					"target":   targetProp,
 					"token":    map[string]any{"type": "string"},
 				},
 			},
@@ -328,6 +428,7 @@ func (s *Server) listTools() []map[string]any {
 					"symbolPath": map[string]any{"type": "string"},
 					"name":       map[string]any{"type": "string"},
 					"rules":      map[string]any{"type": "array", "items": map[string]any{"type": "string"}},
+					"target":     targetProp,
 					"token":      map[string]any{"type": "string"},
 				},
 			},
@@ -339,6 +440,7 @@ func (s *Server) listTools() []map[string]any {
 				"type": "object",
 				"properties": map[string]any{
 					"flowId": map[string]any{"type": "string"},
+					"target": targetProp,
 				},
 			},
 		},
@@ -349,6 +451,7 @@ func (s *Server) listTools() []map[string]any {
 				"type": "object",
 				"properties": map[string]any{
 					"flowId": map[string]any{"type": "string"},
+					"target": targetProp,
 				},
 			},
 		},
@@ -386,22 +489,12 @@ func (s *Server) executeTool(ctx context.Context, name string, args map[string]a
 	case "publish_core_flow":
 		return s.handlePublishCoreFlow(ctx, args)
 	case "harvest_flows":
-		target := s.cfg.RepoRoot
-		if sub, ok := args["target"].(string); ok && sub != "" && sub != "." {
-			if filepath.IsAbs(sub) {
-				target = sub
-			} else {
-				target = filepath.Join(s.cfg.RepoRoot, sub)
-			}
-			if !filepath.IsAbs(target) {
-				return nil, fmt.Errorf("invalid target path: %q", sub)
-			}
-			clean := filepath.Clean(target)
-			if !isSubpath(s.cfg.RepoRoot, clean) {
-				return nil, fmt.Errorf("target escapes repo root")
-			}
+		target := s.resolveTarget(args["target"])
+		_, harvester, _, err := s.getPoolAndRunners(ctx, target, "")
+		if err != nil {
+			return nil, err
 		}
-		candidates, err := s.harvester.Run(ctx, target)
+		candidates, err := harvester.Run(ctx, target)
 		if err != nil {
 			return nil, err
 		}
@@ -458,7 +551,13 @@ func (s *Server) executeTool(ctx context.Context, name string, args map[string]a
 			return nil, fmt.Errorf("flowId or entrySymbolPath required")
 		}
 
-		raw, err := s.storage.ReadActiveFlowSpec(flowID)
+		target := s.resolveTarget(args["target"])
+		st, err := s.getStorage(target)
+		if err != nil {
+			return nil, err
+		}
+
+		raw, err := st.ReadActiveFlowSpec(flowID)
 		if err != nil {
 			return nil, fmt.Errorf("flow not found: %w", err)
 		}
@@ -473,15 +572,27 @@ func (s *Server) executeTool(ctx context.Context, name string, args map[string]a
 		if entry == "" {
 			return nil, fmt.Errorf("entrySymbolPath required")
 		}
+
+		target := s.resolveTarget(args["target"])
+		_, _, slicer, err := s.getPoolAndRunners(ctx, target, "")
+		if err != nil {
+			return nil, err
+		}
+		st, err := s.getStorage(target)
+		if err != nil {
+			return nil, err
+		}
+		eventLog := s.getEventLog(target)
+
 		h := sha256.Sum256([]byte(entry))
 		candidateID := "cand-" + hex.EncodeToString(h[:8])
 
-		sliced, err := s.slicer.Slice(ctx, s.cfg.RepoRoot, candidateID, entry, nil)
+		sliced, err := slicer.Slice(ctx, target, candidateID, entry, nil)
 		if err != nil {
 			return nil, fmt.Errorf("slice error: %w", err)
 		}
 
-		approved, session, err := s.eventLog.MaterializeView()
+		approved, session, err := eventLog.MaterializeView()
 		if err != nil {
 			return nil, err
 		}
@@ -491,13 +602,13 @@ func (s *Server) executeTool(ctx context.Context, name string, args map[string]a
 		if idx := strings.Index(entry, "#"); idx >= 0 {
 			entryFile = entry[:idx]
 		}
-		basisSha, err := storage.ComputeWorktreeFingerprint(s.cfg.RepoRoot, []string{entryFile})
+		basisSha, err := storage.ComputeWorktreeFingerprint(target, []string{entryFile})
 		if err != nil {
 			return nil, fmt.Errorf("compute basisSha: %w", err)
 		}
 
 		spec, err := fusion.Fuse(sliced, fusion.FuseOptions{
-			RepoRoot:       s.cfg.RepoRoot,
+			RepoRoot:       target,
 			ApprovedLedger: approved,
 			SessionDrafts:  session,
 			BasisSha:       basisSha,
@@ -507,13 +618,13 @@ func (s *Server) executeTool(ctx context.Context, name string, args map[string]a
 		}
 
 		// Read existing generation for non-destructive merge.
-		existingPtr, _ := s.storage.ReadPointer()
+		existingPtr, _ := st.ReadPointer()
 		var existingIdx *storage.GenerationIndex
 		if existingPtr != nil {
-			existingIdx, _ = s.storage.ReadLatestIndex()
+			existingIdx, _ = st.ReadLatestIndex()
 		}
 
-		sess, err := s.storage.BeginGeneration(basisSha)
+		sess, err := st.BeginGeneration(basisSha)
 		if err != nil {
 			return nil, err
 		}
@@ -525,7 +636,7 @@ func (s *Server) executeTool(ctx context.Context, name string, args map[string]a
 				if sum.FlowID == spec.FlowID {
 					continue
 				}
-				raw, err := s.storage.ReadFlowSpec(existingPtr.GenerationID, sum.FlowID)
+				raw, err := st.ReadFlowSpec(existingPtr.GenerationID, sum.FlowID)
 				if err != nil {
 					continue
 				}
@@ -592,9 +703,12 @@ func (s *Server) executeTool(ctx context.Context, name string, args map[string]a
 			flowID = fusion.ComputeFlowID(artifact.JourneyDraft.ProposedEntrySymbolPath)
 		}
 
+		target := s.resolveTarget(args["target"])
+		eventLog := s.getEventLog(target)
+
 		// Append to event log
 		for _, st := range artifact.JourneyDraft.Steps {
-			_ = s.eventLog.Append(fusion.Event{
+			_ = eventLog.Append(fusion.Event{
 				Type:       fusion.EventSessionDraftSubmitted,
 				FlowID:     flowID,
 				SymbolPath: st.Anchor.EnclosingSymbolPath,
@@ -628,7 +742,10 @@ func (s *Server) executeTool(ctx context.Context, name string, args map[string]a
 			}
 		}
 
-		err := s.eventLog.Append(fusion.Event{
+		target := s.resolveTarget(args["target"])
+		eventLog := s.getEventLog(target)
+
+		err := eventLog.Append(fusion.Event{
 			Type:       fusion.EventStepApproved,
 			FlowID:     flowID,
 			SymbolPath: symbolPath,
@@ -647,9 +764,15 @@ func (s *Server) executeTool(ctx context.Context, name string, args map[string]a
 		}, nil
 
 	case "report_unknowns":
+		target := s.resolveTarget(args["target"])
+		st, err := s.getStorage(target)
+		if err != nil {
+			return nil, err
+		}
+
 		flowID, _ := args["flowId"].(string)
 		if flowID != "" {
-			raw, err := s.storage.ReadActiveFlowSpec(flowID)
+			raw, err := st.ReadActiveFlowSpec(flowID)
 			if err != nil {
 				return nil, err
 			}
@@ -657,7 +780,7 @@ func (s *Server) executeTool(ctx context.Context, name string, args map[string]a
 			_ = json.Unmarshal(raw, &spec)
 			return spec.Unknowns, nil
 		}
-		idx, err := s.storage.ReadLatestIndex()
+		idx, err := st.ReadLatestIndex()
 		if err != nil {
 			return nil, err
 		}
@@ -666,7 +789,7 @@ func (s *Server) executeTool(ctx context.Context, name string, args map[string]a
 		}
 		var all []fusion.Unknown
 		for _, f := range idx.Flows {
-			raw, err := s.storage.ReadFlowSpec(idx.GenerationID, f.FlowID)
+			raw, err := st.ReadFlowSpec(idx.GenerationID, f.FlowID)
 			if err != nil {
 				continue
 			}
@@ -681,12 +804,13 @@ func (s *Server) executeTool(ctx context.Context, name string, args map[string]a
 		return all, nil
 
 	case "open_review":
+		target := s.resolveTarget(args["target"])
 		flowID, _ := args["flowId"].(string)
 		s.fvMu.Lock()
 		if s.fv == nil {
-			srv, err := flowview.NewServer(flowview.Config{RepoRoot: s.cfg.RepoRoot, Port: 4567})
+			srv, err := flowview.NewServer(flowview.Config{RepoRoot: target, Port: 4567})
 			if err != nil {
-				srv, err = flowview.NewServer(flowview.Config{RepoRoot: s.cfg.RepoRoot, Port: 0})
+				srv, err = flowview.NewServer(flowview.Config{RepoRoot: target, Port: 0})
 				if err != nil {
 					s.fvMu.Unlock()
 					return nil, fmt.Errorf("start flowview: %w", err)
