@@ -4,6 +4,26 @@
     "dart": {
       "pinned": "0.1.0",
       "min": "0.1.0"
+    },
+    "typescript": {
+      "pinned": "0.1.0",
+      "min": "0.1.0"
+    },
+    "kotlin": {
+      "pinned": "0.1.0",
+      "min": "0.1.0"
+    },
+    "swift": {
+      "pinned": "0.1.0",
+      "min": "0.1.0"
+    },
+    "python": {
+      "pinned": "0.1.0",
+      "min": "0.1.0"
+    },
+    "go": {
+      "pinned": "0.1.0",
+      "min": "0.1.0"
     }
   }
 }

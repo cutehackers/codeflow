@@ -277,6 +277,49 @@ func TestMarkerSpecificityTableMatchesTicketConstants(t *testing.T) {
 	}
 }
 
+func TestScorePolyglotSources(t *testing.T) {
+	root := t.TempDir()
+	write := func(rel, content string) {
+		path := filepath.Join(root, filepath.FromSlash(rel))
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	write("src/auth/auth_service.ts", "import { UserRepository } from '../data/user_repository';\n\nexport class AuthService {\n  login() {}\n}\n")
+	write("src/data/user_repository.ts", "export class UserRepository {}\n")
+	write("src/components/Login.tsx", "import { AuthService } from '../auth/auth_service';\n// AuthService AuthService\n")
+	write("src/legacy/old.d.ts", "// AuthService AuthService AuthService in declaration file (ignored)\n")
+
+	idx, err := loadSourceIndex(root, "src")
+	if err != nil {
+		t.Fatalf("loadSourceIndex(src): %v", err)
+	}
+
+	cs := []Candidate{
+		{
+			CandidateID:     "cand-auth0000000001",
+			MarkerKind:      "usecase_call",
+			EntrySymbolPath: "src/auth/auth_service.ts#AuthService.login",
+			IntentSignals:   IntentSignals{ClassName: "AuthService"},
+		},
+	}
+	ScoreAll(cs, idx)
+
+	if !cs[0].BoundaryReachable {
+		t.Errorf("expected BoundaryReachable = true for auth_service.ts importing UserRepository")
+	}
+	// FanIn: 1 in auth_service.ts + 3 in Login.tsx (1 import + 2 in comment) = 4
+	if cs[0].FanIn != 4 {
+		t.Errorf("FanIn = %d, want 4 (d.ts ignored)", cs[0].FanIn)
+	}
+	if cs[0].Score <= 0 {
+		t.Errorf("Score = %f, want > 0", cs[0].Score)
+	}
+}
+
 func ids(cs []Candidate) []string {
 	out := make([]string, len(cs))
 	for i, c := range cs {

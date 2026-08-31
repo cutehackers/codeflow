@@ -172,8 +172,15 @@ func TestInitUpdatesPinOnlyWhenCompatibilityChanged(t *testing.T) {
 	if res.Created {
 		t.Error("existing manifest must be loaded, not re-created")
 	}
-	if len(res.UpdatedPins) != 1 || res.UpdatedPins[0] != "dart" {
-		t.Errorf("UpdatedPins = %v, want [dart]", res.UpdatedPins)
+	foundDartUpdate := false
+	for _, p := range res.UpdatedPins {
+		if p == "dart" {
+			foundDartUpdate = true
+			break
+		}
+	}
+	if !foundDartUpdate {
+		t.Errorf("UpdatedPins = %v, want to include dart", res.UpdatedPins)
 	}
 	if res.Pins["dart"] != "0.1.0" {
 		t.Errorf("pin dart = %q, want refreshed to 0.1.0", res.Pins["dart"])

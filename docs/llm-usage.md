@@ -4,22 +4,26 @@
 
 ## 0. 설치 — one-shot (이것만 실행)
 
-> 한 명령으로 바이너리, Dart 어댑터 설정, Codex MCP, CodeFlow 스킬까지 설치한다. 셸 rc와 분석 대상 저장소는 수정하지 않는다.
+> 단 한 줄의 명령으로 Core 바이너리, 다중 언어 어댑터(Dart & TypeScript), 멀티 에이전트(Codex, Claude Desktop, Cursor, Antigravity) MCP 연동 및 CodeFlow 스킬까지 100% 전자동으로 설치합니다. 셸 rc와 분석 대상 저장소는 일체 수정하지 않습니다.
 
 ```sh
-# 원격 1줄 설치 (Go/Dart SDK 없이도 사전 빌드 바이너리 자동 다운로드)
+# 원격 1줄 설치 (Go/Dart/Node SDK 없이도 사전 빌드 바이너리 자동 다운로드 및 설정)
 curl -fsSL https://raw.githubusercontent.com/cutehackers/codeflow/main/scripts/install.sh | bash
 
-# 또는 소스 체크아웃 내에서 직접 설치
+# 또는 소스 체크아웃 내에서 직접 설치 (Go Core, Dart & TypeScript 어댑터 빌드)
 bash scripts/install.sh
 ```
 
-`scripts/install.sh`가 수행하는 일:
-1. `codeflow` 코어 바이너리와 `dart-adapter`를 `$HOME/.local/bin`에 설치한다.
-2. Codex에 `codeflow mcp`를 등록하고, 등록 시 Dart 어댑터 경로를 함께 전달한다.
-3. `$HOME/.codex/skills/codeflow`에 스킬을 설치한다. 새 Codex task에서 “이메일 회원가입 핵심 흐름을 FlowView로 만들어줘”라고 바로 요청할 수 있다.
+`scripts/install.sh`가 자동으로 수행하는 일:
+1. `codeflow` 코어 바이너리와 언어 어댑터(`dart-adapter`, `codeflow_ts_adapter`)를 `$HOME/.local/bin`에 자동 빌드/설치합니다.
+2. 시스템에 설치된 멀티 에이전트(**Codex, Claude Desktop, Cursor IDE, Antigravity**)를 자동 감지하여 `codeflow mcp`를 등록하고 필요한 런타임 환경을 원스톱 구성합니다.
+3. 각 에이전트의 스킬 디렉터리에 CodeFlow 스킬을 자동 배포합니다.
+4. Dart/Flutter 및 TypeScript/React/Node.js 프로젝트를 자동 판별하여 에이전트가 바로 핵심 흐름을 추출할 수 있게 합니다.
 
-Codex MCP 이름이 이미 다른 명령에 사용 중이거나 기존 CodeFlow 스킬을 사용자가 바꿨다면 설치를 중단한다. 각각 `CODEFLOW_MCP_NAME` 또는 별도 스킬 정리 후 다시 실행한다. 사용자 설정을 덮어쓰지 않기 위한 보호다.
+다중 언어 환경 지원:
+- **자동 언어 감지**: 프로젝트 루트의 매니페스트(`package.json`, `pubspec.yaml`, `build.gradle.kts`, `Package.swift` 등)와 파일 확장자를 통해 언어를 자동 판별합니다.
+- **다중 어댑터 프로세스 풀**: 언어별 독립 프로세스 풀(`AdapterRegistry`)을 통해 무중단 분기 처리합니다.
+- **FlowView UI 일관성**: 언어에 관계없이 동일한 7대 표준 계층 레인(`presentation`, `controller`, `usecase`, `domain`, `data`, `infra`, `external`)과 타임라인 인터랙션을 유지합니다.
 
 설치 직후 확인 (LLM이 그대로 실행):
 
@@ -27,6 +31,14 @@ Codex MCP 이름이 이미 다른 명령에 사용 중이거나 기존 CodeFlow 
 $HOME/.local/bin/codeflow version
 $HOME/.local/bin/codeflow doctor .
 ```
+
+### 언어 어댑터 수동/별도 구성 (선택 사항)
+
+필요에 따라 특정 언어 어댑터를 별도로 지정할 때 환경 변수를 활용할 수 있습니다:
+- Dart: `export CODEFLOW_ADAPTER_DART_BIN="$HOME/.local/bin/dart-adapter"` (또는 `dartrun:<dir>`)
+- TypeScript / JS: `export CODEFLOW_ADAPTER_TYPESCRIPT_BIN="$HOME/.local/bin/codeflow_ts_adapter"` (또는 `noderun:<dir>`)
+- Kotlin / JVM: `export CODEFLOW_ADAPTER_KOTLIN_BIN="$HOME/.local/bin/codeflow_kotlin_adapter"`
+- Swift: `export CODEFLOW_ADAPTER_SWIFT_BIN="$HOME/.local/bin/codeflow_swift_adapter"`
 
 ### 삭제
 

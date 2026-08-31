@@ -579,3 +579,90 @@ func TestPublishCoreFlow_Unauthorized(t *testing.T) {
 		t.Errorf("expected unauthorized, got %v", resp.Result.Content[0].Text)
 	}
 }
+
+func TestPublishCoreFlow_TypeScriptProject(t *testing.T) {
+	repoRoot := t.TempDir()
+	layersYaml := "version: 1\nstrictOrder: true\nallowUnknownLayer: false\nlayers:\n  - name: presentation\n    aliases: [ui]\n  - name: usecase\n  - name: data\n    aliases: [repository]\n"
+	os.WriteFile(filepath.Join(repoRoot, "codeflow.layers.yaml"), []byte(layersYaml), 0644)
+	pkgJSON := `{"name": "ts-test-app", "version": "1.0.0"}`
+	os.WriteFile(filepath.Join(repoRoot, "package.json"), []byte(pkgJSON), 0644)
+
+	writeTestFile(t, repoRoot, "src/features/auth/LoginView.tsx", "export function LoginView() { const handleSubmit = () => {}; }")
+	writeTestFile(t, repoRoot, "src/features/auth/LoginUseCase.ts", "export class LoginUseCase { execute() {} }")
+	writeTestFile(t, repoRoot, "src/features/auth/AuthRepository.ts", "export class AuthRepository { login() {} }")
+
+	anc1 := computeAnchor(t, repoRoot, "src/features/auth/LoginView.tsx", 0, 10, "LoginView.handleSubmit")
+	anc2 := computeAnchor(t, repoRoot, "src/features/auth/LoginUseCase.ts", 0, 10, "LoginUseCase.execute")
+	anc3 := computeAnchor(t, repoRoot, "src/features/auth/AuthRepository.ts", 0, 10, "AuthRepository.login")
+
+	cfg := mcp.Config{RepoRoot: repoRoot}
+	srv, err := mcp.NewServer(cfg)
+	if err != nil {
+		t.Fatalf("NewServer error = %v", err)
+	}
+	defer srv.Close()
+
+	art := map[string]any{
+		"entrySymbolPath": "src/features/auth/LoginView.tsx#LoginView.handleSubmit",
+		"title":           "이메일 로그인 핵심 흐름",
+		"description":     "UI 제출부터 유스케이스 검증 및 리포지토리 로그인까지의 흐름",
+		"layers":          []string{"presentation", "usecase", "data"},
+		"steps": []map[string]any{
+			{"ordinal": 1, "name": "handleSubmit", "layer": "presentation", "kind": "call", "anchor": anc1},
+			{"ordinal": 2, "name": "execute", "layer": "usecase", "kind": "call", "anchor": anc2},
+			{"ordinal": 3, "name": "login", "layer": "data", "kind": "call", "anchor": anc3},
+		},
+		"edges": []map[string]any{
+			{"stepOrdinal": 1, "toSymbolPath": "src/features/auth/LoginUseCase.ts#LoginUseCase.execute", "kind": "resolved_cross_file", "resolutionStatus": "resolved"},
+			{"stepOrdinal": 2, "toSymbolPath": "src/features/auth/AuthRepository.ts#AuthRepository.login", "kind": "boundary_call", "resolutionStatus": "resolved"},
+		},
+	}
+
+	var buf bytes.Buffer
+	req := map[string]any{"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": map[string]any{"name": "publish_core_flow", "arguments": map[string]any{"artifact": art}}}
+	line, _ := json.Marshal(req)
+	buf.Write(line)
+	buf.WriteByte('\n')
+
+	var out bytes.Buffer
+	srv.Serve(context.Background(), &buf, &out)
+
+	var resp struct {
+		Result struct {
+			Content []struct {
+				Text string `json:"text"`
+			} `json:"content"`
+			IsError bool `json:"isError"`
+		} `json:"result"`
+	}
+	if err := json.Unmarshal([]byte(strings.TrimSpace(out.String())), &resp); err != nil {
+		t.Fatalf("unmarshal response: %v\noutput: %s", err, out.String())
+	}
+	if resp.Result.IsError {
+		t.Fatalf("unexpected error response: %s", resp.Result.Content[0].Text)
+	}
+
+	var payload struct {
+		Status    string   `json:"status"`
+		FlowID    string   `json:"flowId"`
+		Title     string   `json:"title"`
+		StepCount int      `json:"stepCount"`
+		Warnings  []string `json:"warnings"`
+	}
+	if err := json.Unmarshal([]byte(resp.Result.Content[0].Text), &payload); err != nil {
+		t.Fatalf("unmarshal payload: %v\ntext: %s", err, resp.Result.Content[0].Text)
+	}
+	if payload.Status != "published" {
+		t.Errorf("status = %q, want published", payload.Status)
+	}
+	if !strings.HasPrefix(payload.FlowID, "flow-") {
+		t.Errorf("flowId = %q, want flow- prefix", payload.FlowID)
+	}
+	if payload.StepCount != 3 {
+		t.Errorf("stepCount = %d, want 3", payload.StepCount)
+	}
+	if payload.Title != "이메일 로그인 핵심 흐름" {
+		t.Errorf("title = %q, want '이메일 로그인 핵심 흐름'", payload.Title)
+	}
+}
+

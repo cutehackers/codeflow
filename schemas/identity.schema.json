@@ -28,6 +28,11 @@
       "pattern": "^flow-[a-z0-9]{8,32}(-[2-9][0-9]*)?$",
       "description": "Stable flow identifier: 'flow-' + first 16 lowercase-hex chars of sha256(canonicalEntrySymbolPath UTF-8 bytes). Collision suffix '-2'..'-N' per registry rule. Stable under file move/rename because derivation keys on the canonical entry SYMBOL path, not the filesystem path."
     },
+    "candidateId": {
+      "type": "string",
+      "pattern": "^cand-[a-z0-9]{8,32}$",
+      "description": "Ephemeral discovery candidate identifier: 'cand-' + first 16 lowercase-hex chars of sha256(canonicalEntrySymbolPath UTF-8 bytes)."
+    },
     "stepId": {
       "type": "string",
       "pattern": "^step-[a-z0-9]{8,32}(-[2-9][0-9]*)?$",
@@ -35,8 +40,8 @@
     },
     "canonicalEntrySymbolPath": {
       "type": "string",
-      "pattern": "^[A-Za-z0-9_./-]+\\.dart#[A-Za-z_$][A-Za-z0-9_$]*(\\.[A-Za-z_$][A-Za-z0-9_$]*)*$",
-      "description": "Exact format (normative): '<repoRelativeSourceFilePath>#<TopLevelSymbol>(.<NestedMember>)*'. The left side is the repo-relative Dart file path with forward slashes and a .dart extension (segments are lower_snake_case dirs/files). The right side is the dotted chain from a top-level declaration down to the entry member, e.g. 'lib/features/auth/email_signup_notifier.dart#EmailSignupNotifier.submit'. No whitespace anywhere; '#' separates exactly one file part from the symbol chain. This string is THE stable key: hashing it yields the flowId."
+      "pattern": "^[A-Za-z0-9_./-]+\\.[a-zA-Z0-9]+#[A-Za-z_$][A-Za-z0-9_$]*(\\.[A-Za-z_$][A-Za-z0-9_$]*)*$",
+      "description": "Exact format (normative): '<repoRelativeSourceFilePath>#<TopLevelSymbol>(.<NestedMember>)*'. The left side is the repo-relative source file path with forward slashes and a language extension (e.g. .dart, .ts, .tsx, .kt, .swift, .py, .go, .java, .rs). The right side is the dotted chain from a top-level declaration down to the entry member. No whitespace anywhere; '#' separates exactly one file part from the symbol chain."
     },
     "supersedes": {
       "type": "array",

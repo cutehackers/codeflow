@@ -1,4 +1,7 @@
-# Dart adapter JSON-RPC v1
+# Dart adapter JSON-RPC v1 (DEPRECATED)
+
+> [!WARNING]
+> **Deprecated**: 이 문서는 v0 아카이브 사양입니다. 현재 CodeFlow 런타임 구현은 **NDJSON v1 프로토콜(`ping`, `detect`, `harvest_candidates`, `slice`, `shutdown`)**을 따르며, 공식 표준 계약은 [`docs/spec/llm-language-adapter-protocol.md`](../spec/llm-language-adapter-protocol.md) 및 [`docs/contracts/adapter-protocol-v1.md`](adapter-protocol-v1.md)를 참조하십시오.
 
 The Core launches the installed adapter as a child with `--stdio`. Each input
 and output is one newline-delimited JSON-RPC 2.0 object. The Core sends

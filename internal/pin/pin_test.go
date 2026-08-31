@@ -24,8 +24,18 @@ func TestDefaultResolvesEmbeddedDartPin(t *testing.T) {
 	if _, ok := pins["dart"]; !ok {
 		t.Errorf("Pins() = %v, want to include dart", pins)
 	}
-	if got := reg.Names(); len(got) != 1 || got[0] != "dart" {
-		t.Errorf("Names() = %v, want [dart]", got)
+	names := reg.Names()
+	foundDart, foundTS := false, false
+	for _, n := range names {
+		if n == "dart" {
+			foundDart = true
+		}
+		if n == "typescript" {
+			foundTS = true
+		}
+	}
+	if !foundDart || !foundTS {
+		t.Errorf("Names() = %v, want to include dart and typescript", names)
 	}
 }
 

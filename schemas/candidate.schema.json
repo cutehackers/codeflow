@@ -20,9 +20,7 @@
   "additionalProperties": false,
   "properties": {
     "candidateId": {
-      "type": "string",
-      "pattern": "^cand-[a-z0-9]{8,32}$",
-      "description": "'cand-' + first 16 lowercase-hex chars of sha256(canonicalEntrySymbolPath UTF-8 bytes); same collision suffix rule as flowId."
+      "$ref": "https://codeflow.local/schemas/identity.schema.json#/$defs/candidateId"
     },
     "triggerClass": {
       "type": "string",

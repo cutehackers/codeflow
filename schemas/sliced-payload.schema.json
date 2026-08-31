@@ -18,13 +18,12 @@
   "additionalProperties": false,
   "properties": {
     "candidateId": {
-      "type": "string",
-      "pattern": "^cand-[a-z0-9]{8,32}$"
+      "$ref": "https://codeflow.local/schemas/identity.schema.json#/$defs/candidateId"
     },
     "language": {
       "type": "string",
-      "const": "dart",
-      "description": "Payload is language-neutral in shape but M1 ships only the Dart adapter; new languages extend this enum."
+      "enum": ["dart", "typescript", "javascript", "kotlin", "swift", "python", "go", "java", "rust"],
+      "description": "Target language of the source slice."
     },
     "entrySymbolPath": {
       "$ref": "https://codeflow.local/schemas/identity.schema.json#/$defs/canonicalEntrySymbolPath"

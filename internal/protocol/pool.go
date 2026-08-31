@@ -164,3 +164,77 @@ func (p *Pool) Close() {
 		_ = c.Shutdown(defaultShutdownGrace)
 	}
 }
+
+// AdapterRegistry manages language-specific process pools.
+type AdapterRegistry struct {
+	mu      sync.RWMutex
+	pools   map[string]*Pool
+	cfgs    map[string]Config
+	maxIdle int
+	closed  bool
+}
+
+// NewAdapterRegistry initializes a multi-language pool manager.
+func NewAdapterRegistry(maxIdle int) *AdapterRegistry {
+	return &AdapterRegistry{
+		pools:   make(map[string]*Pool),
+		cfgs:    make(map[string]Config),
+		maxIdle: maxIdle,
+	}
+}
+
+// RegisterConfig registers or updates the adapter config for a given language.
+func (r *AdapterRegistry) RegisterConfig(lang string, cfg Config) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.cfgs[lang] = cfg
+}
+
+// GetPool returns or creates a Pool for the requested language.
+func (r *AdapterRegistry) GetPool(lang string) (*Pool, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.closed {
+		return nil, CrashedError("adapter registry closed")
+	}
+	if p, ok := r.pools[lang]; ok {
+		return p, nil
+	}
+	cfg, ok := r.cfgs[lang]
+	if !ok {
+		return nil, errors.New("no adapter configuration registered for language: " + lang)
+	}
+	p := NewPool(cfg, r.maxIdle)
+	r.pools[lang] = p
+	return p, nil
+}
+
+// Call routes a request to the appropriate language pool.
+func (r *AdapterRegistry) Call(ctx context.Context, lang string, op string, params any, result any) error {
+	pool, err := r.GetPool(lang)
+	if err != nil {
+		return err
+	}
+	return pool.Call(ctx, op, params, result)
+}
+
+// Close drains and shuts down all language adapter pools.
+func (r *AdapterRegistry) Close() {
+	r.mu.Lock()
+	if r.closed {
+		r.mu.Unlock()
+		return
+	}
+	r.closed = true
+	pools := make([]*Pool, 0, len(r.pools))
+	for _, p := range r.pools {
+		pools = append(pools, p)
+	}
+	r.pools = nil
+	r.mu.Unlock()
+
+	for _, p := range pools {
+		p.Close()
+	}
+}
+

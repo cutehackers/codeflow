@@ -32,7 +32,7 @@ func Watch(ctx context.Context, repoRoot string, interval time.Duration, onChang
 		case <-ctx.Done():
 			return ctx.Err()
 		case <-ticker.C:
-			files, currMtimes, err := collectDartFilesWithMtime(repoRoot)
+			files, currMtimes, err := collectSourceFilesWithMtime(repoRoot, nil, nil)
 			if err != nil {
 				continue
 			}
@@ -90,51 +90,76 @@ func mtimeDelta(curr, last map[string]time.Time) []string {
 	return changed
 }
 
-func collectDartFiles(repoRoot string) ([]string, error) {
-	libRoot := filepath.Join(repoRoot, "lib")
-	var out []string
-	err := filepath.Walk(libRoot, func(p string, info os.FileInfo, err error) error {
-		if err != nil {
-			return nil
-		}
-		if info.IsDir() {
-			return nil
-		}
-		if filepath.Ext(p) == ".dart" {
-			rel, _ := filepath.Rel(repoRoot, p)
-			out = append(out, rel)
-		}
-		return nil
-	})
-	if err != nil && !os.IsNotExist(err) {
-		return nil, err
+var defaultSourceExtensions = map[string]bool{
+	".dart":  true,
+	".ts":    true,
+	".tsx":   true,
+	".js":    true,
+	".jsx":   true,
+	".kt":    true,
+	".kts":   true,
+	".java":  true,
+	".swift": true,
+	".py":    true,
+	".go":    true,
+	".rs":    true,
+}
+
+func collectSourceFilesWithMtime(repoRoot string, dirs []string, exts []string) ([]string, map[string]time.Time, error) {
+	if len(dirs) == 0 {
+		dirs = []string{"lib", "src", "app", "pkg", "internal", "."}
 	}
+	extMap := defaultSourceExtensions
+	if len(exts) > 0 {
+		extMap = make(map[string]bool, len(exts))
+		for _, e := range exts {
+			extMap[e] = true
+		}
+	}
+
+	mTimes := make(map[string]time.Time)
+	var out []string
+	seen := make(map[string]bool)
+
+	for _, dir := range dirs {
+		searchPath := filepath.Join(repoRoot, dir)
+		if _, err := os.Stat(searchPath); err != nil {
+			continue
+		}
+		_ = filepath.Walk(searchPath, func(p string, info os.FileInfo, err error) error {
+			if err != nil {
+				return nil
+			}
+			if info.IsDir() {
+				// Skip node_modules, build, .git, .dart_tool, dist
+				base := filepath.Base(p)
+				if base == "node_modules" || base == ".git" || base == ".dart_tool" || base == "build" || base == "dist" || base == ".codeflow" {
+					return filepath.SkipDir
+				}
+				return nil
+			}
+			ext := filepath.Ext(p)
+			if extMap[ext] {
+				rel, err := filepath.Rel(repoRoot, p)
+				if err == nil && !seen[rel] {
+					seen[rel] = true
+					out = append(out, rel)
+					mTimes[rel] = info.ModTime()
+				}
+			}
+			return nil
+		})
+	}
+
 	sort.Strings(out)
-	return out, nil
+	return out, mTimes, nil
+}
+
+func collectDartFiles(repoRoot string) ([]string, error) {
+	files, _, err := collectSourceFilesWithMtime(repoRoot, []string{"lib"}, []string{".dart"})
+	return files, err
 }
 
 func collectDartFilesWithMtime(repoRoot string) ([]string, map[string]time.Time, error) {
-	libRoot := filepath.Join(repoRoot, "lib")
-	mTimes := make(map[string]time.Time)
-	var out []string
-	err := filepath.Walk(libRoot, func(p string, info os.FileInfo, err error) error {
-		if err != nil {
-			return nil
-		}
-		if info.IsDir() {
-			return nil
-		}
-		if filepath.Ext(p) == ".dart" {
-			rel, _ := filepath.Rel(repoRoot, p)
-			out = append(out, rel)
-			mTimes[rel] = info.ModTime()
-		}
-		return nil
-	})
-	if err != nil && !os.IsNotExist(err) {
-		return nil, nil, err
-	}
-	sort.Strings(out)
-	// Ensure mTimes only contains returned files (already) and is consistent.
-	return out, mTimes, nil
+	return collectSourceFilesWithMtime(repoRoot, []string{"lib"}, []string{".dart"})
 }

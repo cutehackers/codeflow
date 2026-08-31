@@ -12,6 +12,7 @@ import (
 	"strings"
 
 	"codeflow/internal/contractharness"
+	"codeflow/internal/detect"
 	"codeflow/internal/fusion"
 	"codeflow/internal/slicing"
 	"codeflow/internal/secret"
@@ -250,9 +251,22 @@ func (s *Server) handlePublishCoreFlow(ctx context.Context, args map[string]any)
 	}
 
 	// 11. Build slicing.SlicedPayload in-memory (no adapter call)
+	lang := detect.DetectByExtension(artifact.EntrySymbolPath)
+	if lang == "unknown" && len(artifact.Steps) > 0 {
+		lang = detect.DetectByExtension(artifact.Steps[0].Anchor.RepoRelativePath)
+	}
+	if lang == "unknown" {
+		det := detect.Detect(s.cfg.RepoRoot)
+		if det.Confident && det.Language != "" && det.Language != "unknown" {
+			lang = det.Language
+		} else {
+			lang = "dart"
+		}
+	}
+
 	sliced := &slicing.SlicedPayload{
 		CandidateID:     artifact.FlowID,
-		Language:        "dart",
+		Language:        lang,
 		EntrySymbolPath: artifact.EntrySymbolPath,
 		Steps:           make([]slicing.SliceStep, 0, len(artifact.Steps)),
 		Edges:           make([]slicing.SliceEdge, 0, len(artifact.Edges)),

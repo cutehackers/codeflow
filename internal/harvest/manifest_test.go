@@ -48,6 +48,33 @@ excluded:
 	}
 }
 
+func TestParseManifestPolyglotExtensions(t *testing.T) {
+	src := `flows:
+  - entry: src/services/auth.ts#AuthService.login
+    name: TS Login
+  - entry: src/components/Cart.tsx#CartView.checkout
+  - entry: app/src/main/kotlin/Payment.kt#PaymentProcessor.pay
+  - entry: Sources/App/Auth.swift#AuthManager.authenticate
+  - entry: api/handlers/user.py#handle_signup
+  - entry: pkg/server/router.go#Router.ServeHTTP
+  - entry: src/main.rs#run_pipeline
+
+excluded:
+  - src/legacy/old_auth.js#OldAuth.login
+  - components/Legacy.jsx#LegacyComponent.render
+`
+	m, err := ParseManifest(src)
+	if err != nil {
+		t.Fatalf("ParseManifest failed for polyglot extensions: %v", err)
+	}
+	if len(m.Flows) != 7 {
+		t.Fatalf("len(Flows) = %d, want 7", len(m.Flows))
+	}
+	if len(m.Excluded) != 2 {
+		t.Fatalf("len(Excluded) = %d, want 2", len(m.Excluded))
+	}
+}
+
 func TestParseManifestMalformedReportsLineNumbers(t *testing.T) {
 	cases := []struct {
 		name    string

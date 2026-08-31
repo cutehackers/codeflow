@@ -18,7 +18,7 @@ const ManifestFileName = "codeflow.flows.yaml"
 
 // PinnedFlow is one entry under `flows:`.
 type PinnedFlow struct {
-	Entry string // canonical "<file>.dart#<symbol>" path
+	Entry string // canonical "<file>#<symbol>" path
 	Name  string // optional display name; overrides intentSignals.derivedName
 }
 
@@ -60,9 +60,9 @@ func LoadManifest(repoRoot string) (*Manifest, error) {
 }
 
 // entryShapeRe mirrors identity.schema.json $defs.canonicalEntrySymbolPath:
-// '<repoRelativeFile>.dart#<TopLevelSymbol>(.<Member>)*'.
+// '<repoRelativeFile>.<ext>#<TopLevelSymbol>(.<Member>)*'.
 var entryShapeRe = regexp.MustCompile(
-	`^[A-Za-z0-9_./-]+\.dart#[A-Za-z_$][A-Za-z0-9_$]*(\.[A-Za-z_$][A-Za-z0-9_$]*)*$`)
+	`^[A-Za-z0-9_./-]+\.[a-zA-Z0-9]+#[A-Za-z_$][A-Za-z0-9_$]*(\.[A-Za-z_$][A-Za-z0-9_$]*)*$`)
 
 // ParseManifest parses the minimal YAML subset of codeflow.flows.yaml.
 // The grammar (decision #14 v1 — deliberately tiny, zero dependencies):
@@ -78,7 +78,7 @@ var entryShapeRe = regexp.MustCompile(
 // Comments (# preceded by whitespace or at line start), blank lines and
 // continuation lines indented deeper than their '- ' item are supported;
 // tab indentation is rejected. Entry values must be canonical
-// "<file>.dart#<symbol>" paths. Every violation is reported as
+// "<file>#<symbol>" paths. Every violation is reported as
 // "line N: …" so users can fix the file without a YAML manual.
 func ParseManifest(src string) (*Manifest, error) {
 	fail := func(line int, format string, args ...any) error {
@@ -163,7 +163,7 @@ func ParseManifest(src string) (*Manifest, error) {
 					return nil, fail(lineNo, "%v", err)
 				}
 				if !entryShapeRe.MatchString(entry) {
-					return nil, fail(lineNo, "excluded entry %q is not a canonical '<file>.dart#<symbol>' path", entry)
+					return nil, fail(lineNo, "excluded entry %q is not a canonical '<file>#<symbol>' path", entry)
 				}
 				m.Excluded = append(m.Excluded, entry)
 				continue
@@ -188,7 +188,7 @@ func ParseManifest(src string) (*Manifest, error) {
 
 			key, value, ok := splitKeyValue(body)
 			if !ok {
-				return nil, fail(lineNo, "flow items must start with '- entry: <file>.dart#<symbol>'")
+				return nil, fail(lineNo, "flow items must start with '- entry: <file>#<symbol>'")
 			}
 			item := &PinnedFlow{}
 			if err := assignFlowKey(item, key, value, lineNo, fail); err != nil {
@@ -243,7 +243,7 @@ func assignFlowKey(item *PinnedFlow, key, value string, lineNo int, fail func(in
 	switch key {
 	case "entry":
 		if !entryShapeRe.MatchString(v) {
-			return fail(lineNo, "entry %q is not a canonical '<file>.dart#<symbol>' path", v)
+			return fail(lineNo, "entry %q is not a canonical '<file>#<symbol>' path", v)
 		}
 		item.Entry = v
 	case "name":

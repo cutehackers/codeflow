@@ -394,7 +394,7 @@
           ? 'packages/feature_account/lib/src/features/join/presentation/join_controller.dart'
           : samplePath;
         root.querySelector('#source-path').textContent = `${evidencePath}:${item.line}`;
-        root.querySelector('#editor-link').href = `vscode://file/Users/junhyounglee/workspace/sgp-981-app/${evidencePath}:${item.line}`;
+        root.querySelector('#editor-link').href = `vscode://file/workspace/sgp-981-app/${evidencePath}:${item.line}`;
         const note = root.querySelector('#branch-note');
         note.hidden = !item.branch;
         note.innerHTML = item.branch ? `<strong>${escapeHTML(item.branch.title)}</strong><span>${escapeHTML(item.branch.body)}</span>` : '';

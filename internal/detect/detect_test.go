@@ -93,8 +93,8 @@ func TestDetectFallsBackToUnknown(t *testing.T) {
 	if det.Confident {
 		t.Error("empty repo should be unconfident")
 	}
-	if det.Language != "dart" {
-		t.Errorf("Language = %q, want dart probe result (unconfident)", det.Language)
+	if det.Language != "unknown" {
+		t.Errorf("Language = %q, want unknown", det.Language)
 	}
 }
 
@@ -110,6 +110,55 @@ func TestParsePubspecNameHandlesCommentAndWhitespace(t *testing.T) {
 	for content, want := range tests {
 		if got := ParsePubspecName([]byte(content)); got != want {
 			t.Errorf("ParsePubspecName(%q) = %q, want %q", content, got, want)
+		}
+	}
+}
+
+func TestDetectTypeScript(t *testing.T) {
+	repoRoot := t.TempDir()
+	pkgJSON := `{"name": "my-web-app", "version": "1.0.0"}`
+	if err := os.WriteFile(filepath.Join(repoRoot, "package.json"), []byte(pkgJSON), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	det := DetectTypeScript(repoRoot)
+	if !det.Confident {
+		t.Fatal("Confident = false, want true")
+	}
+	if det.Language != "typescript" {
+		t.Errorf("Language = %q, want typescript", det.Language)
+	}
+	if det.ProjectName != "my-web-app" {
+		t.Errorf("ProjectName = %q, want my-web-app", det.ProjectName)
+	}
+}
+
+func TestDetectKotlin(t *testing.T) {
+	repoRoot := t.TempDir()
+	if err := os.WriteFile(filepath.Join(repoRoot, "build.gradle.kts"), []byte("// kotlin"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	det := DetectKotlin(repoRoot)
+	if !det.Confident || det.Language != "kotlin" {
+		t.Errorf("DetectKotlin = %+v, want confident kotlin", det)
+	}
+}
+
+func TestDetectByExtension(t *testing.T) {
+	cases := map[string]string{
+		"src/index.ts":        "typescript",
+		"src/App.tsx":         "typescript",
+		"lib/main.dart":       "dart",
+		"app/src/Order.kt":    "kotlin",
+		"Sources/Main.swift":  "swift",
+		"main.py":             "python",
+		"cmd/server/main.go":  "go",
+		"src/lib.rs":          "rust",
+		"unknown.xyz":         "unknown",
+	}
+	for file, want := range cases {
+		if got := DetectByExtension(file); got != want {
+			t.Errorf("DetectByExtension(%q) = %q, want %q", file, got, want)
 		}
 	}
 }

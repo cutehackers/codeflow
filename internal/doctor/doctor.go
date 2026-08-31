@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 
 	"codeflow/internal/contractharness"
+	"codeflow/internal/detect"
 	"codeflow/internal/harvest"
 	"codeflow/internal/storage"
 	"codeflow/internal/workspace"
@@ -41,35 +42,71 @@ func Diagnose(repoRoot string, dartAdapterSpec string) []CheckResult {
 		})
 	}
 
-	// 2. Check Dart SDK
-	if dartPath, err := exec.LookPath("dart"); err == nil {
-		results = append(results, CheckResult{
-			Name:    "Dart SDK",
-			Passed:  true,
-			Message: fmt.Sprintf("Found dart at %s", dartPath),
-		})
-	} else {
-		results = append(results, CheckResult{
-			Name:    "Dart SDK",
-			Passed:  false,
-			Message: "dart SDK not found in PATH",
-		})
-	}
+	// 2. Detect Project Language
+	det := detect.Detect(repoRoot)
 
-	// 3. Check Dart adapter
-	cfg, err := harvest.ResolveDartAdapter(dartAdapterSpec)
-	if err == nil {
-		results = append(results, CheckResult{
-			Name:    "Dart adapter",
-			Passed:  true,
-			Message: fmt.Sprintf("Adapter ready (%s)", filepath.Base(cfg.BinPath)),
-		})
+	if det.Language == "typescript" || det.Language == "javascript" {
+		// Node.js toolchain check
+		if nodePath, err := exec.LookPath("node"); err == nil {
+			results = append(results, CheckResult{
+				Name:    "Node.js Runtime",
+				Passed:  true,
+				Message: fmt.Sprintf("Found node at %s", nodePath),
+			})
+		} else {
+			results = append(results, CheckResult{
+				Name:    "Node.js Runtime",
+				Passed:  false,
+				Message: "node executable not found in PATH",
+			})
+		}
+
+		// TypeScript adapter check
+		cfg, err := harvest.ResolveAdapter("typescript", "")
+		if err == nil {
+			results = append(results, CheckResult{
+				Name:    "TypeScript adapter",
+				Passed:  true,
+				Message: fmt.Sprintf("Adapter ready (%s)", filepath.Base(cfg.BinPath)),
+			})
+		} else {
+			results = append(results, CheckResult{
+				Name:    "TypeScript adapter",
+				Passed:  false,
+				Message: fmt.Sprintf("Adapter resolution error: %v", err),
+			})
+		}
 	} else {
-		results = append(results, CheckResult{
-			Name:    "Dart adapter",
-			Passed:  false,
-			Message: fmt.Sprintf("Adapter resolution error: %v", err),
-		})
+		// Default to Dart checks for Dart or general repos
+		if dartPath, err := exec.LookPath("dart"); err == nil {
+			results = append(results, CheckResult{
+				Name:    "Dart SDK",
+				Passed:  true,
+				Message: fmt.Sprintf("Found dart at %s", dartPath),
+			})
+		} else {
+			results = append(results, CheckResult{
+				Name:    "Dart SDK",
+				Passed:  false,
+				Message: "dart SDK not found in PATH",
+			})
+		}
+
+		// Dart adapter check
+		cfg, err := harvest.ResolveDartAdapter(dartAdapterSpec)
+		if err == nil {
+			results = append(results, CheckResult{
+				Name:    "Dart adapter",
+				Passed:  true,
+				Message: fmt.Sprintf("Adapter ready (%s)", filepath.Base(cfg.BinPath)),
+			})
+		} else {
+			results = append(results, CheckResult{
+				Name:    "Dart adapter",
+				Passed:  false,
+				Message: fmt.Sprintf("Adapter resolution error: %v", err),
+			})
+		}
 	}
 
 	// 4. Check generation pointer

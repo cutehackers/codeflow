@@ -67,7 +67,7 @@ var boundarySuffixes = []string{"Repository", "ApiClient", "DataSource", "Servic
 
 var (
 	boundaryWordRe = regexp.MustCompile(`\b\w*(?:Repository|ApiClient|DataSource|Service)\b`)
-	importLineRe   = regexp.MustCompile(`(?m)^\s*(?:import|export|part)\s+['"]([^'"]+)['"]`)
+	importLineRe   = regexp.MustCompile(`(?m)^\s*(?:import|export|part|from|require)\s+.*?['"]([^'"]+)['"]`)
 
 	classWordMu sync.Mutex
 	classWordRe = map[string]*regexp.Regexp{}
@@ -85,24 +85,41 @@ func classBoundaryRe(name string) *regexp.Regexp {
 	return re
 }
 
-// sourceFile is one non-generated Dart source under <repoRoot>/<libSubdir>.
+// sourceFile is one non-generated source under the target tree.
 type sourceFile struct {
 	rel     string // slash-separated path relative to repoRoot
 	content string
 }
 
-// sourceIndex preloads every non-generated *.dart file once so scoring
-// never re-reads the tree. Generated files (*.g.dart, *.freezed.dart) are
-// excluded: they are machine-written mirrors, not human fan-in evidence
-// (same denylist the adapter uses when walking).
+// sourceIndex preloads every non-generated source file once so scoring
+// never re-reads the tree. Generated files (*.g.dart, *.freezed.dart, *.d.ts, etc.) are
+// excluded: they are machine-written mirrors, not human fan-in evidence.
 type sourceIndex struct {
 	files   []sourceFile
 	byRel   map[string]string
 	libRoot string // libSubdir prefix in slash form, e.g. "lib/"
 }
 
+var defaultIndexedExtensions = map[string]bool{
+	".dart":  true,
+	".ts":    true,
+	".tsx":   true,
+	".js":    true,
+	".jsx":   true,
+	".kt":    true,
+	".kts":   true,
+	".java":  true,
+	".swift": true,
+	".py":    true,
+	".go":    true,
+	".rs":    true,
+}
+
 func loadSourceIndex(repoRoot, libSubdir string) (*sourceIndex, error) {
 	root := filepath.Join(repoRoot, libSubdir)
+	if _, err := os.Stat(root); err != nil && errors.Is(err, fs.ErrNotExist) {
+		root = repoRoot
+	}
 	prefix := filepath.ToSlash(libSubdir)
 	if prefix != "" && !strings.HasSuffix(prefix, "/") {
 		prefix += "/"
@@ -112,7 +129,15 @@ func loadSourceIndex(repoRoot, libSubdir string) (*sourceIndex, error) {
 		if err != nil {
 			return err
 		}
-		if d.IsDir() || !strings.HasSuffix(d.Name(), ".dart") {
+		if d.IsDir() {
+			name := d.Name()
+			if name == "node_modules" || name == ".git" || name == ".dart_tool" || name == "build" || name == "dist" || name == ".codeflow" || name == "vendor" || name == ".agents" || name == ".gemini" {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		ext := strings.ToLower(filepath.Ext(d.Name()))
+		if !defaultIndexedExtensions[ext] {
 			return nil
 		}
 		rel, rerr := filepath.Rel(repoRoot, path)
@@ -120,7 +145,7 @@ func loadSourceIndex(repoRoot, libSubdir string) (*sourceIndex, error) {
 			return fmt.Errorf("relativize %s: %w", path, rerr)
 		}
 		rel = filepath.ToSlash(rel)
-		if isGeneratedDart(rel) {
+		if isGeneratedFile(rel) {
 			return nil
 		}
 		data, err := os.ReadFile(path)
@@ -138,8 +163,18 @@ func loadSourceIndex(repoRoot, libSubdir string) (*sourceIndex, error) {
 	return idx, nil
 }
 
+func isGeneratedFile(relSlash string) bool {
+	lower := strings.ToLower(relSlash)
+	return strings.HasSuffix(lower, ".g.dart") ||
+		strings.HasSuffix(lower, ".freezed.dart") ||
+		strings.HasSuffix(lower, ".d.ts") ||
+		strings.HasSuffix(lower, ".min.js") ||
+		strings.HasSuffix(lower, ".bundle.js") ||
+		strings.HasSuffix(lower, ".min.css")
+}
+
 func isGeneratedDart(relSlash string) bool {
-	return strings.HasSuffix(relSlash, ".g.dart") || strings.HasSuffix(relSlash, ".freezed.dart")
+	return isGeneratedFile(relSlash)
 }
 
 // fanIn counts word-boundary occurrences of className across every indexed
@@ -157,7 +192,7 @@ func (idx *sourceIndex) fanIn(className string) int {
 	return n
 }
 
-// entryFile extracts the "<file>.dart" part of a canonical entry path.
+// entryFile extracts the repoRelativeFilePath part of a canonical entry path.
 func entryFile(entrySymbolPath string) string {
 	i := strings.IndexByte(entrySymbolPath, '#')
 	if i < 0 {

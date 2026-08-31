@@ -1,0 +1,19 @@
+version: 1
+strictOrder: true
+allowUnknownLayer: false
+
+layers:
+  - name: presentation
+    description: "User Interface Components and Event Handlers"
+    aliases: [ui, view, component, screen]
+    pathPatterns: ["**/src/features/**/(*View|*Button|*Screen).tsx"]
+
+  - name: usecase
+    description: "Business UseCases and Application Logic"
+    aliases: [interactor, domain, command]
+    pathPatterns: ["**/src/features/**/*UseCase.ts"]
+
+  - name: data
+    description: "Data Access and External Boundaries"
+    aliases: [repository, api, service, gateway]
+    pathPatterns: ["**/src/features/**/*Repository.ts"]

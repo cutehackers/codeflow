@@ -20,70 +20,171 @@ import (
 	"codeflow/internal/protocol"
 )
 
-// DartAdapterEnvVar selects the Dart adapter spawn command. Resolution
-// precedence (ticket 06):
-//
-//  1. $CODEFLOW_ADAPTER_DART_BIN — either an absolute path to an adapter
-//     executable invoked directly, or the special shell-ish form
-//     "dartrun:<path-to-package-dir>" meaning `dart run
-//     bin/codeflow_dart_adapter.dart` with <path> as the adapter package
-//     directory (the entrypoint is resolved inside that package, so no
-//     process cwd change is needed).
-//  2. Workspace adapter pins will slot in here in a later ticket; today a
-//     missing variable is a hard error telling the user how to point CORE
-//     at an adapter.
-const DartAdapterEnvVar = "CODEFLOW_ADAPTER_DART_BIN"
-
-// dartrunScheme and dartEntrypoint define the dartrun: form.
+// Adapter env var prefix and defaults
 const (
-	dartrunScheme    = "dartrun:"
-	dartEntrypoint   = "bin/codeflow_dart_adapter.dart"
+	DartAdapterEnvVar       = "CODEFLOW_ADAPTER_DART_BIN"
+	TypeScriptAdapterEnvVar = "CODEFLOW_ADAPTER_TYPESCRIPT_BIN"
+	TSAdapterEnvVar         = "CODEFLOW_ADAPTER_TS_BIN"
+	KotlinAdapterEnvVar     = "CODEFLOW_ADAPTER_KOTLIN_BIN"
+	SwiftAdapterEnvVar      = "CODEFLOW_ADAPTER_SWIFT_BIN"
+	PythonAdapterEnvVar     = "CODEFLOW_ADAPTER_PYTHON_BIN"
+)
+
+const (
+	dartrunScheme   = "dartrun:"
+	dartEntrypoint  = "bin/codeflow_dart_adapter.dart"
+	noderunScheme   = "noderun:"
+	tsrunScheme     = "tsrun:"
+	tsEntrypointJS  = "bin/codeflow_ts_adapter.js"
+	tsEntrypointTS  = "bin/codeflow_ts_adapter.ts"
 	defaultLibSubdir = "lib"
 )
 
-// ResolveDartAdapter turns a $CODEFLOW_ADAPTER_DART_BIN value into a
-// protocol.Config. An empty value uses the one-shot installer record, so CLI
-// and MCP do not require shell-profile mutations.
-func ResolveDartAdapter(spec string) (protocol.Config, error) {
+// ResolveAdapter turns a language identifier and optional spec into a protocol.Config.
+func ResolveAdapter(lang string, spec string) (protocol.Config, error) {
+	lang = strings.ToLower(strings.TrimSpace(lang))
+	if lang == "" {
+		lang = "dart"
+	}
 	spec = strings.TrimSpace(spec)
+
+	// 1. Check environment variables if spec is empty
+	if spec == "" {
+		switch lang {
+		case "dart":
+			spec = strings.TrimSpace(os.Getenv(DartAdapterEnvVar))
+		case "typescript", "javascript":
+			spec = strings.TrimSpace(os.Getenv(TypeScriptAdapterEnvVar))
+			if spec == "" {
+				spec = strings.TrimSpace(os.Getenv(TSAdapterEnvVar))
+			}
+		case "kotlin", "java":
+			spec = strings.TrimSpace(os.Getenv(KotlinAdapterEnvVar))
+		case "swift":
+			spec = strings.TrimSpace(os.Getenv(SwiftAdapterEnvVar))
+		case "python":
+			spec = strings.TrimSpace(os.Getenv(PythonAdapterEnvVar))
+		}
+	}
+
+	// 2. Check install state
 	if spec == "" {
 		if state, err := installstate.Load(); err == nil {
 			spec = strings.TrimSpace(state.AdapterSpec)
 		}
 	}
+
+	// 3. Check default user local bin ($HOME/.local/bin/codeflow_<lang>_adapter)
+	if spec == "" {
+		home, err := os.UserHomeDir()
+		if err == nil {
+			candidates := []string{
+				filepath.Join(home, ".local", "bin", fmt.Sprintf("codeflow_%s_adapter", lang)),
+			}
+			if lang == "typescript" || lang == "javascript" {
+				candidates = append(candidates, filepath.Join(home, ".local", "bin", "codeflow_ts_adapter"))
+			}
+			for _, cand := range candidates {
+				if info, err := os.Stat(cand); err == nil && !info.IsDir() {
+					spec = cand
+					break
+				}
+			}
+		}
+	}
+
+	// 4. Check workspace adapter directories if running from checkout
+	if spec == "" {
+		cwd, err := os.Getwd()
+		if err == nil {
+			if lang == "dart" {
+				dartDir := filepath.Join(cwd, "adapters", "dart")
+				if info, err := os.Stat(filepath.Join(dartDir, dartEntrypoint)); err == nil && !info.IsDir() {
+					spec = dartrunScheme + dartDir
+				}
+			} else if lang == "typescript" || lang == "javascript" {
+				tsDir := filepath.Join(cwd, "adapters", "typescript")
+				if info, err := os.Stat(filepath.Join(tsDir, tsEntrypointJS)); err == nil && !info.IsDir() {
+					spec = noderunScheme + tsDir
+				} else if info, err := os.Stat(filepath.Join(tsDir, tsEntrypointTS)); err == nil && !info.IsDir() {
+					spec = tsrunScheme + tsDir
+				}
+			}
+		}
+	}
+
 	if spec == "" {
 		return protocol.Config{}, fmt.Errorf(
-			"no Dart adapter configured: set %s to an absolute adapter binary path, or to %s<path-to-adapters/dart> — or re-run bash scripts/install.sh (one-shot)",
-			DartAdapterEnvVar, dartrunScheme)
+			"no %s adapter configured: set CODEFLOW_ADAPTER_%s_BIN to an adapter binary path, or run install.sh",
+			lang, strings.ToUpper(lang))
 	}
+
+	// Handle dartrun: scheme
 	if dir, ok := strings.CutPrefix(spec, dartrunScheme); ok {
 		if !filepath.IsAbs(dir) {
-			return protocol.Config{}, fmt.Errorf(
-				"%s %q: %s needs an absolute package-directory path", DartAdapterEnvVar, spec, dartrunScheme)
+			return protocol.Config{}, fmt.Errorf("%s needs an absolute package-directory path: %q", dartrunScheme, spec)
 		}
 		entry := filepath.Join(dir, filepath.FromSlash(dartEntrypoint))
-		info, err := os.Stat(entry)
-		if err != nil || info.IsDir() {
-			return protocol.Config{}, fmt.Errorf(
-				"%s %q: adapter entrypoint %s not found; point %s at the adapter package directory (e.g. adapters/dart)",
-				DartAdapterEnvVar, spec, entry, DartAdapterEnvVar)
+		if info, err := os.Stat(entry); err != nil || info.IsDir() {
+			return protocol.Config{}, fmt.Errorf("adapter entrypoint %s not found", entry)
 		}
 		dartBin, err := exec.LookPath("dart")
 		if err != nil {
-			return protocol.Config{}, fmt.Errorf(
-				"%s %q: the dart SDK executable must be on PATH for %s adapters: %v",
-				DartAdapterEnvVar, spec, dartrunScheme, err)
+			return protocol.Config{}, fmt.Errorf("the dart SDK executable must be on PATH: %v", err)
 		}
 		return protocol.Config{BinPath: dartBin, Args: []string{"run", entry}}, nil
 	}
+
+	// Handle noderun: scheme
+	if dir, ok := strings.CutPrefix(spec, noderunScheme); ok {
+		if !filepath.IsAbs(dir) {
+			return protocol.Config{}, fmt.Errorf("%s needs an absolute package-directory path: %q", noderunScheme, spec)
+		}
+		entry := filepath.Join(dir, filepath.FromSlash(tsEntrypointJS))
+		if info, err := os.Stat(entry); err != nil || info.IsDir() {
+			return protocol.Config{}, fmt.Errorf("adapter entrypoint %s not found", entry)
+		}
+		nodeBin, err := exec.LookPath("node")
+		if err != nil {
+			return protocol.Config{}, fmt.Errorf("node must be on PATH: %v", err)
+		}
+		return protocol.Config{BinPath: nodeBin, Args: []string{entry}}, nil
+	}
+
+	// Handle tsrun: scheme (via tsx or bun or ts-node)
+	if dir, ok := strings.CutPrefix(spec, tsrunScheme); ok {
+		if !filepath.IsAbs(dir) {
+			return protocol.Config{}, fmt.Errorf("%s needs an absolute package-directory path: %q", tsrunScheme, spec)
+		}
+		entry := filepath.Join(dir, filepath.FromSlash(tsEntrypointTS))
+		if info, err := os.Stat(entry); err != nil || info.IsDir() {
+			return protocol.Config{}, fmt.Errorf("adapter entrypoint %s not found", entry)
+		}
+		if tsxBin, err := exec.LookPath("tsx"); err == nil {
+			return protocol.Config{BinPath: tsxBin, Args: []string{entry}}, nil
+		}
+		if bunBin, err := exec.LookPath("bun"); err == nil {
+			return protocol.Config{BinPath: bunBin, Args: []string{"run", entry}}, nil
+		}
+		nodeBin, err := exec.LookPath("node")
+		if err != nil {
+			return protocol.Config{}, fmt.Errorf("node or tsx must be on PATH: %v", err)
+		}
+		return protocol.Config{BinPath: nodeBin, Args: []string{entry}}, nil
+	}
+
 	if !filepath.IsAbs(spec) {
-		return protocol.Config{}, fmt.Errorf(
-			"%s must be an absolute executable path or %s<package-dir>; got %q", DartAdapterEnvVar, dartrunScheme, spec)
+		return protocol.Config{}, fmt.Errorf("adapter path must be absolute; got %q", spec)
 	}
 	if info, err := os.Stat(spec); err != nil || info.IsDir() {
-		return protocol.Config{}, fmt.Errorf("%s %q is not an executable file", DartAdapterEnvVar, spec)
+		return protocol.Config{}, fmt.Errorf("adapter binary %q is not an executable file", spec)
 	}
 	return protocol.Config{BinPath: spec}, nil
+}
+
+// ResolveDartAdapter turns a $CODEFLOW_ADAPTER_DART_BIN value into a protocol.Config.
+func ResolveDartAdapter(spec string) (protocol.Config, error) {
+	return ResolveAdapter("dart", spec)
 }
 
 // Runner drives Stage 1 harvest against one language adapter through a
@@ -148,9 +249,9 @@ func (r *Runner) Run(ctx context.Context, repoRoot string) ([]Candidate, error) 
 	if err := r.pool.Call(ctx, protocol.OpDetect, map[string]any{"repoRoot": root}, &det); err != nil {
 		return nil, fmt.Errorf("adapter detect: %w", err)
 	}
-	if det.Language != "dart" || !det.Confident {
+	if !det.Confident {
 		return nil, fmt.Errorf(
-			"%s does not look like a Dart project (detect: language=%q confident=%t); a pubspec.yaml with an sdk: section and Dart sources under lib/ is required",
+			"%s is not recognized by the adapter (detect: language=%q confident=%t)",
 			root, det.Language, det.Confident)
 	}
 

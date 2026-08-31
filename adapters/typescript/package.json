@@ -1,0 +1,20 @@
+{
+  "name": "codeflow-typescript-adapter",
+  "version": "0.1.0",
+  "description": "CodeFlow TypeScript and JavaScript Language Adapter",
+  "main": "lib/index.js",
+  "bin": {
+    "codeflow_ts_adapter": "./bin/codeflow_ts_adapter.js"
+  },
+  "type": "commonjs",
+  "scripts": {
+    "test": "node test/index.test.js",
+    "start": "node bin/codeflow_ts_adapter.js"
+  },
+  "keywords": ["codeflow", "adapter", "typescript", "javascript", "ast", "flowview"],
+  "author": "CodeFlow Team",
+  "license": "MIT",
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}

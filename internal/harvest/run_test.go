@@ -392,3 +392,40 @@ func sortStrings(s []string) {
 		}
 	}
 }
+
+func TestTypeScriptHarvestIntegration(t *testing.T) {
+	if _, err := exec.LookPath("node"); err != nil {
+		t.Skipf("node not found in PATH: %v", err)
+	}
+	root := moduleRoot(t)
+	spec := "noderun:" + filepath.Join(root, "adapters", "typescript")
+	cfg, err := ResolveAdapter("typescript", spec)
+	if err != nil {
+		t.Fatalf("ResolveAdapter(typescript): %v", err)
+	}
+	r := NewRunner(cfg, 1)
+	defer r.Close()
+
+	app := filepath.Join(root, "testdata", "ts_example_app")
+	candidates, err := r.Run(context.Background(), app)
+	if err != nil {
+		t.Fatalf("Runner.Run on ts_example_app: %v", err)
+	}
+	if len(candidates) == 0 {
+		t.Fatal("expected at least 1 harvested candidate in ts_example_app")
+	}
+
+	foundSubmit := false
+	for _, c := range candidates {
+		if strings.Contains(c.EntrySymbolPath, "handleSubmit") {
+			foundSubmit = true
+			if c.TriggerClass != "user_action" {
+				t.Errorf("handleSubmit TriggerClass = %q, want user_action", c.TriggerClass)
+			}
+		}
+	}
+	if !foundSubmit {
+		t.Errorf("handleSubmit not found in harvested candidates: %+v", candidates)
+	}
+}
+

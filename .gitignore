@@ -1,42 +1,70 @@
-# macOS and local editors
+# ==============================================================================
+# CodeFlow .gitignore
+# ==============================================================================
+
+# ------------------------------------------------------------------------------
+# 1. OS & Editor Metadata
+# ------------------------------------------------------------------------------
 .DS_Store
 .idea/
 .vscode/
 *.swp
 
-# Local agent/context state
-.brv/
-
-# Secrets and local overrides
+# ------------------------------------------------------------------------------
+# 2. Environment, Secrets & Logs
+# ------------------------------------------------------------------------------
 .env*
 !.env.example
 *.log
 
-# CodeFlow runtime output
-.codeflow/
-
-# Go build and test output
-/bin/
+# ------------------------------------------------------------------------------
+# 3. Build Artifacts & Executables (Go, Node, Dart, Web)
+# ------------------------------------------------------------------------------
+bin/
 /dist/
 /libexec/
 /codeflow
-/coverage/
-*.test
-*.out
-
-# Dart and Flutter generated state
-.dart_tool/
-.flutter-plugins
-.flutter-plugins-dependencies
 build/
-
-# Web dependencies and generated bundles
 node_modules/
 /view/dist/
 
-# CodeFlow v2 core (ticket 04)
-.codeflow/
-bin/
+# ------------------------------------------------------------------------------
+# 4. Test & Code Coverage Output
+# ------------------------------------------------------------------------------
 *.test
+*.out
+/coverage/
 coverage.out
-.DS_Store
+
+# ------------------------------------------------------------------------------
+# 5. Language Toolchain State (Dart / Flutter)
+# ------------------------------------------------------------------------------
+.dart_tool/
+.flutter-plugins
+.flutter-plugins-dependencies
+
+# ------------------------------------------------------------------------------
+# 6. CodeFlow Local Runtime State
+# ------------------------------------------------------------------------------
+.codeflow/
+
+# ------------------------------------------------------------------------------
+# 7. AI Agent & Teamwork Transient Session States
+# ------------------------------------------------------------------------------
+.brv/
+ORIGINAL_REQUEST.md
+PROJECT.md
+TEST_INFRA.md
+TEST_READY.md
+
+# Teamwork preview subagent run directories (preserves other .agents tools/hooks)
+.agents/ORIGINAL_REQUEST.md
+.agents/auditor_*
+.agents/challenger_*
+.agents/explorer_*
+.agents/orchestrator_*
+.agents/reviewer_*
+.agents/sentinel/
+.agents/spec_miner_*
+.agents/victory_auditor_*
+.agents/worker_*

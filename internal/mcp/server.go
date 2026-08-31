@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"codeflow/internal/contractharness"
+	"codeflow/internal/detect"
 	"codeflow/internal/flowview"
 	"codeflow/internal/fusion"
 	"codeflow/internal/harvest"
@@ -37,6 +38,8 @@ type Config struct {
 	RepoRoot     string
 	AuthToken    string
 	DartAdapter  string
+	AdapterSpec  string
+	Language     string
 	RequireToken bool
 }
 
@@ -59,9 +62,22 @@ func NewServer(cfg Config) (*Server, error) {
 		return nil, fmt.Errorf("init storage layout: %w", err)
 	}
 
-	adapterCfg, err := harvest.ResolveDartAdapter(cfg.DartAdapter)
+	lang := cfg.Language
+	if lang == "" {
+		det := detect.Detect(cfg.RepoRoot)
+		if det.Confident && det.Language != "" && det.Language != "unknown" {
+			lang = det.Language
+		} else {
+			lang = "dart"
+		}
+	}
+	spec := cfg.AdapterSpec
+	if spec == "" {
+		spec = cfg.DartAdapter
+	}
+	adapterCfg, err := harvest.ResolveAdapter(lang, spec)
 	if err != nil {
-		return nil, fmt.Errorf("resolve dart adapter: %w", err)
+		return nil, fmt.Errorf("resolve %s adapter: %w", lang, err)
 	}
 
 	pool := protocol.NewPool(adapterCfg, 2)

@@ -68,8 +68,60 @@ func TestSlicingIntegration(t *testing.T) {
 		t.Errorf("got entrySymbolPath %q, want %q", payload.EntrySymbolPath, entry)
 	}
 	if len(payload.Steps) == 0 {
-		t.Errorf("expected slice steps, got 0")
+		t.Errorf("expected at least 1 step, got 0")
 	}
 
 	t.Logf("Sliced %d steps, %d edges from %s", len(payload.Steps), len(payload.Edges), entry)
+}
+
+func TestTypeScriptSlicingIntegration(t *testing.T) {
+	if _, err := exec.LookPath("node"); err != nil {
+		t.Skipf("node not found in PATH: %v", err)
+	}
+	root := moduleRoot(t)
+	spec := "noderun:" + filepath.Join(root, "adapters", "typescript")
+
+	cfg, err := harvest.ResolveAdapter("typescript", spec)
+	if err != nil {
+		t.Fatalf("ResolveAdapter(typescript): %v", err)
+	}
+	cfg.DefaultTimeout = 60 * time.Second
+
+	pool := protocol.NewPool(cfg, 1)
+	defer pool.Close()
+
+	runner := slicing.NewRunner(pool)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	exampleApp := filepath.Join(root, "testdata", "ts_example_app")
+	candidateID := "cand-d2d1a08c8b3668f9"
+	entry := "src/features/auth/LoginView.tsx#handleSubmit"
+
+	payload, err := runner.Slice(ctx, exampleApp, candidateID, entry, nil)
+	if err != nil {
+		t.Fatalf("runner.Slice failed: %v", err)
+	}
+
+	if payload.CandidateID != candidateID {
+		t.Errorf("CandidateID = %q, want %q", payload.CandidateID, candidateID)
+	}
+	if payload.Language != "typescript" {
+		t.Errorf("Language = %q, want typescript", payload.Language)
+	}
+	if len(payload.Steps) == 0 {
+		t.Errorf("expected at least 1 step, got 0")
+	}
+
+	foundBoundary := false
+	for _, edge := range payload.Edges {
+		if edge.Kind == "boundary_call" {
+			foundBoundary = true
+			break
+		}
+	}
+	if !foundBoundary {
+		t.Errorf("expected boundary_call edge in slice payload, got: %+v", payload.Edges)
+	}
 }

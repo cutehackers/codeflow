@@ -86,8 +86,62 @@ func Run(repoRoot string, stdout io.Writer) (*Result, error) {
 		return nil, fmt.Errorf("init: %w", err)
 	}
 
+	ensureStarterLayersYaml(root, stdout)
+
 	printSummary(stdout, res)
 	return res, nil
+}
+
+func ensureStarterLayersYaml(root string, stdout io.Writer) {
+	layersPath := filepath.Join(root, "codeflow.layers.yaml")
+	if _, err := os.Stat(layersPath); err == nil {
+		return // already exists, preserve developer configuration
+	}
+
+	starterContent := `# CodeFlow Architecture Layers Configuration (§4.1.3)
+version: 1
+strictOrder: true
+allowUnknownLayer: false
+
+layers:
+  - name: presentation
+    description: "UI Components, Views, Screens, and Widgets"
+    aliases: [ui, view, widget, screen, page, component]
+    pathPatterns: ["**/presentation/**", "**/ui/**", "**/views/**", "**/components/**", "**/screens/**"]
+
+  - name: controller
+    description: "State Management, ViewModels, Notifiers, and Controllers"
+    aliases: [controller, notifier, bloc, cubit, viewmodel, store, reducer]
+    pathPatterns: ["**/controllers/**", "**/notifiers/**", "**/bloc/**", "**/stores/**", "**/viewmodels/**"]
+
+  - name: usecase
+    description: "Application Business UseCases and Interactors"
+    aliases: [usecase, use_case, service, interactor, command, query]
+    pathPatterns: ["**/usecase/**", "**/usecases/**", "**/interactors/**", "**/domain/services/**"]
+
+  - name: domain
+    description: "Core Entities, Models, and Domain Logic"
+    aliases: [domain, entity, model, aggregate, vo]
+    pathPatterns: ["**/domain/**", "**/entities/**", "**/models/**"]
+
+  - name: data
+    description: "Repositories, DataSources, and Persistence"
+    aliases: [data, repository, datasource, data_source, dao]
+    pathPatterns: ["**/data/**", "**/repositories/**", "**/datasources/**", "**/dao/**"]
+
+  - name: infra
+    description: "Platform Channels, Local Storage, and Infrastructure"
+    aliases: [infra, infrastructure, platform, storage]
+    pathPatterns: ["**/infra/**", "**/infrastructure/**", "**/storage/**", "**/platform/**"]
+
+  - name: external
+    description: "Remote APIs, Network Clients, and 3rd-Party Gateways"
+    aliases: [external, api, remote, client, gateway, network]
+    pathPatterns: ["**/network/**", "**/api/**", "**/clients/**", "**/gateways/**"]
+`
+	if err := os.WriteFile(layersPath, []byte(starterContent), 0o644); err == nil {
+		fmt.Fprintf(stdout, "  created starter codeflow.layers.yaml\n")
+	}
 }
 
 func reportDetection(stdout io.Writer, root string, res *Result) {

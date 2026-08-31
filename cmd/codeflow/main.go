@@ -14,6 +14,7 @@ import (
 	"syscall"
 	"time"
 
+	"codeflow/internal/detect"
 	"codeflow/internal/doctor"
 	"codeflow/internal/flowview"
 	"codeflow/internal/fusion"
@@ -155,7 +156,19 @@ func runFlows(args []string) {
 		target = posArgs[0]
 	}
 
-	cfg, err := harvest.ResolveDartAdapter(os.Getenv(harvest.DartAdapterEnvVar))
+	absTarget, err := filepath.Abs(target)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "resolve path: %v\n", err)
+		os.Exit(1)
+	}
+
+	det := detect.Detect(absTarget)
+	lang := "dart"
+	if det.Confident && det.Language != "" && det.Language != "unknown" {
+		lang = det.Language
+	}
+
+	cfg, err := harvest.ResolveAdapter(lang, "")
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "codeflow flows: %v\n", err)
 		os.Exit(1)
@@ -167,7 +180,7 @@ func runFlows(args []string) {
 	ctx, cancel := context.WithTimeout(context.Background(), 120*time.Second)
 	defer cancel()
 
-	candidates, err := runner.Run(ctx, target)
+	candidates, err := runner.Run(ctx, absTarget)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "codeflow flows: %v\n", err)
 		os.Exit(1)
@@ -204,7 +217,13 @@ func runPublish(args []string) {
 		os.Exit(1)
 	}
 
-	cfg, err := harvest.ResolveDartAdapter(os.Getenv(harvest.DartAdapterEnvVar))
+	det := detect.Detect(absTarget)
+	lang := "dart"
+	if det.Confident && det.Language != "" && det.Language != "unknown" {
+		lang = det.Language
+	}
+
+	cfg, err := harvest.ResolveAdapter(lang, "")
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "codeflow publish: %v\n", err)
 		os.Exit(1)
@@ -438,10 +457,15 @@ func runMCP(args []string) {
 	}
 	absTarget, _ := filepath.Abs(target)
 
-	spec := os.Getenv(harvest.DartAdapterEnvVar)
+	det := detect.Detect(absTarget)
+	lang := "dart"
+	if det.Confident && det.Language != "" && det.Language != "unknown" {
+		lang = det.Language
+	}
+
 	srv, err := mcp.NewServer(mcp.Config{
 		RepoRoot:     absTarget,
-		DartAdapter:  spec,
+		Language:     lang,
 		RequireToken: false,
 	})
 	if err != nil {
@@ -463,7 +487,11 @@ func runDoctor(args []string) {
 	}
 	absTarget, _ := filepath.Abs(target)
 
-	spec := os.Getenv(harvest.DartAdapterEnvVar)
+	det := detect.Detect(absTarget)
+	spec := ""
+	if det.Language == "dart" || !det.Confident {
+		spec = os.Getenv(harvest.DartAdapterEnvVar)
+	}
 	results := doctor.Diagnose(absTarget, spec)
 
 	fmt.Printf("\nCodeFlow Environment Doctor: %s\n", absTarget)
