@@ -113,6 +113,10 @@ else
     *) die "Unsupported architecture: $ARCH (only amd64 and arm64 are supported)" ;;
   esac
 
+  if [ "$OS" = "darwin" ] && [ "$ARCH" = "amd64" ]; then
+    die "Pre-compiled binaries for Intel Mac (darwin-amd64) are not supported. Only Apple Silicon (ARM64) is supported for macOS."
+  fi
+
   TMP_DIR="$(mktemp -d)"
   TARBALL_NAME="codeflow-${CODEFLOW_VERSION}-${OS}-${ARCH}.tar.gz"
   DOWNLOAD_URL="https://github.com/${CODEFLOW_REPO}/releases/download/${CODEFLOW_VERSION}/${TARBALL_NAME}"

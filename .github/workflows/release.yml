@@ -18,9 +18,6 @@ jobs:
           - os: darwin
             arch: arm64
             runner: macos-latest
-          - os: darwin
-            arch: amd64
-            runner: macos-13
           - os: linux
             arch: amd64
             runner: ubuntu-latest
