@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 
 	"codeflow/internal/contractharness"
 	"codeflow/internal/detect"
@@ -47,18 +48,20 @@ func Diagnose(repoRoot string, dartAdapterSpec string) []CheckResult {
 
 	switch det.Language {
 	case "typescript", "javascript":
-		// Node.js toolchain check
+		// Node.js toolchain check (Node.js 18+ recommended)
 		if nodePath, err := exec.LookPath("node"); err == nil {
+			verOutput, _ := exec.Command(nodePath, "--version").Output()
+			verStr := strings.TrimSpace(string(verOutput))
 			results = append(results, CheckResult{
 				Name:    "Node.js Runtime",
 				Passed:  true,
-				Message: fmt.Sprintf("Found node at %s", nodePath),
+				Message: fmt.Sprintf("Found node %s at %s", verStr, nodePath),
 			})
 		} else {
 			results = append(results, CheckResult{
 				Name:    "Node.js Runtime",
 				Passed:  false,
-				Message: "node executable not found in PATH",
+				Message: "node executable not found in PATH (Node.js 18+ required)",
 			})
 		}
 
@@ -75,6 +78,28 @@ func Diagnose(repoRoot string, dartAdapterSpec string) []CheckResult {
 				Name:    "TypeScript adapter",
 				Passed:  false,
 				Message: fmt.Sprintf("Adapter resolution error: %v", err),
+			})
+		}
+
+		// TypeScript Language Server (LSP) check: local project .bin first, then global
+		localLsp := filepath.Join(repoRoot, "node_modules", ".bin", "typescript-language-server")
+		if _, err := os.Stat(localLsp); err == nil {
+			results = append(results, CheckResult{
+				Name:    "TypeScript LSP (Optional)",
+				Passed:  true,
+				Message: fmt.Sprintf("Found project-local LSP at %s", localLsp),
+			})
+		} else if globalLsp, err := exec.LookPath("typescript-language-server"); err == nil {
+			results = append(results, CheckResult{
+				Name:    "TypeScript LSP (Optional)",
+				Passed:  true,
+				Message: fmt.Sprintf("Found global LSP at %s", globalLsp),
+			})
+		} else {
+			results = append(results, CheckResult{
+				Name:    "TypeScript LSP (Optional)",
+				Passed:  true,
+				Message: "Not found (local AST parser active; optional: npx typescript-language-server)",
 			})
 		}
 

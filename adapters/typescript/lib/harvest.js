@@ -58,7 +58,8 @@ function harvestCandidates(params) {
     for (const cls of scan.classes) {
       for (const method of cls.methods) {
         const entrySymbolPath = `${relPath}#${cls.name}.${method.name}`;
-        const marker = classifyMarker(cls.name, method.name, code);
+        const methodBody = code.substring(method.bodyStart, method.bodyEnd);
+        const marker = classifyMarker(cls.name, method.name, code, methodBody);
         if (marker) {
           candidates.push(buildCandidate({
             entrySymbolPath,
@@ -72,15 +73,26 @@ function harvestCandidates(params) {
       }
     }
 
-    // 2. Check top-level functions and handler consts
+    // 2. Check top-level functions and nested handlers/hooks
     for (const fn of scan.topLevelFunctions) {
       const entrySymbolPath = `${relPath}#${fn.name}`;
-      const marker = classifyMarker(classNameFromPath, fn.name, code);
+      const fnBody = code.substring(fn.bodyStart, fn.bodyEnd);
+
+      let enclosingName = classNameFromPath;
+      let methodName = fn.name;
+
+      if (fn.name.includes('.')) {
+        const parts = fn.name.split('.');
+        enclosingName = parts.slice(0, -1).join('.');
+        methodName = parts[parts.length - 1];
+      }
+
+      const marker = classifyMarker(enclosingName, methodName, code, fnBody);
       if (marker) {
         candidates.push(buildCandidate({
           entrySymbolPath,
-          className: classNameFromPath,
-          methodName: fn.name,
+          className: enclosingName,
+          methodName: methodName,
           triggerClass: marker.triggerClass,
           markerKind: marker.markerKind,
           packageName,
@@ -103,64 +115,141 @@ function harvestCandidates(params) {
   return { candidates: deduped };
 }
 
-function classifyMarker(enclosingName, symbolName, code) {
-  const s = symbolName.toLowerCase();
-  const enc = enclosingName.toLowerCase();
+/**
+ * Classifies a symbol into a closed triggerClass and markerKind.
+ * @param {string} enclosingName - Name of enclosing class/component/file
+ * @param {string} symbolName - Name of the method/function/hook
+ * @param {string} code - Full file source code
+ * @param {string} [fnBody] - Body content of the function (optional)
+ * @returns {{ triggerClass: string, markerKind: string } | null}
+ */
+function classifyMarker(enclosingName, symbolName, code, fnBody = '') {
+  let enc = enclosingName || '';
+  let sym = symbolName || '';
 
-  // Clean Architecture UseCase invocation
+  // If symbol is dotted (e.g. LoginPage.handleSubmit), extract local symbol and parent scope
+  if (sym.includes('.')) {
+    const parts = sym.split('.');
+    enc = parts.slice(0, -1).join('.');
+    sym = parts[parts.length - 1];
+  }
+
+  const s = sym.toLowerCase();
+  const encLower = enc.toLowerCase();
+  const bodyText = fnBody || '';
+
+  // Filter out pure utility/memoization hooks (non-entrypoints)
+  const nonEntryHooks = new Set([
+    'useMemo',
+    'useRef',
+    'useCallback',
+    'useId',
+    'useTransition',
+    'useDeferredValue',
+    'useDebugValue',
+    'useImperativeHandle',
+    'useSyncExternalStore',
+  ]);
+  if (nonEntryHooks.has(sym)) {
+    return null;
+  }
+
+  // 1. Next.js Server Actions ('use server' directive in function body or file)
   if (
-    symbolName === 'execute' ||
-    symbolName === 'call' ||
-    symbolName === 'handle' ||
-    symbolName === 'invoke' ||
-    enc.includes('usecase') ||
-    enc.includes('interactor') ||
-    enc.includes('service')
+    bodyText.includes("'use server'") ||
+    bodyText.includes('"use server"') ||
+    code.includes("'use server'") ||
+    code.includes('"use server"')
   ) {
-    if (symbolName === 'execute' || symbolName === 'call' || symbolName === 'handle' || enc.includes('usecase')) {
+    if (!sym.startsWith('get') && !sym.startsWith('set')) {
+      return { triggerClass: triggerSystemEvent, markerKind: markerLifecycleCallback };
+    }
+  }
+
+  // 2. Next.js App Router HTTP Route Handlers (GET, POST, PUT, DELETE, PATCH, HEAD, OPTIONS)
+  const httpMethods = new Set(['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'HEAD', 'OPTIONS']);
+  if (httpMethods.has(sym)) {
+    return { triggerClass: triggerSystemEvent, markerKind: markerLifecycleCallback };
+  }
+
+  // 3. System Events / Lifecycle / Webhooks / Workers / Queue Consumers (evaluated before UI actions & custom hooks)
+  if (
+    sym === 'useEffect' ||
+    sym === 'useLayoutEffect' ||
+    sym === 'useInsertionEffect' ||
+    sym === 'componentDidMount' ||
+    sym === 'componentWillUnmount' ||
+    sym === 'componentDidUpdate' ||
+    /^(on|handle)?(message|event|webhook|mount|unmount|init|load|ready|start|shutdown|consume)/i.test(sym) ||
+    encLower.includes('consumer') ||
+    encLower.includes('listener') ||
+    encLower.includes('worker') ||
+    encLower.includes('queue')
+  ) {
+    return { triggerClass: triggerSystemEvent, markerKind: markerLifecycleCallback };
+  }
+
+  // 4. Clean Architecture / Domain UseCase Invocation
+  if (
+    sym === 'execute' ||
+    sym === 'call' ||
+    sym === 'handle' ||
+    sym === 'invoke' ||
+    encLower.includes('usecase') ||
+    encLower.includes('interactor') ||
+    encLower.includes('service')
+  ) {
+    if (
+      sym === 'execute' ||
+      sym === 'call' ||
+      sym === 'handle' ||
+      sym === 'invoke' ||
+      encLower.includes('usecase') ||
+      encLower.includes('interactor')
+    ) {
       return { triggerClass: triggerUseCaseInvocation, markerKind: markerUsecaseCall };
     }
   }
 
-  // User Actions (UI Event Handlers)
+  // 5. UI Actions (React Event Handlers, Form Actions, Click/Submit Callbacks)
   if (
-    /^(on|handle)?[A-Z0-9_$]*(click|press|tap|submit|change|select|drag|drop)/i.test(symbolName) ||
-    /^(handle|on)[A-Z]/.test(symbolName) ||
-    enc.includes('button') ||
-    enc.includes('screen') ||
-    enc.includes('view') ||
-    enc.includes('page') ||
-    enc.includes('component')
+    /^(handle|on)[A-Z0-9_$]*(click|press|tap|submit|change|select|drag|drop|input|blur|focus|toggle|close|open)/i.test(sym) ||
+    /^(handle|on)[A-Z]/.test(sym) ||
+    /^[A-Za-z0-9_$]+(Action|Handler)$/.test(sym) ||
+    (
+      (encLower.includes('button') ||
+       encLower.includes('screen') ||
+       encLower.includes('view') ||
+       encLower.includes('page') ||
+       encLower.includes('component') ||
+       encLower.includes('form') ||
+       encLower.includes('modal') ||
+       encLower.includes('dialog') ||
+       encLower.includes('card') ||
+       encLower.includes('item') ||
+       encLower.includes('header') ||
+       encLower.includes('footer')) &&
+      (/click|press|tap|submit|change|select|handle|^on[A-Z]|action/i.test(sym)) &&
+      !sym.startsWith('get') &&
+      !sym.startsWith('set')
+    )
   ) {
-    if (
-      /click|press|tap|submit|change|select|handle|on[A-Z]/i.test(symbolName) &&
-      !symbolName.startsWith('get') &&
-      !symbolName.startsWith('set')
-    ) {
-      return { triggerClass: triggerUserAction, markerKind: markerRouteCallback };
-    }
+    return { triggerClass: triggerUserAction, markerKind: markerRouteCallback };
   }
 
-  // State Management / Redux / Zustand / Notifiers
+  // 6. State Management / Custom Business Hooks / Redux / Zustand / TanStack Mutations
   if (
-    enc.includes('store') ||
-    enc.includes('slice') ||
-    enc.includes('reducer') ||
-    enc.includes('notifier') ||
-    enc.includes('context') ||
-    /^(set|update|mutate|dispatch|emit|commit)[A-Z]/.test(symbolName)
+    /^use[A-Z0-9_$]*(mutation|login|auth|cart|order|submit|update|query|state|form|checkout)/i.test(sym) ||
+    /^use[A-Z]/.test(sym) ||
+    /^(set|update|mutate|dispatch|emit|commit|reset)[A-Z]/.test(sym) ||
+    encLower.includes('store') ||
+    encLower.includes('slice') ||
+    encLower.includes('reducer') ||
+    encLower.includes('notifier') ||
+    encLower.includes('context') ||
+    encLower.includes('model')
   ) {
     return { triggerClass: triggerStateTransition, markerKind: markerNotifierMethod };
-  }
-
-  // System Events / Lifecycle / Webhooks / Queue
-  if (
-    /^(on|handle)?(message|event|webhook|mount|unmount|init|load|ready|start|shutdown|consume)/i.test(symbolName) ||
-    enc.includes('consumer') ||
-    enc.includes('listener') ||
-    enc.includes('worker')
-  ) {
-    return { triggerClass: triggerSystemEvent, markerKind: markerLifecycleCallback };
   }
 
   return null;
@@ -222,5 +311,6 @@ function listSourceFiles(repoRoot, subDir = '') {
 
 module.exports = {
   harvestCandidates,
+  classifyMarker,
   listSourceFiles,
 };

@@ -85,11 +85,53 @@ func main() {
 	case "install-record":
 		runInstallRecord(args)
 	case "version":
-		fmt.Printf("codeflow %s (commit=%s, built=%s)\n", version, commit, date)
+		fmt.Println(formatVersion(version, date))
 	default:
 		fmt.Fprintf(os.Stderr, "unknown command %q\n\n%s", command, usage)
 		os.Exit(1)
 	}
+}
+
+// formatVersion returns the formatted version string per CLI specification:
+// `codeflow v*.*.*, date: {human readable date}`
+func formatVersion(ver, rawDate string) string {
+	ver = strings.TrimSpace(ver)
+	if ver == "" {
+		ver = "dev"
+	}
+	if !strings.HasPrefix(ver, "v") {
+		ver = "v" + ver
+	}
+	humanDate := formatHumanDate(rawDate)
+	return fmt.Sprintf("codeflow %s, date: %s", ver, humanDate)
+}
+
+func formatHumanDate(raw string) string {
+	raw = strings.TrimSpace(raw)
+	if raw == "" || raw == "unknown" {
+		return "unknown"
+	}
+	layouts := []string{
+		time.RFC3339,
+		time.RFC3339Nano,
+		"2006-01-02T15:04:05Z07:00",
+		"2006-01-02T15:04:05",
+		"2006-01-02 15:04:05 MST",
+		"2006-01-02 15:04:05",
+		"2006-01-02",
+		"2006/01/02",
+		time.RFC1123,
+		time.RFC1123Z,
+	}
+	for _, layout := range layouts {
+		if t, err := time.Parse(layout, raw); err == nil {
+			if t.Hour() == 0 && t.Minute() == 0 && t.Second() == 0 {
+				return t.Format("2006-01-02")
+			}
+			return t.Format("2006-01-02 15:04:05 MST")
+		}
+	}
+	return raw
 }
 
 // reorderFlags moves flag tokens (and, for value-taking flags, their values)

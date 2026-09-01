@@ -1,0 +1,13 @@
+{
+  "name": "fsd-social-app",
+  "version": "1.0.0",
+  "dependencies": {
+    "react": "^18.3.0",
+    "react-dom": "^18.3.0",
+    "@reduxjs/toolkit": "^2.0.0",
+    "zustand": "^4.5.0"
+  },
+  "devDependencies": {
+    "typescript": "^5.4.0"
+  }
+}

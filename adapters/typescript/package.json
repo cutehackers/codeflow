@@ -1,6 +1,6 @@
 {
   "name": "codeflow-typescript-adapter",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "CodeFlow TypeScript and JavaScript Language Adapter",
   "main": "lib/index.js",
   "bin": {

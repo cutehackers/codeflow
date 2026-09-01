@@ -103,6 +103,7 @@ function sliceFlow(params) {
       let bodyStart = -1;
       let bodyEnd = -1;
 
+      // 1. Check class methods first (if className is present)
       if (className) {
         for (const cls of scan.classes) {
           if (cls.name === className) {
@@ -116,9 +117,46 @@ function sliceFlow(params) {
             break;
           }
         }
-      } else {
+      }
+
+      // 2. If not found in classes, search scan.topLevelFunctions for functional components, nested handlers, or hooks
+      if (bodyStart < 0) {
+        // Priority 2a: Exact match on full symbol name (e.g. LoginPage.handleSubmit)
         for (const fn of scan.topLevelFunctions) {
-          if (fn.name === methodName) {
+          if (fn.name === fullSym) {
+            bodyStart = fn.bodyStart;
+            bodyEnd = fn.bodyEnd;
+            break;
+          }
+        }
+      }
+
+      if (bodyStart < 0 && className) {
+        // Priority 2b: Match by parentScope === className and localName === methodName
+        for (const fn of scan.topLevelFunctions) {
+          if (fn.parentScope === className && (fn.localName === methodName || fn.name === `${className}.${methodName}`)) {
+            bodyStart = fn.bodyStart;
+            bodyEnd = fn.bodyEnd;
+            break;
+          }
+        }
+      }
+
+      if (bodyStart < 0) {
+        // Priority 2c: Match by fn.name === methodName or fn.localName === methodName
+        for (const fn of scan.topLevelFunctions) {
+          if (fn.name === methodName || fn.localName === methodName) {
+            bodyStart = fn.bodyStart;
+            bodyEnd = fn.bodyEnd;
+            break;
+          }
+        }
+      }
+
+      if (bodyStart < 0 && className) {
+        // Priority 2d: If className was the component itself
+        for (const fn of scan.topLevelFunctions) {
+          if (fn.name === className || fn.localName === className) {
             bodyStart = fn.bodyStart;
             bodyEnd = fn.bodyEnd;
             break;
@@ -204,9 +242,11 @@ function sliceFlow(params) {
           });
 
           if (isBoundary) {
+            const rawTarget = `${stmt.receiver ? stmt.receiver + '.' : ''}${stmt.methodName}`;
+            const safeTarget = rawTarget.replace(/[^A-Za-z0-9_.$-]/g, '_') || 'boundary';
             edges.push({
               kind: 'boundary_call',
-              toSymbolPath: `${currentRelPath}#${stmt.receiver ? stmt.receiver + '.' : ''}${stmt.methodName}`,
+              toSymbolPath: `${currentRelPath}#${safeTarget}`,
               resolutionStatus: 'resolved',
               depth: depth + 1,
               stepOrdinal,
@@ -239,9 +279,11 @@ function sliceFlow(params) {
                 depth: depth + 1,
               });
             } else {
+              const rawTarget = `${stmt.receiver ? stmt.receiver + '.' : ''}${stmt.methodName}`;
+              const safeTarget = rawTarget.replace(/[^A-Za-z0-9_.$-]/g, '_') || 'unknown';
               edges.push({
                 kind: 'unknown_edge',
-                toSymbolPath: `${currentRelPath}#${stmt.receiver ? stmt.receiver + '.' : ''}${stmt.methodName}`,
+                toSymbolPath: `${currentRelPath}#${safeTarget}`,
                 resolutionStatus: 'unresolved_dynamic',
                 depth: depth + 1,
                 stepOrdinal,
@@ -334,12 +376,17 @@ function sliceFlow(params) {
 }
 
 function isBoundaryTarget(receiver, methodName) {
-  const target = `${receiver || ''}.${methodName || ''}`;
+  if (!receiver && !methodName) return false;
+  const parts = receiver ? receiver.split('.') : [];
+  const lastReceiverPart = parts.length > 0 ? parts[parts.length - 1] : (receiver || '');
+  const r = lastReceiverPart.toLowerCase();
+  const m = (methodName || '').toLowerCase();
+
   for (const suffix of boundarySuffixes) {
+    const s = suffix.toLowerCase();
     if (
-      (receiver && (receiver.endsWith(suffix) || receiver.toLowerCase().includes(suffix.toLowerCase()))) ||
-      (methodName && (methodName.endsWith(suffix) || methodName.toLowerCase().includes(suffix.toLowerCase()))) ||
-      target.toLowerCase().includes(suffix.toLowerCase())
+      (lastReceiverPart && (lastReceiverPart.endsWith(suffix) || r.endsWith(s) || r === s)) ||
+      (methodName && (methodName.endsWith(suffix) || m.endsWith(s) || m === s))
     ) {
       return true;
     }
@@ -370,9 +417,63 @@ function loadTsConfig(repoRoot) {
   return { baseUrl: '.', paths: {} };
 }
 
+/**
+ * Scans code for destructured hook or function return bindings:
+ * e.g. const { login } = useAuth();
+ * e.g. const { login: authLogin } = useAuth();
+ * e.g. const [ login ] = useLogin();
+ * e.g. const auth = useAuth();
+ * @param {string} code
+ * @param {string} identifier
+ * @returns {string|null} The source hook/function name (e.g. "useAuth")
+ */
+function findHookBinding(code, identifier) {
+  if (!code || !identifier) return null;
+
+  // 1. Object destructuring: const { login } = useAuth(...)
+  const objDestructRe = /(?:const|let|var)\s+\{\s*([^}]+)\s*\}\s*=\s*(?:await\s+)?([A-Za-z0-9_$]+(?:\s*\.\s*[A-Za-z0-9_$]+)*)\s*\(/g;
+  let m;
+  while ((m = objDestructRe.exec(code)) !== null) {
+    const members = m[1].split(',');
+    const sourceCall = m[2].replace(/\s+/g, '');
+    for (const member of members) {
+      const parts = member.trim().split(':');
+      const prop = parts[0].trim();
+      const localName = parts.length > 1 ? parts[1].trim() : prop;
+      if (localName === identifier || prop === identifier) {
+        return sourceCall;
+      }
+    }
+  }
+
+  // 2. Array destructuring: const [ login ] = useAuth(...)
+  const arrDestructRe = /(?:const|let|var)\s+\[\s*([^\]]+)\s*\]\s*=\s*(?:await\s+)?([A-Za-z0-9_$]+(?:\s*\.\s*[A-Za-z0-9_$]+)*)\s*\(/g;
+  while ((m = arrDestructRe.exec(code)) !== null) {
+    const elements = m[1].split(',').map(e => e.trim());
+    const sourceCall = m[2].replace(/\s+/g, '');
+    if (elements.includes(identifier)) {
+      return sourceCall;
+    }
+  }
+
+  // 3. Direct assignment: const auth = useAuth(...)
+  const directAssignRe = /(?:const|let|var)\s+([A-Za-z0-9_$]+)\s*=\s*(?:await\s+)?([A-Za-z0-9_$]+(?:\s*\.\s*[A-Za-z0-9_$]+)*)\s*\(/g;
+  while ((m = directAssignRe.exec(code)) !== null) {
+    if (m[1] === identifier) {
+      return m[2].replace(/\s+/g, '');
+    }
+  }
+
+  return null;
+}
+
 function resolveCallTarget({ repoRoot, currentRelPath, scan, receiver, methodName, readFile, getScan, tsConfig }) {
   const currentDir = path.dirname(currentRelPath);
   const cfg = tsConfig || { baseUrl: '.', paths: {} };
+  const currentCode = readFile(currentRelPath) || '';
+
+  const receiverParts = receiver ? receiver.split('.') : [];
+  const rootReceiver = receiverParts.length > 0 ? receiverParts[0] : '';
 
   // 1. Same-file resolution (this.method or local function)
   if (!receiver || receiver === 'this') {
@@ -384,14 +485,22 @@ function resolveCallTarget({ repoRoot, currentRelPath, scan, receiver, methodNam
       }
     }
     for (const fn of scan.topLevelFunctions) {
-      if (fn.name === methodName) {
-        return { relPath: currentRelPath, className: '', methodName: fn.name };
+      if (fn.name === methodName || fn.localName === methodName) {
+        return { relPath: currentRelPath, className: fn.parentScope || '', methodName: fn.localName || fn.name };
       }
     }
   }
 
-  // 2. Resolve imports
-  for (const imp of scan.imports) {
+  // 2. Track destructured hook bindings in current file:
+  let hookSource = null;
+  if (!receiver || receiver === 'this') {
+    hookSource = findHookBinding(currentCode, methodName);
+  } else if (rootReceiver) {
+    hookSource = findHookBinding(currentCode, rootReceiver);
+  }
+
+  // Helper to resolve candidates from an import specifier
+  function getCandidatePaths(imp, fromDir = currentDir) {
     const candidatePaths = [];
 
     // A. Configured tsconfig paths
@@ -424,9 +533,136 @@ function resolveCallTarget({ repoRoot, currentRelPath, scan, receiver, methodNam
         candidatePaths.push(path.resolve(repoRoot, 'src', sub));
       } else if (imp.startsWith('.')) {
         // C. Relative import
-        candidatePaths.push(path.resolve(repoRoot, currentDir, imp));
+        candidatePaths.push(path.resolve(repoRoot, fromDir, imp));
       }
     }
+
+    return candidatePaths;
+  }
+
+  // Helper to search a target file scan for matching class methods or functions
+  function searchTargetScan(targetScan, targetRel, visitedFiles = new Set()) {
+    if (!targetScan || visitedFiles.has(targetRel)) return null;
+    visitedFiles.add(targetRel);
+
+    // 1. Direct class method match
+    for (const cls of targetScan.classes) {
+      const matchesClass =
+        !receiver ||
+        receiver === 'this' ||
+        cls.name.toLowerCase() === receiver.toLowerCase() ||
+        receiverParts.some(p => cls.name.toLowerCase() === p.toLowerCase() || cls.name.toLowerCase().includes(p.toLowerCase()) || p.toLowerCase().includes(cls.name.toLowerCase())) ||
+        (hookSource && (cls.name.toLowerCase().includes(hookSource.toLowerCase()) || hookSource.toLowerCase().includes(cls.name.toLowerCase())));
+
+      if (matchesClass) {
+        for (const m of cls.methods) {
+          if (m.name === methodName) {
+            return { relPath: targetRel, className: cls.name, methodName: m.name };
+          }
+        }
+      }
+    }
+
+    // 2. Fallback check: any class in file with matching method
+    for (const cls of targetScan.classes) {
+      for (const m of cls.methods) {
+        if (m.name === methodName) {
+          return { relPath: targetRel, className: cls.name, methodName: m.name };
+        }
+      }
+    }
+
+    // 3. Match top-level functions or nested functions
+    for (const fn of targetScan.topLevelFunctions) {
+      const fnLocal = fn.localName || fn.name;
+      if (
+        fn.name === methodName ||
+        fnLocal === methodName ||
+        fn.name.endsWith('.' + methodName) ||
+        (hookSource && (fn.name === hookSource || fnLocal === hookSource)) ||
+        (receiver && (fn.name === receiver || receiverParts.some(p => fn.name === p || fnLocal === p)))
+      ) {
+        return {
+          relPath: targetRel,
+          className: fn.parentScope || (fn.name.includes('.') ? fn.name.split('.')[0] : ''),
+          methodName: fnLocal,
+        };
+      }
+    }
+
+    // 4. Follow re-exports in target file (e.g. barrel index.ts files)
+    const targetCode = readFile(targetRel);
+    if (targetCode) {
+      const reExportRe = /(?:export\s+(?:\*|\{[^}]+\})\s+from\s+['"]([^'"]+)['"])|(?:export\s+\*\s+as\s+[A-Za-z0-9_$]+\s+from\s+['"]([^'"]+)['"])/g;
+      let reExp;
+      while ((reExp = reExportRe.exec(targetCode)) !== null) {
+        const rePathSpec = reExp[1] || reExp[2];
+        if (rePathSpec && rePathSpec.startsWith('.')) {
+          const reDir = path.dirname(targetRel);
+          const subCandidates = getCandidatePaths(rePathSpec, reDir);
+          for (const cand of subCandidates) {
+            const fileCandidates = [
+              cand,
+              cand + '.ts',
+              cand + '.tsx',
+              cand + '.js',
+              cand + '.jsx',
+              path.join(cand, 'index.ts'),
+              path.join(cand, 'index.tsx'),
+              path.join(cand, 'index.js'),
+              path.join(cand, 'index.jsx'),
+            ];
+            for (const fc of fileCandidates) {
+              const relCand = path.relative(repoRoot, fc).replace(/\\/g, '/');
+              if (relCand.startsWith('..')) continue;
+              const subScan = getScan(relCand);
+              if (subScan) {
+                const res = searchTargetScan(subScan, relCand, visitedFiles);
+                if (res) return res;
+              }
+            }
+          }
+        }
+      }
+    }
+
+    // 5. Follow imports in target file (e.g. aggregator modules like api.ts)
+    if (targetScan.imports && targetScan.imports.length > 0) {
+      const targetDir = path.dirname(targetRel);
+      for (const subImp of targetScan.imports) {
+        const subCandidates = getCandidatePaths(subImp, targetDir);
+        for (const cand of subCandidates) {
+          const fileCandidates = [
+            cand,
+            cand + '.ts',
+            cand + '.tsx',
+            cand + '.js',
+            cand + '.jsx',
+            cand + '.d.ts',
+            path.join(cand, 'index.ts'),
+            path.join(cand, 'index.tsx'),
+            path.join(cand, 'index.js'),
+            path.join(cand, 'index.jsx'),
+          ];
+          for (const fc of fileCandidates) {
+            const relCand = path.relative(repoRoot, fc).replace(/\\/g, '/');
+            if (relCand.startsWith('..')) continue;
+            const subScan = getScan(relCand);
+            if (subScan) {
+              const res = searchTargetScan(subScan, relCand, visitedFiles);
+              if (res) return res;
+            }
+          }
+        }
+      }
+    }
+
+    return null;
+  }
+
+  // 3. Search all imported modules
+  for (const imp of scan.imports) {
+    const candidatePaths = getCandidatePaths(imp);
 
     for (const basePath of candidatePaths) {
       const fileCandidates = [
@@ -448,38 +684,9 @@ function resolveCallTarget({ repoRoot, currentRelPath, scan, receiver, methodNam
 
         const targetScan = getScan(targetRel);
         if (targetScan) {
-          // Match class method
-          for (const cls of targetScan.classes) {
-            const matchesClass =
-              !receiver ||
-              receiver === 'this' ||
-              cls.name.toLowerCase() === receiver.toLowerCase() ||
-              receiver.toLowerCase().includes(cls.name.toLowerCase()) ||
-              cls.name.toLowerCase().includes(receiver.toLowerCase());
-
-            if (matchesClass) {
-              for (const m of cls.methods) {
-                if (m.name === methodName) {
-                  return { relPath: targetRel, className: cls.name, methodName: m.name };
-                }
-              }
-            }
-          }
-
-          // Fallback: check any class in file for method
-          for (const cls of targetScan.classes) {
-            for (const m of cls.methods) {
-              if (m.name === methodName) {
-                return { relPath: targetRel, className: cls.name, methodName: m.name };
-              }
-            }
-          }
-
-          // Match top-level functions
-          for (const fn of targetScan.topLevelFunctions) {
-            if (fn.name === methodName || (receiver && fn.name === receiver)) {
-              return { relPath: targetRel, className: '', methodName: fn.name };
-            }
+          const match = searchTargetScan(targetScan, targetRel);
+          if (match) {
+            return match;
           }
         }
       }
@@ -1080,12 +1287,19 @@ function extractStatements(bodyText, bodyOffset, fullCode) {
           });
         } else {
           // Call check
-          const callMatch = rawStmtText.match(/(?:(?:const|let|var)\s+[^=]+=\s*)?(?:return\s+)?(?:await\s+)?(?:this\.)?([A-Za-z0-9_$]+)\s*(?:\.\s*([A-Za-z0-9_$]+))?\s*\(/);
+          const callMatch = rawStmtText.match(/(?:(?:const|let|var)\s+[^=]+=\s*)?(?:return\s+)?(?:await\s+)?(?:this\.)?([A-Za-z0-9_$]+(?:\s*\.\s*[A-Za-z0-9_$]+)*)\s*\(/);
           if (callMatch) {
-            const receiver = callMatch[2] ? callMatch[1] : '';
-            const methodName = callMatch[2] ? callMatch[2] : callMatch[1];
+            const rawChain = callMatch[1].replace(/\s+/g, '');
+            const parts = rawChain.split('.');
+            const methodName = parts[parts.length - 1];
+            const receiver = parts.length > 1 ? parts.slice(0, -1).join('.') : '';
 
-            if (methodName && !['if', 'for', 'while', 'switch', 'catch', 'finally', 'function', 'class', 'return', 'throw'].includes(methodName)) {
+            const reservedKeywords = new Set([
+              'if', 'for', 'while', 'switch', 'catch', 'finally', 'function', 'class', 'return', 'throw',
+              'typeof', 'void', 'delete', 'import', 'export', 'new', 'yield'
+            ]);
+
+            if (methodName && !reservedKeywords.has(methodName)) {
               stmts.push({
                 type: 'call',
                 rawText: rawStmtText,
@@ -1113,6 +1327,7 @@ module.exports = {
   extractStatements,
   tokenize,
   resolveCallTarget,
+  findHookBinding,
   isBoundaryTarget,
   loadTsConfig,
 };

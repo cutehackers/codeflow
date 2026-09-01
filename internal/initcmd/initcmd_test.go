@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	"codeflow/internal/fusion"
 	"codeflow/internal/workspace"
 )
 
@@ -57,7 +58,7 @@ func TestInitCreatesWorkspaceOnDartProject(t *testing.T) {
 	}
 }
 
-func TestInitProceedsUnconfidentWithoutPubspec(t *testing.T) {
+func TestInitProceedsUnconfidentWithoutMarker(t *testing.T) {
 	repoRoot := t.TempDir()
 
 	var out strings.Builder
@@ -66,12 +67,12 @@ func TestInitProceedsUnconfidentWithoutPubspec(t *testing.T) {
 		t.Fatalf("Run() error = %v (init must proceed unconfident)", err)
 	}
 	if res.Confident {
-		t.Error("Confident = true without pubspec.yaml")
+		t.Error("Confident = true without project marker")
 	}
 	if !workspace.Exists(repoRoot) {
 		t.Error("workspace.json should still be created")
 	}
-	if !strings.Contains(out.String(), "warn: no pubspec.yaml found") {
+	if !strings.Contains(out.String(), "warn: no project marker found") {
 		t.Errorf("stdout missing warning; got:\n%s", out.String())
 	}
 }
@@ -211,5 +212,130 @@ func TestInitRejectsMissingTargetDirectory(t *testing.T) {
 	repoRoot := filepath.Join(t.TempDir(), "does-not-exist")
 	if _, err := Run(repoRoot, nil); err == nil {
 		t.Error("Run() should error for a nonexistent target path")
+	}
+}
+
+func TestInitGeneratesTailoredLayers_NextJs(t *testing.T) {
+	repoRoot := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(repoRoot, "app"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	pkg := `{"name":"my-next-app","dependencies":{"next":"14.2.0","react":"18.2.0"}}`
+	if err := os.WriteFile(filepath.Join(repoRoot, "package.json"), []byte(pkg), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	var out strings.Builder
+	if _, err := Run(repoRoot, &out); err != nil {
+		t.Fatalf("Run() error = %v", err)
+	}
+
+	cfg, err := fusion.LoadLayersConfig(repoRoot)
+	if err != nil {
+		t.Fatalf("LoadLayersConfig failed: %v", err)
+	}
+	if len(cfg.Layers) != 7 {
+		t.Errorf("expected 7 layers, got %d", len(cfg.Layers))
+	}
+	if cfg.Layers[0].Name != fusion.LayerPresentation {
+		t.Errorf("layer 0 = %q, want presentation", cfg.Layers[0].Name)
+	}
+	foundAppPattern := false
+	for _, p := range cfg.Layers[0].PathPatterns {
+		if strings.Contains(p, "app") {
+			foundAppPattern = true
+			break
+		}
+	}
+	if !foundAppPattern {
+		t.Errorf("expected app pattern in presentation layer pathPatterns: %v", cfg.Layers[0].PathPatterns)
+	}
+}
+
+func TestInitGeneratesTailoredLayers_FSD(t *testing.T) {
+	repoRoot := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(repoRoot, "src", "features"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(repoRoot, "src", "entities"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	var out strings.Builder
+	if _, err := Run(repoRoot, &out); err != nil {
+		t.Fatalf("Run() error = %v", err)
+	}
+
+	cfg, err := fusion.LoadLayersConfig(repoRoot)
+	if err != nil {
+		t.Fatalf("LoadLayersConfig failed: %v", err)
+	}
+	if len(cfg.Layers) != 7 {
+		t.Errorf("expected 7 layers, got %d", len(cfg.Layers))
+	}
+	// Controller layer in FSD should include feature in aliases
+	foundFeatureAlias := false
+	for _, a := range cfg.Layers[1].Aliases {
+		if a == "feature" {
+			foundFeatureAlias = true
+			break
+		}
+	}
+	if !foundFeatureAlias {
+		t.Errorf("expected 'feature' in controller aliases for FSD: %v", cfg.Layers[1].Aliases)
+	}
+}
+
+func TestInitGeneratesTailoredLayers_ReactSPA(t *testing.T) {
+	repoRoot := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(repoRoot, "src", "components"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	pkg := `{"name":"my-spa","dependencies":{"react":"18.2.0"}}`
+	if err := os.WriteFile(filepath.Join(repoRoot, "package.json"), []byte(pkg), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	var out strings.Builder
+	if _, err := Run(repoRoot, &out); err != nil {
+		t.Fatalf("Run() error = %v", err)
+	}
+
+	cfg, err := fusion.LoadLayersConfig(repoRoot)
+	if err != nil {
+		t.Fatalf("LoadLayersConfig failed: %v", err)
+	}
+	if len(cfg.Layers) != 7 {
+		t.Errorf("expected 7 layers, got %d", len(cfg.Layers))
+	}
+	if cfg.Layers[0].Name != fusion.LayerPresentation {
+		t.Errorf("layer 0 = %q, want presentation", cfg.Layers[0].Name)
+	}
+}
+
+func TestInitPreservesExistingLayersYaml(t *testing.T) {
+	repoRoot := t.TempDir()
+	customYaml := `version: 1
+strictOrder: false
+allowUnknownLayer: true
+layers:
+  - name: presentation
+    aliases: [my_custom_ui]
+`
+	if err := os.WriteFile(filepath.Join(repoRoot, "codeflow.layers.yaml"), []byte(customYaml), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	var out strings.Builder
+	if _, err := Run(repoRoot, &out); err != nil {
+		t.Fatalf("Run() error = %v", err)
+	}
+
+	data, err := os.ReadFile(filepath.Join(repoRoot, "codeflow.layers.yaml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(data) != customYaml {
+		t.Errorf("codeflow.layers.yaml was modified:\n%s", string(data))
 	}
 }

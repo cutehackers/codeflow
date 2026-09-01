@@ -98,49 +98,156 @@ func ensureStarterLayersYaml(root string, stdout io.Writer) {
 		return // already exists, preserve developer configuration
 	}
 
-	starterContent := `# CodeFlow Architecture Layers Configuration (§4.1.3)
+	pattern, _ := detect.DetectArchitecturePattern(root)
+	starterContent := starterLayersYaml(pattern)
+
+	if err := os.WriteFile(layersPath, []byte(starterContent), 0o644); err == nil {
+		fmt.Fprintf(stdout, "  created starter codeflow.layers.yaml\n")
+	}
+}
+
+func starterLayersYaml(pattern detect.ArchitecturePattern) string {
+	switch pattern {
+	case detect.PatternNextAppRouter:
+		return `# CodeFlow Architecture Layers Configuration (Next.js App Router)
 version: 1
 strictOrder: true
 allowUnknownLayer: false
 
 layers:
   - name: presentation
-    description: "UI Components, Views, Screens, and Widgets"
+    aliases: [ui, view, component, page, layout, screen, widget]
+    pathPatterns: ["**/app/**/page.*", "**/app/**/layout.*", "**/app/**/template.*", "**/app/**/error.*", "**/app/**/loading.*", "**/components/**", "**/views/**", "**/ui/**"]
+
+  - name: controller
+    aliases: [controller, hook, context, store, slice, state, provider]
+    pathPatterns: ["**/hooks/**", "**/contexts/**", "**/providers/**", "**/stores/**", "**/slices/**"]
+
+  - name: usecase
+    aliases: [usecase, service, action, handler, feature, route_handler]
+    pathPatterns: ["**/actions/**", "**/app/api/**", "**/services/**", "**/lib/actions/**", "**/usecases/**"]
+
+  - name: domain
+    aliases: [domain, entity, model, schema, types]
+    pathPatterns: ["**/types/**", "**/models/**", "**/schemas/**", "**/domain/**", "**/entities/**"]
+
+  - name: data
+    aliases: [data, repository, db, datasource, queries, dao]
+    pathPatterns: ["**/db/**", "**/queries/**", "**/repositories/**", "**/data/**", "**/prisma/**", "**/drizzle/**"]
+
+  - name: infra
+    aliases: [infra, infrastructure, config, auth, middleware, platform]
+    pathPatterns: ["**/middleware.*", "**/lib/auth.*", "**/config/**", "**/infra/**", "**/infrastructure/**"]
+
+  - name: external
+    aliases: [external, client, api, gateway, sdk, remote]
+    pathPatterns: ["**/clients/**", "**/gateways/**", "**/lib/api.*", "**/services/external/**", "**/external/**", "**/api-client/**"]
+`
+	case detect.PatternFeatureSlicedDesign:
+		return `# CodeFlow Architecture Layers Configuration (Feature-Sliced Design)
+version: 1
+strictOrder: true
+allowUnknownLayer: false
+
+layers:
+  - name: presentation
+    aliases: [presentation, page, widget, app, ui, view]
+    pathPatterns: ["**/pages/**", "**/widgets/**", "**/app/**", "**/views/**", "**/features/**/ui/**", "**/entities/**/ui/**"]
+
+  - name: controller
+    aliases: [controller, feature, hook, store]
+    pathPatterns: ["**/features/**/model/**", "**/entities/**/model/**", "**/shared/model/**", "**/features/**", "**/hooks/**", "**/stores/**"]
+
+  - name: usecase
+    aliases: [usecase, process, service, interactor]
+    pathPatterns: ["**/features/**/api/**", "**/entities/**/api/**", "**/features/**/lib/**", "**/processes/**", "**/services/**", "**/usecases/**"]
+
+  - name: domain
+    aliases: [domain, entity, model, schema, types]
+    pathPatterns: ["**/entities/**/types/**", "**/shared/types/**", "**/entities/**/model/types.*", "**/entities/**", "**/models/**", "**/types/**"]
+
+  - name: data
+    aliases: [data, repository, datasource, api_layer]
+    pathPatterns: ["**/shared/api/**", "**/entities/**/api/**/repo.*", "**/repositories/**", "**/data/**"]
+
+  - name: infra
+    aliases: [infra, infrastructure, config, lib]
+    pathPatterns: ["**/shared/config/**", "**/shared/lib/**", "**/infra/**"]
+
+  - name: external
+    aliases: [external, client, gateway, sdk]
+    pathPatterns: ["**/shared/api/external/**", "**/shared/clients/**", "**/clients/**", "**/external/**"]
+`
+	case detect.PatternStandardReactSPA, detect.PatternGenericFrontend:
+		return `# CodeFlow Architecture Layers Configuration (Standard React SPA)
+version: 1
+strictOrder: true
+allowUnknownLayer: false
+
+layers:
+  - name: presentation
+    aliases: [ui, view, component, page, screen]
+    pathPatterns: ["**/components/**", "**/pages/**", "**/views/**", "**/screens/**"]
+
+  - name: controller
+    aliases: [controller, hook, context, store, slice, state]
+    pathPatterns: ["**/hooks/**", "**/contexts/**", "**/stores/**", "**/slices/**", "**/reducers/**"]
+
+  - name: usecase
+    aliases: [usecase, service, interactor]
+    pathPatterns: ["**/services/**", "**/usecases/**", "**/lib/services/**"]
+
+  - name: domain
+    aliases: [domain, entity, model, schema, types]
+    pathPatterns: ["**/types/**", "**/models/**", "**/schemas/**", "**/entities/**"]
+
+  - name: data
+    aliases: [data, repository, query, datasource]
+    pathPatterns: ["**/api/**", "**/repositories/**", "**/queries/**", "**/data/**"]
+
+  - name: infra
+    aliases: [infra, infrastructure, config, util, utils]
+    pathPatterns: ["**/utils/**", "**/lib/utils/**", "**/config/**", "**/infra/**"]
+
+  - name: external
+    aliases: [external, client, gateway, sdk]
+    pathPatterns: ["**/clients/**", "**/gateways/**", "**/external/**"]
+`
+	default:
+		return `# CodeFlow Architecture Layers Configuration (§4.1.3)
+version: 1
+strictOrder: true
+allowUnknownLayer: false
+
+layers:
+  - name: presentation
     aliases: [ui, view, widget, screen, page, component]
     pathPatterns: ["**/presentation/**", "**/ui/**", "**/views/**", "**/components/**", "**/screens/**"]
 
   - name: controller
-    description: "State Management, ViewModels, Notifiers, and Controllers"
     aliases: [controller, notifier, bloc, cubit, viewmodel, store, reducer]
     pathPatterns: ["**/controllers/**", "**/notifiers/**", "**/bloc/**", "**/stores/**", "**/viewmodels/**"]
 
   - name: usecase
-    description: "Application Business UseCases and Interactors"
     aliases: [usecase, use_case, service, interactor, command, query]
     pathPatterns: ["**/usecase/**", "**/usecases/**", "**/interactors/**", "**/domain/services/**"]
 
   - name: domain
-    description: "Core Entities, Models, and Domain Logic"
     aliases: [domain, entity, model, aggregate, vo]
     pathPatterns: ["**/domain/**", "**/entities/**", "**/models/**"]
 
   - name: data
-    description: "Repositories, DataSources, and Persistence"
     aliases: [data, repository, datasource, data_source, dao]
     pathPatterns: ["**/data/**", "**/repositories/**", "**/datasources/**", "**/dao/**"]
 
   - name: infra
-    description: "Platform Channels, Local Storage, and Infrastructure"
     aliases: [infra, infrastructure, platform, storage]
     pathPatterns: ["**/infra/**", "**/infrastructure/**", "**/storage/**", "**/platform/**"]
 
   - name: external
-    description: "Remote APIs, Network Clients, and 3rd-Party Gateways"
     aliases: [external, api, remote, client, gateway, network]
     pathPatterns: ["**/network/**", "**/api/**", "**/clients/**", "**/gateways/**"]
 `
-	if err := os.WriteFile(layersPath, []byte(starterContent), 0o644); err == nil {
-		fmt.Fprintf(stdout, "  created starter codeflow.layers.yaml\n")
 	}
 }
 
@@ -152,17 +259,52 @@ func reportDetection(stdout io.Writer, root string, res *Result) {
 	if res.ProjectName == "" {
 		res.ProjectName = filepath.Base(root)
 	}
+	marker := detectMarker(root, det.Language)
 	switch {
 	case det.Confident && det.ProjectName != "":
-		fmt.Fprintf(stdout, "detected %s project %q (%s)\n", det.Language, det.ProjectName, pubspecHint)
+		fmt.Fprintf(stdout, "detected %s project %q (%s)\n", det.Language, det.ProjectName, marker)
 	case det.Confident:
-		fmt.Fprintf(stdout, "detected %s project (%s without a name line)\n", det.Language, pubspecHint)
+		fmt.Fprintf(stdout, "detected %s project (%s without a name line)\n", det.Language, marker)
 	default:
-		fmt.Fprintf(stdout, "warn: no pubspec.yaml found; proceeding unconfident — language may be set later\n")
+		fmt.Fprintf(stdout, "warn: no %s found; proceeding unconfident — language may be set later\n", marker)
 	}
 }
 
-const pubspecHint = "pubspec.yaml"
+func detectMarker(root, lang string) string {
+	switch lang {
+	case "dart":
+		return "pubspec.yaml"
+	case "typescript":
+		if _, err := os.Stat(filepath.Join(root, "package.json")); err == nil {
+			return "package.json"
+		}
+		if _, err := os.Stat(filepath.Join(root, "tsconfig.json")); err == nil {
+			return "tsconfig.json"
+		}
+		return "package.json"
+	case "kotlin":
+		if _, err := os.Stat(filepath.Join(root, "build.gradle.kts")); err == nil {
+			return "build.gradle.kts"
+		}
+		if _, err := os.Stat(filepath.Join(root, "build.gradle")); err == nil {
+			return "build.gradle"
+		}
+		return "pom.xml"
+	case "swift":
+		return "Package.swift"
+	case "python":
+		if _, err := os.Stat(filepath.Join(root, "pyproject.toml")); err == nil {
+			return "pyproject.toml"
+		}
+		return "requirements.txt"
+	case "go":
+		return "go.mod"
+	case "rust":
+		return "Cargo.toml"
+	default:
+		return "project marker"
+	}
+}
 
 func scanAndPurge(stdout io.Writer, root string) (int, error) {
 	remnants, err := freshstart.ScanV1Remnants(root)

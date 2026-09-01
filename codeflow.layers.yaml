@@ -3,23 +3,24 @@ strictOrder: true
 allowUnknownLayer: false
 layers:
   - name: presentation
-    aliases: [ui, view, widget, page, screen, dialog, presentation, feature]
-    pathPatterns: ["**/presentation/**", "**/features/*/presentation/**", "**/pages/**", "**/lib/**/presentation/**"]
+    aliases: [ui, view, widget, page, screen, dialog, presentation, feature, cli]
+    pathPatterns: ["cmd/**", "**/cmd/**", "**/presentation/**", "**/features/*/presentation/**", "**/pages/**", "**/lib/**/presentation/**", "**/views/**"]
   - name: controller
-    aliases: [controller]
-    pathPatterns: ["**/controller/**", "**/notifier/**", "**/bloc/**", "**/cubit/**"]
+    aliases: [controller, notifier, bloc, cubit, pool, mcp]
+    pathPatterns: ["cmd/**", "internal/mcp/**", "internal/protocol/**", "**/controller/**", "**/notifier/**", "**/bloc/**", "**/cubit/**", "**/controllers/**"]
   - name: usecase
-    aliases: [application, service, interactor, use_case, usecase]
-    pathPatterns: ["**/usecase/**", "**/use_case/**", "**/domain/usecase/**", "**/application/**"]
+    aliases: [application, service, interactor, use_case, usecase, harvest, slicing]
+    pathPatterns: ["internal/harvest/**", "internal/slicing/**", "**/usecase/**", "**/use_case/**", "**/domain/usecase/**", "**/application/**", "**/services/**"]
   - name: domain
-    aliases: [domain, entity]
-    pathPatterns: ["**/domain/**"]
+    aliases: [domain, entity, fusion, naming]
+    pathPatterns: ["internal/fusion/**", "internal/naming/**", "**/domain/**", "**/entities/**", "**/models/**"]
   - name: data
-    aliases: [repository, datasource, data_source, data]
-    pathPatterns: ["**/data/**", "**/repository/**", "**/datasource/**", "**/infrastructure/**"]
+    aliases: [repository, datasource, data_source, data, storage]
+    pathPatterns: ["internal/storage/**", "**/data/**", "**/repository/**", "**/datasource/**", "**/repositories/**"]
   - name: infra
-    aliases: [infrastructure, platform]
-    pathPatterns: ["**/infra/**", "**/platform/**"]
+    aliases: [infrastructure, platform, secret, detect, doctor]
+    pathPatterns: ["internal/secret/**", "internal/detect/**", "internal/doctor/**", "**/infra/**", "**/platform/**", "**/infrastructure/**"]
   - name: external
-    aliases: [api, remote, gateway, client, external, network, http]
-    pathPatterns: ["**/api/**", "**/external/**", "**/network/**", "**/http/**", "**/remote/**"]
+    aliases: [api, remote, gateway, client, external, network, http, adapter]
+    pathPatterns: ["adapters/**", "**/adapters/**", "**/api/**", "**/external/**", "**/network/**", "**/http/**", "**/remote/**"]
+

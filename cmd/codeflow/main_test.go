@@ -60,3 +60,46 @@ func TestReorderFlagsKeepsValuesAttached(t *testing.T) {
 		t.Errorf("wait = %v, want 2s", *d)
 	}
 }
+
+func TestFormatVersion(t *testing.T) {
+	tests := []struct {
+		name     string
+		version  string
+		date     string
+		expected string
+	}{
+		{
+			name:     "Semver with v prefix and RFC3339 date",
+			version:  "v0.3.5",
+			date:     "2026-09-01T00:00:00Z",
+			expected: "codeflow v0.3.5, date: 2026-09-01",
+		},
+		{
+			name:     "Semver without v prefix and ISO date",
+			version:  "0.3.5",
+			date:     "2026-09-01",
+			expected: "codeflow v0.3.5, date: 2026-09-01",
+		},
+		{
+			name:     "Dev version with unknown date",
+			version:  "dev",
+			date:     "unknown",
+			expected: "codeflow vdev, date: unknown",
+		},
+		{
+			name:     "Timestamp with time part",
+			version:  "v1.2.3",
+			date:     "2026-09-01T15:30:00Z",
+			expected: "codeflow v1.2.3, date: 2026-09-01 15:30:00 UTC",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := formatVersion(tt.version, tt.date)
+			if got != tt.expected {
+				t.Errorf("formatVersion(%q, %q) = %q, want %q", tt.version, tt.date, got, tt.expected)
+			}
+		})
+	}
+}

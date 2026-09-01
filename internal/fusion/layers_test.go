@@ -338,3 +338,134 @@ func TestFusePreservesLayerAndToLayer(t *testing.T) {
 		t.Errorf("expected empty layer for legacy payload, got %q", spec2.Steps[0].Layer)
 	}
 }
+
+func TestNormalizeLayer_FrontendAliases(t *testing.T) {
+	cfg, err := LoadLayersConfig(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	cases := []struct {
+		raw  string
+		want string
+	}{
+		{"hook", LayerController},
+		{"context", LayerController},
+		{"store", LayerController},
+		{"feature", LayerController},
+		{"slice", LayerController},
+		{"action", LayerUsecase},
+		{"handler", LayerUsecase},
+		{"widget", LayerPresentation},
+		{"component", LayerPresentation},
+		{"page", LayerPresentation},
+		{"view", LayerPresentation},
+		{"screen", LayerPresentation},
+		{"entity", LayerDomain},
+		{"type", LayerDomain},
+		{"types", LayerDomain},
+		{"model", LayerDomain},
+		{"db", LayerData},
+		{"query", LayerData},
+		{"auth", LayerInfra},
+		{"config", LayerInfra},
+		{"sdk", LayerExternal},
+	}
+
+	for _, tc := range cases {
+		got, unk := NormalizeLayer(tc.raw, cfg)
+		if unk {
+			t.Errorf("NormalizeLayer(%q) reported unk=true, want false", tc.raw)
+		}
+		if got != tc.want {
+			t.Errorf("NormalizeLayer(%q) = %q, want %q", tc.raw, got, tc.want)
+		}
+	}
+}
+
+func TestValidateLayerOrder_NextJsFlow(t *testing.T) {
+	cfg := defaultLayersConfig()
+	declaredLayers := []string{
+		LayerPresentation, LayerController, LayerUsecase, LayerDomain, LayerData, LayerInfra, LayerExternal,
+	}
+
+	steps := []struct {
+		Layer string
+		Kind  string
+	}{
+		{"page", "call"},
+		{"hook", "call"},
+		{"action", "mutation"},
+		{"types", "guard"},
+		{"data", "call"},
+		{"auth", "call"},
+		{"client", "call"},
+	}
+
+	warnings, err := ValidateLayerOrder(steps, declaredLayers, cfg)
+	if err != nil {
+		t.Fatalf("ValidateLayerOrder on Next.js flow returned unexpected error: %v", err)
+	}
+	if len(warnings) != 0 {
+		t.Errorf("expected 0 warnings on valid Next.js flow, got: %v", warnings)
+	}
+}
+
+func TestValidateLayerOrder_FSDFlow(t *testing.T) {
+	cfg := defaultLayersConfig()
+	declaredLayers := []string{
+		LayerPresentation, LayerController, LayerUsecase, LayerDomain, LayerData, LayerInfra, LayerExternal,
+	}
+
+	steps := []struct {
+		Layer string
+		Kind  string
+	}{
+		{"pages", "call"},
+		{"widget", "call"},
+		{"feature", "call"},
+		{"process", "call"},
+		{"entity", "guard"},
+		{"datasource", "call"},
+		{"infra", "call"},
+		{"external", "call"},
+	}
+
+	warnings, err := ValidateLayerOrder(steps, declaredLayers, cfg)
+	if err != nil {
+		t.Fatalf("ValidateLayerOrder on FSD flow returned unexpected error: %v", err)
+	}
+	if len(warnings) != 0 {
+		t.Errorf("expected 0 warnings on valid FSD flow, got: %v", warnings)
+	}
+}
+
+func TestValidateLayerOrder_SPAFlow(t *testing.T) {
+	cfg := defaultLayersConfig()
+	declaredLayers := []string{
+		LayerPresentation, LayerController, LayerUsecase, LayerDomain, LayerData, LayerInfra, LayerExternal,
+	}
+
+	steps := []struct {
+		Layer string
+		Kind  string
+	}{
+		{"component", "call"},
+		{"context", "call"},
+		{"store", "mutation"},
+		{"service", "call"},
+		{"type", "guard"},
+		{"repository", "call"},
+		{"utils", "call"},
+		{"gateway", "call"},
+	}
+
+	warnings, err := ValidateLayerOrder(steps, declaredLayers, cfg)
+	if err != nil {
+		t.Fatalf("ValidateLayerOrder on React SPA flow returned unexpected error: %v", err)
+	}
+	if len(warnings) != 0 {
+		t.Errorf("expected 0 warnings on valid SPA flow, got: %v", warnings)
+	}
+}
+

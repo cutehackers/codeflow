@@ -9,7 +9,7 @@ const NESTED_PARENS = '\\((?:[^()]|\\([^()]*\\))*\\)';
 const importRegex = /(?:import\s+(?:(?:(?:\*\s+as\s+[A-Za-z0-9_$]+)|(?:\{[^}]+\})|(?:[A-Za-z0-9_$]+))\s+from\s+)?['"]([^'"]+)['"])|(?:const\s+(?:\{[^}]+\}|[A-Za-z0-9_$]+)\s*=\s*require\(['"]([^'"]+)['"]\))/g;
 const classRegex = new RegExp(`(?:export\\s+)?(?:default\\s+)?(?:abstract\\s+)?class\\s+([A-Za-z0-9_$]+)\\s*(?:${GENERIC_PARAMS})?(?:\\s+extends\\s+([A-Za-z0-9_$]+)(?:${GENERIC_PARAMS})?)?(?:\\s+implements\\s+([^{]+))?\\s*\\{`, 'g');
 const fnRegex = new RegExp(`(?:export\\s+)?(?:default\\s+)?(?:async\\s+)?function\\s*(?:\\*\\s*)?([A-Za-z0-9_$]+)\\s*(?:${GENERIC_PARAMS})?\\s*${NESTED_PARENS}\\s*(?::\\s*[^{]+)?\\s*\\{`, 'g');
-const arrowRegex = new RegExp(`(?:export\\s+)?(?:const|let|var)\\s+([A-Za-z0-9_$]+)\\s*(?::\\s*[^=]+)?\\s*=\\s*(?:async\\s+)?(?:${GENERIC_PARAMS})?\\s*(?:${NESTED_PARENS}|[A-Za-z0-9_$]+)\\s*(?::\\s*[^{=]*?)?\\s*=>\\s*\\{`, 'g');
+const arrowRegex = new RegExp(`(?:export\\s+)?(?:const|let|var)\\s+([A-Za-z0-9_$]+)\\s*(?::\\s*[^=]+)?\\s*=\\s*(?:(?:React\\.)?(?:useCallback|memo|forwardRef|observer)\\s*(?:${GENERIC_PARAMS})?\\s*\\(\\s*)?(?:async\\s+)?(?:(?:function\\s*(?:\\*\\s*)?(?:[A-Za-z0-9_$]+)?\\s*(?:${GENERIC_PARAMS})?\\s*${NESTED_PARENS}\\s*(?::\\s*[^{]+)?\\s*\\{)|(?:(?:${GENERIC_PARAMS})?\\s*(?:${NESTED_PARENS}|[A-Za-z0-9_$]+)\\s*(?::\\s*[^{=]*?)?\\s*=>\\s*\\{))`, 'g');
 const methodRegex = new RegExp(`(?:public\\s+|private\\s+|protected\\s+|static\\s+|async\\s+|override\\s+|readonly\\s+)*(?:get\\s+|set\\s+)?([A-Za-z0-9_$]+)\\s*(?:${GENERIC_PARAMS})?\\s*${NESTED_PARENS}\\s*(?::\\s*[^{]+)?\\s*\\{`, 'g');
 
 /**
@@ -106,7 +106,9 @@ function scanSource(source) {
     return false;
   }
 
-  // 3. Extract top-level function declarations
+  // 3. Find top-level function declarations and arrow functions
+  const candidateFns = [];
+
   const fnRe = new RegExp(fnRegex.source, 'g');
   let fnMatch;
   while ((fnMatch = fnRe.exec(source)) !== null) {
@@ -116,19 +118,21 @@ function scanSource(source) {
     const fnName = fnMatch[1];
     const bodyStart = fnMatch.index + fnMatch[0].length;
     const bodyEnd = findMatchingBrace(source, bodyStart - 1);
-    topLevelFunctions.push({
+    const resolvedEnd = bodyEnd >= 0 ? bodyEnd : source.length;
+
+    candidateFns.push({
+      matchIndex: fnMatch.index,
       name: fnName,
       bodyStart,
-      bodyEnd: bodyEnd >= 0 ? bodyEnd : source.length,
+      bodyEnd: resolvedEnd,
       isAsync: fnMatch[0].includes('async'),
     });
 
-    if (bodyEnd >= 0) {
+    if (bodyEnd >= 0 && bodyEnd > bodyStart) {
       fnRe.lastIndex = bodyEnd + 1;
     }
   }
 
-  // 4. Extract const arrow functions (including handlers inside React components)
   const arrowRe = new RegExp(arrowRegex.source, 'g');
   let arrowMatch;
   while ((arrowMatch = arrowRe.exec(source)) !== null) {
@@ -138,15 +142,49 @@ function scanSource(source) {
     const fnName = arrowMatch[1];
     const bodyStart = arrowMatch.index + arrowMatch[0].length;
     const bodyEnd = findMatchingBrace(source, bodyStart - 1);
-    topLevelFunctions.push({
+    const resolvedEnd = bodyEnd >= 0 ? bodyEnd : source.length;
+
+    candidateFns.push({
+      matchIndex: arrowMatch.index,
       name: fnName,
       bodyStart,
-      bodyEnd: bodyEnd >= 0 ? bodyEnd : source.length,
+      bodyEnd: resolvedEnd,
       isAsync: arrowMatch[0].includes('async'),
     });
 
-    if (bodyEnd >= 0) {
+    if (bodyEnd >= 0 && bodyEnd > bodyStart) {
       arrowRe.lastIndex = bodyEnd + 1;
+    }
+  }
+
+  // Sort candidate top-level functions by declaration order
+  candidateFns.sort((a, b) => a.matchIndex - b.matchIndex);
+
+  // Filter out any candidate that is nested inside another top-level function
+  const directTopLevel = [];
+  for (const fn of candidateFns) {
+    const isInsideOther = directTopLevel.some(
+      parent => fn.matchIndex >= parent.matchIndex && fn.bodyEnd <= parent.bodyEnd
+    );
+    if (!isInsideOther) {
+      directTopLevel.push(fn);
+    }
+  }
+
+  // For each direct top-level function, register it and recursively scan its body
+  for (const fn of directTopLevel) {
+    topLevelFunctions.push({
+      name: fn.name,
+      localName: fn.name,
+      parentScope: '',
+      bodyStart: fn.bodyStart,
+      bodyEnd: fn.bodyEnd,
+      isAsync: fn.isAsync,
+    });
+
+    if (fn.bodyEnd > fn.bodyStart) {
+      const nested = scanFunctionBody(source, fn.bodyStart, fn.bodyEnd, fn.name);
+      topLevelFunctions.push(...nested);
     }
   }
 
@@ -293,9 +331,106 @@ function findMatchingBrace(str, openIndex) {
   return -1;
 }
 
+/**
+ * Recursively scans a function body for nested function declarations, arrow functions, and event handlers.
+ * @param {string} source - Full source code string
+ * @param {number} bodyStart - Character offset of start of function body (after opening brace)
+ * @param {number} bodyEnd - Character offset of closing brace of function body
+ * @param {string} parentScope - Hierarchical parent symbol name (e.g. "LoginPage" or "LoginPage.handleSubmit")
+ * @returns {Array<object>}
+ */
+function scanFunctionBody(source, bodyStart, bodyEnd, parentScope) {
+  const nestedFunctions = [];
+  if (bodyStart >= bodyEnd) {
+    return nestedFunctions;
+  }
+
+  const bodyText = source.substring(bodyStart, bodyEnd);
+  const rawDiscovered = [];
+
+  // 1. Scan function declarations inside body
+  const fnRe = new RegExp(fnRegex.source, 'g');
+  let fnMatch;
+  while ((fnMatch = fnRe.exec(bodyText)) !== null) {
+    const fnName = fnMatch[1];
+    const subBodyStart = bodyStart + fnMatch.index + fnMatch[0].length;
+    const subBodyEnd = findMatchingBrace(source, subBodyStart - 1);
+    const resolvedEnd = subBodyEnd >= 0 ? subBodyEnd : bodyEnd;
+
+    rawDiscovered.push({
+      matchIndex: bodyStart + fnMatch.index,
+      localName: fnName,
+      bodyStart: subBodyStart,
+      bodyEnd: resolvedEnd,
+      isAsync: fnMatch[0].includes('async'),
+    });
+
+    if (subBodyEnd >= 0 && subBodyEnd > subBodyStart) {
+      fnRe.lastIndex = (subBodyEnd - bodyStart) + 1;
+    }
+  }
+
+  // 2. Scan arrow functions / callbacks inside body
+  const arrowRe = new RegExp(arrowRegex.source, 'g');
+  let arrowMatch;
+  while ((arrowMatch = arrowRe.exec(bodyText)) !== null) {
+    const fnName = arrowMatch[1];
+    const subBodyStart = bodyStart + arrowMatch.index + arrowMatch[0].length;
+    const subBodyEnd = findMatchingBrace(source, subBodyStart - 1);
+    const resolvedEnd = subBodyEnd >= 0 ? subBodyEnd : bodyEnd;
+
+    rawDiscovered.push({
+      matchIndex: bodyStart + arrowMatch.index,
+      localName: fnName,
+      bodyStart: subBodyStart,
+      bodyEnd: resolvedEnd,
+      isAsync: arrowMatch[0].includes('async'),
+    });
+
+    if (subBodyEnd >= 0 && subBodyEnd > subBodyStart) {
+      arrowRe.lastIndex = (subBodyEnd - bodyStart) + 1;
+    }
+  }
+
+  // Sort discovered functions by position in source
+  rawDiscovered.sort((a, b) => a.matchIndex - b.matchIndex);
+
+  // Filter to direct children only (any deeper function is contained inside a child)
+  const directChildren = [];
+  for (const item of rawDiscovered) {
+    const isEnclosedByOther = directChildren.some(
+      parent => item.matchIndex >= parent.matchIndex && item.bodyEnd <= parent.bodyEnd
+    );
+    if (!isEnclosedByOther) {
+      directChildren.push(item);
+    }
+  }
+
+  for (const child of directChildren) {
+    const fullSym = parentScope ? `${parentScope}.${child.localName}` : child.localName;
+    nestedFunctions.push({
+      name: fullSym,
+      localName: child.localName,
+      parentScope: parentScope || '',
+      bodyStart: child.bodyStart,
+      bodyEnd: child.bodyEnd,
+      isAsync: child.isAsync,
+    });
+
+    // Recursively scan inner functions inside this child
+    if (child.bodyEnd > child.bodyStart) {
+      const descendants = scanFunctionBody(source, child.bodyStart, child.bodyEnd, fullSym);
+      nestedFunctions.push(...descendants);
+    }
+  }
+
+  return nestedFunctions;
+}
+
 module.exports = {
   scanSource,
   scanMethods,
+  scanFunctionBody,
   findMatchingBrace,
   countPrecedingBackslashes,
   isRegexStart,
