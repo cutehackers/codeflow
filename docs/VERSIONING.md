@@ -14,7 +14,7 @@ CodeFlow follows [Semantic Versioning 2.0.0](https://semver.org/) with a `v` pre
 
 ---
 
-## 2. Synchronized Version Checklist (The 4-File Rule)
+## 2. Synchronized Version Checklist (The 5-File Rule)
 
 Whenever preparing a release or bumping the version to `vX.Y.Z`, **all files in the checklist below MUST be updated in the same changeset**:
 
@@ -24,6 +24,7 @@ Whenever preparing a release or bumping the version to `vX.Y.Z`, **all files in 
 | [`scripts/install.sh`](../scripts/install.sh) | `CODEFLOW_VERSION` default variable | `CODEFLOW_VERSION="${CODEFLOW_VERSION:-vX.Y.Z}"` |
 | [`internal/pin/compatibility.json`](../internal/pin/compatibility.json) | Adapter compatibility table | `"pinned": "X.Y.Z"` (if adapter changed) |
 | `adapters/<lang>/package.json` or `pubspec.yaml` | Adapter package version | `"version": "X.Y.Z"` (if adapter changed) |
+| [`CHANGELOG.md`](../CHANGELOG.md) | Top release section | `## [vX.Y.Z] - YYYY-MM-DD` |
 
 ---
 
