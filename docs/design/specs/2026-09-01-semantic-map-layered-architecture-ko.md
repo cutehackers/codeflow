@@ -1,15 +1,15 @@
 # Semantic Map Layered Architecture
 
 - Contract ID: `SMAP`
-- Contract Status: Approved
+- Contract Status: Proposed
 - Created: 2026-09-01
-- Updated: 2026-09-01
-- Approved: 2026-09-01
-- Approval Basis: Q-01부터 Q-09까지 해결 후 사용자 명시 승인
+- Updated: 2026-09-02
+- Previous Approval: 2026-09-01
+- Amendment Basis: 2026-09-02 사용자가 legacy adapter protocol 호환 제외와 v2 전면 전환을 결정
 - Source: `docs/design/raw/semantic-map-layered-architecture-draft.md`
 - Applies To: CodeFlow Semantic Map capability
 
-이 문서는 원문의 제품 의도와 기술 제안을 승인된 부모 계약으로 정리한다. 이 승인은 Section 12.1의 기존 계약을 자동으로 변경하거나 Vertical Slice 검토 없이 구현을 승인하지 않는다.
+이 문서는 원문의 제품 의도와 기술 제안을 부모 계약으로 정리한다. 2026-09-02 protocol amendment로 다시 Proposed 상태이며 Section 12.1의 기존 계약을 자동으로 변경하거나 Vertical Slice 검토 없이 구현을 승인하지 않는다.
 
 설계 주장 분류는 다음 의미를 가진다.
 
@@ -163,7 +163,7 @@ Semantic Map의 목표는 저장소 전체를 그래프로 표시하는 것이 �
 - INV-14 Schema Authority: process, language와 UI 경계의 canonical artifact는 versioned JSON Schema로 강제한다.
 - INV-15 Approval Durability: 사람 승인·수정·거절은 append-only event로 보존하고 model proposal은 durable knowledge로 간주하지 않는다.
 - INV-16 Model Install Disclosure: optional model은 Section 3.2의 설치 정보를 먼저 표시하고 사용자가 선택한 뒤에만 설치하거나 활성화한다.
-- INV-17 Protocol Migration: 새 framed JSON-RPC 2.0 adapter protocol은 versioned contract로 추가하고 Dart와 TypeScript/JavaScript adapter 및 기존 NDJSON v1 consumer에 migration path를 제공한다.
+- INV-17 Protocol Cutover: 다음 MAJOR release의 Core와 공식 adapter는 Content-Length framed JSON-RPC 2.0만 사용한다. NDJSON v1 bridge, fallback과 mixed-version compatibility를 제공하지 않는다.
 - INV-18 Runtime Isolation: 모든 runtime observation은 `containerized`, `sandboxed`, `trusted_local`, `blocked` 중 하나를 기록하며 `trusted_local`은 실행할 때마다 사용자의 승인을 받는다.
 - INV-19 Projection Compatibility: `SemanticMapIR`이 canonical artifact이며 FlowSpec은 versioned projection이다. Projection은 지원하는 consumer와 손실되는 field를 명시한다.
 - INV-20 Dynamic-Language GA: 지원 feature subset 안의 dynamic-language critical-flow coverage는 compiler-resolved 언어에 적용하는 동일한 release threshold를 통과해야 한다.
@@ -244,7 +244,7 @@ Semantic Map의 목표는 저장소 전체를 그래프로 표시하는 것이 �
 | D-09 | Fine-tuning은 언제 수행하는가? | prompt, schema, glossary와 retrieval 개선 후에도 반복 오류가 남고 충분한 승인 데이터가 쌓인 뒤 좁은 작업에만 적용한다. | 초기 비용과 repository별 과적합을 피한다. | MVP 시작부터 repository별 model Fine-tuning |
 | D-10 | 보강 작업은 기본 map을 막는가? | Runtime과 semantic enrichment는 비동기이며 complete generation 단위로 갱신한다. | model과 runtime latency를 사용자 첫 화면에서 분리한다. | 모든 보강이 끝날 때까지 map을 표시하지 않음 |
 | D-11 | 기존의 model 비의존 계약을 어떻게 변경하는가? | Deterministic Core를 필수 baseline으로 유지하고, 별도 local optional model capability를 허용하도록 기존 계약을 명시적으로 개정한다. 설치 전 Section 3.2 정보를 제공한다. | 기본 동작의 재현성을 유지하면서 선택적 semantic enrichment를 제공한다. | 기존 계약을 암묵적으로 우회하거나 model을 필수 dependency로 지정 |
-| D-12 | Adapter protocol은 어떻게 전환하는가? | Framed JSON-RPC 2.0을 새 protocol version으로 추가하고 bridge 기간 동안 NDJSON v1을 지원한다. Dart와 TypeScript/JavaScript adapter migration을 제공한다. | cancellation, streaming과 확장성을 얻으면서 기존 adapter의 전환 경로를 보존한다. | NDJSON 영구 유지 또는 migration 없는 in-place breaking change |
+| D-12 | Adapter protocol은 어떻게 전환하는가? | 다음 MAJOR release에서 Content-Length framed JSON-RPC 2.0으로 전면 전환한다. Dart와 TypeScript/JavaScript adapter를 함께 v2로 제공하고 NDJSON v1 bridge나 fallback은 제공하지 않는다. | Legacy compatibility 분기보다 코드 이해 evidence, 취소·streaming·bounded concurrency와 성능을 우선한다. | NDJSON 유지, bridge 기간 운영 또는 mixed-version compatibility |
 | D-13 | 첫 product surface는 무엇인가? | 현재 loopback FlowView를 1차 구현 surface로 사용한다. VS Code extension은 별도 slice로 분리하고 1차 구현에서 제외한다. | 현재 배포와 generation 경계를 재사용하고 editor packaging을 독립 검토한다. | VS Code 우선 또는 두 surface 동시 구현 |
 | D-14 | Runtime scenario를 어떻게 격리하는가? | `containerized`, `sandboxed`, `trusted_local`, `blocked`를 기록한다. `trusted_local`은 command, source·credential·network 접근을 표시하고 매 실행 승인을 받는다. | 환경 지원 범위와 실행 위험을 사용자에게 명시한다. | 격리 상태를 숨긴 자동 실행 또는 runtime 기능 전체 제외 |
 | D-15 | 새 artifact와 FlowSpec의 관계는 무엇인가? | `SemanticMapIR`을 canonical artifact로 두고 FlowSpec은 versioned projection으로 유지한다. | 의미 지도 계약과 기존 consumer compatibility를 분리한다. | FlowSpec additive 확장만 사용하거나 즉시 breaking major 전환 |
@@ -346,7 +346,7 @@ Fixture manifest는 repository URL, immutable commit SHA, license, 허용 subpat
 - FA-15: THE system SHALL 기존 CLI, MCP, FlowView와 artifact consumer별 지원 protocol, schema, projection version과 migration 상태를 명시한다.
 - FA-16: THE system SHALL reference fixture에서 Section 10의 release target을 측정하고 통과하지 못한 capability를 완료 또는 GA로 표시하지 않는다.
 - FA-17: WHEN 사용자가 optional model 설치를 선택하면, THE system SHALL download 전에 Section 3.2의 model과 기능 변화 정보를 표시하고 명시적 선택 없이는 설치하거나 활성화하지 않는다.
-- FA-18: WHEN framed JSON-RPC 2.0 adapter protocol을 도입하면, THE system SHALL Dart와 TypeScript/JavaScript adapter migration, NDJSON v1 bridge와 protocol compatibility test를 제공한다.
+- FA-18: WHEN framed JSON-RPC 2.0 adapter protocol을 도입하면, THE system SHALL Dart와 TypeScript/JavaScript native v2 adapter, shared conformance, v1 rejection과 MAJOR cutover disclosure를 제공한다.
 - FA-19: THE first implementation SHALL 현재 FlowView에서 동작하며 VS Code extension을 필수 dependency 또는 완료 조건으로 포함하지 않는다.
 - FA-20: WHEN runtime isolation이 `trusted_local`이면, THE system SHALL command와 접근 범위를 표시하고 매 실행 사용자의 승인을 받는다.
 - FA-21: THE system SHALL Section 10.5 fixture를 immutable commit과 toolchain에 고정하고 같은 input에서 재현 가능한 expected Fact, unknown과 metric을 제공한다.
@@ -358,7 +358,7 @@ Fixture manifest는 repository URL, immutable commit SHA, license, 허용 subpat
 | ID | Resolution | Contract Impact |
 |---|---|---|
 | Q-01 | 추천안을 채택한다. Deterministic Core를 유지하고 optional local model capability를 허용하며 설치 전 기능과 운영 변화를 명확히 표시한다. | D-11, INV-16, Section 7.5, FA-17 |
-| Q-02 | Migration path를 전제로 framed JSON-RPC 2.0을 추진하고 Dart와 TypeScript/JavaScript adapter migration을 제공한다. | D-12, INV-17, FA-18 |
+| Q-02 | 2026-09-02 amendment로 migration bridge를 제거한다. 다음 MAJOR release는 framed JSON-RPC 2.0 Core와 Dart·TypeScript/JavaScript native v2 adapter만 지원한다. | D-12, INV-17, FA-18 |
 | Q-03 | VS Code extension을 별도 slice로 분리하고 1차 구현에서 제외한다. | D-13, FA-19 |
 | Q-04 | 추천 isolation과 매 실행 승인 정책을 채택한다. | D-14, INV-18, FA-20 |
 | Q-05 | `SemanticMapIR` canonical과 FlowSpec versioned projection을 채택한다. | D-15, INV-19 |
@@ -372,7 +372,7 @@ Open Decision은 없다.
 ### 12.1 Existing Contract Amendments Required Before Implementation
 
 - `docs/design-v2.md`의 model 비의존 원칙은 deterministic baseline을 유지하면서 optional local model capability를 허용하도록 명시적으로 개정하고 다시 승인해야 한다.
-- `docs/spec/llm-language-adapter-protocol.md`와 adapter protocol schema는 framed JSON-RPC 2.0의 새 version, NDJSON v1 bridge 기간과 Dart·TypeScript/JavaScript migration을 정의해야 한다.
+- `docs/spec/llm-language-adapter-protocol.md`와 새 v2 schema는 Content-Length JSON-RPC 2.0, v1 rejection, Dart·TypeScript/JavaScript native v2와 MAJOR cutover를 정의해야 한다.
 - 위 변경은 해당 개정 계약의 승인 전에는 구현하지 않는다.
 
 ## 13. Done When
@@ -391,12 +391,12 @@ Open Decision은 없다.
 - DW-10: 사용자가 실제 task에서 시작, 핵심 판단과 상태 변화, 결과, change impact와 supporting evidence를 정확히 설명할 수 있다는 UX evidence가 있다.
 - DW-11: `go test ./...`와 승인된 slice가 지정한 추가 contract, race, benchmark와 UI 검증이 통과한다.
 - DW-12: Optional model installer가 Section 3.2 정보를 표시하고 opt-in, 실패, 비활성화와 제거 후 deterministic fallback test를 통과한다.
-- DW-13: Dart와 TypeScript/JavaScript adapter가 새 protocol compatibility suite를 통과하고 NDJSON v1 bridge의 종료 기준이 기록된다.
+- DW-13: Core, Dart와 TypeScript/JavaScript adapter가 shared v2 conformance suite를 통과하고 installer가 v1 제거와 MAJOR cutover를 적용 전에 표시한다.
 - DW-14: Section 10.5 fixture manifest가 immutable commit, license, toolchain과 expected result를 고정하고 H-01과 H-02 결과를 재현한다.
 
 ## 14. Approval Readiness
 
-현재 상태는 `Approved`다.
+현재 상태는 protocol cutover amendment 검토를 위한 `Proposed`다.
 
 - Confirmed scope: current-state authority, evidence anchor, unknown 보존, provenance/freshness, deterministic baseline과 atomic generation 확장
 - Assumptions requiring evidence: task scope 품질, 7~15개 행동, 12K Evidence Pack, runtime scenario availability, Go graph budget, FlowSpec projection compatibility
