@@ -1,0 +1,43 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://codeflow.local/schemas/active-pointer.schema.json",
+  "title": "CodeFlow Active Pointer",
+  "$comment": "Raw §10.11 and VS-04 normative schema for active pointer CAS state",
+  "type": "object",
+  "required": [
+    "schemaId",
+    "schemaVersion",
+    "generationId",
+    "manifestObjectRef",
+    "publishedAt",
+    "computedBasisId",
+    "validatedAgainstSnapshotId",
+    "expectedLiveHeadSnapshotId",
+    "workspaceEpoch",
+    "taskIntentRevision",
+    "normalizedQueryHash",
+    "flowCount"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "schemaId": {
+      "type": "string",
+      "enum": [
+        "https://codeflow.local/schemas/active-pointer.schema.json",
+        "codeflow.active-pointer"
+      ]
+    },
+    "schemaVersion": { "const": 1 },
+    "generationId": { "type": "string", "minLength": 1 },
+    "manifestObjectRef": { "type": "string", "minLength": 1 },
+    "publishedAt": { "type": "string", "format": "date-time" },
+    "computedBasisId": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+    "validatedAgainstSnapshotId": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+    "expectedLiveHeadSnapshotId": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+    "expectedPreviousGenerationId": { "type": ["string", "null"] },
+    "workspaceEpoch": { "type": "string", "minLength": 1 },
+    "taskIntentRevision": { "type": "integer", "minimum": 1 },
+    "normalizedQueryHash": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+    "flowCount": { "type": "integer", "minimum": 0 }
+  }
+}

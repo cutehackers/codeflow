@@ -5,6 +5,7 @@ package flowview
 import (
 	"context"
 	"crypto/rand"
+	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -42,6 +43,9 @@ type Server struct {
 	mu         sync.Mutex
 	addr       string
 	genCache   *generationCache
+	hub        *EventHub
+	gate       *semantic.PublicationGate
+	scheduler  *semantic.CoalescingScheduler
 }
 
 // Config configures the FlowView server.
@@ -70,12 +74,19 @@ func NewServer(cfg Config) (*Server, error) {
 		return nil, fmt.Errorf("init snapshot engine: %w", err)
 	}
 
+	hub := NewEventHub("flowview-live-stream", 100)
+	gate := semantic.NewPublicationGate()
+	scheduler := semantic.NewCoalescingScheduler(semantic.DefaultCoalescingConfig())
+
 	s := &Server{
 		repoRoot:  cfg.RepoRoot,
 		storage:   st,
 		eventLog:  fusion.NewEventLog(cfg.RepoRoot),
 		engine:    engine,
 		authToken: token,
+		hub:       hub,
+		gate:      gate,
+		scheduler: scheduler,
 	}
 
 	mux := http.NewServeMux()
@@ -89,6 +100,8 @@ func NewServer(cfg Config) (*Server, error) {
 	mux.HandleFunc("/api/task/view", s.handleTaskView)
 	mux.HandleFunc("/api/workspace/activity", s.handleWorkspaceActivity)
 	mux.HandleFunc("/api/workspace/edit", s.handleWorkspaceEdit)
+	mux.HandleFunc("/api/workspace/stream", s.handleWorkspaceStream)
+	mux.HandleFunc("/api/workspace/proof", s.handleWorkspaceProof)
 
 	port := cfg.Port
 	ln, err := net.Listen("tcp", fmt.Sprintf("127.0.0.1:%d", port))
@@ -645,6 +658,120 @@ func (s *Server) handleTaskView(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	liveHead := s.engine.LiveHead()
+	var delta *workspace.WorkspaceDelta
+	if liveHead != nil && slicePayload.ComputedBasisID != "" {
+		delta, _ = s.engine.ComputeDelta(slicePayload.ComputedBasisID, liveHead.SnapshotID)
+	}
+
+	docRevRefs := []string{}
+	for _, st := range mapIR.Steps {
+		if st.Anchor.RepoRelativePath != "" {
+			docRevRefs = append(docRevRefs, st.Anchor.RepoRelativePath)
+		}
+	}
+
+	normHashBytes := sha256.Sum256([]byte(reqText))
+	normHash := hex.EncodeToString(normHashBytes[:])
+
+	closure := &semantic.CausalObservationClosure{
+		SchemaID:            "https://codeflow.local/schemas/causal-observation-closure.schema.json",
+		SchemaVersion:       1,
+		ClosureID:           fmt.Sprintf("closure-%s", mapIR.GenerationID),
+		ComputedBasisID:     mapIR.ComputedBasisID,
+		TaskIntentRevision:  mapIR.Task.IntentRevision,
+		NormalizedQueryHash: normHash,
+		AnalysisReadSetID:   fmt.Sprintf("readset-%s", mapIR.GenerationID),
+		PositiveDependencies: semantic.PositiveDependencies{
+			DocumentRevisionRefs:     docRevRefs,
+			ConfigurationFingerprint: "cfg-live-fingerprint",
+		},
+		ClosureStatus: "closed",
+		ClosureDigest: normHash,
+	}
+
+	gateRes, gap := s.gate.Evaluate(mapIR, closure, delta, liveHead, intent)
+	settleRes := s.gate.EvaluateSettlement(mapIR)
+	mapIR.Settlement = settleRes.Gate
+
+	var manifest *storage.GenerationProofManifest
+	if gateRes.Eligibility == "passed" {
+		expectedPrevGen := ""
+		if prevPtr, _ := s.storage.ReadActivePointer(); prevPtr != nil {
+			expectedPrevGen = prevPtr.GenerationID
+		}
+		liveHeadSnapID := ""
+		if liveHead != nil {
+			liveHeadSnapID = liveHead.SnapshotID
+		}
+		now := time.Now().UTC()
+		manifest = &storage.GenerationProofManifest{
+			SchemaID:                   "https://codeflow.local/schemas/generation-proof-manifest.schema.json",
+			SchemaVersion:              1,
+			ProofID:                    fmt.Sprintf("proof-%s", mapIR.GenerationID),
+			GenerationID:               mapIR.GenerationID,
+			ComputedBasisID:            mapIR.ComputedBasisID,
+			ValidatedAgainstSnapshotID: liveHeadSnapID,
+			TaskIntentRevision:         mapIR.Task.IntentRevision,
+			NormalizedQueryHash:        closure.NormalizedQueryHash,
+			AnalysisReadSetID:          closure.AnalysisReadSetID,
+			CausalObservationClosureID: closure.ClosureID,
+			CurrentPublication: storage.CurrentPublicationResult{
+				Eligibility:           gateRes.Eligibility,
+				SnapshotGate:          gateRes.SnapshotGate,
+				ClosureGate:           gateRes.ClosureGate,
+				EvidenceGate:          gateRes.EvidenceGate,
+				SemanticAtomicityGate: gateRes.SemanticAtomicityGate,
+				TaskRelevanceGate:     gateRes.TaskRelevanceGate,
+				ComprehensionGate:     gateRes.ComprehensionGate,
+			},
+			SettlementEvaluation: storage.SettlementEvaluation{
+				Gate:                   settleRes.Gate,
+				EvaluatedAt:            settleRes.EvaluatedAt,
+				BlockingObligationRefs: settleRes.BlockingObligationRefs,
+			},
+			ArtifactRefs: storage.ArtifactRefs{
+				SemanticMap: fmt.Sprintf("cas:sha256:%s", mapIR.GenerationID),
+			},
+			ExpectedLiveHeadSnapshotID:   liveHeadSnapID,
+			ExpectedPreviousGenerationID: &expectedPrevGen,
+			PublishedAt:                  now,
+		}
+
+		casRef, _ := s.storage.WriteManifestCAS(manifest)
+		activePtr := &storage.ActivePointer{
+			SchemaID:                     "https://codeflow.local/schemas/active-pointer.schema.json",
+			SchemaVersion:                1,
+			GenerationID:                 mapIR.GenerationID,
+			ManifestObjectRef:            casRef,
+			PublishedAt:                  now,
+			ComputedBasisID:              mapIR.ComputedBasisID,
+			ValidatedAgainstSnapshotID:   liveHeadSnapID,
+			ExpectedLiveHeadSnapshotID:   liveHeadSnapID,
+			ExpectedPreviousGenerationID: &expectedPrevGen,
+			WorkspaceEpoch:               fmt.Sprintf("epoch-%d", slicePayload.WorkspaceEpoch),
+			TaskIntentRevision:           mapIR.Task.IntentRevision,
+			NormalizedQueryHash:          closure.NormalizedQueryHash,
+			FlowCount:                    1,
+		}
+		_ = s.storage.CompareAndSwapActivePointer(liveHeadSnapID, expectedPrevGen, activePtr)
+
+		s.hub.Publish("generation.published", map[string]any{
+			"generationId": mapIR.GenerationID,
+			"manifest":     manifest,
+			"proofId":      manifest.ProofID,
+			"settlement":   mapIR.Settlement,
+			"qualityStage": mapIR.Quality.Stage,
+		}, &mapIR.ComputedBasisID, &liveHeadSnapID, &mapIR.GenerationID)
+	} else {
+		mapIR.Freshness = "last_verified"
+		if curAct := s.engine.CurrentActivity(); gap != nil {
+			gap.AnalysisLagMs = curAct.AnalysisLagMs
+			gap.PendingRevisions = curAct.PendingRevisions
+		}
+		s.hub.Publish("generation.gap", gap, &mapIR.ComputedBasisID, nil, &mapIR.GenerationID)
+	}
+
 	evidenceRecords, _ := semantic.ExtractAndRedactEvidence(resolved, slicePayload, s.repoRoot)
 
 	w.Header().Set("Content-Type", "application/json")
@@ -653,11 +780,14 @@ func (s *Server) handleTaskView(w http.ResponseWriter, r *http.Request) {
 			"requested": mapIR.Summary.Requested,
 			"current":   mapIR.Summary.Current,
 		},
-		"taskIntent":  intent,
-		"semanticMap": mapIR,
-		"projection":  proj,
-		"evidence":    evidenceRecords,
-		"unknowns":    mapIR.Unknowns,
+		"taskIntent":      intent,
+		"semanticMap":     mapIR,
+		"projection":      proj,
+		"evidence":        evidenceRecords,
+		"unknowns":        mapIR.Unknowns,
+		"publicationGate": gateRes,
+		"proofManifest":   manifest,
+		"verifiedGap":     gap,
 	})
 }
 
@@ -699,10 +829,104 @@ func (s *Server) handleWorkspaceEdit(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
+
+	s.scheduler.NotifyEdit(snap)
+	act := s.engine.CurrentActivity()
+	s.hub.Publish("activity.updated", act, &snap.ComputedBasisID, &snap.SnapshotID, nil)
+
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(map[string]any{
 		"revision": rev,
 		"snapshot": snap,
 	})
 }
+
+func (s *Server) handleWorkspaceStream(w http.ResponseWriter, r *http.Request) {
+	flusher, ok := w.(http.Flusher)
+	if !ok {
+		http.Error(w, "Streaming unsupported", http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "text/event-stream")
+	w.Header().Set("Cache-Control", "no-cache")
+	w.Header().Set("Connection", "keep-alive")
+	w.Header().Set("X-Accel-Buffering", "no")
+
+	lastEventID := r.Header.Get("Last-Event-ID")
+	if lastEventID == "" {
+		lastEventID = r.URL.Query().Get("lastEventId")
+	}
+
+	ch, replay, needsSync, cancel := s.hub.Subscribe(lastEventID)
+	defer cancel()
+
+	if needsSync {
+		activeManifest, _ := s.storage.ReadActiveProofManifest()
+		curAct := s.engine.CurrentActivity()
+		syncEnv := &semantic.EventEnvelope{
+			SchemaID:      "https://codeflow.local/schemas/event-envelope.schema.json",
+			SchemaVersion: 1,
+			StreamID:      s.hub.streamID,
+			Sequence:      0,
+			EventID:       "sync-0",
+			EventType:     "snapshot_sync",
+			OccurredAt:    time.Now().UTC(),
+			Data: map[string]any{
+				"activeManifest": activeManifest,
+				"activity":       curAct,
+			},
+		}
+		if formatted, err := FormatSSE(syncEnv); err == nil {
+			_, _ = w.Write(formatted)
+			flusher.Flush()
+		}
+	} else if len(replay) > 0 {
+		for _, env := range replay {
+			if formatted, err := FormatSSE(env); err == nil {
+				_, _ = w.Write(formatted)
+			}
+		}
+		flusher.Flush()
+	}
+
+	ctx := r.Context()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case env, ok := <-ch:
+			if !ok {
+				return
+			}
+			if formatted, err := FormatSSE(env); err == nil {
+				_, _ = w.Write(formatted)
+				flusher.Flush()
+			}
+		}
+	}
+}
+
+func (s *Server) handleWorkspaceProof(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	manifest, err := s.storage.ReadActiveProofManifest()
+	if err != nil {
+		http.Error(w, fmt.Sprintf("read proof manifest: %v", err), http.StatusInternalServerError)
+		return
+	}
+	ptr, err := s.storage.ReadActivePointer()
+	if err != nil {
+		http.Error(w, fmt.Sprintf("read active pointer: %v", err), http.StatusInternalServerError)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(map[string]any{
+		"manifest": manifest,
+		"pointer":  ptr,
+	})
+}
+
 

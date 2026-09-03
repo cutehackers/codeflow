@@ -1,0 +1,31 @@
+{
+  "schemaId": "https://codeflow.local/schemas/generation-proof-manifest.schema.json",
+  "schemaVersion": 1,
+  "proofId": "proof-gen-43",
+  "generationId": "gen-43",
+  "computedBasisId": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+  "validatedAgainstSnapshotId": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+  "taskIntentRevision": 4,
+  "normalizedQueryHash": "a1b2c3d4e5f67890a1b2c3d4e5f67890a1b2c3d4e5f67890a1b2c3d4e5f67890",
+  "analysisReadSetId": "readset-43",
+  "causalObservationClosureId": "closure-43",
+  "causalObservationClosureDigest": "f0e1d2c3b4a59687f0e1d2c3b4a59687f0e1d2c3b4a59687f0e1d2c3b4a59687",
+  "currentPublication": {
+    "eligibility": "passed",
+    "snapshotGate": "passed",
+    "evidenceGate": "passed",
+    "semanticAtomicityGate": "passed",
+    "taskRelevanceGate": "passed",
+    "comprehensionGate": "passed"
+  },
+  "settlementEvaluation": {
+    "gate": "pending",
+    "evaluatedAt": null,
+    "blockingObligationRefs": []
+  },
+  "artifactRefs": {
+    "semanticMap": "cas:sha256:1111111111111111111111111111111111111111111111111111111111111111"
+  },
+  "expectedLiveHeadSnapshotId": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+  "publishedAt": "2026-09-03T12:00:00Z"
+}

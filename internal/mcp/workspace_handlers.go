@@ -100,3 +100,102 @@ func (s *Server) handleSubmitVersionedEdit(ctx context.Context, args map[string]
 		"snapshot": snap,
 	}, nil
 }
+
+func (s *Server) handleGetGenerationProof(ctx context.Context, args map[string]any) (any, error) {
+	if err := s.checkAuth(args["token"]); err != nil {
+		return nil, err
+	}
+
+	target := s.resolveTarget(args["target"])
+	absTarget, err := filepath.Abs(target)
+	if err != nil {
+		return nil, fmt.Errorf("resolve target: %w", err)
+	}
+
+	st, err := s.getStorage(absTarget)
+	if err != nil {
+		return nil, fmt.Errorf("get storage: %w", err)
+	}
+
+	ptr, err := st.ReadActivePointer()
+	if err != nil {
+		return nil, fmt.Errorf("read active pointer: %w", err)
+	}
+	manifest, err := st.ReadActiveProofManifest()
+	if err != nil {
+		return nil, fmt.Errorf("read proof manifest: %w", err)
+	}
+
+	var ptrVal any
+	if ptr != nil {
+		ptrVal = ptr
+	}
+	var manifestVal any
+	if manifest != nil {
+		manifestVal = manifest
+	}
+
+	return map[string]any{
+		"pointer":  ptrVal,
+		"manifest": manifestVal,
+	}, nil
+}
+
+func (s *Server) handleGetVerifiedGap(ctx context.Context, args map[string]any) (any, error) {
+	if err := s.checkAuth(args["token"]); err != nil {
+		return nil, err
+	}
+
+	target := s.resolveTarget(args["target"])
+	absTarget, err := filepath.Abs(target)
+	if err != nil {
+		return nil, fmt.Errorf("resolve target: %w", err)
+	}
+
+	st, err := s.getStorage(absTarget)
+	if err != nil {
+		return nil, fmt.Errorf("get storage: %w", err)
+	}
+	engine, err := s.getSnapshotEngine(absTarget)
+	if err != nil {
+		return nil, fmt.Errorf("get snapshot engine: %w", err)
+	}
+
+	ptr, err := st.ReadActivePointer()
+	if err != nil {
+		return nil, fmt.Errorf("read active pointer: %w", err)
+	}
+	if ptr == nil {
+		return map[string]any{
+			"status": "no_generation_published",
+		}, nil
+	}
+
+	liveHead := engine.LiveHead()
+	if liveHead == nil || liveHead.SnapshotID == ptr.ExpectedLiveHeadSnapshotID {
+		return map[string]any{
+			"freshness":    "current",
+			"generationId": ptr.GenerationID,
+			"settlement":   "evaluated",
+		}, nil
+	}
+
+	delta, _ := engine.ComputeDelta(ptr.ComputedBasisID, liveHead.SnapshotID)
+	curAct := engine.CurrentActivity()
+
+	changedPaths := []string{}
+	if delta != nil {
+		changedPaths = delta.ChangedPaths
+	}
+
+	return map[string]any{
+		"freshness":         "last_verified",
+		"activity":          curAct.Activity,
+		"lastVerifiedGenId": ptr.GenerationID,
+		"latestSnapshotId":  liveHead.SnapshotID,
+		"affectedScope":     changedPaths,
+		"analysisLagMs":     curAct.AnalysisLagMs,
+		"pendingRevisions":  curAct.PendingRevisions,
+	}, nil
+}
+

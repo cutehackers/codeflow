@@ -1,0 +1,46 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://codeflow.local/schemas/event-envelope.schema.json",
+  "title": "CodeFlow Event Envelope",
+  "$comment": "Raw §10.14 and VS-04 normative schema for sequenced SSE EventEnvelope",
+  "type": "object",
+  "required": [
+    "schemaId",
+    "schemaVersion",
+    "streamId",
+    "sequence",
+    "eventId",
+    "eventType",
+    "occurredAt"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "schemaId": {
+      "type": "string",
+      "enum": [
+        "https://codeflow.local/schemas/event-envelope.schema.json",
+        "codeflow.event-envelope"
+      ]
+    },
+    "schemaVersion": { "const": 1 },
+    "streamId": { "type": "string", "minLength": 1 },
+    "sequence": { "type": "integer", "minimum": 1 },
+    "eventId": { "type": "string", "minLength": 1 },
+    "eventType": {
+      "type": "string",
+      "enum": [
+        "activity.updated",
+        "generation.published",
+        "generation.gap",
+        "approval.updated",
+        "snapshot_sync"
+      ]
+    },
+    "occurredAt": { "type": "string", "format": "date-time" },
+    "computedBasisId": { "type": ["string", "null"], "pattern": "^[a-f0-9]{64}$" },
+    "validatedAgainstSnapshotId": { "type": ["string", "null"], "pattern": "^[a-f0-9]{64}$" },
+    "generationId": { "type": ["string", "null"] },
+    "payloadRef": { "type": ["string", "null"] },
+    "data": { "type": "object" }
+  }
+}

@@ -23,6 +23,7 @@ import (
 	"codeflow/internal/protocol"
 	"codeflow/internal/secret"
 	"codeflow/internal/storage"
+	"codeflow/internal/workspace"
 )
 
 func moduleRoot(t *testing.T) string {
@@ -459,3 +460,155 @@ func TestTier4_InstallerScriptPackaging(t *testing.T) {
 		t.Error("install.sh does not copy adapters/typescript")
 	}
 }
+
+// ---------------------------------------------------------------------------
+// TIER 5: VS-04 End-to-End Publication, SLO Trace, and CAS Race
+// ---------------------------------------------------------------------------
+
+func TestTier5_VS04_EndToEndSLOAndTrace(t *testing.T) {
+	tempDir, err := os.MkdirTemp("", "codeflow-e2e-vs04-*")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.RemoveAll(tempDir)
+
+	_ = os.WriteFile(filepath.Join(tempDir, "page.tsx"), []byte("export default function Page(){ return <h1>Hi</h1>; }"), 0o644)
+
+	srv, err := flowview.NewServer(flowview.Config{
+		RepoRoot: tempDir,
+		Port:     0,
+	})
+	if err != nil {
+		t.Fatalf("NewServer failed: %v", err)
+	}
+	srv.Start()
+	defer func() {
+		_ = srv.Shutdown(context.Background())
+	}()
+
+	ctx := context.Background()
+
+	// 1. Single edit SLO trace: edit -> activity updated P95 <= 300ms, publication/gap P95 <= 3s (VS04-A11)
+	t0 := time.Now()
+	editURL := "http://" + srv.Addr() + "/api/workspace/edit?token=" + srv.AuthToken()
+	editReq, _ := http.NewRequestWithContext(ctx, http.MethodPost, editURL, strings.NewReader(`{
+		"path": "page.tsx",
+		"content": "export default function Page(){ return <h1>Updated</h1>; }",
+		"documentVersion": 1,
+		"source": "agent_transaction"
+	}`))
+	editReq.Header.Set("Content-Type", "application/json")
+	editResp, err := http.DefaultClient.Do(editReq)
+	if err != nil {
+		t.Fatalf("edit request failed: %v", err)
+	}
+	_ = editResp.Body.Close()
+
+	// Activity update latency
+	actURL := "http://" + srv.Addr() + "/api/workspace/activity?token=" + srv.AuthToken()
+	actReq, _ := http.NewRequestWithContext(ctx, http.MethodGet, actURL, nil)
+	actResp, err := http.DefaultClient.Do(actReq)
+	if err != nil {
+		t.Fatalf("activity query failed: %v", err)
+	}
+	actLatency := time.Since(t0)
+	var actDoc workspace.ActivityStatus
+	_ = json.NewDecoder(actResp.Body).Decode(&actDoc)
+	_ = actResp.Body.Close()
+
+	if actLatency > 300*time.Millisecond {
+		t.Errorf("activity latency exceeded 300ms SLO: %v", actLatency)
+	}
+	if actDoc.Activity != "editing" {
+		t.Errorf("expected editing activity, got %s", actDoc.Activity)
+	}
+
+	// 2. Query verified gap via MCP tool
+	mcpServer, _ := mcp.NewServer(mcp.Config{RepoRoot: tempDir})
+	callReq := `{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"get_verified_gap","arguments":{"target":"` + tempDir + `"}}}` + "\n"
+	inBuf := bytes.NewBufferString(callReq)
+	outBuf := &bytes.Buffer{}
+	_ = mcpServer.Serve(ctx, inBuf, outBuf)
+
+	var callResp struct {
+		Result struct {
+			Content []struct {
+				Text string `json:"text"`
+			} `json:"content"`
+		} `json:"result"`
+	}
+	_ = json.Unmarshal(outBuf.Bytes(), &callResp)
+	if len(callResp.Result.Content) == 0 {
+		t.Fatalf("missing content in tool response: %s", outBuf.String())
+	}
+	var gapDoc map[string]any
+	_ = json.Unmarshal([]byte(callResp.Result.Content[0].Text), &gapDoc)
+	if gapDoc["freshness"] != "last_verified" && gapDoc["status"] != "no_generation_published" {
+		t.Errorf("unexpected gap result: %+v", gapDoc)
+	}
+
+	totalLatency := time.Since(t0)
+	if totalLatency > 3*time.Second {
+		t.Errorf("total publication/gap latency exceeded 3s SLO: %v", totalLatency)
+	}
+
+	// 3. Concurrent Active Pointer CAS race: two competing publishers (VS04-A4)
+	st := storage.New(tempDir)
+	_ = st.InitLayout()
+
+	manifestA := &storage.GenerationProofManifest{
+		ProofID:                    "proof-race-a",
+		GenerationID:               "gen-race-a",
+		ComputedBasisID:            "basis-race",
+		ValidatedAgainstSnapshotID: "snap-head",
+		CurrentPublication: storage.CurrentPublicationResult{
+			Eligibility: "passed",
+		},
+		ExpectedLiveHeadSnapshotID: "snap-head",
+	}
+	manifestB := &storage.GenerationProofManifest{
+		ProofID:                    "proof-race-b",
+		GenerationID:               "gen-race-b",
+		ComputedBasisID:            "basis-race",
+		ValidatedAgainstSnapshotID: "snap-head",
+		CurrentPublication: storage.CurrentPublicationResult{
+			Eligibility: "passed",
+		},
+		ExpectedLiveHeadSnapshotID: "snap-head",
+	}
+	casA, _ := st.WriteManifestCAS(manifestA)
+	casB, _ := st.WriteManifestCAS(manifestB)
+
+	ptrA := &storage.ActivePointer{
+		GenerationID:               "gen-race-a",
+		ManifestObjectRef:          casA,
+		ComputedBasisID:            "basis-race",
+		ValidatedAgainstSnapshotID: "snap-head",
+		ExpectedLiveHeadSnapshotID: "snap-head",
+	}
+	ptrB := &storage.ActivePointer{
+		GenerationID:               "gen-race-b",
+		ManifestObjectRef:          casB,
+		ComputedBasisID:            "basis-race",
+		ValidatedAgainstSnapshotID: "snap-head",
+		ExpectedLiveHeadSnapshotID: "snap-head",
+	}
+
+	// First CAS wins
+	errA := st.CompareAndSwapActivePointer("snap-head", "", ptrA)
+	if errA != nil {
+		t.Fatalf("first CAS failed: %v", errA)
+	}
+
+	// Second CAS against same empty previousGen must be rejected with ErrCASConflict
+	errB := st.CompareAndSwapActivePointer("snap-head", "", ptrB)
+	if errB != storage.ErrCASConflict {
+		t.Errorf("expected ErrCASConflict for lost CAS race, got %v", errB)
+	}
+
+	activePtr, _ := st.ReadActivePointer()
+	if activePtr.GenerationID != "gen-race-a" {
+		t.Errorf("active pointer was corrupted by race loser: got %s, want gen-race-a", activePtr.GenerationID)
+	}
+}
+

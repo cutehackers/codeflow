@@ -73,6 +73,7 @@ func (s *Storage) InitLayout() error {
 		filepath.Join(s.baseDir, "semantics", "views"),
 		filepath.Join(s.baseDir, "ir"),
 		filepath.Join(s.baseDir, "generations"),
+		filepath.Join(s.baseDir, "cas"),
 	}
 	for _, d := range dirs {
 		if err := os.MkdirAll(d, 0o755); err != nil {

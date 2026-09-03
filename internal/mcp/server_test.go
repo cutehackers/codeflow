@@ -96,8 +96,8 @@ func TestMCPServerToolsAndExecution(t *testing.T) {
 	if err := json.Unmarshal([]byte(lines[1]), &respList); err != nil {
 		t.Fatalf("unmarshal tools/list response: %v", err)
 	}
-	if len(respList.Result.Tools) != 12 {
-		t.Errorf("expected 12 MCP tools, got %d", len(respList.Result.Tools))
+	if len(respList.Result.Tools) != 14 {
+		t.Errorf("expected 14 MCP tools, got %d", len(respList.Result.Tools))
 	}
 	for _, tool := range respList.Result.Tools {
 		if _, ok := tool.InputSchema.Properties["target"]; !ok {

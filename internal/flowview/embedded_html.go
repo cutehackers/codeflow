@@ -260,17 +260,31 @@ const IndexHTML = `<!doctype html>
     </div>
   </section>
 
-  <!-- Current Answer Strip (VS-02: Answer First) -->
+  <!-- Current Answer Strip (VS-02 & VS-04) -->
   <section id="current-answer-strip" data-region="current-answer" style="display:none;margin-top:14px;padding:14px 16px;border:2px solid var(--ink);border-radius:8px;background:var(--paper)">
-    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px;flex-wrap:wrap;gap:8px">
       <span style="font-size:11px;font-weight:800;letter-spacing:.08em;text-transform:uppercase;color:var(--muted)">Current Verified Answer</span>
-      <div style="display:flex;gap:6px;align-items:center">
+      <!-- Independent Status Axes (VS04-A8, D21) -->
+      <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">
+        <span id="badge-freshness" class="badge">Current</span>
         <span id="current-answer-stage" class="badge">Q2 Verified</span>
+        <span id="badge-quality" class="badge" style="display:none">Q2</span>
+        <span id="badge-activity" class="badge" style="background:#f4f4f2">idle</span>
+        <span id="badge-settlement" class="badge" style="background:#f4f4f2">Settlement: pending</span>
+        <span id="badge-enrichment" class="badge" style="background:#f4f4f2">Enrichment: none</span>
+        <span id="badge-connection" class="badge" style="background:#f4f4f2">SSE: connected</span>
         <span id="current-answer-basis" style="font-size:11px;color:var(--muted)"></span>
       </div>
     </div>
     <div style="margin-bottom:4px;font-size:12px;color:var(--muted)"><b>요청 의도:</b> <span id="current-answer-requested">—</span></div>
     <div style="font-size:15px;font-weight:700;line-height:1.4;color:var(--ink)" id="current-answer-statement">—</div>
+    <!-- Verified Gap Banner (VS04-A3, VS04-A11) -->
+    <div id="verified-gap-banner" class="queue-banner" style="display:none;margin-top:10px;background:#fff4e6;border-left:4px solid #f08c00">
+      <div>
+        <div style="font-weight:700;color:#d9480f" id="verified-gap-title">⚠️ 최신 작업공간 편집 반영 대기 중 (Last Verified)</div>
+        <div style="font-size:12px;color:var(--muted);margin-top:2px">영향 범위: <span id="verified-gap-scope" style="font-family:monospace;font-weight:bold">—</span> | 지연: <span id="verified-gap-lag">0</span>ms | 대기 리비전: <span id="verified-gap-pending">0</span>개</div>
+      </div>
+    </div>
   </section>
 
   <div id="queue-banner" class="queue-banner" style="display:none">
@@ -535,6 +549,7 @@ async function loadWorkspaceActivity(){
 
 async function init(){
   loadWorkspaceActivity();
+  initLiveStream();
   try{
     const r=await api('/api/flows');
     const d=await r.json();
@@ -569,7 +584,121 @@ async function loadFlow(id){
 
 /* ---- Semantic Task View (VS-02) ---- */
 
-async function handleSemanticQuery(event){
+let liveEventSource=null;
+let lastSeenEventId=null;
+
+function initLiveStream(){
+  if(typeof EventSource==='undefined')return;
+  if(liveEventSource){
+    liveEventSource.close();
+  }
+  const token=(new URLSearchParams(window.location.search)).get('token')||'';
+  let streamUrl='/api/workspace/stream?token='+encodeURIComponent(token);
+  if(lastSeenEventId){
+    streamUrl+='&lastEventId='+encodeURIComponent(lastSeenEventId);
+  }
+
+  const setConn=(st)=>{
+    const el=document.getElementById('badge-connection');
+    if(el){
+      el.textContent='SSE: '+st;
+      el.style.background=st==='connected'?'#d3f9d8':'#ffe3e3';
+    }
+  };
+
+  try{
+    liveEventSource=new EventSource(streamUrl);
+    liveEventSource.onopen=()=>{setConn('connected');};
+    liveEventSource.onerror=()=>{setConn('reconnecting');};
+
+    liveEventSource.addEventListener('activity.updated',e=>{
+      if(e.lastEventId)lastSeenEventId=e.lastEventId;
+      try{
+        const env=JSON.parse(e.data);
+        updateWorkspaceActivityUI(env.data||env);
+      }catch(err){console.error(err);}
+    });
+
+    liveEventSource.addEventListener('generation.published',e=>{
+      if(e.lastEventId)lastSeenEventId=e.lastEventId;
+      try{
+        const input=document.getElementById('query-input');
+        const query=(input?input.value:'').trim();
+        if(query){
+          handleSemanticQuery(null,true);
+        }
+        hideVerifiedGap();
+      }catch(err){console.error(err);}
+    });
+
+    liveEventSource.addEventListener('generation.gap',e=>{
+      if(e.lastEventId)lastSeenEventId=e.lastEventId;
+      try{
+        const env=JSON.parse(e.data);
+        showVerifiedGap(env.data||env);
+      }catch(err){console.error(err);}
+    });
+
+    liveEventSource.addEventListener('snapshot_sync',e=>{
+      if(e.lastEventId)lastSeenEventId=e.lastEventId;
+      try{
+        const env=JSON.parse(e.data);
+        if(env.data&&env.data.activity){
+          updateWorkspaceActivityUI(env.data.activity);
+        }
+      }catch(err){console.error(err);}
+    });
+  }catch(e){
+    console.error('EventSource init error:',e);
+    setConn('disconnected');
+  }
+}
+
+function updateWorkspaceActivityUI(act){
+  if(!act)return;
+  const badge=document.getElementById('workspace-activity-badge');
+  const activityBadge=document.getElementById('badge-activity');
+  if(badge)badge.textContent=act.activity||'idle';
+  if(activityBadge)activityBadge.textContent=act.activity||'idle';
+
+  const pending=document.getElementById('workspace-pending-count');
+  if(pending)pending.textContent='pending: '+(act.pendingRevisions||0);
+
+  const lag=document.getElementById('workspace-analysis-lag');
+  if(lag)lag.textContent='lag: '+(act.analysisLagMs||0)+'ms';
+
+  const scope=document.getElementById('workspace-scope-tag');
+  if(scope)scope.textContent=(act.activeScope&&act.activeScope.length)?act.activeScope.join(', '):'none';
+}
+
+function showVerifiedGap(gap){
+  const banner=document.getElementById('verified-gap-banner');
+  const freshness=document.getElementById('badge-freshness');
+  if(freshness){
+    freshness.textContent='Last Verified';
+    freshness.className='badge warn-badge';
+  }
+  if(!banner||!gap)return;
+  banner.style.display='flex';
+  const scopeEl=document.getElementById('verified-gap-scope');
+  const lagEl=document.getElementById('verified-gap-lag');
+  const pendingEl=document.getElementById('verified-gap-pending');
+  if(scopeEl)scopeEl.textContent=(gap.affectedScope&&gap.affectedScope.length)?gap.affectedScope.join(', '):'none';
+  if(lagEl)lagEl.textContent=String(gap.analysisLagMs||0);
+  if(pendingEl)pendingEl.textContent=String(gap.pendingRevisions||0);
+}
+
+function hideVerifiedGap(){
+  const banner=document.getElementById('verified-gap-banner');
+  if(banner)banner.style.display='none';
+  const freshness=document.getElementById('badge-freshness');
+  if(freshness){
+    freshness.textContent='Current';
+    freshness.className='badge';
+  }
+}
+
+async function handleSemanticQuery(event,preserveSelection=false){
   if(event)event.preventDefault();
   const input=document.getElementById('query-input');
   const query=(input?input.value:'').trim();
@@ -590,7 +719,7 @@ async function handleSemanticQuery(event){
       return;
     }
     const d=await r.json();
-    renderSemanticTaskView(d);
+    renderSemanticTaskView(d,preserveSelection);
   }catch(e){
     alert('질의 요청 오류: '+e.message);
   }
@@ -627,14 +756,14 @@ async function selectSpecificEntry(entrySymbol){
     const r=await api('/api/task/view?entrySymbol='+encodeURIComponent(entrySymbol)+'&mode=feature',{allowErrors:true});
     if(r.ok){
       const d=await r.json();
-      renderSemanticTaskView(d);
+      renderSemanticTaskView(d,false);
     }
   }catch(e){
     console.error(e);
   }
 }
 
-function renderSemanticTaskView(data){
+function renderSemanticTaskView(data,preserveSelection=false){
   const strip=document.getElementById('current-answer-strip');
   if(strip&&data.currentAnswer){
     strip.style.display='block';
@@ -648,17 +777,52 @@ function renderSemanticTaskView(data){
     if(basisEl&&data.semanticMap)basisEl.textContent='basis: '+(data.semanticMap.computedBasisId||'active');
   }
 
+  // Update Independent Status Axes (VS04-A8, D21)
+  const freshnessEl=document.getElementById('badge-freshness');
+  if(freshnessEl){
+    if(data.verifiedGap||(data.semanticMap&&data.semanticMap.freshness==='last_verified')){
+      freshnessEl.textContent='Last Verified';
+      freshnessEl.className='badge warn-badge';
+    }else{
+      freshnessEl.textContent='Current';
+      freshnessEl.className='badge';
+    }
+  }
+  const qualityEl=document.getElementById('badge-quality');
+  if(qualityEl&&data.semanticMap&&data.semanticMap.quality){
+    qualityEl.textContent=data.semanticMap.quality.stage;
+  }
+  const settlementEl=document.getElementById('badge-settlement');
+  if(settlementEl&&data.semanticMap){
+    settlementEl.textContent='Settlement: '+(data.semanticMap.settlement||'pending');
+  }
+  const enrichmentEl=document.getElementById('badge-enrichment');
+  if(enrichmentEl){
+    enrichmentEl.textContent='Enrichment: not_requested';
+  }
+
+  if(data.verifiedGap){
+    showVerifiedGap(data.verifiedGap);
+  }else{
+    hideVerifiedGap();
+  }
+
   if(data.semanticMap){
+    const prevSelectedStepId=(currentSpec&&currentSpec.steps&&currentSpec.steps[selected])
+      ?(currentSpec.steps[selected].stepId||currentSpec.steps[selected].code)
+      :null;
+
     const projVisible=new Set(data.projection?(data.projection.visibleStepRefs||[]):[]);
     const projPreserved=new Set(data.projection?(data.projection.preservedStepRefs||[]):[]);
 
     currentSpec={
-      title:data.semanticMap.summary.requested||data.taskIntent.request.rawRequest,
+      title:data.semanticMap.summary.requested||(data.taskIntent?data.taskIntent.request.rawRequest:''),
       description:data.semanticMap.summary.current,
       flowId:data.semanticMap.mapId,
       basisSha:data.semanticMap.computedBasisId||'active',
       entrySymbolPath:(data.semanticMap.steps[0]||{}).technicalName||'',
       steps:data.semanticMap.steps.map(s=>({
+        stepId:s.stepId,
         ordinal:s.ordinal,
         name:s.name,
         layer:s.layer,
@@ -677,7 +841,19 @@ function renderSemanticTaskView(data){
       unknowns:data.unknowns||[]
     };
     currentFlowId=currentSpec.flowId;
-    selected=0;
+
+    // Stable selection (VS04-A10): preserve step identity across generation publications
+    if(preserveSelection&&prevSelectedStepId){
+      const matchIdx=currentSpec.steps.findIndex(st=>st.stepId===prevSelectedStepId||st.code===prevSelectedStepId);
+      if(matchIdx>=0){
+        selected=matchIdx;
+      }else{
+        selected=Math.min(selected,currentSpec.steps.length-1);
+      }
+    }else{
+      selected=0;
+    }
+
     renderAll();
   }
 }

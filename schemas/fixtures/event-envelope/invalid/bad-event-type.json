@@ -1,0 +1,9 @@
+{
+  "schemaId": "https://codeflow.local/schemas/event-envelope.schema.json",
+  "schemaVersion": 1,
+  "streamId": "task-payment-retry",
+  "sequence": 1044,
+  "eventId": "event-1044",
+  "eventType": "unsupported.event.type",
+  "occurredAt": "2026-09-03T12:00:03Z"
+}

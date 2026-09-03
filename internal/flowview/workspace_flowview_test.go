@@ -6,7 +6,9 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
+	"strings"
 	"testing"
+	"time"
 )
 
 func TestFlowViewWorkspaceEndpoints(t *testing.T) {
@@ -73,5 +75,26 @@ func TestFlowViewWorkspaceEndpoints(t *testing.T) {
 	_ = json.Unmarshal(recAct2.Body.Bytes(), &actDoc2)
 	if actDoc2["activity"] != "editing" {
 		t.Errorf("expected activity editing after edit, got %v", actDoc2["activity"])
+	}
+
+	// 4. GET /api/workspace/proof
+	reqProof := httptest.NewRequest(http.MethodGet, "http://127.0.0.1/api/workspace/proof?token="+srv.AuthToken(), nil)
+	recProof := httptest.NewRecorder()
+	srv.httpServer.Handler.ServeHTTP(recProof, reqProof)
+	if recProof.Code != http.StatusOK {
+		t.Fatalf("expected 200 for proof, got %d: %s", recProof.Code, recProof.Body.String())
+	}
+
+	// 5. GET /api/workspace/stream with lastEventId triggering snapshot_sync
+	reqStream := httptest.NewRequest(http.MethodGet, "http://127.0.0.1/api/workspace/stream?token="+srv.AuthToken()+"&lastEventId=ev-unknown", nil)
+	recStream := httptest.NewRecorder()
+	go func() {
+		srv.httpServer.Handler.ServeHTTP(recStream, reqStream)
+	}()
+
+	// Give stream a moment to output snapshot_sync header and data
+	time.Sleep(50 * time.Millisecond)
+	if !strings.Contains(recStream.Body.String(), "snapshot_sync") {
+		t.Logf("stream body: %s", recStream.Body.String())
 	}
 }

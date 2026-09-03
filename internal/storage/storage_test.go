@@ -134,3 +134,141 @@ func TestWorktreeFingerprint(t *testing.T) {
 		t.Errorf("fingerprint order dependency: %s != %s", fp1, fp2)
 	}
 }
+
+func TestActivePointerCASAndProofManifestCAS(t *testing.T) {
+	tmpDir, err := os.MkdirTemp("", "codeflow-pointer-cas-test-*")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.RemoveAll(tmpDir)
+
+	st := storage.New(tmpDir)
+	if err := st.InitLayout(); err != nil {
+		t.Fatalf("InitLayout failed: %v", err)
+	}
+
+	// 1. Initial state: active pointer is nil
+	actPtr, err := st.ReadActivePointer()
+	if err != nil {
+		t.Fatalf("ReadActivePointer error: %v", err)
+	}
+	if actPtr != nil {
+		t.Fatalf("expected nil active pointer, got %+v", actPtr)
+	}
+
+	// 2. Write a GenerationProofManifest to CAS
+	manifest1 := &storage.GenerationProofManifest{
+		SchemaID:                   "https://codeflow.local/schemas/generation-proof-manifest.schema.json",
+		SchemaVersion:              1,
+		ProofID:                    "proof-1",
+		GenerationID:               "gen-1",
+		ComputedBasisID:            "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+		ValidatedAgainstSnapshotID: "snap-1",
+		TaskIntentRevision:         1,
+		NormalizedQueryHash:        "a1b2c3d4e5f67890a1b2c3d4e5f67890a1b2c3d4e5f67890a1b2c3d4e5f67890",
+		AnalysisReadSetID:          "readset-1",
+		CausalObservationClosureID: "closure-1",
+		CurrentPublication: storage.CurrentPublicationResult{
+			Eligibility:           "passed",
+			SnapshotGate:          "passed",
+			ClosureGate:           "passed",
+			EvidenceGate:          "passed",
+			SemanticAtomicityGate: "passed",
+			TaskRelevanceGate:     "passed",
+			ComprehensionGate:     "passed",
+		},
+		SettlementEvaluation: storage.SettlementEvaluation{
+			Gate: "pending",
+		},
+		ArtifactRefs: storage.ArtifactRefs{
+			SemanticMap: "cas:sha256:map1",
+		},
+		ExpectedLiveHeadSnapshotID: "snap-1",
+	}
+
+	casRef1, err := st.WriteManifestCAS(manifest1)
+	if err != nil {
+		t.Fatalf("WriteManifestCAS failed: %v", err)
+	}
+	if casRef1 == "" {
+		t.Fatalf("expected non-empty casRef")
+	}
+
+	readManifest, err := st.ReadManifestCAS(casRef1)
+	if err != nil {
+		t.Fatalf("ReadManifestCAS failed: %v", err)
+	}
+	if readManifest.ProofID != "proof-1" || readManifest.GenerationID != "gen-1" {
+		t.Errorf("manifest mismatch: %+v", readManifest)
+	}
+
+	// 3. Initial CAS: expectedPreviousGen = "", expectedLiveHead = "snap-1" -> Succeeded
+	ptr1 := &storage.ActivePointer{
+		SchemaID:                   "https://codeflow.local/schemas/active-pointer.schema.json",
+		SchemaVersion:              1,
+		GenerationID:               "gen-1",
+		ManifestObjectRef:          casRef1,
+		ComputedBasisID:            manifest1.ComputedBasisID,
+		ValidatedAgainstSnapshotID: "snap-1",
+		ExpectedLiveHeadSnapshotID: "snap-1",
+		WorkspaceEpoch:             "epoch-1",
+		TaskIntentRevision:         1,
+		NormalizedQueryHash:        manifest1.NormalizedQueryHash,
+		FlowCount:                  1,
+	}
+
+	if err := st.CompareAndSwapActivePointer("snap-1", "", ptr1); err != nil {
+		t.Fatalf("initial CAS failed: %v", err)
+	}
+
+	currentPtr, err := st.ReadActivePointer()
+	if err != nil || currentPtr == nil {
+		t.Fatalf("failed to read active pointer: %v", err)
+	}
+	if currentPtr.GenerationID != "gen-1" {
+		t.Errorf("expected gen-1, got %s", currentPtr.GenerationID)
+	}
+
+	// 4. Stale writer CAS attempt 1: wrong expectedPreviousGeneration ("gen-old") -> ErrCASConflict
+	ptr2 := &storage.ActivePointer{
+		GenerationID: "gen-2",
+	}
+	err = st.CompareAndSwapActivePointer("snap-2", "gen-old", ptr2)
+	if err != storage.ErrCASConflict {
+		t.Errorf("expected ErrCASConflict on mismatched previous generation, got %v", err)
+	}
+
+	// 5. Stale writer CAS attempt 2: wrong expectedLiveHead ("snap-old") -> ErrCASConflict
+	err = st.CompareAndSwapActivePointer("snap-old", "gen-1", ptr2)
+	if err != storage.ErrCASConflict {
+		t.Errorf("expected ErrCASConflict on mismatched live head, got %v", err)
+	}
+
+	// 6. Valid CAS attempt: correct previousGen "gen-1" and correct liveHead "snap-1" (current pointer snapshot) -> Succeeded
+	ptr2 = &storage.ActivePointer{
+		SchemaID:                   "https://codeflow.local/schemas/active-pointer.schema.json",
+		SchemaVersion:              1,
+		GenerationID:               "gen-2",
+		ManifestObjectRef:          casRef1,
+		ComputedBasisID:            manifest1.ComputedBasisID,
+		ValidatedAgainstSnapshotID: "snap-2",
+		ExpectedLiveHeadSnapshotID: "snap-2",
+		WorkspaceEpoch:             "epoch-1",
+		TaskIntentRevision:         1,
+		NormalizedQueryHash:        manifest1.NormalizedQueryHash,
+		FlowCount:                  2,
+	}
+	if err := st.CompareAndSwapActivePointer("snap-1", "gen-1", ptr2); err != nil {
+		t.Fatalf("valid CAS 2 failed: %v", err)
+	}
+
+	// 7. Verify ReadActiveProofManifest
+	activeManifest, err := st.ReadActiveProofManifest()
+	if err != nil || activeManifest == nil {
+		t.Fatalf("failed to read active proof manifest: %v", err)
+	}
+	if activeManifest.ProofID != "proof-1" {
+		t.Errorf("unexpected active manifest: %+v", activeManifest)
+	}
+}
+

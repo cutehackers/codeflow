@@ -46,6 +46,9 @@ var SchemaIDs = []string{
 	BaseURL + "document-revision.schema.json",
 	BaseURL + "workspace-snapshot.schema.json",
 	BaseURL + "change-batch.schema.json",
+	BaseURL + "generation-proof-manifest.schema.json",
+	BaseURL + "active-pointer.schema.json",
+	BaseURL + "event-envelope.schema.json",
 }
 
 // SchemasDir locates the repo's schemas/ directory relative to this source

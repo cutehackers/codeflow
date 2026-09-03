@@ -1,0 +1,99 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://codeflow.local/schemas/generation-proof-manifest.schema.json",
+  "title": "CodeFlow Generation Proof Manifest",
+  "$comment": "Raw §10.11 and VS-04 normative schema for GenerationProofManifest",
+  "type": "object",
+  "required": [
+    "schemaId",
+    "schemaVersion",
+    "proofId",
+    "generationId",
+    "computedBasisId",
+    "validatedAgainstSnapshotId",
+    "taskIntentRevision",
+    "normalizedQueryHash",
+    "analysisReadSetId",
+    "causalObservationClosureId",
+    "causalObservationClosureDigest",
+    "currentPublication",
+    "settlementEvaluation",
+    "artifactRefs",
+    "expectedLiveHeadSnapshotId",
+    "publishedAt"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "schemaId": {
+      "type": "string",
+      "enum": [
+        "https://codeflow.local/schemas/generation-proof-manifest.schema.json",
+        "codeflow.generation-proof-manifest"
+      ]
+    },
+    "schemaVersion": { "const": 1 },
+    "proofId": { "type": "string", "minLength": 1 },
+    "generationId": { "type": "string", "minLength": 1 },
+    "computedBasisId": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+    "validatedAgainstSnapshotId": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+    "validatedWorkspaceDeltaId": { "type": ["string", "null"] },
+    "taskIntentRevision": { "type": "integer", "minimum": 1 },
+    "normalizedQueryHash": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+    "analysisReadSetId": { "type": "string", "minLength": 1 },
+    "causalObservationClosureId": { "type": "string", "minLength": 1 },
+    "causalObservationClosureDigest": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+    "capabilityProfileDigest": { "type": "string" },
+    "currentPublication": {
+      "type": "object",
+      "required": [
+        "eligibility",
+        "snapshotGate",
+        "closureGate",
+        "evidenceGate",
+        "semanticAtomicityGate",
+        "taskRelevanceGate",
+        "comprehensionGate"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "eligibility": { "type": "string", "enum": ["passed", "rejected"] },
+        "snapshotGate": { "type": "string", "enum": ["passed", "failed"] },
+        "closureGate": { "type": "string", "enum": ["passed", "failed"] },
+        "evidenceGate": { "type": "string", "enum": ["passed", "failed"] },
+        "semanticAtomicityGate": { "type": "string", "enum": ["passed", "failed"] },
+        "taskRelevanceGate": { "type": "string", "enum": ["passed", "failed"] },
+        "comprehensionGate": { "type": "string", "enum": ["passed", "failed"] }
+      }
+    },
+    "settlementEvaluation": {
+      "type": "object",
+      "required": [
+        "gate",
+        "blockingObligationRefs"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "gate": { "type": "string", "enum": ["pending", "passed", "failed"] },
+        "evaluatedAt": { "type": ["string", "null"], "format": "date-time" },
+        "blockingObligationRefs": {
+          "type": "array",
+          "items": { "type": "string" }
+        }
+      }
+    },
+    "artifactRefs": {
+      "type": "object",
+      "required": ["semanticMap"],
+      "additionalProperties": false,
+      "properties": {
+        "semanticMap": { "type": "string", "minLength": 1 },
+        "semanticDelta": { "type": "string" },
+        "evidenceIndex": { "type": "string" },
+        "projection": { "type": "string" }
+      }
+    },
+    "expectedLiveHeadSnapshotId": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+    "expectedPreviousGenerationId": { "type": ["string", "null"] },
+    "publishedAt": { "type": "string", "format": "date-time" }
+  }
+}

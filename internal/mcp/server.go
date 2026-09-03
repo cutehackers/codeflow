@@ -509,6 +509,28 @@ func (s *Server) listTools() []map[string]any {
 				},
 			},
 		},
+		{
+			"name":        "get_generation_proof",
+			"description": "Retrieves the active pointer and Generation Proof Manifest for the current workspace generation (VS-04, Raw §10.11)",
+			"inputSchema": map[string]any{
+				"type": "object",
+				"properties": map[string]any{
+					"target": targetProp,
+					"token":  map[string]any{"type": "string", "description": "Auth token when RequireToken=true"},
+				},
+			},
+		},
+		{
+			"name":        "get_verified_gap",
+			"description": "Retrieves the latest-vs-verified gap and affected scope when workspace edits have occurred (VS-04, Raw §7.3, §7.4)",
+			"inputSchema": map[string]any{
+				"type": "object",
+				"properties": map[string]any{
+					"target": targetProp,
+					"token":  map[string]any{"type": "string", "description": "Auth token when RequireToken=true"},
+				},
+			},
+		},
 	}
 }
 
@@ -894,6 +916,12 @@ func (s *Server) executeTool(ctx context.Context, name string, args map[string]a
 
 	case "submit_versioned_edit":
 		return s.handleSubmitVersionedEdit(ctx, args)
+
+	case "get_generation_proof":
+		return s.handleGetGenerationProof(ctx, args)
+
+	case "get_verified_gap":
+		return s.handleGetVerifiedGap(ctx, args)
 
 	default:
 		return nil, fmt.Errorf("unknown tool %s", name)

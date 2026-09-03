@@ -4,6 +4,8 @@ import (
 	"context"
 	"os"
 	"testing"
+
+	"codeflow/internal/storage"
 )
 
 func TestVS03_MCPWorkspaceTools(t *testing.T) {
@@ -75,3 +77,94 @@ func TestVS03_MCPWorkspaceTools(t *testing.T) {
 		t.Error("expected non-empty currentSnapshotId after edit")
 	}
 }
+
+func TestVS04_MCPProofAndGapTools(t *testing.T) {
+	tempDir, err := os.MkdirTemp("", "codeflow-mcp-vs04-*")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.RemoveAll(tempDir)
+
+	srv, err := NewServer(Config{
+		RepoRoot:     tempDir,
+		RequireToken: false,
+	})
+	if err != nil {
+		t.Fatalf("NewServer failed: %v", err)
+	}
+
+	ctx := context.Background()
+
+	// 1. Initial state
+	resProof, err := srv.executeTool(ctx, "get_generation_proof", map[string]any{"target": tempDir})
+	if err != nil {
+		t.Fatalf("get_generation_proof error: %v", err)
+	}
+	proofMap := resProof.(map[string]any)
+	if proofMap["pointer"] != nil {
+		t.Errorf("expected nil initial pointer, got %v", proofMap["pointer"])
+	}
+
+	resGap, err := srv.executeTool(ctx, "get_verified_gap", map[string]any{"target": tempDir})
+	if err != nil {
+		t.Fatalf("get_verified_gap error: %v", err)
+	}
+	gapMap := resGap.(map[string]any)
+	if gapMap["status"] != "no_generation_published" {
+		t.Errorf("expected no_generation_published, got %v", gapMap["status"])
+	}
+
+	// 2. Publish a generation directly to storage
+	st, _ := srv.getStorage(tempDir)
+	_ = st.InitLayout()
+	manifest := &storage.GenerationProofManifest{
+		ProofID:                    "proof-mcp-1",
+		GenerationID:               "gen-mcp-1",
+		ComputedBasisID:            "basis-1",
+		ValidatedAgainstSnapshotID: "snap-1",
+		CurrentPublication: storage.CurrentPublicationResult{
+			Eligibility: "passed",
+		},
+		ExpectedLiveHeadSnapshotID: "snap-1",
+	}
+	casRef, _ := st.WriteManifestCAS(manifest)
+	ptr := &storage.ActivePointer{
+		GenerationID:               "gen-mcp-1",
+		ManifestObjectRef:          casRef,
+		ComputedBasisID:            "basis-1",
+		ValidatedAgainstSnapshotID: "snap-1",
+		ExpectedLiveHeadSnapshotID: "snap-1",
+	}
+	_ = st.CompareAndSwapActivePointer("snap-1", "", ptr)
+
+	// 3. Query get_generation_proof again -> non-nil
+	resProof2, err := srv.executeTool(ctx, "get_generation_proof", map[string]any{"target": tempDir})
+	if err != nil {
+		t.Fatalf("get_generation_proof 2 error: %v", err)
+	}
+	proofMap2 := resProof2.(map[string]any)
+	if proofMap2["pointer"] == nil || proofMap2["manifest"] == nil {
+		t.Fatalf("expected non-nil pointer and manifest, got %+v", proofMap2)
+	}
+
+	// 4. Submit edit so snapshot changes -> get_verified_gap should report last_verified
+	_, _ = srv.executeTool(ctx, "submit_versioned_edit", map[string]any{
+		"target":          tempDir,
+		"path":            "src/file.ts",
+		"content":         "console.log('hi');",
+		"documentVersion": float64(1),
+	})
+
+	resGap2, err := srv.executeTool(ctx, "get_verified_gap", map[string]any{"target": tempDir})
+	if err != nil {
+		t.Fatalf("get_verified_gap 2 error: %v", err)
+	}
+	gapMap2 := resGap2.(map[string]any)
+	if gapMap2["freshness"] != "last_verified" {
+		t.Errorf("expected last_verified freshness, got %v", gapMap2["freshness"])
+	}
+	if gapMap2["lastVerifiedGenId"] != "gen-mcp-1" {
+		t.Errorf("expected lastVerifiedGenId gen-mcp-1, got %v", gapMap2["lastVerifiedGenId"])
+	}
+}
+

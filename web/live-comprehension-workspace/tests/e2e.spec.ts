@@ -77,4 +77,47 @@ test.describe('FlowView Live Semantic Comprehension Workspace E2E', () => {
     await expect(scopeTag).toBeVisible();
     await expect(scopeTag).not.toBeEmpty();
   });
+
+  test('displays independent status axes, SSE connection, and preserves step selection', async ({ page }) => {
+    await page.goto('http://127.0.0.1:4589/?token=testtoken');
+
+    // 1. Perform semantic query
+    const queryInput = page.locator('#query-input');
+    await queryInput.fill('HomePage.handleQuickCheckout');
+    await page.locator('#query-submit').click();
+
+    const answerStrip = page.locator('#current-answer-strip');
+    await expect(answerStrip).toBeVisible({ timeout: 10000 });
+
+    // 2. Independent status axes (VS04-A8)
+    const freshnessBadge = page.locator('#badge-freshness');
+    await expect(freshnessBadge).toBeVisible();
+    await expect(freshnessBadge).toHaveText(/(Current|Last Verified)/);
+
+    const settlementBadge = page.locator('#badge-settlement');
+    await expect(settlementBadge).toBeVisible();
+    await expect(settlementBadge).toContainText('Settlement:');
+
+    const sseBadge = page.locator('#badge-connection');
+    await expect(sseBadge).toBeVisible();
+    await expect(sseBadge).toContainText('SSE:');
+
+    // 3. Stable selection (VS04-A10): select first step
+    const timelineItems = page.locator('.timeline-item');
+    const firstItem = timelineItems.first();
+    await firstItem.click();
+    await expect(firstItem).toHaveAttribute('aria-current', 'step');
+
+    // Trigger update and verify selection is preserved
+    await page.evaluate(() => {
+      // @ts-ignore
+      if (typeof handleSemanticQuery === 'function') {
+        // @ts-ignore
+        handleSemanticQuery(null, true);
+      }
+    });
+
+    await expect(firstItem).toHaveAttribute('aria-current', 'step');
+  });
 });
+

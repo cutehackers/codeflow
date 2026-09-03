@@ -1,0 +1,13 @@
+{
+  "schemaId": "https://codeflow.local/schemas/active-pointer.schema.json",
+  "schemaVersion": 1,
+  "manifestObjectRef": "1111111111111111111111111111111111111111111111111111111111111111",
+  "publishedAt": "2026-09-03T12:00:00Z",
+  "computedBasisId": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+  "validatedAgainstSnapshotId": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+  "expectedLiveHeadSnapshotId": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+  "workspaceEpoch": "epoch-1",
+  "taskIntentRevision": 4,
+  "normalizedQueryHash": "a1b2c3d4e5f67890a1b2c3d4e5f67890a1b2c3d4e5f67890a1b2c3d4e5f67890",
+  "flowCount": 1
+}

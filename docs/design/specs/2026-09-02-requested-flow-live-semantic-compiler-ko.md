@@ -90,7 +90,7 @@ The raw P0 phase must exit before any P1 or P2 child is approved or implemented.
 | VS-02 | `GOAL-01` | `P0 Exit Gate` and an available structural evidence seam | `A1–A4`, `A15`, `A16–A17`, `A25–A27` | Implemented, verification passing, independent review passed |
 | VS-01 | `GOAL-02` | `P0 Exit Gate`, VS-02 baseline seam | `A9`, `A25–A27` and raw §21.8 | Implemented, verification passing, independent review passed |
 | VS-03 | `GOAL-03` | `P0 Exit Gate`, VS-02 baseline seam, VS-01 snapshot-capable adapter boundary | `A5–A6`, `A9`, `A11`, `A25–A27` | Implemented, verification passing, independent review passed |
-| VS-04 | `GOAL-04` | VS-02, VS-03 | `A7–A11`, `A23–A28` | Proposed, independent review passed |
+| VS-04 | `GOAL-04` | VS-02, VS-03 | `A7–A11`, `A23–A28` | Implemented, verification passing, independent review passed |
 | VS-05 | `GOAL-05` | VS-02, VS-04 | `A12–A16`, `A18`, `A23`, `A25–A27` | Proposed, independent review passed |
 | VS-06 | `GOAL-06` | VS-02, VS-04 | `A16`, `A19`, `A23`, `A25–A27` | Proposed, independent review passed |
 | VS-07 | `GOAL-07` | VS-02, VS-04 | `A16`, `A20–A21`, `A23`, `A25–A27` | Proposed, independent review passed |
