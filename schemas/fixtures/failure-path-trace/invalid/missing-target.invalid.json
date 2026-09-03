@@ -1,0 +1,16 @@
+{
+  "schemaId": "https://codeflow.local/schemas/failure-path-trace.schema.json",
+  "schemaVersion": 1,
+  "traceId": "trace-missing-target",
+  "mode": "debug",
+  "computedBasisId": "basis-1",
+  "generationId": "gen-1",
+  "failureTarget": {},
+  "nodes": [],
+  "relationships": [],
+  "unknownCount": 0,
+  "summary": {
+    "description": "Missing target test",
+    "lastConfirmedState": "State.Initial"
+  }
+}

@@ -1,0 +1,41 @@
+{
+  "schemaId": "https://codeflow.local/schemas/failure-path-trace.schema.json",
+  "schemaVersion": 1,
+  "traceId": "trace-payment-failure",
+  "mode": "debug",
+  "computedBasisId": "basis-1",
+  "generationId": "gen-1",
+  "failureTarget": {
+    "error": "PaymentDeclinedException"
+  },
+  "nodes": [
+    {
+      "nodeId": "node-throw",
+      "symbolPath": "PaymentGateway.charge",
+      "role": "throw",
+      "status": "runtime_observed",
+      "evidenceRefs": ["ev-throw-1"]
+    },
+    {
+      "nodeId": "node-handle",
+      "symbolPath": "PaymentService.process",
+      "role": "handle",
+      "status": "corroborated",
+      "evidenceRefs": ["ev-handle-1"]
+    }
+  ],
+  "relationships": [
+    {
+      "fromNodeId": "node-throw",
+      "toNodeId": "node-handle",
+      "kind": "thrown_to"
+    }
+  ],
+  "timeline": [],
+  "unknownCount": 0,
+  "hasConflicts": false,
+  "summary": {
+    "description": "Payment gateway rejected card, handled in PaymentService",
+    "lastConfirmedState": "Order.Pending"
+  }
+}

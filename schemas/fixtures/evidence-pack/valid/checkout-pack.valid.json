@@ -1,0 +1,25 @@
+{
+  "schemaId": "https://codeflow.local/schemas/evidence-pack.schema.json",
+  "schemaVersion": 1,
+  "evidencePackId": "pack-checkout-1",
+  "targetSymbolPath": "OrderService.checkout",
+  "computedBasisId": "basis-1",
+  "generationId": "gen-1",
+  "items": [
+    {
+      "evidenceId": "ev-ast-1",
+      "kind": "ast_anchor",
+      "source": "src/services/order.ts:42",
+      "content": "function checkout(cart: Cart) { paymentGateway.charge(); }",
+      "verified": true
+    },
+    {
+      "evidenceId": "ev-call-1",
+      "kind": "call_edge",
+      "source": "PaymentGateway.charge",
+      "content": "calls Stripe gateway",
+      "verified": true
+    }
+  ],
+  "redactionStatus": "clean"
+}

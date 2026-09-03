@@ -173,6 +173,135 @@ test.describe('FlowView Live Semantic Comprehension Workspace E2E', () => {
     await expect(page.locator('#dock-pane-why')).toBeVisible();
     await expect(page.locator('#dock-why-text')).not.toBeEmpty();
   });
+
+  test('displays Change Impact Trace section with direct, indirect, and unresolved boundaries (VS-06)', async ({ page }) => {
+    await page.goto('http://127.0.0.1:4589/?token=testtoken');
+
+    // 1. Change Impact Trace section is present
+    const impactSection = page.locator('#change-impact-section');
+    await expect(impactSection).toBeVisible();
+
+    const impactTag = page.locator('#impact-status-tag');
+    await expect(impactTag).toBeVisible();
+    await expect(impactTag).toHaveText('Bounded');
+
+    // 2. Direct, indirect, and unresolved boundary panels are present
+    await expect(page.locator('#direct-impact-list')).toBeVisible();
+    await expect(page.locator('#indirect-impact-list')).toBeVisible();
+    await expect(page.locator('#unresolved-boundaries-list')).toBeVisible();
+
+    // 3. Trigger impact analysis
+    const impactBtn = page.locator('#btn-trigger-impact');
+    await expect(impactBtn).toBeVisible();
+    await impactBtn.click();
+
+    // Verify direct impact list is updated
+    await expect(page.locator('#direct-impact-list')).not.toBeEmpty();
+  });
+
+  test('displays Failure & Incident Investigation section with reverse cause nodes and timeline (VS-07)', async ({ page }) => {
+    await page.goto('http://127.0.0.1:4589/?token=testtoken');
+
+    // 1. Section is present
+    const failSection = page.locator('#failure-investigation-section');
+    await expect(failSection).toBeVisible();
+
+    const modeTag = page.locator('#failure-mode-tag');
+    await expect(modeTag).toBeVisible();
+
+    // 2. Trigger Debug Mode investigation
+    const debugBtn = page.locator('#btn-trigger-debug');
+    await expect(debugBtn).toBeVisible();
+    await debugBtn.click();
+
+    // Verify cause chain nodes are populated
+    await expect(page.locator('#failure-nodes-list')).not.toBeEmpty();
+
+    // 3. Trigger Incident Mode investigation
+    const incBtn = page.locator('#btn-trigger-incident');
+    await expect(incBtn).toBeVisible();
+    await incBtn.click();
+
+    // Verify timeline events are populated
+    await expect(page.locator('#failure-timeline-list')).not.toBeEmpty();
+  });
+
+  test('displays Semantic Approval & Grounding section and records human approval (VS-08)', async ({ page }) => {
+    await page.goto('http://127.0.0.1:4589/?token=testtoken');
+
+    // 1. Section is present
+    const apprSection = page.locator('#semantic-approval-section');
+    await expect(apprSection).toBeVisible();
+
+    const statusBadge = page.locator('#approval-status-badge');
+    await expect(statusBadge).toBeVisible();
+    await expect(statusBadge).toHaveText('Awaiting Human Approval');
+
+    // 2. Proposal card and evidence summary are visible
+    await expect(page.locator('#proposal-card')).toBeVisible();
+    await expect(page.locator('#evidence-grounding-summary')).toBeVisible();
+
+    // 3. Click Approve button
+    const approveBtn = page.locator('#btn-semantic-approve');
+    await expect(approveBtn).toBeVisible();
+    await approveBtn.click();
+
+    // 4. Verify approval status changes to Approved and message is shown
+    await expect(statusBadge).toHaveText('Approved');
+    await expect(page.locator('#approval-result-msg')).toContainText('승인 기록 생성됨');
+  });
+
+  test('displays Domain Architecture section and renders domain cards (VS-09)', async ({ page }) => {
+    await page.goto('http://127.0.0.1:4589/?token=testtoken');
+
+    // 1. Section is present
+    const onbSection = page.locator('#onboarding-domains-section');
+    await expect(onbSection).toBeVisible();
+
+    const badge = page.locator('#onboarding-coverage-badge');
+    await expect(badge).toBeVisible();
+    await expect(badge).toHaveText('Level 1: System Map');
+
+    // 2. Click Explore Domains
+    const exploreBtn = page.locator('#btn-explore-domains');
+    await expect(exploreBtn).toBeVisible();
+    await exploreBtn.click();
+
+    // 3. Verify domain cards grid is populated
+    await expect(page.locator('#domain-cards-grid')).not.toBeEmpty();
+    await expect(page.locator('#onboarding-total-domains')).not.toHaveText('0');
+  });
+
+  test('displays Release Capability section and validates release readiness gates (VS-10)', async ({ page }) => {
+    await page.goto('http://127.0.0.1:4589/?token=testtoken');
+
+    // 1. Section is present
+    const relSection = page.locator('#release-capability-section');
+    await expect(relSection).toBeVisible();
+
+    const badge = page.locator('#release-ready-badge');
+    await expect(badge).toBeVisible();
+    await expect(badge).toHaveText('Release Ready: PASSED');
+
+    // 2. Metrics and fallback tier are visible
+    await expect(page.locator('#metric-latency-p95')).toBeVisible();
+    await expect(page.locator('#metric-precision')).toBeVisible();
+    await expect(page.locator('#metric-regressions')).toBeVisible();
+    await expect(page.locator('#release-fallback-tier')).toHaveText('local_slm');
+
+    // 3. Click Evaluate button
+    const evalBtn = page.locator('#btn-eval-release');
+    await expect(evalBtn).toBeVisible();
+    await evalBtn.click();
+
+    // 4. Verify release readiness remains PASSED
+    await expect(badge).toHaveText('Release Ready: PASSED');
+  });
 });
+
+
+
+
+
 
 

@@ -1,0 +1,9 @@
+{
+  "schemaId": "https://codeflow.local/schemas/evidence-pack.schema.json",
+  "schemaVersion": 1,
+  "evidencePackId": "pack-missing-items",
+  "targetSymbolPath": "OrderService.checkout",
+  "computedBasisId": "basis-1",
+  "generationId": "gen-1",
+  "redactionStatus": "clean"
+}

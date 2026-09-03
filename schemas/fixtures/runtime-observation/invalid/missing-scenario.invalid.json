@@ -1,0 +1,13 @@
+{
+  "schemaId": "https://codeflow.local/schemas/runtime-observation.schema.json",
+  "schemaVersion": 1,
+  "observationId": "obs-missing-scenario",
+  "environment": "node",
+  "isolationLevel": "no_egress_sandbox",
+  "observedAt": "2026-09-03T17:00:00Z",
+  "traceCoverage": {
+    "spansCovered": 1,
+    "totalSpans": 1,
+    "ratio": 1.0
+  }
+}

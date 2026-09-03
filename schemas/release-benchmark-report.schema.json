@@ -1,0 +1,65 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://codeflow.local/schemas/release-benchmark-report.schema.json",
+  "title": "CodeFlow Release Benchmark Report",
+  "$comment": "Raw §16–§18, §10 and VS-10 normative schema for release capability verification, benchmark metrics, and production readiness gates.",
+  "type": "object",
+  "required": [
+    "schemaId",
+    "schemaVersion",
+    "reportId",
+    "targetVersion",
+    "evaluatedAt",
+    "metrics",
+    "gates",
+    "releaseReady",
+    "summary"
+  ],
+  "properties": {
+    "schemaId": {
+      "type": "string",
+      "enum": [
+        "https://codeflow.local/schemas/release-benchmark-report.schema.json",
+        "codeflow.release-benchmark-report"
+      ]
+    },
+    "schemaVersion": { "const": 1 },
+    "reportId": { "type": "string", "minLength": 1 },
+    "targetVersion": { "type": "string", "minLength": 1 },
+    "evaluatedAt": { "type": "string", "minLength": 1 },
+    "metrics": {
+      "type": "object",
+      "required": [
+        "latencyP95Ms",
+        "precision",
+        "recall",
+        "contractViolations",
+        "regressionFailures"
+      ],
+      "properties": {
+        "latencyP95Ms": { "type": "number", "minimum": 0 },
+        "precision": { "type": "number", "minimum": 0, "maximum": 1 },
+        "recall": { "type": "number", "minimum": 0, "maximum": 1 },
+        "contractViolations": { "type": "integer", "minimum": 0 },
+        "regressionFailures": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "gates": {
+      "type": "object",
+      "required": [
+        "latencyGatePassed",
+        "precisionGatePassed",
+        "zeroViolationsPassed",
+        "zeroRegressionsPassed"
+      ],
+      "properties": {
+        "latencyGatePassed": { "type": "boolean" },
+        "precisionGatePassed": { "type": "boolean" },
+        "zeroViolationsPassed": { "type": "boolean" },
+        "zeroRegressionsPassed": { "type": "boolean" }
+      }
+    },
+    "releaseReady": { "type": "boolean" },
+    "summary": { "type": "string", "minLength": 1 }
+  }
+}

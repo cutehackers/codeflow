@@ -1,0 +1,25 @@
+{
+  "schemaId": "https://codeflow.local/schemas/failure-path-trace.schema.json",
+  "schemaVersion": 1,
+  "traceId": "trace-bad-role",
+  "mode": "debug",
+  "computedBasisId": "basis-1",
+  "generationId": "gen-1",
+  "failureTarget": {
+    "error": "PaymentDeclinedException"
+  },
+  "nodes": [
+    {
+      "nodeId": "node-1",
+      "symbolPath": "PaymentGateway.charge",
+      "role": "unsupported_role",
+      "status": "static_candidate"
+    }
+  ],
+  "relationships": [],
+  "unknownCount": 0,
+  "summary": {
+    "description": "Bad role test",
+    "lastConfirmedState": "State.Initial"
+  }
+}

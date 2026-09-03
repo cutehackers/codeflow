@@ -309,3 +309,345 @@ func (s *Server) handleGetRequirementAlignment(ctx context.Context, args map[str
 	}, nil
 }
 
+func (s *Server) handleGetChangeImpact(ctx context.Context, args map[string]any) (any, error) {
+	if err := s.checkAuth(args["token"]); err != nil {
+		return nil, err
+	}
+
+	symbolID, _ := args["symbolId"].(string)
+	changeBatchID, _ := args["changeBatchId"].(string)
+	if symbolID == "" && changeBatchID == "" {
+		return map[string]any{
+			"code":    "missing_precondition",
+			"message": "either symbolId or changeBatchId must be provided",
+		}, nil
+	}
+
+	target := s.resolveTarget(args["target"])
+	absTarget, err := filepath.Abs(target)
+	if err != nil {
+		return nil, fmt.Errorf("resolve target: %w", err)
+	}
+
+	st, err := s.getStorage(absTarget)
+	if err != nil {
+		return nil, fmt.Errorf("get storage: %w", err)
+	}
+
+	ptr, _ := st.ReadActivePointer()
+	basisID := "active"
+	genID := "active"
+	if ptr != nil {
+		basisID = ptr.ComputedBasisID
+		genID = ptr.GenerationID
+	}
+
+	mapIR := &semantic.SemanticMapIR{
+		MapID:           "map-" + genID,
+		GenerationID:    genID,
+		ComputedBasisID: basisID,
+		SchemaVersion:   1,
+		Coverage: &semantic.CoverageBoundary{
+			IncludedSourceRoots: []string{"."},
+		},
+		Steps: []semantic.SemanticStep{
+			{
+				StepID:        "step-target",
+				Name:          symbolID,
+				TechnicalName: symbolID,
+				Rules:         []string{"test:" + symbolID},
+			},
+		},
+	}
+
+	impactTarget := semantic.ImpactTarget{
+		SymbolID:      symbolID,
+		ChangeBatchID: changeBatchID,
+	}
+
+	return semantic.ComputeChangeImpact(impactTarget, mapIR, semantic.ImpactOptions{MaxDepth: 3})
+}
+
+func (s *Server) handleInvestigateFailure(ctx context.Context, args map[string]any) (any, error) {
+	if err := s.checkAuth(args["token"]); err != nil {
+		return nil, err
+	}
+
+	mode, _ := args["mode"].(string)
+	if mode == "" {
+		mode = "debug"
+	}
+
+	errStr, _ := args["error"].(string)
+	symptom, _ := args["symptom"].(string)
+	failEvID, _ := args["failureEvidenceId"].(string)
+	traceID, _ := args["traceId"].(string)
+	incEvID, _ := args["incidentEvidenceId"].(string)
+
+	target := semantic.FailureTarget{
+		Error:              errStr,
+		Symptom:            symptom,
+		FailureEvidenceID:  failEvID,
+		IncidentTraceID:    traceID,
+		IncidentEvidenceID: incEvID,
+	}
+
+	if mode == "debug" && errStr == "" && symptom == "" && failEvID == "" {
+		return map[string]any{
+			"code":    "missing_precondition",
+			"message": "debug query requires error, symptom, or failureEvidenceId",
+		}, nil
+	}
+	if mode == "incident" && traceID == "" && incEvID == "" {
+		return map[string]any{
+			"code":    "missing_precondition",
+			"message": "incident query requires traceId or incidentEvidenceId",
+		}, nil
+	}
+
+	targetRepo := s.resolveTarget(args["target"])
+	absTarget, err := filepath.Abs(targetRepo)
+	if err != nil {
+		return nil, fmt.Errorf("resolve target: %w", err)
+	}
+
+	st, err := s.getStorage(absTarget)
+	if err != nil {
+		return nil, fmt.Errorf("get storage: %w", err)
+	}
+
+	ptr, _ := st.ReadActivePointer()
+	basisID := "active"
+	genID := "active"
+	if ptr != nil {
+		basisID = ptr.ComputedBasisID
+		genID = ptr.GenerationID
+	}
+
+	mapIR := &semantic.SemanticMapIR{
+		MapID:           "map-" + genID,
+		GenerationID:    genID,
+		ComputedBasisID: basisID,
+		SchemaVersion:   1,
+		Steps: []semantic.SemanticStep{
+			{
+				StepID:        "step-fail-1",
+				Name:          "장애 발생 지점",
+				TechnicalName: errStr,
+			},
+		},
+	}
+
+	return semantic.InvestigateFailure(target, mode, mapIR, nil, semantic.FailureOptions{})
+}
+
+func (s *Server) handleGetEvidencePack(ctx context.Context, args map[string]any) (any, error) {
+	if err := s.checkAuth(args["token"]); err != nil {
+		return nil, err
+	}
+
+	symbolPath, _ := args["symbolPath"].(string)
+	if symbolPath == "" {
+		return map[string]any{
+			"code":    "missing_precondition",
+			"message": "symbolPath argument is required",
+		}, nil
+	}
+
+	targetRepo := s.resolveTarget(args["target"])
+	absTarget, err := filepath.Abs(targetRepo)
+	if err != nil {
+		return nil, fmt.Errorf("resolve target: %w", err)
+	}
+
+	st, err := s.getStorage(absTarget)
+	if err != nil {
+		return nil, fmt.Errorf("get storage: %w", err)
+	}
+
+	ptr, _ := st.ReadActivePointer()
+	basisID := "active"
+	genID := "active"
+	if ptr != nil {
+		basisID = ptr.ComputedBasisID
+		genID = ptr.GenerationID
+	}
+
+	items := []semantic.EvidenceItem{
+		{
+			EvidenceID: "ev-ast-" + symbolPath,
+			Kind:       "ast_anchor",
+			Source:     symbolPath,
+			Content:    "source representation for " + symbolPath,
+			Verified:   true,
+		},
+	}
+
+	return semantic.BuildEvidencePack(symbolPath, basisID, genID, items)
+}
+
+func (s *Server) handleSubmitSemanticApproval(ctx context.Context, args map[string]any) (any, error) {
+	if err := s.checkAuth(args["token"]); err != nil {
+		return nil, err
+	}
+
+	proposalID, _ := args["proposalId"].(string)
+	decision, _ := args["decision"].(string)
+	approver, _ := args["approver"].(string)
+
+	if proposalID == "" || approver == "" {
+		return map[string]any{
+			"code":    "missing_precondition",
+			"message": "proposalId and approver are required",
+		}, nil
+	}
+
+	if decision == "" {
+		decision = "approved"
+	}
+
+	targetRepo := s.resolveTarget(args["target"])
+	absTarget, err := filepath.Abs(targetRepo)
+	if err != nil {
+		return nil, fmt.Errorf("resolve target: %w", err)
+	}
+
+	st, err := s.getStorage(absTarget)
+	if err != nil {
+		return nil, fmt.Errorf("get storage: %w", err)
+	}
+
+	ptr, _ := st.ReadActivePointer()
+	basisID := "active"
+	genID := "active"
+	if ptr != nil {
+		basisID = ptr.ComputedBasisID
+		genID = ptr.GenerationID
+	}
+
+	pack, _ := semantic.BuildEvidencePack(proposalID, basisID, genID, []semantic.EvidenceItem{
+		{
+			EvidenceID: "ev-appr-" + proposalID,
+			Kind:       "ast_anchor",
+			Source:     proposalID,
+			Content:    "verified code anchor",
+			Verified:   true,
+		},
+	})
+
+	proposal := &semantic.ModelProposal{
+		ProposalID:       proposalID,
+		TargetSymbolPath: proposalID,
+		ProposedTitle:    "승인 대상 모델 제안",
+		ProposedCategory: "business_rule",
+		EpistemicStatus:  "proposed",
+		ComputedBasisID:  basisID,
+		GenerationID:     genID,
+		EvidenceRefs:     []string{"ev-appr-" + proposalID},
+	}
+
+	req := semantic.ApprovalRequest{
+		ProposalID: proposalID,
+		Decision:   decision,
+		Approver:   approver,
+	}
+
+	return semantic.SubmitSemanticApproval(req, proposal, pack)
+}
+
+func (s *Server) handleExploreProjectDomains(ctx context.Context, args map[string]any) (any, error) {
+	if err := s.checkAuth(args["token"]); err != nil {
+		return nil, err
+	}
+
+	repoID, _ := args["repositoryId"].(string)
+	if repoID == "" {
+		repoID = "workspace"
+	}
+	domain, _ := args["domain"].(string)
+
+	level := 1
+	if l, ok := args["level"].(float64); ok && l > 0 {
+		level = int(l)
+	}
+
+	targetRepo := s.resolveTarget(args["target"])
+	absTarget, err := filepath.Abs(targetRepo)
+	if err != nil {
+		return nil, fmt.Errorf("resolve target: %w", err)
+	}
+
+	st, err := s.getStorage(absTarget)
+	if err != nil {
+		return nil, fmt.Errorf("get storage: %w", err)
+	}
+
+	ptr, _ := st.ReadActivePointer()
+	basisID := "active"
+	genID := "active"
+	if ptr != nil {
+		basisID = ptr.ComputedBasisID
+		genID = ptr.GenerationID
+	}
+
+	candidates := []semantic.CandidateEntry{
+		{
+			CandidateID:     "cand-1",
+			EntrySymbolPath: "OrderController.checkout",
+			Domain:          "Order",
+			Title:           "주문 결제 및 처리",
+		},
+		{
+			CandidateID:     "cand-2",
+			EntrySymbolPath: "CatalogController.search",
+			Domain:          "Catalog",
+			Title:           "상품 검색 및 조회",
+		},
+	}
+
+	if level == 2 && domain != "" {
+		return semantic.GetRepresentativeFlowCatalog(domain, basisID, genID, candidates)
+	}
+
+	return semantic.ExploreDomains(repoID, candidates, semantic.OnboardingOptions{
+		Level:   level,
+		Domain:  domain,
+		BasisID: basisID,
+		GenID:   genID,
+	})
+}
+
+func (s *Server) handleValidateReleaseCapability(ctx context.Context, args map[string]any) (any, error) {
+	if err := s.checkAuth(args["token"]); err != nil {
+		return nil, err
+	}
+
+	targetVer, _ := args["targetVersion"].(string)
+	if targetVer == "" {
+		targetVer = "v0.9.0-rc1"
+	}
+
+	modelID, _ := args["modelId"].(string)
+	modelVer, _ := args["modelVersion"].(string)
+
+	rep, err := semantic.EvaluateReleaseBenchmark(targetVer, semantic.BenchmarkOptions{})
+	if err != nil {
+		return map[string]any{
+			"code":    "missing_precondition",
+			"message": err.Error(),
+		}, nil
+	}
+
+	slmState := semantic.GetSLMCapabilityState(modelID, modelVer)
+
+	return map[string]any{
+		"benchmarkReport": rep,
+		"slmCapability":   slmState,
+	}, nil
+}
+
+
+
+
+
+

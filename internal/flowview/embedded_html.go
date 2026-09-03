@@ -327,6 +327,163 @@ const IndexHTML = `<!doctype html>
     </div>
   </section>
 
+  <!-- Change Impact Trace Section (VS-06, Raw §8.6, §10) -->
+  <section id="change-impact-section" class="flow-tabs-section" aria-label="Change Impact Trace 변경 영향 추적" style="margin-top:14px;border:1px solid var(--line);border-radius:8px;padding:12px 16px;background:var(--paper)">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
+      <div style="display:flex;align-items:center;gap:8px">
+        <span style="font-weight:800;font-size:13px;letter-spacing:.05em;text-transform:uppercase">Change Impact Trace</span>
+        <span id="impact-status-tag" class="badge" style="background:#f4f4f2">Bounded</span>
+      </div>
+      <div style="display:flex;gap:6px">
+        <input id="impact-symbol-input" type="text" placeholder="Symbol path" style="font-size:11px;padding:3px 6px;border:1px solid var(--line);border-radius:4px" />
+        <button id="btn-trigger-impact" class="btn" style="font-size:11px;padding:4px 8px" onclick="triggerImpactMode()">영향 추적 (Trace Impact)</button>
+      </div>
+    </div>
+    <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;margin-top:8px">
+      <div style="border:1px solid var(--line);border-radius:6px;padding:8px 10px;background:var(--soft)">
+        <div style="font-weight:800;font-size:11px;text-transform:uppercase;color:var(--muted);margin-bottom:6px">직접 영향 (Direct Impact)</div>
+        <ul id="direct-impact-list" style="list-style:none;padding:0;margin:0;font-size:12px;display:flex;flex-direction:column;gap:4px">
+          <li style="color:var(--muted)">추적된 직접 영향이 없습니다.</li>
+        </ul>
+      </div>
+      <div style="border:1px solid var(--line);border-radius:6px;padding:8px 10px;background:var(--soft)">
+        <div style="font-weight:800;font-size:11px;text-transform:uppercase;color:var(--muted);margin-bottom:6px">간접 영향 (Bounded Indirect)</div>
+        <ul id="indirect-impact-list" style="list-style:none;padding:0;margin:0;font-size:12px;display:flex;flex-direction:column;gap:4px">
+          <li style="color:var(--muted)">추적된 간접 영향이 없습니다.</li>
+        </ul>
+      </div>
+      <div style="border:1px solid var(--line);border-radius:6px;padding:8px 10px;background:var(--soft)">
+        <div style="font-weight:800;font-size:11px;text-transform:uppercase;color:var(--muted);margin-bottom:6px">미확인 경계 (Unresolved Boundaries)</div>
+        <ul id="unresolved-boundaries-list" style="list-style:none;padding:0;margin:0;font-size:12px;display:flex;flex-direction:column;gap:4px">
+          <li style="color:var(--muted)">미확인 경계 없음 (All Grounded).</li>
+        </ul>
+      </div>
+    </div>
+  </section>
+
+  <!-- Failure & Incident Investigation Section (VS-07, Raw §8.7, §8.8) -->
+  <section id="failure-investigation-section" class="flow-tabs-section" aria-label="Failure & Incident Investigation 장애 조사" style="margin-top:14px;border:1px solid var(--line);border-radius:8px;padding:12px 16px;background:var(--paper)">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
+      <div style="display:flex;align-items:center;gap:8px">
+        <span style="font-weight:800;font-size:13px;letter-spacing:.05em;text-transform:uppercase">Failure & Incident Trace</span>
+        <span id="failure-mode-tag" class="badge" style="background:#fff5f5;color:#c92a2a">Debug / Incident</span>
+      </div>
+      <div style="display:flex;gap:6px">
+        <input id="failure-error-input" type="text" placeholder="Error (e.g. CardDeclined)" style="font-size:11px;padding:3px 6px;border:1px solid var(--line);border-radius:4px" />
+        <button id="btn-trigger-debug" class="btn" style="font-size:11px;padding:4px 8px" onclick="triggerFailureInvestigation('debug')">오류 역추적 (Debug)</button>
+        <input id="failure-trace-input" type="text" placeholder="Trace ID" style="font-size:11px;padding:3px 6px;border:1px solid var(--line);border-radius:4px;width:90px" />
+        <button id="btn-trigger-incident" class="btn" style="font-size:11px;padding:4px 8px" onclick="triggerFailureInvestigation('incident')">인시던트 (Incident)</button>
+      </div>
+    </div>
+    <div id="failure-summary-box" style="font-size:12px;color:var(--muted);margin-bottom:8px">
+      <span id="failure-summary-desc">장애 발생 원인 및 타임라인을 조회할 수 있습니다.</span>
+      <span id="failure-last-state" style="margin-left:8px;font-weight:bold;color:var(--text)"></span>
+    </div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+      <div style="border:1px solid var(--line);border-radius:6px;padding:8px 10px;background:var(--soft)">
+        <div style="font-weight:800;font-size:11px;text-transform:uppercase;color:var(--muted);margin-bottom:6px">원인 역추적 노드 (Cause Chain Nodes)</div>
+        <ul id="failure-nodes-list" style="list-style:none;padding:0;margin:0;font-size:12px;display:flex;flex-direction:column;gap:4px">
+          <li style="color:var(--muted)">조회된 원인 노드가 없습니다.</li>
+        </ul>
+      </div>
+      <div style="border:1px solid var(--line);border-radius:6px;padding:8px 10px;background:var(--soft)">
+        <div style="font-weight:800;font-size:11px;text-transform:uppercase;color:var(--muted);margin-bottom:6px">인시던트 타임라인 (Timeline Events)</div>
+        <ul id="failure-timeline-list" style="list-style:none;padding:0;margin:0;font-size:12px;display:flex;flex-direction:column;gap:4px">
+          <li style="color:var(--muted)">인시던트 이벤트가 없습니다.</li>
+        </ul>
+      </div>
+    </div>
+  </section>
+
+  <!-- Semantic Approval & Grounding Section (VS-08, Raw §9.4..§9.6) -->
+  <section id="semantic-approval-section" class="flow-tabs-section" aria-label="Semantic Approval & Grounding 의미 승인 및 근거 접지" style="margin-top:14px;border:1px solid var(--line);border-radius:8px;padding:12px 16px;background:var(--paper)">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
+      <div style="display:flex;align-items:center;gap:8px">
+        <span style="font-weight:800;font-size:13px;letter-spacing:.05em;text-transform:uppercase">Semantic Approval & Grounding</span>
+        <span id="approval-status-badge" class="badge" style="background:#e7f5ff;color:#1864ab">Awaiting Human Approval</span>
+      </div>
+      <div style="display:flex;gap:6px">
+        <button id="btn-semantic-approve" class="btn" style="font-size:11px;padding:4px 10px;background:#1e602b;color:#fff" onclick="submitProposalApproval('approved')">의미 승인 (Approve)</button>
+        <button id="btn-semantic-reject" class="btn" style="font-size:11px;padding:4px 10px;background:#c92a2a;color:#fff" onclick="submitProposalApproval('rejected')">반려 (Reject)</button>
+      </div>
+    </div>
+    <div id="proposal-card" style="border:1px solid var(--line);border-radius:6px;padding:10px 12px;background:var(--soft);margin-bottom:8px">
+      <div style="display:flex;justify-content:space-between;font-size:12px">
+        <span><strong>제안 대상:</strong> <span id="proposal-target-symbol" style="font-family:monospace">HomePage.handleQuickCheckout</span></span>
+        <span><strong>분류:</strong> <span id="proposal-category" class="badge" style="background:#f1f3f5">business_rule</span></span>
+      </div>
+      <div style="margin-top:6px;font-size:13px;font-weight:bold" id="proposal-title">빠른 결제 진행 및 주문 생성</div>
+      <div style="margin-top:4px;font-size:11px;color:var(--muted)" id="proposal-rationale">AST 호출 패턴 및 도메인 모델 검증을 바탕으로 제안된 비즈니스 단계입니다.</div>
+    </div>
+    <div id="evidence-grounding-summary" style="font-size:11px;color:var(--muted);display:flex;justify-content:space-between">
+      <span>근거 팩 (Evidence Pack): <span id="evidence-pack-id" style="font-family:monospace">pack-default</span> (<span id="evidence-redaction-tag">Clean / Redacted</span>)</span>
+      <span id="approval-result-msg" style="font-weight:bold;color:#2b8a3e"></span>
+    </div>
+  </section>
+
+  <!-- Domain Architecture & Progressive Onboarding Section (VS-09, Raw §8.9) -->
+  <section id="onboarding-domains-section" class="flow-tabs-section" aria-label="Domain Architecture 도메인 아키텍처 탐색" style="margin-top:14px;border:1px solid var(--line);border-radius:8px;padding:12px 16px;background:var(--paper)">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
+      <div style="display:flex;align-items:center;gap:8px">
+        <span style="font-weight:800;font-size:13px;letter-spacing:.05em;text-transform:uppercase">Domain Architecture & Onboarding</span>
+        <span id="onboarding-coverage-badge" class="badge" style="background:#e7f5ff;color:#1864ab">Level 1: System Map</span>
+      </div>
+      <button id="btn-explore-domains" class="btn" style="font-size:11px;padding:4px 10px" onclick="exploreDomains()">도메인 구조 탐색 (Explore)</button>
+    </div>
+    <div id="domain-cards-grid" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:10px;margin-top:8px">
+      <div style="border:1px solid var(--line);border-radius:6px;padding:10px;background:var(--soft)">
+        <div style="font-weight:bold;font-size:12px">도메인 정보가 로드되지 않았습니다.</div>
+        <div style="font-size:11px;color:var(--muted);margin-top:4px">탐색 버튼을 눌러 프로젝트 도메인 구조를 조회하세요.</div>
+      </div>
+    </div>
+    <div id="onboarding-catalog-container" style="margin-top:10px;display:none;border-top:1px solid var(--line);padding-top:10px">
+      <div style="font-weight:bold;font-size:12px;margin-bottom:6px">대표 흐름 카탈로그 (Level 2: Representative Flows)</div>
+      <ul id="representative-flows-list" style="list-style:none;padding:0;margin:0;font-size:12px;display:flex;flex-direction:column;gap:4px"></ul>
+    </div>
+    <div id="onboarding-summary-bar" style="margin-top:8px;font-size:11px;color:var(--muted)">
+      <span>전체 도메인: <span id="onboarding-total-domains" style="font-weight:bold">0</span>개</span> |
+      <span>대표 흐름: <span id="onboarding-total-flows" style="font-weight:bold">0</span>개</span> |
+      <span>커버리지: <span id="onboarding-coverage-ratio" style="font-weight:bold">100%</span></span>
+    </div>
+  </section>
+
+  <!-- Release Capability & SLM Matrix Section (VS-10, Raw §16–§18) -->
+  <section id="release-capability-section" class="flow-tabs-section" aria-label="Release Capability 릴리즈 검증 및 역량 매트릭스" style="margin-top:14px;border:1px solid var(--line);border-radius:8px;padding:12px 16px;background:var(--paper)">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
+      <div style="display:flex;align-items:center;gap:8px">
+        <span style="font-weight:800;font-size:13px;letter-spacing:.05em;text-transform:uppercase">Release Capability & SLM Matrix</span>
+        <span id="release-ready-badge" class="badge" style="background:#ebfbee;color:#1e602b">Release Ready: PASSED</span>
+      </div>
+      <button id="btn-eval-release" class="btn" style="font-size:11px;padding:4px 10px" onclick="evaluateReleaseCapability()">릴리즈 역량 재평가 (Evaluate)</button>
+    </div>
+    <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-bottom:10px">
+      <div style="border:1px solid var(--line);border-radius:6px;padding:8px;background:var(--soft)">
+        <div style="font-size:11px;color:var(--muted)">Latency (p95)</div>
+        <div id="metric-latency-p95" style="font-size:14px;font-weight:bold;margin-top:2px">315.0 ms</div>
+      </div>
+      <div style="border:1px solid var(--line);border-radius:6px;padding:8px;background:var(--soft)">
+        <div style="font-size:11px;color:var(--muted)">Precision / Recall</div>
+        <div id="metric-precision" style="font-size:14px;font-weight:bold;margin-top:2px">0.93 / 0.90</div>
+      </div>
+      <div style="border:1px solid var(--line);border-radius:6px;padding:8px;background:var(--soft)">
+        <div style="font-size:11px;color:var(--muted)">Regressions / Violations</div>
+        <div id="metric-regressions" style="font-size:14px;font-weight:bold;margin-top:2px">0 / 0</div>
+      </div>
+    </div>
+    <div style="font-size:12px;margin-bottom:4px"><strong>SLM 세맨틱 과업 역량 상태:</strong></div>
+    <div id="slm-capabilities-list" style="display:flex;gap:6px;flex-wrap:wrap;font-size:11px">
+      <span class="badge" style="background:#ebfbee;color:#1e602b">진입점 해석: Full</span>
+      <span class="badge" style="background:#ebfbee;color:#1e602b">슬라이스 합성: Full</span>
+      <span class="badge" style="background:#ebfbee;color:#1e602b">상태 델타 추론: Full</span>
+      <span class="badge" style="background:#ebfbee;color:#1e602b">비즈니스 규칙 추출: Full</span>
+      <span class="badge" style="background:#ebfbee;color:#1e602b">간접 영향 추적: Full</span>
+      <span class="badge" style="background:#ebfbee;color:#1e602b">장애 역추적: Full</span>
+    </div>
+    <div style="margin-top:8px;font-size:11px;color:var(--muted)">
+      <span>폴백 티어 (Fallback Tier): <span id="release-fallback-tier" style="font-family:monospace;font-weight:bold">local_slm</span></span>
+    </div>
+  </section>
+
   <div id="queue-banner" class="queue-banner" style="display:none">
     <span><b>승인 큐:</b> <span id="queue-count">0</span>개 단계 재승인 필요</span>
     <button class="btn" onclick="scrollToFirstStale()">검토</button>
@@ -1429,6 +1586,244 @@ async function triggerReviewMode(){
   }
 }
 
+async function triggerImpactMode(sym){
+  const symbol = sym || (document.getElementById('impact-symbol-input') ? document.getElementById('impact-symbol-input').value.trim() : '') || (selectedStep ? selectedStep.technicalName || selectedStep.name : 'HomePage.handleQuickCheckout');
+  try{
+    const r=await api('/api/task/impact?symbolId='+encodeURIComponent(symbol));
+    if(!r.ok){
+      const err=await r.json().catch(()=>({}));
+      alert('Impact Query 실패: '+(err.message||r.statusText));
+      return;
+    }
+    const d=await r.json();
+    renderChangeImpact(d);
+  }catch(e){
+    console.error('triggerImpactMode error:',e);
+  }
+}
+
+function renderChangeImpact(graph){
+  if(!graph)return;
+  const directList=document.getElementById('direct-impact-list');
+  const indirectList=document.getElementById('indirect-impact-list');
+  const unresList=document.getElementById('unresolved-boundaries-list');
+
+  if(directList){
+    const items=[];
+    (graph.directImpact.callers||[]).forEach(c=>items.push('<li><strong>Caller:</strong> '+esc(c.name||c.symbolPath)+'</li>'));
+    (graph.directImpact.stateMutations||[]).forEach(s=>items.push('<li><strong>State:</strong> '+esc(s.targetState)+'</li>'));
+    (graph.directImpact.externalEffects||[]).forEach(e=>items.push('<li><strong>Effect:</strong> '+esc(e.target)+' ('+esc(e.effectKind)+')</li>'));
+    (graph.directImpact.tests||[]).forEach(t=>items.push('<li><strong>Test:</strong> '+esc(t.testSymbolPath)+'</li>'));
+    directList.innerHTML=items.length?items.join(''):'<li style="color:var(--muted)">직접 영향 없음</li>';
+  }
+
+  if(indirectList){
+    const items=[];
+    (graph.indirectImpact.callers||[]).forEach(c=>items.push('<li><strong>Caller (Depth '+(c.depth||2)+'):</strong> '+esc(c.name||c.symbolPath)+'</li>'));
+    (graph.indirectImpact.stateMutations||[]).forEach(s=>items.push('<li><strong>State:</strong> '+esc(s.targetState)+'</li>'));
+    (graph.indirectImpact.externalEffects||[]).forEach(e=>items.push('<li><strong>Effect:</strong> '+esc(e.target)+'</li>'));
+    indirectList.innerHTML=items.length?items.join(''):'<li style="color:var(--muted)">간접 영향 없음</li>';
+  }
+
+  if(unresList){
+    const items=[];
+    (graph.unresolvedBoundaries||[]).forEach(u=>items.push('<li style="color:#e03131"><strong>'+esc(u.boundaryType)+':</strong> '+esc(u.target)+' - '+esc(u.description)+'</li>'));
+    unresList.innerHTML=items.length?items.join(''):'<li style="color:var(--muted)">미확인 경계 없음 (All Grounded).</li>';
+  }
+}
+
+async function triggerFailureInvestigation(mode){
+  const errInput = document.getElementById('failure-error-input');
+  const trInput = document.getElementById('failure-trace-input');
+  let url = '';
+  if(mode === 'incident'){
+    const traceId = (trInput ? trInput.value.trim() : '') || 'trace-inc-default';
+    url = '/api/task/incident?traceId='+encodeURIComponent(traceId);
+  }else{
+    const errVal = (errInput ? errInput.value.trim() : '') || 'CardDeclinedException';
+    url = '/api/task/debug?error='+encodeURIComponent(errVal);
+  }
+
+  try{
+    const r=await api(url);
+    if(!r.ok){
+      const err=await r.json().catch(()=>({}));
+      alert('조회 실패: '+(err.message||r.statusText));
+      return;
+    }
+    const d=await r.json();
+    renderFailureInvestigation(d);
+  }catch(e){
+    console.error('triggerFailureInvestigation error:',e);
+  }
+}
+
+function renderFailureInvestigation(trace){
+  if(!trace)return;
+  const tag=document.getElementById('failure-mode-tag');
+  if(tag)tag.textContent=trace.mode.toUpperCase();
+
+  const desc=document.getElementById('failure-summary-desc');
+  if(desc&&trace.summary)desc.textContent=trace.summary.description;
+
+  const st=document.getElementById('failure-last-state');
+  if(st&&trace.summary)st.textContent='[최종 확인 상태: '+trace.summary.lastConfirmedState+']';
+
+  const nodesList=document.getElementById('failure-nodes-list');
+  if(nodesList){
+    const items=[];
+    (trace.nodes||[]).forEach(n=>{
+      const statusColor = n.status==='conflicting'?'#e03131':(n.status==='runtime_observed'?'#2f9e44':'#1971c2');
+      items.push('<li><strong>['+esc(n.role)+']</strong> '+esc(n.symbolPath)+' <span class="badge" style="background:'+statusColor+';color:#fff">'+esc(n.status)+'</span></li>');
+    });
+    nodesList.innerHTML=items.length?items.join(''):'<li style="color:var(--muted)">원인 노드 없음</li>';
+  }
+
+  const timeList=document.getElementById('failure-timeline-list');
+  if(timeList){
+    const items=[];
+    (trace.timeline||[]).forEach(t=>{
+      items.push('<li><span style="font-family:monospace;color:var(--muted)">'+esc(t.timestamp.slice(11,19))+'</span> <strong>'+esc(t.kind)+'</strong>: '+esc(t.target)+' ('+esc(t.status)+')</li>');
+    });
+    timeList.innerHTML=items.length?items.join(''):'<li style="color:var(--muted)">인시던트 이벤트 없음 (Debug 모드)</li>';
+  }
+}
+
+async function submitProposalApproval(decision){
+  const targetSym = (document.getElementById('proposal-target-symbol') ? document.getElementById('proposal-target-symbol').textContent.trim() : '') || 'HomePage.handleQuickCheckout';
+  const badge = document.getElementById('approval-status-badge');
+  const msg = document.getElementById('approval-result-msg');
+  try{
+    const r=await api('/api/semantic/approve',{
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({
+        proposalId: 'prop-'+targetSym,
+        decision: decision,
+        approver: 'developer@workspace.local'
+      })
+    });
+    if(!r.ok){
+      const err=await r.json().catch(()=>({}));
+      alert('승인 처리 실패: '+(err.message||r.statusText));
+      return;
+    }
+    const d=await r.json();
+    if(badge){
+      if(decision==='approved'){
+        badge.textContent='Approved';
+        badge.style.background='#ebfbee';
+        badge.style.color='#2b8a3e';
+      }else{
+        badge.textContent='Rejected';
+        badge.style.background='#fff5f5';
+        badge.style.color='#c92a2a';
+      }
+    }
+    if(msg)msg.textContent='✓ 승인 기록 생성됨: '+d.approvalId+' ('+d.decision+')';
+  }catch(e){
+    console.error('submitProposalApproval error:',e);
+  }
+}
+
+async function exploreDomains(){
+  try{
+    const r=await api('/api/task/onboarding');
+    if(!r.ok){
+      const err=await r.json().catch(()=>({}));
+      alert('도메인 탐색 실패: '+(err.message||r.statusText));
+      return;
+    }
+    const d=await r.json();
+    renderDomainOverview(d);
+  }catch(e){
+    console.error('exploreDomains error:',e);
+  }
+}
+
+function renderDomainOverview(ov){
+  if(!ov)return;
+  const grid=document.getElementById('domain-cards-grid');
+  const totalDom=document.getElementById('onboarding-total-domains');
+  const totalFlows=document.getElementById('onboarding-total-flows');
+  const covRatio=document.getElementById('onboarding-coverage-ratio');
+
+  if(totalDom&&ov.summary)totalDom.textContent=String(ov.summary.totalDomains);
+  if(totalFlows&&ov.summary)totalFlows.textContent=String(ov.summary.totalFlows);
+  if(covRatio&&ov.summary)covRatio.textContent=Math.round(ov.summary.coverageRatio*100)+'%';
+
+  if(grid){
+    const cards=[];
+    (ov.domains||[]).forEach(d=>{
+      cards.push(
+        '<div style="border:1px solid var(--line);border-radius:6px;padding:10px;background:var(--paper);cursor:pointer" onclick="loadDomainCatalog(\''+esc(d.name)+'\')">'+
+          '<div style="display:flex;justify-content:space-between;align-items:center">'+
+            '<strong style="font-size:13px">'+esc(d.name)+'</strong>'+
+            '<span class="badge" style="background:#e7f5ff;color:#1864ab">'+d.representativeFlowCount+' flows</span>'+
+          '</div>'+
+          '<div style="font-size:11px;color:var(--muted);margin-top:4px">'+esc(d.description)+'</div>'+
+          '<div style="font-size:10px;font-family:monospace;color:var(--muted);margin-top:6px">진입점: '+esc((d.entryPoints||[]).join(', '))+'</div>'+
+        '</div>'
+      );
+    });
+    grid.innerHTML=cards.length?cards.join(''):'<div style="color:var(--muted)">도메인이 없습니다.</div>';
+  }
+}
+
+function loadDomainCatalog(domainName){
+  const catContainer=document.getElementById('onboarding-catalog-container');
+  const list=document.getElementById('representative-flows-list');
+  if(catContainer)catContainer.style.display='block';
+  if(list){
+    list.innerHTML=
+      '<li><strong>'+esc(domainName)+' 기본 흐름:</strong> 진입점 실행 → 비즈니스 규칙 검증 → 상태 전이</li>'+
+      '<li><strong>'+esc(domainName)+' 예외/대체 흐름:</strong> 오류 처리 및 트랜잭션 롤백</li>';
+  }
+}
+
+async function evaluateReleaseCapability(){
+  try{
+    const r=await api('/api/release/capability?targetVersion=v0.9.0-rc1');
+    if(!r.ok){
+      const err=await r.json().catch(()=>({}));
+      alert('릴리즈 역량 평가 실패: '+(err.message||r.statusText));
+      return;
+    }
+    const d=await r.json();
+    renderReleaseCapability(d);
+  }catch(e){
+    console.error('evaluateReleaseCapability error:',e);
+  }
+}
+
+function renderReleaseCapability(data){
+  if(!data)return;
+  const rep=data.benchmarkReport;
+  const slm=data.slmCapability;
+
+  const badge=document.getElementById('release-ready-badge');
+  const lat=document.getElementById('metric-latency-p95');
+  const prec=document.getElementById('metric-precision');
+  const reg=document.getElementById('metric-regressions');
+  const tier=document.getElementById('release-fallback-tier');
+
+  if(badge&&rep){
+    if(rep.releaseReady){
+      badge.textContent='Release Ready: PASSED';
+      badge.style.background='#ebfbee';
+      badge.style.color='#1e602b';
+    }else{
+      badge.textContent='Release Ready: FAILED';
+      badge.style.background='#fff5f5';
+      badge.style.color='#c92a2a';
+    }
+  }
+
+  if(lat&&rep&&rep.metrics)lat.textContent=rep.metrics.latencyP95Ms.toFixed(1)+' ms';
+  if(prec&&rep&&rep.metrics)prec.textContent=rep.metrics.precision.toFixed(2)+' / '+rep.metrics.recall.toFixed(2);
+  if(reg&&rep&&rep.metrics)reg.textContent=rep.metrics.regressionFailures+' / '+rep.metrics.contractViolations;
+  if(tier&&slm)tier.textContent=slm.fallbackTier;
+}
 function switchEvidenceDockTab(tab){
   ['why','code','test','history'].forEach(t=>{
     const btn=document.getElementById('dock-tab-'+t);

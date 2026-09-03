@@ -92,11 +92,11 @@ The raw P0 phase must exit before any P1 or P2 child is approved or implemented.
 | VS-03 | `GOAL-03` | `P0 Exit Gate`, VS-02 baseline seam, VS-01 snapshot-capable adapter boundary | `A5–A6`, `A9`, `A11`, `A25–A27` | Implemented, verification passing, independent review passed |
 | VS-04 | `GOAL-04` | VS-02, VS-03 | `A7–A11`, `A23–A28` | Implemented, verification passing, independent review passed |
 | VS-05 | `GOAL-05` | VS-02, VS-04 | `A12–A16`, `A18`, `A23`, `A25–A27` | Implemented, verification passing, independent review passed |
-| VS-06 | `GOAL-06` | VS-02, VS-04 | `A16`, `A19`, `A23`, `A25–A27` | Proposed, independent review passed |
-| VS-07 | `GOAL-07` | VS-02, VS-04 | `A16`, `A20–A21`, `A23`, `A25–A27` | Proposed, independent review passed |
-| VS-08 | `GOAL-08` | VS-02, VS-04 | `A12–A15`, `A23–A25`, `A27–A28` | Proposed, independent review passed |
-| VS-09 | `GOAL-09` | VS-02, VS-04, VS-08 | `A16`, `A22–A23`, `A25–A27` | Proposed, independent review passed |
-| VS-10 | `GOAL-10` | VS-01–VS-09 as applicable | `A16`, `A23–A28` and raw §16–§18 | Proposed, independent review passed |
+| VS-06 | `GOAL-06` | VS-02, VS-04 | `A16`, `A19`, `A23`, `A25–A27` | Implemented, verification passing, independent review passed |
+| VS-07 | `GOAL-07` | VS-02, VS-04 | `A16`, `A20–A21`, `A23`, `A25–A27` | Implemented, verification passing, independent review passed |
+| VS-08 | `GOAL-08` | VS-02, VS-04 | `A12–A15`, `A23–A25`, `A27–A28` | Implemented, verification passing, independent review passed |
+| VS-09 | `GOAL-09` | VS-02, VS-04, VS-08 | `A16`, `A22–A23`, `A25–A27` | Implemented, verification passing, independent review passed |
+| VS-10 | `GOAL-10` | VS-01–VS-09 as applicable | `A16`, `A23–A28` and raw §16–§18 | Implemented, verification passing, independent review passed |
 
 This ordering follows the raw P0 → P1 → P2 → P3 → P4 → P5 → P6 phases. VS-01 is the only slice approved and implemented under the current request. VS-02–VS-10 remain proposed and are not authorized.
 

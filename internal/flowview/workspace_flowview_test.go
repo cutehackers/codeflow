@@ -221,3 +221,258 @@ func TestFlowViewReviewEndpoint(t *testing.T) {
 	}
 }
 
+func TestFlowViewImpactEndpoint(t *testing.T) {
+	tmpDir, err := os.MkdirTemp("", "codeflow-test-impact-*")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.RemoveAll(tmpDir)
+
+	srv, err := NewServer(Config{
+		RepoRoot: tmpDir,
+		Port:     0,
+	})
+	if err != nil {
+		t.Fatalf("NewServer failed: %v", err)
+	}
+
+	// 1. Missing precondition (VS06-A2)
+	reqMissing := httptest.NewRequest(http.MethodGet, "http://127.0.0.1/api/task/impact?token="+srv.AuthToken(), nil)
+	recMissing := httptest.NewRecorder()
+	srv.httpServer.Handler.ServeHTTP(recMissing, reqMissing)
+	if recMissing.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400 for missing params, got %d", recMissing.Code)
+	}
+
+	// 2. Seed active map in cache
+	activeMap := &semantic.SemanticMapIR{
+		MapID:           "map-checkout",
+		GenerationID:    "gen-100",
+		ComputedBasisID: "basis-100",
+		SchemaVersion:   1,
+		Basis:           semantic.MapBasisContext{WorkspaceEpoch: 1},
+		Coverage: &semantic.CoverageBoundary{
+			IncludedSourceRoots: []string{"src"},
+		},
+		Steps: []semantic.SemanticStep{
+			{
+				StepID:        "step-checkout",
+				Name:          "체크아웃",
+				TechnicalName: "OrderService.checkout",
+				Rules:         []string{"test:testCheckout"},
+			},
+		},
+	}
+
+	srv.mu.Lock()
+	srv.mapCache["checkout"] = activeMap
+	srv.mu.Unlock()
+
+	// 3. Valid impact query (VS06-A1, A3, A7)
+	reqOK := httptest.NewRequest(http.MethodGet, "http://127.0.0.1/api/task/impact?symbolId=OrderService.checkout&token="+srv.AuthToken(), nil)
+	recOK := httptest.NewRecorder()
+	srv.httpServer.Handler.ServeHTTP(recOK, reqOK)
+	if recOK.Code != http.StatusOK {
+		t.Fatalf("expected 200 for impact query, got %d: %s", recOK.Code, recOK.Body.String())
+	}
+
+	var graph semantic.ChangeImpactGraph
+	if err := json.Unmarshal(recOK.Body.Bytes(), &graph); err != nil {
+		t.Fatalf("unmarshal impact response: %v", err)
+	}
+	if graph.Target.SymbolID != "OrderService.checkout" {
+		t.Errorf("expected symbolId OrderService.checkout, got %s", graph.Target.SymbolID)
+	}
+	if graph.Freshness != "current" {
+		t.Errorf("expected current freshness, got %s", graph.Freshness)
+	}
+	if !graph.IndirectImpact.Bounded {
+		t.Error("expected bounded indirect impact")
+	}
+}
+
+func TestFlowViewFailureEndpoints(t *testing.T) {
+	tmpDir, err := os.MkdirTemp("", "codeflow-test-failure-*")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.RemoveAll(tmpDir)
+
+	srv, err := NewServer(Config{
+		RepoRoot: tmpDir,
+		Port:     0,
+	})
+	if err != nil {
+		t.Fatalf("NewServer failed: %v", err)
+	}
+
+	// 1. Missing precondition on /api/task/debug
+	reqMissingDebug := httptest.NewRequest(http.MethodGet, "http://127.0.0.1/api/task/debug?token="+srv.AuthToken(), nil)
+	recMissingDebug := httptest.NewRecorder()
+	srv.httpServer.Handler.ServeHTTP(recMissingDebug, reqMissingDebug)
+	if recMissingDebug.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400 for missing debug params, got %d", recMissingDebug.Code)
+	}
+
+	// 2. Valid /api/task/debug
+	reqOKDebug := httptest.NewRequest(http.MethodGet, "http://127.0.0.1/api/task/debug?error=DbConnectionTimeout&token="+srv.AuthToken(), nil)
+	recOKDebug := httptest.NewRecorder()
+	srv.httpServer.Handler.ServeHTTP(recOKDebug, reqOKDebug)
+	if recOKDebug.Code != http.StatusOK {
+		t.Fatalf("expected 200 for debug query, got %d: %s", recOKDebug.Code, recOKDebug.Body.String())
+	}
+	var debugTrace semantic.FailurePathTrace
+	if err := json.Unmarshal(recOKDebug.Body.Bytes(), &debugTrace); err != nil {
+		t.Fatalf("unmarshal debug trace: %v", err)
+	}
+	if debugTrace.Mode != "debug" {
+		t.Errorf("expected debug mode, got %s", debugTrace.Mode)
+	}
+
+	// 3. Valid /api/task/incident
+	reqOKInc := httptest.NewRequest(http.MethodGet, "http://127.0.0.1/api/task/incident?traceId=trace-inc-10&token="+srv.AuthToken(), nil)
+	recOKInc := httptest.NewRecorder()
+	srv.httpServer.Handler.ServeHTTP(recOKInc, reqOKInc)
+	if recOKInc.Code != http.StatusOK {
+		t.Fatalf("expected 200 for incident query, got %d: %s", recOKInc.Code, recOKInc.Body.String())
+	}
+	var incTrace semantic.FailurePathTrace
+	if err := json.Unmarshal(recOKInc.Body.Bytes(), &incTrace); err != nil {
+		t.Fatalf("unmarshal incident trace: %v", err)
+	}
+	if incTrace.Mode != "incident" {
+		t.Errorf("expected incident mode, got %s", incTrace.Mode)
+	}
+	if len(incTrace.Timeline) == 0 {
+		t.Error("expected incident timeline")
+	}
+}
+
+func TestFlowViewApprovalEndpoints(t *testing.T) {
+	tmpDir, err := os.MkdirTemp("", "codeflow-test-appr-*")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.RemoveAll(tmpDir)
+
+	srv, err := NewServer(Config{
+		RepoRoot: tmpDir,
+		Port:     0,
+	})
+	if err != nil {
+		t.Fatalf("NewServer failed: %v", err)
+	}
+
+	// 1. GET /api/semantic/evidence-pack
+	reqEv := httptest.NewRequest(http.MethodGet, "http://127.0.0.1/api/semantic/evidence-pack?symbolPath=PaymentService.process&token="+srv.AuthToken(), nil)
+	recEv := httptest.NewRecorder()
+	srv.httpServer.Handler.ServeHTTP(recEv, reqEv)
+	if recEv.Code != http.StatusOK {
+		t.Fatalf("expected 200 for evidence-pack, got %d: %s", recEv.Code, recEv.Body.String())
+	}
+	var pack semantic.EvidencePack
+	if err := json.Unmarshal(recEv.Body.Bytes(), &pack); err != nil {
+		t.Fatalf("unmarshal evidence pack: %v", err)
+	}
+	if len(pack.Items) == 0 {
+		t.Error("expected items in evidence pack")
+	}
+
+	// 2. POST /api/semantic/approve
+	apprBody := `{"proposalId":"prop-checkout","decision":"approved","approver":"lead@company.corp"}`
+	reqAppr := httptest.NewRequest(http.MethodPost, "http://127.0.0.1/api/semantic/approve?token="+srv.AuthToken(), strings.NewReader(apprBody))
+	recAppr := httptest.NewRecorder()
+	srv.httpServer.Handler.ServeHTTP(recAppr, reqAppr)
+	if recAppr.Code != http.StatusOK {
+		t.Fatalf("expected 200 for approve, got %d: %s", recAppr.Code, recAppr.Body.String())
+	}
+	var appr semantic.SemanticApproval
+	if err := json.Unmarshal(recAppr.Body.Bytes(), &appr); err != nil {
+		t.Fatalf("unmarshal approval response: %v", err)
+	}
+	if appr.Decision != "approved" {
+		t.Errorf("expected decision approved, got %s", appr.Decision)
+	}
+	if appr.Approver != "lead@company.corp" {
+		t.Errorf("expected approver lead@company.corp, got %s", appr.Approver)
+	}
+}
+
+func TestFlowViewOnboardingEndpoint(t *testing.T) {
+	tmpDir, err := os.MkdirTemp("", "codeflow-test-onb-*")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.RemoveAll(tmpDir)
+
+	srv, err := NewServer(Config{
+		RepoRoot: tmpDir,
+		Port:     0,
+	})
+	if err != nil {
+		t.Fatalf("NewServer failed: %v", err)
+	}
+
+	// GET /api/task/onboarding (VS09-A1, A2)
+	req := httptest.NewRequest(http.MethodGet, "http://127.0.0.1/api/task/onboarding?repositoryId=shop-core&token="+srv.AuthToken(), nil)
+	rec := httptest.NewRecorder()
+	srv.httpServer.Handler.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200 for onboarding, got %d: %s", rec.Code, rec.Body.String())
+	}
+	var ov semantic.DomainOverview
+	if err := json.Unmarshal(rec.Body.Bytes(), &ov); err != nil {
+		t.Fatalf("unmarshal domain overview: %v", err)
+	}
+	if ov.RepositoryID != "shop-core" {
+		t.Errorf("expected repositoryId shop-core, got %s", ov.RepositoryID)
+	}
+	if len(ov.Domains) == 0 {
+		t.Error("expected domains in overview")
+	}
+}
+
+func TestFlowViewReleaseCapabilityEndpoint(t *testing.T) {
+	tmpDir, err := os.MkdirTemp("", "codeflow-test-rel-*")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.RemoveAll(tmpDir)
+
+	srv, err := NewServer(Config{
+		RepoRoot: tmpDir,
+		Port:     0,
+	})
+	if err != nil {
+		t.Fatalf("NewServer failed: %v", err)
+	}
+
+	// GET /api/release/capability (VS10-A1, A2, A3)
+	req := httptest.NewRequest(http.MethodGet, "http://127.0.0.1/api/release/capability?targetVersion=v0.9.0-rc1&token="+srv.AuthToken(), nil)
+	rec := httptest.NewRecorder()
+	srv.httpServer.Handler.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200 for release capability, got %d: %s", rec.Code, rec.Body.String())
+	}
+
+	var res struct {
+		BenchmarkReport semantic.ReleaseBenchmarkReport `json:"benchmarkReport"`
+		SLMCapability   semantic.SLMCapabilityState     `json:"slmCapability"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &res); err != nil {
+		t.Fatalf("unmarshal release capability response: %v", err)
+	}
+
+	if !res.BenchmarkReport.ReleaseReady {
+		t.Error("expected releaseReady true")
+	}
+	if res.SLMCapability.FallbackTier != "local_slm" {
+		t.Errorf("expected fallbackTier local_slm, got %s", res.SLMCapability.FallbackTier)
+	}
+}
+
+
+
+
+
+

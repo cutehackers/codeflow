@@ -1,0 +1,31 @@
+{
+  "schemaId": "https://codeflow.local/schemas/change-impact-graph.schema.json",
+  "schemaVersion": 1,
+  "impactGraphId": "impact-invalid-kind",
+  "target": {
+    "symbolId": "OrderService.checkout"
+  },
+  "computedBasisId": "basis-1",
+  "generationId": "gen-1",
+  "freshness": "unknown_freshness",
+  "directImpact": {
+    "callers": [],
+    "stateMutations": [],
+    "externalEffects": [],
+    "relatedFlows": [],
+    "tests": []
+  },
+  "indirectImpact": {
+    "callers": [],
+    "stateMutations": [],
+    "externalEffects": [],
+    "relatedFlows": [],
+    "tests": [],
+    "maxDepth": 1,
+    "totalNodeCount": 0,
+    "bounded": true
+  },
+  "unresolvedBoundaries": [],
+  "additionalExplorationAvailable": false,
+  "unknownCount": 0
+}

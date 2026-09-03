@@ -1,0 +1,29 @@
+{
+  "schemaId": "https://codeflow.local/schemas/domain-overview.schema.json",
+  "schemaVersion": 1,
+  "repositoryId": "shop-backend",
+  "computedBasisId": "basis-1",
+  "generationId": "gen-1",
+  "domains": [
+    {
+      "domainId": "dom-order",
+      "name": "주문 결제 도메인",
+      "description": "장바구니부터 결제 승인 및 재고 차감까지의 주문 처리",
+      "representativeFlowCount": 3,
+      "entryPoints": ["OrderController.checkout", "PaymentWebhook.handle"]
+    },
+    {
+      "domainId": "dom-catalog",
+      "name": "상품 카탈로그 도메인",
+      "description": "상품 검색 및 상세 정보 조회",
+      "representativeFlowCount": 2,
+      "entryPoints": ["CatalogController.search"]
+    }
+  ],
+  "unmappedModules": ["src/legacy/sync.ts"],
+  "summary": {
+    "totalDomains": 2,
+    "totalFlows": 5,
+    "coverageRatio": 0.92
+  }
+}

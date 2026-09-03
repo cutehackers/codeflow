@@ -1,0 +1,22 @@
+{
+  "schemaId": "https://codeflow.local/schemas/release-benchmark-report.schema.json",
+  "schemaVersion": 1,
+  "reportId": "rep-rc1-20260903",
+  "targetVersion": "v0.9.0-rc1",
+  "evaluatedAt": "2026-09-03T09:00:00Z",
+  "metrics": {
+    "latencyP95Ms": 320.5,
+    "precision": 0.94,
+    "recall": 0.91,
+    "contractViolations": 0,
+    "regressionFailures": 0
+  },
+  "gates": {
+    "latencyGatePassed": true,
+    "precisionGatePassed": true,
+    "zeroViolationsPassed": true,
+    "zeroRegressionsPassed": true
+  },
+  "releaseReady": true,
+  "summary": "All 4 release capability gates passed without regression."
+}

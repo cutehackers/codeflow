@@ -51,6 +51,16 @@ var SchemaIDs = []string{
 	BaseURL + "event-envelope.schema.json",
 	BaseURL + "semantic-delta-ir.schema.json",
 	BaseURL + "requirement-alignment.schema.json",
+	BaseURL + "change-impact-graph.schema.json",
+	BaseURL + "failure-path-trace.schema.json",
+	BaseURL + "runtime-observation.schema.json",
+	BaseURL + "model-proposal.schema.json",
+	BaseURL + "semantic-approval.schema.json",
+	BaseURL + "evidence-pack.schema.json",
+	BaseURL + "domain-overview.schema.json",
+	BaseURL + "representative-flow-catalog.schema.json",
+	BaseURL + "release-benchmark-report.schema.json",
+	BaseURL + "slm-capability-state.schema.json",
 }
 
 // SchemasDir locates the repo's schemas/ directory relative to this source

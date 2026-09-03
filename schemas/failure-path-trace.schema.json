@@ -1,0 +1,149 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://codeflow.local/schemas/failure-path-trace.schema.json",
+  "title": "CodeFlow Failure Path Trace",
+  "$comment": "Raw §8.7, §8.8, §10 and VS-07 normative schema for failure and incident path tracing: static candidates vs runtime observations, correlation, and conflict detection.",
+  "type": "object",
+  "required": [
+    "schemaId",
+    "schemaVersion",
+    "traceId",
+    "mode",
+    "computedBasisId",
+    "generationId",
+    "failureTarget",
+    "nodes",
+    "relationships",
+    "summary",
+    "unknownCount"
+  ],
+  "properties": {
+    "schemaId": {
+      "type": "string",
+      "enum": [
+        "https://codeflow.local/schemas/failure-path-trace.schema.json",
+        "codeflow.failure-path-trace"
+      ]
+    },
+    "schemaVersion": { "const": 1 },
+    "traceId": { "type": "string", "minLength": 1 },
+    "mode": {
+      "type": "string",
+      "enum": ["debug", "incident"]
+    },
+    "computedBasisId": { "type": "string", "minLength": 1 },
+    "generationId": { "type": "string", "minLength": 1 },
+    "validatedAgainstSnapshotId": { "type": "string" },
+    "failureTarget": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "error": { "type": "string", "minLength": 1 },
+        "symptom": { "type": "string", "minLength": 1 },
+        "failureEvidenceId": { "type": "string", "minLength": 1 },
+        "incidentTraceId": { "type": "string", "minLength": 1 },
+        "incidentEvidenceId": { "type": "string", "minLength": 1 }
+      },
+      "anyOf": [
+        { "required": ["error"] },
+        { "required": ["symptom"] },
+        { "required": ["failureEvidenceId"] },
+        { "required": ["incidentTraceId"] },
+        { "required": ["incidentEvidenceId"] }
+      ]
+    },
+    "nodes": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["nodeId", "symbolPath", "role", "status"],
+        "properties": {
+          "nodeId": { "type": "string", "minLength": 1 },
+          "symbolPath": { "type": "string", "minLength": 1 },
+          "role": {
+            "type": "string",
+            "enum": [
+              "throw",
+              "transform",
+              "handle",
+              "ignore",
+              "last_verified_state",
+              "side_effect"
+            ]
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "static_candidate",
+              "runtime_observed",
+              "corroborated",
+              "conflicting",
+              "unknown"
+            ]
+          },
+          "evidenceRefs": {
+            "type": "array",
+            "items": { "type": "string" }
+          }
+        }
+      }
+    },
+    "relationships": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["fromNodeId", "toNodeId", "kind"],
+        "properties": {
+          "fromNodeId": { "type": "string", "minLength": 1 },
+          "toNodeId": { "type": "string", "minLength": 1 },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "thrown_to",
+              "transformed_to",
+              "handled_by",
+              "ignored_by",
+              "causes"
+            ]
+          }
+        }
+      }
+    },
+    "timeline": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["timestamp", "kind", "target", "status"],
+        "properties": {
+          "timestamp": { "type": "string", "minLength": 1 },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "external_call",
+              "timeout",
+              "retry",
+              "circuit_break",
+              "compensation",
+              "partial_commit",
+              "failure_emission"
+            ]
+          },
+          "target": { "type": "string", "minLength": 1 },
+          "status": { "type": "string", "minLength": 1 },
+          "evidenceRef": { "type": "string" }
+        }
+      }
+    },
+    "runtimeObservationRef": { "type": "string" },
+    "unknownCount": { "type": "integer", "minimum": 0 },
+    "hasConflicts": { "type": "boolean" },
+    "summary": {
+      "type": "object",
+      "required": ["description", "lastConfirmedState"],
+      "properties": {
+        "description": { "type": "string", "minLength": 1 },
+        "lastConfirmedState": { "type": "string", "minLength": 1 }
+      }
+    }
+  }
+}

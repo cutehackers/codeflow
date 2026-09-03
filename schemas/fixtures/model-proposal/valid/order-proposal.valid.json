@@ -1,0 +1,14 @@
+{
+  "schemaId": "https://codeflow.local/schemas/model-proposal.schema.json",
+  "schemaVersion": 1,
+  "proposalId": "prop-order-checkout",
+  "computedBasisId": "basis-1",
+  "generationId": "gen-1",
+  "targetSymbolPath": "OrderService.checkout",
+  "proposedTitle": "주문 결제 및 재고 차감",
+  "proposedCategory": "business_rule",
+  "epistemicStatus": "proposed",
+  "confidence": 0.95,
+  "rationale": "AST calls payment gateway and inventory decrement",
+  "evidenceRefs": ["ev-1", "ev-2"]
+}

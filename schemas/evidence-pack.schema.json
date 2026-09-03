@@ -1,0 +1,58 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://codeflow.local/schemas/evidence-pack.schema.json",
+  "title": "CodeFlow Evidence Pack",
+  "$comment": "Raw §9.7, §10 and VS-08 normative schema for multi-modal evidence grounding and secret redaction.",
+  "type": "object",
+  "required": [
+    "schemaId",
+    "schemaVersion",
+    "evidencePackId",
+    "targetSymbolPath",
+    "computedBasisId",
+    "generationId",
+    "items",
+    "redactionStatus"
+  ],
+  "properties": {
+    "schemaId": {
+      "type": "string",
+      "enum": [
+        "https://codeflow.local/schemas/evidence-pack.schema.json",
+        "codeflow.evidence-pack"
+      ]
+    },
+    "schemaVersion": { "const": 1 },
+    "evidencePackId": { "type": "string", "minLength": 1 },
+    "targetSymbolPath": { "type": "string", "minLength": 1 },
+    "computedBasisId": { "type": "string", "minLength": 1 },
+    "generationId": { "type": "string", "minLength": 1 },
+    "items": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["evidenceId", "kind", "source", "content", "verified"],
+        "properties": {
+          "evidenceId": { "type": "string", "minLength": 1 },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "ast_anchor",
+              "call_edge",
+              "runtime_span",
+              "test_assertion",
+              "doc_reference"
+            ]
+          },
+          "source": { "type": "string", "minLength": 1 },
+          "content": { "type": "string" },
+          "verified": { "type": "boolean" }
+        }
+      }
+    },
+    "redactionStatus": {
+      "type": "string",
+      "enum": ["unredacted", "redacted", "clean"]
+    }
+  }
+}

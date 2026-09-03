@@ -1,0 +1,57 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://codeflow.local/schemas/runtime-observation.schema.json",
+  "title": "CodeFlow Runtime Observation",
+  "$comment": "Raw §11.5, §14 and VS-07 normative schema for runtime trace observations, scenario coverage, and isolation authorization.",
+  "type": "object",
+  "required": [
+    "schemaId",
+    "schemaVersion",
+    "observationId",
+    "scenario",
+    "environment",
+    "isolationLevel",
+    "observedAt",
+    "traceCoverage"
+  ],
+  "properties": {
+    "schemaId": {
+      "type": "string",
+      "enum": [
+        "https://codeflow.local/schemas/runtime-observation.schema.json",
+        "codeflow.runtime-observation"
+      ]
+    },
+    "schemaVersion": { "const": 1 },
+    "observationId": { "type": "string", "minLength": 1 },
+    "scenario": { "type": "string", "minLength": 1 },
+    "input": { "type": "string" },
+    "environment": { "type": "string", "minLength": 1 },
+    "dependencyFingerprint": { "type": "string" },
+    "traceCoverage": {
+      "type": "object",
+      "required": ["spansCovered", "totalSpans", "ratio"],
+      "additionalProperties": false,
+      "properties": {
+        "spansCovered": { "type": "integer", "minimum": 0 },
+        "totalSpans": { "type": "integer", "minimum": 1 },
+        "ratio": { "type": "number", "minimum": 0, "maximum": 1 }
+      }
+    },
+    "observedAt": { "type": "string", "minLength": 1 },
+    "isolationLevel": {
+      "type": "string",
+      "enum": ["no_egress_sandbox", "trusted_local", "read_only_container"]
+    },
+    "trustedLocalApproval": {
+      "type": "object",
+      "required": ["approved", "approvedBy", "timestamp"],
+      "additionalProperties": false,
+      "properties": {
+        "approved": { "type": "boolean" },
+        "approvedBy": { "type": "string", "minLength": 1 },
+        "timestamp": { "type": "string", "minLength": 1 }
+      }
+    }
+  }
+}

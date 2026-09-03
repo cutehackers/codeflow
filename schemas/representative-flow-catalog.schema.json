@@ -1,0 +1,55 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://codeflow.local/schemas/representative-flow-catalog.schema.json",
+  "title": "CodeFlow Representative Flow Catalog",
+  "$comment": "Raw §8.9, §10 and VS-09 normative schema for curated domain representative flows for progressive onboarding.",
+  "type": "object",
+  "required": [
+    "schemaId",
+    "schemaVersion",
+    "catalogId",
+    "domainId",
+    "computedBasisId",
+    "generationId",
+    "flows"
+  ],
+  "properties": {
+    "schemaId": {
+      "type": "string",
+      "enum": [
+        "https://codeflow.local/schemas/representative-flow-catalog.schema.json",
+        "codeflow.representative-flow-catalog"
+      ]
+    },
+    "schemaVersion": { "const": 1 },
+    "catalogId": { "type": "string", "minLength": 1 },
+    "domainId": { "type": "string", "minLength": 1 },
+    "computedBasisId": { "type": "string", "minLength": 1 },
+    "generationId": { "type": "string", "minLength": 1 },
+    "flows": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "flowId",
+          "title",
+          "entrySymbol",
+          "complexityScore",
+          "keyMutations",
+          "groundedMapId"
+        ],
+        "properties": {
+          "flowId": { "type": "string", "minLength": 1 },
+          "title": { "type": "string", "minLength": 1 },
+          "entrySymbol": { "type": "string", "minLength": 1 },
+          "complexityScore": { "type": "number", "minimum": 0 },
+          "keyMutations": {
+            "type": "array",
+            "items": { "type": "string" }
+          },
+          "groundedMapId": { "type": "string", "minLength": 1 }
+        }
+      }
+    }
+  }
+}

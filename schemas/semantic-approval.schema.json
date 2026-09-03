@@ -1,0 +1,51 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://codeflow.local/schemas/semantic-approval.schema.json",
+  "title": "CodeFlow Semantic Approval",
+  "$comment": "Raw §9.4..§9.6, §10 and VS-08 normative schema for human-approved meaning grounded to immutable basis.",
+  "type": "object",
+  "required": [
+    "schemaId",
+    "schemaVersion",
+    "approvalId",
+    "proposalId",
+    "computedBasisId",
+    "generationId",
+    "decision",
+    "approver",
+    "approvedAt",
+    "freshness"
+  ],
+  "properties": {
+    "schemaId": {
+      "type": "string",
+      "enum": [
+        "https://codeflow.local/schemas/semantic-approval.schema.json",
+        "codeflow.semantic-approval"
+      ]
+    },
+    "schemaVersion": { "const": 1 },
+    "approvalId": { "type": "string", "minLength": 1 },
+    "proposalId": { "type": "string", "minLength": 1 },
+    "computedBasisId": { "type": "string", "minLength": 1 },
+    "generationId": { "type": "string", "minLength": 1 },
+    "decision": {
+      "type": "string",
+      "enum": ["approved", "rejected", "modified"]
+    },
+    "modifiedValues": {
+      "type": "object",
+      "properties": {
+        "title": { "type": "string" },
+        "category": { "type": "string" }
+      }
+    },
+    "approver": { "type": "string", "minLength": 1 },
+    "approvedAt": { "type": "string", "minLength": 1 },
+    "freshness": {
+      "type": "string",
+      "enum": ["current", "stale"]
+    },
+    "evidencePackId": { "type": "string" }
+  }
+}

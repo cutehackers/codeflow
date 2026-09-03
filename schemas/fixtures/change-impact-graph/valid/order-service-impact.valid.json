@@ -1,0 +1,87 @@
+{
+  "schemaId": "https://codeflow.local/schemas/change-impact-graph.schema.json",
+  "schemaVersion": 1,
+  "impactGraphId": "impact-order-service-checkout",
+  "target": {
+    "symbolId": "OrderService.checkout"
+  },
+  "computedBasisId": "basis-current-100",
+  "generationId": "gen-current-100",
+  "freshness": "current",
+  "directImpact": {
+    "callers": [
+      {
+        "symbolPath": "CheckoutController.submit",
+        "name": "submit",
+        "relationKind": "calls",
+        "filePath": "src/controllers/checkout.ts",
+        "evidenceRefs": ["ev-1"]
+      }
+    ],
+    "stateMutations": [
+      {
+        "targetState": "OrderStatus.Pending",
+        "mutationKind": "transition",
+        "evidenceRefs": ["ev-2"]
+      }
+    ],
+    "externalEffects": [
+      {
+        "effectKind": "api",
+        "target": "PaymentGateway.charge",
+        "evidenceRefs": ["ev-3"]
+      }
+    ],
+    "relatedFlows": [
+      {
+        "flowId": "flow-checkout",
+        "title": "Quick Checkout Journey"
+      }
+    ],
+    "tests": [
+      {
+        "testSymbolPath": "testCheckoutSuccess",
+        "testFile": "test/order_test.ts"
+      }
+    ]
+  },
+  "indirectImpact": {
+    "callers": [
+      {
+        "symbolPath": "WebRouter.handlePost",
+        "name": "handlePost",
+        "relationKind": "calls",
+        "filePath": "src/routes/web.ts",
+        "depth": 2,
+        "evidenceRefs": ["ev-4"]
+      }
+    ],
+    "stateMutations": [],
+    "externalEffects": [],
+    "relatedFlows": [],
+    "tests": [],
+    "maxDepth": 2,
+    "totalNodeCount": 1,
+    "bounded": true
+  },
+  "unresolvedBoundaries": [
+    {
+      "boundaryType": "unresolved_dynamic_caller",
+      "target": "PluginDispatcher.triggerHook",
+      "description": "Dynamic event hook reflection not resolvable through static analysis"
+    }
+  ],
+  "additionalExplorationAvailable": false,
+  "unknownCount": 1,
+  "coverageBoundary": {
+    "includedSourceRoots": ["src"]
+  },
+  "evidence": [
+    {
+      "evidenceId": "ev-1",
+      "kind": "ast_call",
+      "symbolPath": "CheckoutController.submit",
+      "filePath": "src/controllers/checkout.ts"
+    }
+  ]
+}

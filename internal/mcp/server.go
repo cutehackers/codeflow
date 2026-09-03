@@ -557,6 +557,90 @@ func (s *Server) listTools() []map[string]any {
 				},
 			},
 		},
+		{
+			"name":        "get_change_impact",
+			"description": "Trace direct and bounded indirect callers, state mutations, external effects, and tests for a symbol or change batch (VS-06, Raw §8.6, §10)",
+			"inputSchema": map[string]any{
+				"type": "object",
+				"properties": map[string]any{
+					"symbolId":      map[string]any{"type": "string", "description": "Target symbol to trace impact from"},
+					"changeBatchId": map[string]any{"type": "string", "description": "Optional change batch ID"},
+					"target":        targetProp,
+					"token":         map[string]any{"type": "string", "description": "Auth token when RequireToken=true"},
+				},
+			},
+		},
+		{
+			"name":        "investigate_failure",
+			"description": "Trace failure paths, exceptions, symptoms, and incident timelines comparing static candidates against runtime observations (VS-07, Raw §8.7, §8.8, §10)",
+			"inputSchema": map[string]any{
+				"type": "object",
+				"properties": map[string]any{
+					"mode":               map[string]any{"type": "string", "enum": []string{"debug", "incident"}, "description": "Investigation mode (debug or incident)"},
+					"error":              map[string]any{"type": "string", "description": "Error or exception class/message (debug mode)"},
+					"symptom":            map[string]any{"type": "string", "description": "Observed symptom description (debug mode)"},
+					"failureEvidenceId":  map[string]any{"type": "string", "description": "Failure evidence ID (debug mode)"},
+					"traceId":            map[string]any{"type": "string", "description": "Distributed trace ID (incident mode)"},
+					"incidentEvidenceId": map[string]any{"type": "string", "description": "Incident evidence ID (incident mode)"},
+					"target":             targetProp,
+					"token":              map[string]any{"type": "string", "description": "Auth token when RequireToken=true"},
+				},
+			},
+		},
+		{
+			"name":        "get_evidence_pack",
+			"description": "Aggregate and retrieve verified AST, call, and test evidence with secret redaction for a symbol (VS-08, Raw §9.7, §10)",
+			"inputSchema": map[string]any{
+				"type": "object",
+				"properties": map[string]any{
+					"symbolPath": map[string]any{"type": "string", "description": "Target symbol path"},
+					"target":     targetProp,
+					"token":      map[string]any{"type": "string", "description": "Auth token when RequireToken=true"},
+				},
+			},
+		},
+		{
+			"name":        "submit_semantic_approval",
+			"description": "Record human verification and approval of a model-proposed meaning grounded to immutable basis (VS-08, Raw §9.4..§9.6, §10)",
+			"inputSchema": map[string]any{
+				"type": "object",
+				"properties": map[string]any{
+					"proposalId": map[string]any{"type": "string", "description": "ID of the model proposal to approve/reject/modify"},
+					"decision":   map[string]any{"type": "string", "enum": []string{"approved", "rejected", "modified"}, "description": "Human decision"},
+					"approver":   map[string]any{"type": "string", "description": "Identity of the approver"},
+					"target":     targetProp,
+					"token":      map[string]any{"type": "string", "description": "Auth token when RequireToken=true"},
+				},
+			},
+		},
+		{
+			"name":        "explore_project_domains",
+			"description": "Explore system domain architecture and curated representative flow catalog for progressive onboarding (VS-09, Raw §8.9, §10)",
+			"inputSchema": map[string]any{
+				"type": "object",
+				"properties": map[string]any{
+					"repositoryId": map[string]any{"type": "string", "description": "Repository identifier"},
+					"domain":       map[string]any{"type": "string", "description": "Optional domain filter"},
+					"level":        map[string]any{"type": "integer", "description": "Progressive disclosure level (1: domain map, 2: representative flow catalog)"},
+					"target":       targetProp,
+					"token":        map[string]any{"type": "string", "description": "Auth token when RequireToken=true"},
+				},
+			},
+		},
+		{
+			"name":        "validate_release_capability",
+			"description": "Evaluate semantic compiler benchmark metrics, SLM capability state, and release readiness gates (VS-10, Raw §16–§18, §10)",
+			"inputSchema": map[string]any{
+				"type": "object",
+				"properties": map[string]any{
+					"targetVersion": map[string]any{"type": "string", "description": "Release candidate version tag (e.g. v0.9.0-rc1)"},
+					"modelId":       map[string]any{"type": "string", "description": "SLM model identifier"},
+					"modelVersion":  map[string]any{"type": "string", "description": "Model version or checkpoint"},
+					"target":        targetProp,
+					"token":         map[string]any{"type": "string", "description": "Auth token when RequireToken=true"},
+				},
+			},
+		},
 	}
 }
 
@@ -954,6 +1038,24 @@ func (s *Server) executeTool(ctx context.Context, name string, args map[string]a
 
 	case "get_requirement_alignment":
 		return s.handleGetRequirementAlignment(ctx, args)
+
+	case "get_change_impact":
+		return s.handleGetChangeImpact(ctx, args)
+
+	case "investigate_failure":
+		return s.handleInvestigateFailure(ctx, args)
+
+	case "get_evidence_pack":
+		return s.handleGetEvidencePack(ctx, args)
+
+	case "submit_semantic_approval":
+		return s.handleSubmitSemanticApproval(ctx, args)
+
+	case "explore_project_domains":
+		return s.handleExploreProjectDomains(ctx, args)
+
+	case "validate_release_capability":
+		return s.handleValidateReleaseCapability(ctx, args)
 
 	default:
 		return nil, fmt.Errorf("unknown tool %s", name)

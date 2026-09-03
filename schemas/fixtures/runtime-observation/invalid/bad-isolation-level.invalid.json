@@ -1,0 +1,14 @@
+{
+  "schemaId": "https://codeflow.local/schemas/runtime-observation.schema.json",
+  "schemaVersion": 1,
+  "observationId": "obs-bad-iso",
+  "scenario": "test",
+  "environment": "node",
+  "isolationLevel": "unrestricted_root_network",
+  "observedAt": "2026-09-03T17:00:00Z",
+  "traceCoverage": {
+    "spansCovered": 1,
+    "totalSpans": 1,
+    "ratio": 1.0
+  }
+}

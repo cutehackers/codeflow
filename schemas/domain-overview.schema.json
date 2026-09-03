@@ -1,0 +1,66 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://codeflow.local/schemas/domain-overview.schema.json",
+  "title": "CodeFlow Domain Overview",
+  "$comment": "Raw §8.9, §10 and VS-09 normative schema for top-level system domain architecture and progressive onboarding.",
+  "type": "object",
+  "required": [
+    "schemaId",
+    "schemaVersion",
+    "repositoryId",
+    "computedBasisId",
+    "generationId",
+    "domains",
+    "unmappedModules",
+    "summary"
+  ],
+  "properties": {
+    "schemaId": {
+      "type": "string",
+      "enum": [
+        "https://codeflow.local/schemas/domain-overview.schema.json",
+        "codeflow.domain-overview"
+      ]
+    },
+    "schemaVersion": { "const": 1 },
+    "repositoryId": { "type": "string", "minLength": 1 },
+    "computedBasisId": { "type": "string", "minLength": 1 },
+    "generationId": { "type": "string", "minLength": 1 },
+    "domains": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "domainId",
+          "name",
+          "description",
+          "representativeFlowCount",
+          "entryPoints"
+        ],
+        "properties": {
+          "domainId": { "type": "string", "minLength": 1 },
+          "name": { "type": "string", "minLength": 1 },
+          "description": { "type": "string", "minLength": 1 },
+          "representativeFlowCount": { "type": "integer", "minimum": 0 },
+          "entryPoints": {
+            "type": "array",
+            "items": { "type": "string", "minLength": 1 }
+          }
+        }
+      }
+    },
+    "unmappedModules": {
+      "type": "array",
+      "items": { "type": "string", "minLength": 1 }
+    },
+    "summary": {
+      "type": "object",
+      "required": ["totalDomains", "totalFlows", "coverageRatio"],
+      "properties": {
+        "totalDomains": { "type": "integer", "minimum": 0 },
+        "totalFlows": { "type": "integer", "minimum": 0 },
+        "coverageRatio": { "type": "number", "minimum": 0, "maximum": 1 }
+      }
+    }
+  }
+}

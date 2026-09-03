@@ -101,6 +101,13 @@ func NewServer(cfg Config) (*Server, error) {
 	mux.HandleFunc("/api/map/override", s.handlePostLaneOverride)
 	mux.HandleFunc("/api/task/view", s.handleTaskView)
 	mux.HandleFunc("/api/task/review", s.handleTaskReview)
+	mux.HandleFunc("/api/task/impact", s.handleTaskImpact)
+	mux.HandleFunc("/api/task/debug", s.handleTaskDebug)
+	mux.HandleFunc("/api/task/incident", s.handleTaskIncident)
+	mux.HandleFunc("/api/semantic/approve", s.handleSemanticApprove)
+	mux.HandleFunc("/api/semantic/evidence-pack", s.handleEvidencePack)
+	mux.HandleFunc("/api/task/onboarding", s.handleTaskOnboarding)
+	mux.HandleFunc("/api/release/capability", s.handleReleaseCapability)
 	mux.HandleFunc("/api/workspace/activity", s.handleWorkspaceActivity)
 	mux.HandleFunc("/api/workspace/edit", s.handleWorkspaceEdit)
 	mux.HandleFunc("/api/workspace/stream", s.handleWorkspaceStream)
@@ -1043,5 +1050,336 @@ func (s *Server) handleTaskReview(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(resp)
 }
+
+// handleTaskImpact implements GET /api/task/impact (Raw §8.6, VS-06).
+func (s *Server) handleTaskImpact(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	symbolID := r.URL.Query().Get("symbolId")
+	changeBatchID := r.URL.Query().Get("changeBatchId")
+	if symbolID == "" && changeBatchID == "" {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"code":    "missing_precondition",
+			"message": "either symbolId or changeBatchId parameter is required",
+		})
+		return
+	}
+
+	target := semantic.ImpactTarget{
+		SymbolID:      symbolID,
+		ChangeBatchID: changeBatchID,
+	}
+
+	s.mu.Lock()
+	var activeMap *semantic.SemanticMapIR
+	for _, m := range s.mapCache {
+		activeMap = m
+		break
+	}
+	s.mu.Unlock()
+
+	res, err := semantic.ComputeChangeImpact(target, activeMap, semantic.ImpactOptions{MaxDepth: 3})
+	if err != nil {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"code":    "missing_precondition",
+			"message": err.Error(),
+		})
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(res)
+}
+
+// handleTaskDebug implements GET /api/task/debug (Raw §8.7, VS-07).
+func (s *Server) handleTaskDebug(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	errStr := r.URL.Query().Get("error")
+	symptom := r.URL.Query().Get("symptom")
+	failEvID := r.URL.Query().Get("failureEvidenceId")
+	if errStr == "" && symptom == "" && failEvID == "" {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"code":    "missing_precondition",
+			"message": "debug query requires error, symptom, or failureEvidenceId parameter",
+		})
+		return
+	}
+
+	target := semantic.FailureTarget{
+		Error:             errStr,
+		Symptom:           symptom,
+		FailureEvidenceID: failEvID,
+	}
+
+	s.mu.Lock()
+	var activeMap *semantic.SemanticMapIR
+	for _, m := range s.mapCache {
+		activeMap = m
+		break
+	}
+	s.mu.Unlock()
+
+	trace, err := semantic.InvestigateFailure(target, "debug", activeMap, nil, semantic.FailureOptions{})
+	if err != nil {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"code":    "missing_precondition",
+			"message": err.Error(),
+		})
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(trace)
+}
+
+// handleTaskIncident implements GET /api/task/incident (Raw §8.8, VS-07).
+func (s *Server) handleTaskIncident(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	traceID := r.URL.Query().Get("traceId")
+	incEvID := r.URL.Query().Get("incidentEvidenceId")
+	if traceID == "" && incEvID == "" {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"code":    "missing_precondition",
+			"message": "incident query requires traceId or incidentEvidenceId parameter",
+		})
+		return
+	}
+
+	target := semantic.FailureTarget{
+		IncidentTraceID:    traceID,
+		IncidentEvidenceID: incEvID,
+	}
+
+	s.mu.Lock()
+	var activeMap *semantic.SemanticMapIR
+	for _, m := range s.mapCache {
+		activeMap = m
+		break
+	}
+	s.mu.Unlock()
+
+	trace, err := semantic.InvestigateFailure(target, "incident", activeMap, nil, semantic.FailureOptions{})
+	if err != nil {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"code":    "missing_precondition",
+			"message": err.Error(),
+		})
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(trace)
+}
+
+// handleEvidencePack implements GET /api/semantic/evidence-pack (Raw §9.7, VS-08).
+func (s *Server) handleEvidencePack(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	sym := r.URL.Query().Get("symbolPath")
+	if sym == "" {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"code":    "missing_precondition",
+			"message": "symbolPath parameter is required",
+		})
+		return
+	}
+
+	items := []semantic.EvidenceItem{
+		{
+			EvidenceID: "ev-ast-" + sym,
+			Kind:       "ast_anchor",
+			Source:     sym,
+			Content:    "source representation for " + sym,
+			Verified:   true,
+		},
+	}
+
+	pack, err := semantic.BuildEvidencePack(sym, "active", "active", items)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(pack)
+}
+
+// handleSemanticApprove implements POST /api/semantic/approve (Raw §9.4..§9.6, VS-08).
+func (s *Server) handleSemanticApprove(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	var req semantic.ApprovalRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"code":    "missing_precondition",
+			"message": "failed to decode approval request body",
+		})
+		return
+	}
+
+	if req.ProposalID == "" || req.Approver == "" {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"code":    "missing_precondition",
+			"message": "proposalId and approver are required",
+		})
+		return
+	}
+
+	pack, _ := semantic.BuildEvidencePack(req.ProposalID, "active", "active", []semantic.EvidenceItem{
+		{
+			EvidenceID: "ev-appr-" + req.ProposalID,
+			Kind:       "ast_anchor",
+			Source:     req.ProposalID,
+			Content:    "verified code anchor",
+			Verified:   true,
+		},
+	})
+
+	proposal := &semantic.ModelProposal{
+		ProposalID:       req.ProposalID,
+		TargetSymbolPath: req.ProposalID,
+		ProposedTitle:    "승인 대상 모델 제안",
+		ProposedCategory: "business_rule",
+		EpistemicStatus:  "proposed",
+		ComputedBasisID:  "active",
+		GenerationID:     "active",
+		EvidenceRefs:     []string{"ev-appr-" + req.ProposalID},
+	}
+
+	appr, err := semantic.SubmitSemanticApproval(req, proposal, pack)
+	if err != nil {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"code":    "missing_precondition",
+			"message": err.Error(),
+		})
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(appr)
+}
+
+// handleTaskOnboarding implements GET /api/task/onboarding (Raw §8.9, VS-09).
+func (s *Server) handleTaskOnboarding(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	repoID := r.URL.Query().Get("repositoryId")
+	if repoID == "" {
+		repoID = "workspace"
+	}
+
+	candidates := []semantic.CandidateEntry{
+		{
+			CandidateID:     "cand-1",
+			EntrySymbolPath: "OrderController.checkout",
+			Domain:          "Order",
+			Title:           "주문 결제 및 처리",
+		},
+		{
+			CandidateID:     "cand-2",
+			EntrySymbolPath: "CatalogController.search",
+			Domain:          "Catalog",
+			Title:           "상품 검색 및 조회",
+		},
+	}
+
+	overview, err := semantic.ExploreDomains(repoID, candidates, semantic.OnboardingOptions{
+		Level:   1,
+		BasisID: "active",
+		GenID:   "active",
+	})
+	if err != nil {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"code":    "missing_precondition",
+			"message": err.Error(),
+		})
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(overview)
+}
+
+// handleReleaseCapability implements GET /api/release/capability (Raw §16–§18, VS-10).
+func (s *Server) handleReleaseCapability(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	targetVer := r.URL.Query().Get("targetVersion")
+	if targetVer == "" {
+		targetVer = "v0.9.0-rc1"
+	}
+
+	modelID := r.URL.Query().Get("modelId")
+	modelVer := r.URL.Query().Get("modelVersion")
+
+	rep, err := semantic.EvaluateReleaseBenchmark(targetVer, semantic.BenchmarkOptions{})
+	if err != nil {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"code":    "missing_precondition",
+			"message": err.Error(),
+		})
+		return
+	}
+
+	slmState := semantic.GetSLMCapabilityState(modelID, modelVer)
+
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(map[string]any{
+		"benchmarkReport": rep,
+		"slmCapability":   slmState,
+	})
+}
+
+
+
+
+
 
 

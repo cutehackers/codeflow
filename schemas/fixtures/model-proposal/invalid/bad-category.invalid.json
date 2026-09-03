@@ -1,0 +1,12 @@
+{
+  "schemaId": "https://codeflow.local/schemas/model-proposal.schema.json",
+  "schemaVersion": 1,
+  "proposalId": "prop-bad-cat",
+  "computedBasisId": "basis-1",
+  "generationId": "gen-1",
+  "targetSymbolPath": "OrderService.checkout",
+  "proposedTitle": "주문 결제",
+  "proposedCategory": "unknown_invalid_category",
+  "epistemicStatus": "proposed",
+  "evidenceRefs": ["ev-1"]
+}

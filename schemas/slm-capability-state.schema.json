@@ -1,0 +1,70 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://codeflow.local/schemas/slm-capability-state.schema.json",
+  "title": "CodeFlow SLM Capability State",
+  "$comment": "Raw §16, §18, §10 and VS-10 normative schema for SLM semantic task matrix and multi-tier fallback routing.",
+  "type": "object",
+  "required": [
+    "schemaId",
+    "schemaVersion",
+    "modelId",
+    "modelVersion",
+    "evaluatedAt",
+    "capabilities",
+    "fallbackTier"
+  ],
+  "properties": {
+    "schemaId": {
+      "type": "string",
+      "enum": [
+        "https://codeflow.local/schemas/slm-capability-state.schema.json",
+        "codeflow.slm-capability-state"
+      ]
+    },
+    "schemaVersion": { "const": 1 },
+    "modelId": { "type": "string", "minLength": 1 },
+    "modelVersion": { "type": "string", "minLength": 1 },
+    "evaluatedAt": { "type": "string", "minLength": 1 },
+    "capabilities": {
+      "type": "object",
+      "required": [
+        "entryResolution",
+        "sliceFusion",
+        "stateDeltaInference",
+        "businessRuleExtraction",
+        "indirectImpactTraversal",
+        "failureBacktrack"
+      ],
+      "properties": {
+        "entryResolution": {
+          "type": "string",
+          "enum": ["full", "partial", "unsupported"]
+        },
+        "sliceFusion": {
+          "type": "string",
+          "enum": ["full", "partial", "unsupported"]
+        },
+        "stateDeltaInference": {
+          "type": "string",
+          "enum": ["full", "partial", "unsupported"]
+        },
+        "businessRuleExtraction": {
+          "type": "string",
+          "enum": ["full", "partial", "unsupported"]
+        },
+        "indirectImpactTraversal": {
+          "type": "string",
+          "enum": ["full", "partial", "unsupported"]
+        },
+        "failureBacktrack": {
+          "type": "string",
+          "enum": ["full", "partial", "unsupported"]
+        }
+      }
+    },
+    "fallbackTier": {
+      "type": "string",
+      "enum": ["local_slm", "cloud_llm", "ast_deterministic"]
+    }
+  }
+}

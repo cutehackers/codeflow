@@ -36,6 +36,74 @@ func (s *Server) handleQueryTaskView(ctx context.Context, args map[string]any) (
 		return nil, coreFlowError(semantic.ErrCodeMissingPrecondition, fmt.Sprintf("unmarshal query: %v", err), nil, false)
 	}
 
+	if query.Mode == "impact" {
+		symID := ""
+		batchID := ""
+		if query.Impact != nil {
+			symID = query.Impact.SymbolID
+			batchID = query.Impact.ChangeBatchID
+		}
+		res, err := s.handleGetChangeImpact(ctx, map[string]any{
+			"symbolId":      symID,
+			"changeBatchId": batchID,
+			"target":        targetRoot,
+		})
+		if err != nil {
+			return nil, coreFlowError("impact_error", err.Error(), nil, false)
+		}
+		return res, nil
+	}
+
+	if query.Mode == "debug" || query.Mode == "incident" {
+		errStr := ""
+		symptom := ""
+		failEvID := ""
+		traceID := ""
+		incEvID := ""
+		if query.Debug != nil {
+			errStr = query.Debug.Error
+			symptom = query.Debug.Symptom
+			failEvID = query.Debug.FailureEvidenceID
+		}
+		if query.Incident != nil {
+			traceID = query.Incident.TraceID
+			incEvID = query.Incident.IncidentEvidenceID
+		}
+		res, err := s.handleInvestigateFailure(ctx, map[string]any{
+			"mode":               query.Mode,
+			"error":              errStr,
+			"symptom":            symptom,
+			"failureEvidenceId":  failEvID,
+			"traceId":            traceID,
+			"incidentEvidenceId": incEvID,
+			"target":             targetRoot,
+		})
+		if err != nil {
+			return nil, coreFlowError("failure_error", err.Error(), nil, false)
+		}
+		return res, nil
+	}
+
+	if query.Mode == "onboarding" {
+		repoID := "workspace"
+		domain := ""
+		if query.Onboarding != nil {
+			if query.Onboarding.RepositoryID != "" {
+				repoID = query.Onboarding.RepositoryID
+			}
+			domain = query.Onboarding.Domain
+		}
+		res, err := s.handleExploreProjectDomains(ctx, map[string]any{
+			"repositoryId": repoID,
+			"domain":       domain,
+			"target":       targetRoot,
+		})
+		if err != nil {
+			return nil, coreFlowError("onboarding_error", err.Error(), nil, false)
+		}
+		return res, nil
+	}
+
 	_, harvester, slicer, err := s.getPoolAndRunners(ctx, targetRoot, "")
 	if err != nil {
 		return nil, coreFlowError("adapter_error", fmt.Sprintf("adapter error: %v", err), nil, false)

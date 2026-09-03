@@ -1,0 +1,26 @@
+{
+  "schemaId": "https://codeflow.local/schemas/representative-flow-catalog.schema.json",
+  "schemaVersion": 1,
+  "catalogId": "cat-order-domain",
+  "domainId": "dom-order",
+  "computedBasisId": "basis-1",
+  "generationId": "gen-1",
+  "flows": [
+    {
+      "flowId": "flow-checkout",
+      "title": "일반 카드 결제 흐름",
+      "entrySymbol": "OrderController.checkout",
+      "complexityScore": 2.5,
+      "keyMutations": ["Order.Created", "Payment.Authorized", "Inventory.Decremented"],
+      "groundedMapId": "map-checkout"
+    },
+    {
+      "flowId": "flow-cancel",
+      "title": "주문 취소 및 환불 흐름",
+      "entrySymbol": "OrderController.cancel",
+      "complexityScore": 1.8,
+      "keyMutations": ["Order.Cancelled", "Payment.Refunded"],
+      "groundedMapId": "map-cancel"
+    }
+  ]
+}

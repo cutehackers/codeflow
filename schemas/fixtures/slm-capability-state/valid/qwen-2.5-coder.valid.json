@@ -1,0 +1,16 @@
+{
+  "schemaId": "https://codeflow.local/schemas/slm-capability-state.schema.json",
+  "schemaVersion": 1,
+  "modelId": "qwen2.5-coder-7b",
+  "modelVersion": "2024-11",
+  "evaluatedAt": "2026-09-03T09:00:00Z",
+  "capabilities": {
+    "entryResolution": "full",
+    "sliceFusion": "full",
+    "stateDeltaInference": "partial",
+    "businessRuleExtraction": "full",
+    "indirectImpactTraversal": "partial",
+    "failureBacktrack": "full"
+  },
+  "fallbackTier": "local_slm"
+}

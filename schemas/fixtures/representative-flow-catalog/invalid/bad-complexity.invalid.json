@@ -1,0 +1,18 @@
+{
+  "schemaId": "https://codeflow.local/schemas/representative-flow-catalog.schema.json",
+  "schemaVersion": 1,
+  "catalogId": "cat-bad-comp",
+  "domainId": "dom-order",
+  "computedBasisId": "basis-1",
+  "generationId": "gen-1",
+  "flows": [
+    {
+      "flowId": "flow-1",
+      "title": "Bad complexity",
+      "entrySymbol": "Entry.run",
+      "complexityScore": -5,
+      "keyMutations": [],
+      "groundedMapId": "map-1"
+    }
+  ]
+}

@@ -1,0 +1,12 @@
+{
+  "schemaId": "https://codeflow.local/schemas/semantic-approval.schema.json",
+  "schemaVersion": 1,
+  "approvalId": "appr-bad-dec",
+  "proposalId": "prop-1",
+  "computedBasisId": "basis-1",
+  "generationId": "gen-1",
+  "decision": "auto_ratified_without_human",
+  "approver": "developer",
+  "approvedAt": "2026-09-03T17:00:00Z",
+  "freshness": "current"
+}

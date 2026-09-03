@@ -20,9 +20,14 @@ const (
 type TaskViewQuery struct {
 	SchemaID      string              `json:"schemaId"`
 	SchemaVersion int                 `json:"schemaVersion"`
-	Mode          string              `json:"mode"`
-	Common        *CommonQueryParams  `json:"common,omitempty"`
-	Feature       *FeatureQueryParams `json:"feature,omitempty"`
+	Mode          string                  `json:"mode"`
+	Common        *CommonQueryParams      `json:"common,omitempty"`
+	Feature       *FeatureQueryParams     `json:"feature,omitempty"`
+	Review        *ReviewQueryParams      `json:"review,omitempty"`
+	Impact        *ImpactQueryParams      `json:"impact,omitempty"`
+	Debug         *DebugQueryParams       `json:"debug,omitempty"`
+	Incident      *IncidentQueryParams    `json:"incident,omitempty"`
+	Onboarding    *OnboardingQueryParams  `json:"onboarding,omitempty"`
 }
 
 type CommonQueryParams struct {
@@ -48,6 +53,32 @@ type FeatureQueryParams struct {
 	FlowID      string `json:"flowId,omitempty"`
 	EntrySymbol string `json:"entrySymbol,omitempty"`
 	Domain      string `json:"domain,omitempty"`
+}
+
+type ReviewQueryParams struct {
+	Baseline string `json:"baseline"`
+	Current  string `json:"current"`
+}
+
+type ImpactQueryParams struct {
+	SymbolID      string `json:"symbolId,omitempty"`
+	ChangeBatchID string `json:"changeBatchId,omitempty"`
+}
+
+type DebugQueryParams struct {
+	Error             string `json:"error,omitempty"`
+	Symptom           string `json:"symptom,omitempty"`
+	FailureEvidenceID string `json:"failureEvidenceId,omitempty"`
+}
+
+type IncidentQueryParams struct {
+	TraceID            string `json:"traceId,omitempty"`
+	IncidentEvidenceID string `json:"incidentEvidenceId,omitempty"`
+}
+
+type OnboardingQueryParams struct {
+	RepositoryID string `json:"repositoryId"`
+	Domain       string `json:"domain,omitempty"`
 }
 
 // QueryError represents a typed error returned for query validation failures.

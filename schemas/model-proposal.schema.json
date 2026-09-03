@@ -1,0 +1,60 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://codeflow.local/schemas/model-proposal.schema.json",
+  "title": "CodeFlow Model Proposal",
+  "$comment": "Raw §9.1..§9.3, §10 and VS-08 normative schema for SLM/LLM meaning proposals requiring explicit epistemic grounding.",
+  "type": "object",
+  "required": [
+    "schemaId",
+    "schemaVersion",
+    "proposalId",
+    "computedBasisId",
+    "generationId",
+    "targetSymbolPath",
+    "proposedTitle",
+    "proposedCategory",
+    "epistemicStatus",
+    "evidenceRefs"
+  ],
+  "properties": {
+    "schemaId": {
+      "type": "string",
+      "enum": [
+        "https://codeflow.local/schemas/model-proposal.schema.json",
+        "codeflow.model-proposal"
+      ]
+    },
+    "schemaVersion": { "const": 1 },
+    "proposalId": { "type": "string", "minLength": 1 },
+    "computedBasisId": { "type": "string", "minLength": 1 },
+    "generationId": { "type": "string", "minLength": 1 },
+    "targetSymbolPath": { "type": "string", "minLength": 1 },
+    "proposedTitle": { "type": "string", "minLength": 1 },
+    "proposedCategory": {
+      "type": "string",
+      "enum": [
+        "entry",
+        "business_rule",
+        "orchestration",
+        "mutation",
+        "infrastructure",
+        "exit"
+      ]
+    },
+    "epistemicStatus": {
+      "type": "string",
+      "enum": ["candidate", "proposed", "approved", "rejected", "stale"]
+    },
+    "confidence": {
+      "type": "number",
+      "minimum": 0,
+      "maximum": 1
+    },
+    "rationale": { "type": "string" },
+    "evidenceRefs": {
+      "type": "array",
+      "items": { "type": "string", "minLength": 1 },
+      "minItems": 1
+    }
+  }
+}

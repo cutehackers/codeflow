@@ -1,0 +1,16 @@
+{
+  "schemaId": "https://codeflow.local/schemas/runtime-observation.schema.json",
+  "schemaVersion": 1,
+  "observationId": "obs-payment-sandbox",
+  "scenario": "synthetic_payment_declined",
+  "input": "{\"amount\": 100, \"cardNumber\": \"4000...0002\"}",
+  "environment": "node-v20-darwin-arm64",
+  "dependencyFingerprint": "sha256:d8e8fca2dc6b",
+  "traceCoverage": {
+    "spansCovered": 12,
+    "totalSpans": 12,
+    "ratio": 1.0
+  },
+  "observedAt": "2026-09-03T17:00:00Z",
+  "isolationLevel": "no_egress_sandbox"
+}

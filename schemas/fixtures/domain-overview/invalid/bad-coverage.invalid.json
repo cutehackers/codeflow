@@ -1,0 +1,14 @@
+{
+  "schemaId": "https://codeflow.local/schemas/domain-overview.schema.json",
+  "schemaVersion": 1,
+  "repositoryId": "shop-backend",
+  "computedBasisId": "basis-1",
+  "generationId": "gen-1",
+  "domains": [],
+  "unmappedModules": [],
+  "summary": {
+    "totalDomains": 0,
+    "totalFlows": 0,
+    "coverageRatio": 1.5
+  }
+}
