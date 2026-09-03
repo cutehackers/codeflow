@@ -1,15 +1,16 @@
 # Semantic Map Layered Architecture
 
 - Contract ID: `SMAP`
-- Contract Status: Proposed
+- Contract Status: Superseded
 - Created: 2026-09-01
 - Updated: 2026-09-02
+- Superseded By: `docs/design/specs/2026-09-02-requested-flow-live-semantic-compiler-ko.md`
 - Previous Approval: 2026-09-01
 - Amendment Basis: 2026-09-02 사용자가 legacy adapter protocol 호환 제외와 v2 전면 전환을 결정
 - Source: `docs/design/raw/semantic-map-layered-architecture-draft.md`
 - Applies To: CodeFlow Semantic Map capability
 
-이 문서는 원문의 제품 의도와 기술 제안을 부모 계약으로 정리한다. 2026-09-02 protocol amendment로 다시 Proposed 상태이며 Section 12.1의 기존 계약을 자동으로 변경하거나 Vertical Slice 검토 없이 구현을 승인하지 않는다.
+이 문서는 이전 raw 제안의 historical 정리본이다. 2026-09-02부터 `docs/design/raw/requested-flow-live-semantic-compiler-architecture-draft-ko.md`가 정본이며, 이 문서는 새 부모 계약과 경쟁하지 않는다. 기존 내용은 결정과 범위의 provenance 확인에만 사용한다.
 
 설계 주장 분류는 다음 의미를 가진다.
 
@@ -396,12 +397,12 @@ Open Decision은 없다.
 
 ## 14. Approval Readiness
 
-현재 상태는 protocol cutover amendment 검토를 위한 `Proposed`다.
+이 계약은 2026-09-02에 retired 되었으며, 아래 내용은 historical provenance로만 보존한다.
 
 - Confirmed scope: current-state authority, evidence anchor, unknown 보존, provenance/freshness, deterministic baseline과 atomic generation 확장
 - Assumptions requiring evidence: task scope 품질, 7~15개 행동, 12K Evidence Pack, runtime scenario availability, Go graph budget, FlowSpec projection compatibility
 - Resolved decisions: Q-01부터 Q-09까지의 public behavior, security, compatibility와 release fixture 방향
 - Approval blockers: 없음.
 - Approval evidence: 2026-09-01 사용자 명시 승인.
-- Next permitted action: Section 12.1의 기존 계약 개정안을 승인한 뒤, 사용자 목표 기준 Vertical Slice 계약을 작성하고 개별 승인한다.
-- Not permitted yet: 승인되지 않은 기존 계약 변경의 구현 또는 Vertical Slice 계약 승인 전 production implementation
+- Historical next action: 현재 정본인 raw-backed parent와 Vertical Slice 계약의 독립 검토 및 사용자 승인을 진행한다.
+- Not permitted: 이 historical 계약을 근거로 한 production implementation 또는 active contract 승인

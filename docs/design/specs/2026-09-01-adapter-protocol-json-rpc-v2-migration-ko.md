@@ -1,16 +1,17 @@
 # Adapter Protocol JSON-RPC 2.0 전면 전환
 
 - Contract ID: `ADAPTER-PROTOCOL-V2-MIGRATION`
-- Contract Status: Approved
+- Contract Status: Superseded
 - Created: 2026-09-01
 - Updated: 2026-09-02
 - Approved: 2026-09-02
+- Superseded By: `docs/design/specs/2026-09-02-requested-flow-live-semantic-compiler-ko-vs-01-verify-supported-repository-evidence-ko.md`
 - Approval Basis: Legacy backward compatibility 제외 정책 고정 후 사용자 명시 승인 및 독립 재검토 PASS
 - Source: 2026-09-01 Q1~Q9 결정 및 2026-09-02 legacy 호환 제외 결정
 - Parent Contract: `docs/design/specs/2026-09-01-semantic-map-layered-architecture-ko.md`
 - Affects: `docs/spec/llm-language-adapter-protocol.md`, `schemas/adapter-protocol.schema.json`, Core, Dart adapter, TypeScript/JavaScript adapter, installer와 `doctor`
 
-이 계약은 CodeFlow Core와 공식 language adapter 사이의 통신을 Content-Length framed JSON-RPC 2.0으로 전면 교체하는 public behavior를 정의한다. 이 전환은 다음 MAJOR release의 breaking change이며 NDJSON v1 adapter, bridge 또는 mixed-version compatibility를 제공하지 않는다.
+이 계약은 historical child contract다. 현재 정본은 `docs/design/raw/requested-flow-live-semantic-compiler-architecture-draft-ko.md`와 그 raw-backed slice다. 아래 내용은 v2 cutover 결정의 provenance로 보존하며, 독립 구현 계약으로 사용하지 않는다.
 
 ## 1. Goal
 
@@ -253,7 +254,7 @@ Core는 adapter process를 시작한 뒤 Content-Length framed `ping`을 최초 
 
 ## 17. Approval Readiness
 
-- Contract Status: Approved
+- Historical Contract Status at Retirement: Approved
 - Resolved Decisions: D-01부터 D-10까지
 - Open Decisions: 없음
 - Existing v1 contract modified: 아니오. 새 MAJOR release에서 unsupported 상태로 남는다.
