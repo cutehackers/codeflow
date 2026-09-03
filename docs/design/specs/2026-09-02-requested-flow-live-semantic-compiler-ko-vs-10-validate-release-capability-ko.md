@@ -151,4 +151,15 @@ Versioned scenario fixture/release input → adapter/Core/FlowView execution tra
 
 ## 16. Open Decisions
 
-없음. release target과 fixture portfolio는 raw §16–§18, §21.10과 승인된 결정 기록을 따른다.
+없음. release target과 fixture portfolio 및 결정 사항은 아래 Resolved Implementation Decisions로 확정되었다.
+
+## 17. Resolved Implementation Decisions
+
+- `SID-C1` (정규 payload 물리 구성): `schemas/release-benchmark-report.schema.json`, `schemas/slm-capability-state.schema.json` 독립 스키마 분할 및 BaseURL 등록.
+- `SID-C2` (validation 경계): 운영체제(macOS/Linux/Windows), 하드웨어 프로파일(Apple Silicon, x86_64), 저장소 규모(1k~100k LOC)별 P95 3초 레이턴시 및 메모리 상한선 검증.
+- `SID-C3` (계약 검증 범위): 버전 관리되는 시나리오 골든 코퍼스 픽스처, 로컬 SLM 품질 통과 픽스처 구축.
+- `SID-C4` (기존 구현 재사용/교체): VS-01부터 VS-09까지 구축된 전체 파이프라인(어댑터, 스냅샷, 컴파일러, 발행 게이트, 델타, 영향, 디버그, 승인, 도메인)의 통합 E2E 벤치마크 및 검증 드라이버 실행.
+- `SID-C5` & `SID-10` (GA 지원 범위, Benchmark Corpus, 품질 통과 기준, 로컬 SLM):
+  - GA 릴리스 품질 기준 충족: 핵심 의미 폐포(Critical Semantic Closure) $\ge 95\%$, 관련 편집 후 검증 발행 P95 $\le 3$초.
+  - 지원 환경(macOS Apple Silicon 등)에서만 로컬 SLM을 선택적 가속기로 활성화하며, 비지원 환경에서도 결정론적 컴파일러(VS-02) 기반으로 100% 안정적 동작을 보장 (`INV-05`).
+  - GA 지원 범위 및 릴리스 통과 기준 확정은 제품/보안 경계를 결정하므로 최종 릴리스 전 사용자 명시적 승인을 거침.

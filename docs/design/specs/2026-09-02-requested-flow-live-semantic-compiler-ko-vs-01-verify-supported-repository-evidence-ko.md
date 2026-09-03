@@ -162,3 +162,13 @@ Core caller → initialize/capability 검증 → snapshot-aware adapter request 
 | Go adapter conformance | PASS — `go test ./adapters/go/...` |
 | Unbounded protocol and reliability checks | PASS — `go test ./internal/protocol -run '^Test' -count=1`, `go test ./internal/protocol ./internal/e2e -count=1` |
 | Coverage threshold | N/A — raw contract defines conformance cases, not a numeric threshold |
+
+## 18. Resolved Implementation Decisions
+
+- `SID-C1` (정규 payload 물리 구성): `schemas/adapter-protocol.schema.json` (JSON-RPC v2 envelope), `schemas/adapter-analysis.schema.json`, `schemas/sliced-payload.schema.json`, `schemas/candidate.schema.json`, `schemas/identity.schema.json`. Registry BaseURL(`https://codeflow.local/schemas/`) 등록 완료.
+- `SID-C2` (validation 경계): 프레임/메시지 envelope 레벨의 JSON Schema 검증과 `internal/protocol` 파서의 typed failure(`E_BAD_REQUEST`, `E_UNSUPPORTED`, `E_INTERNAL`) 분리.
+- `SID-C3` (계약 검증 범위): `schemas/fixtures/adapter-protocol/` 내 4 valid + 4 invalid 골든 픽스처, Dart 38/38 테스트, TypeScript 적대적/경계 테스트, Go 어댑터 테스트를 통해 producer-consumer 양방향 적합성 검증.
+- `SID-C4` (기존 구현 재사용): 기존 언어별 정적 분석기(Dart AST, TS Compiler API, Go AST)와 프로세스 풀 메커니즘을 온전히 재사용하며, Raw v2 프로토콜 규격으로 래핑.
+- `SID-C5` (운영 한계): 최대 페이로드 16MB(`MaxPayloadBytes`), 단일 호출 타임아웃 30초, 프로세스 풀 고갈 시 큐 대기 후 즉시 오류 반환하는 백프레셔 적용.
+- `SID-C6` (Settlement Gate 입력): 어댑터 수준의 read-set, basis fingerprint, candidates, slice evidence를 제공하여 상위 시맨틱 분석의 신뢰 기반 확립.
+- `SID-01` (Slice 세부 결정): Dart 3.0+ (Riverpod/Bloc/GoRouter), Node 18+ (TS/React/Next.js), Go 1.22+로 지원 범위를 한정하고 버전 호환성 테이블(`internal/pin/compatibility.json`)을 동기화.

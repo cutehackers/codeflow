@@ -1,0 +1,15 @@
+{
+  "schemaId": "https://codeflow.local/schemas/change-batch.schema.json",
+  "schemaVersion": 1,
+  "batchId": "batch-tx-001",
+  "transactionId": "tx-user-checkout-refactor",
+  "source": "agent_transaction",
+  "workspaceEpoch": "epoch-20260903-main",
+  "revisions": [
+    "rev-checkout-flow-001",
+    "rev-checkout-flow-002"
+  ],
+  "status": "committed",
+  "createdAt": "2026-09-03T05:00:00Z",
+  "committedAt": "2026-09-03T05:00:01Z"
+}

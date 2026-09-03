@@ -142,4 +142,14 @@ Repository ID → snapshot/index/docs/contracts/tests catalog → domain/ownersh
 
 ## 16. Open Decisions
 
-없음. onboarding ranking과 coverage 표시는 raw §8.9, §21.10, §22.6을 따른다.
+없음. onboarding ranking과 coverage 표시 및 결정 사항은 아래 Resolved Implementation Decisions로 확정되었다.
+
+## 17. Resolved Implementation Decisions
+
+- `SID-C1` (정규 payload 물리 구성): `schemas/domain-overview.schema.json`, `schemas/representative-flow-catalog.schema.json` 독립 스키마 분할 및 BaseURL 등록.
+- `SID-C2` (validation 경계): 프로젝트 전체 도메인 클러스터링 유효성 검증, 대표 흐름 랭킹 점수 정합성 검증, 저커버리지 도메인의 정직한 Unknown 표시 검증.
+- `SID-C3` (계약 검증 범위): 도메인 마이닝 픽스처, 대규모 저장소 계층 집계 픽스처 구축.
+- `SID-C4` (기존 구현 재사용/교체): `internal/fusion` 아키텍처 맵과 VS-02 `SemanticMapIR`의 요약 집계 레이어 재사용.
+- `SID-C5` & `SID-09` (도메인 마이닝 신호, 대표 흐름 랭킹, Onboarding Critical Obligation):
+  - 디렉터리 경로, 모듈/패키지 선언, 진입점(UI/API) 호출 빈도, 설정 마커를 결합한 결정론적 도메인 스코어링 적용.
+  - Onboarding Mode Settlement Gate 입력: 프로젝트 상위 3~5개 핵심 사용자 여정(Core Flows) 식별 완료 및 미확인 영역(`uncovered_domain_ratio`)의 명시적 수치 제시.

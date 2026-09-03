@@ -144,4 +144,15 @@ Base generation/baseline → current generation → structural and semantic comp
 
 ## 16. Open Decisions
 
-없음. review mode의 세부 delta 분류는 raw §8.5, §10.12와 승인된 결정 기록을 따른다.
+없음. review mode의 세부 delta 분류와 결정 사항은 아래 Resolved Implementation Decisions로 확정되었다.
+
+## 17. Resolved Implementation Decisions
+
+- `SID-C1` (정규 payload 물리 구성): `schemas/semantic-delta-ir.schema.json`, `schemas/requirement-alignment.schema.json` 독립 스키마 분할 및 BaseURL 등록.
+- `SID-C2` (validation 경계): 안정된 step/claim identity 매칭 검증, 의미적 추가/수정/삭제/미변경 4대 범주 분류 검증, Requirement Alignment의 근거 연결성 검증.
+- `SID-C3` (계약 검증 범위): rename/move 판정 골든 픽스처, delta 4대 분류 픽스처, requirement alignment cross-validation 픽스처 구축.
+- `SID-C4` (기존 구현 재사용/교체): VS-02의 `SemanticMapIR`을 $T_{prev}$, $T_{curr}$ 쌍으로 입력받아 결정론적 차이 계산 엔진 구현.
+- `SID-C5` (운영 한계): 원시 라인 diff를 나열하지 않고 비즈니스 행동 단위(추가, 변경, 제거된 행동/조건/효과)로 요약하여 전달.
+- `SID-C6` & `SID-05` (Stable Identity, Rename, Review Critical Obligation):
+  - 파일 내 라인 이동이나 심볼 이름 변경 시 AST 호출/선언 구조 핑거프린트 매칭을 통해 단순 삭제/추가가 아닌 rename/move로 정밀 판정.
+  - Review Mode Settlement Gate 입력: Task Intent의 모든 필수 수용 기준에 대해 `RequirementAlignment.status == 'aligned'`이며, `unresolvedCriticalCount == 0`, `conflictingCriticalCount == 0` 충족.

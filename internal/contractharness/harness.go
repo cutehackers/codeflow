@@ -43,6 +43,9 @@ var SchemaIDs = []string{
 	BaseURL + "task-view-query.schema.json",
 	BaseURL + "semantic-map-ir.schema.json",
 	BaseURL + "flow-view-projection.schema.json",
+	BaseURL + "document-revision.schema.json",
+	BaseURL + "workspace-snapshot.schema.json",
+	BaseURL + "change-batch.schema.json",
 }
 
 // SchemasDir locates the repo's schemas/ directory relative to this source

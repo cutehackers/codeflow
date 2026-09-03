@@ -222,6 +222,11 @@ const IndexHTML = `<!doctype html>
     <div class="brand-line">
       <span class="brand-eyebrow">CODEFLOW · FLOWVIEW</span>
       <span class="badge" id="flow-badge">—</span>
+      <span class="badge" id="workspace-activity-badge" style="background:var(--soft);color:var(--ink)" title="현재 작업공간 상태">idle</span>
+      <span id="workspace-epoch-tag" style="font-size:11px;color:var(--muted)"></span>
+      <span id="workspace-pending-count" class="badge" style="font-size:11px" title="대기 중인 변경">0 pending</span>
+      <span id="workspace-analysis-lag" style="font-size:11px;color:var(--muted)" title="분석 지연">0ms lag</span>
+      <span id="workspace-scope-tag" style="font-size:11px;color:var(--muted)" title="영향 가능 범위">전체</span>
       <span id="truncated-chip" class="badge warn-badge" style="display:none" title="조건이 복잡하거나 호출 깊이가 깊어 일부 구간만 추적했습니다.">일부 구간만 추적됨</span>
     </div>
     <h1 id="flow-title" class="flow-title">흐름을 불러오는 중…</h1>
@@ -494,7 +499,42 @@ function viewRange(st){
   return{start:Math.max(1,s-12),end:e+12,known:false};
 }
 
+async function loadWorkspaceActivity(){
+  try{
+    const r=await api('/api/workspace/activity');
+    if(r.ok){
+      const d=await r.json();
+      const badge=document.getElementById('workspace-activity-badge');
+      const epoch=document.getElementById('workspace-epoch-tag');
+      const pending=document.getElementById('workspace-pending-count');
+      const lag=document.getElementById('workspace-analysis-lag');
+      const scope=document.getElementById('workspace-scope-tag');
+      if(badge){
+        badge.textContent=d.activity||'idle';
+        if(d.activity==='editing'||d.activity==='reconciling'){
+          badge.className='badge warn-badge';
+        }else{
+          badge.className='badge';
+        }
+      }
+      if(epoch&&d.workspaceEpoch){
+        epoch.textContent='['+d.workspaceEpoch+']';
+      }
+      if(pending){
+        pending.textContent=(d.pendingRevisions||0)+' pending';
+      }
+      if(lag){
+        lag.textContent=(d.analysisLagMs||0)+'ms lag';
+      }
+      if(scope){
+        scope.textContent=(d.scope&&d.scope.length)?d.scope.join(', '):'전체';
+      }
+    }
+  }catch(e){}
+}
+
 async function init(){
+  loadWorkspaceActivity();
   try{
     const r=await api('/api/flows');
     const d=await r.json();

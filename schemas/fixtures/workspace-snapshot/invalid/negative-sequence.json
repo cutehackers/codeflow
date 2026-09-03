@@ -1,0 +1,13 @@
+{
+  "schemaId": "https://codeflow.local/schemas/workspace-snapshot.schema.json",
+  "schemaVersion": 1,
+  "snapshotId": "snap-20260903-0001",
+  "parentSnapshotId": null,
+  "workspaceEpoch": "epoch-20260903-main",
+  "sequence": 0,
+  "liveHead": true,
+  "computedBasisId": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+  "createdAt": "2026-09-03T05:00:00Z",
+  "configurationFingerprint": "config-fingerprint-default",
+  "entries": {}
+}

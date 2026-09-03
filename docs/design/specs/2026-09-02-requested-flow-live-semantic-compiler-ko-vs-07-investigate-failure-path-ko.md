@@ -145,4 +145,14 @@ Error/symptom/trace input → failure target/runtime scope resolver → static r
 
 ## 16. Open Decisions
 
-없음. runtime isolation과 scope는 raw §14, §18.6 R15와 승인된 D3, D15, D20을 따른다.
+없음. runtime isolation과 scope 및 결정 사항은 아래 Resolved Implementation Decisions로 확정되었다.
+
+## 17. Resolved Implementation Decisions
+
+- `SID-C1` (정규 payload 물리 구성): `schemas/failure-path-trace.schema.json`, `schemas/runtime-observation.schema.json` 독립 스키마 분할 및 BaseURL 등록.
+- `SID-C2` (validation 경계): 정적 AST 장애 분기와 런타임/테스트 실패 스택의 상관관계(correlation) 검증, 자격증명/토큰 마스킹 검증.
+- `SID-C3` (계약 검증 범위): 합성 장애 재현 샌드박스 픽스처, timeout/retry/compensation 복구 경로 픽스처 구축.
+- `SID-C4` (기존 구현 재사용/교체): VS-02의 `SemanticMapIR` 내 `error_path` 노드 및 `internal/secret` 단일 게이트 마스킹 재사용.
+- `SID-C5` & `SID-07` (격리 수준, Sandbox, Debug Critical Obligation):
+  - 런타임 추적은 기본 no-egress, read-only 샌드박스에서만 실행되며, 외부 네트워크나 자격증명 접근 확대 시 사용자 명시적 승인 필수 (`INV-15`, `INV-18`).
+  - Debug Mode Settlement Gate 입력: 장애 유발 조건(Triggering Condition), 실패 전이 단계(Failure Transition), 최종 실패 상태(Terminal Error State)의 증거가 모두 `verified` 상태여야 함.

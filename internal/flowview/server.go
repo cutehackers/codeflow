@@ -27,6 +27,7 @@ import (
 	"codeflow/internal/semantic"
 	"codeflow/internal/slicing"
 	"codeflow/internal/storage"
+	"codeflow/internal/workspace"
 )
 
 // Server coordinates the loopback HTTP server for FlowView.
@@ -34,6 +35,7 @@ type Server struct {
 	repoRoot   string
 	storage    *storage.Storage
 	eventLog   *fusion.EventLog
+	engine     *workspace.SnapshotEngine
 	authToken  string
 	listener   net.Listener
 	httpServer *http.Server
@@ -63,10 +65,16 @@ func NewServer(cfg Config) (*Server, error) {
 		token = hex.EncodeToString(b)
 	}
 
+	engine, err := workspace.NewSnapshotEngine(cfg.RepoRoot, "")
+	if err != nil {
+		return nil, fmt.Errorf("init snapshot engine: %w", err)
+	}
+
 	s := &Server{
 		repoRoot:  cfg.RepoRoot,
 		storage:   st,
 		eventLog:  fusion.NewEventLog(cfg.RepoRoot),
+		engine:    engine,
 		authToken: token,
 	}
 
@@ -79,6 +87,8 @@ func NewServer(cfg Config) (*Server, error) {
 	mux.HandleFunc("/api/map", s.handleGetMap)
 	mux.HandleFunc("/api/map/override", s.handlePostLaneOverride)
 	mux.HandleFunc("/api/task/view", s.handleTaskView)
+	mux.HandleFunc("/api/workspace/activity", s.handleWorkspaceActivity)
+	mux.HandleFunc("/api/workspace/edit", s.handleWorkspaceEdit)
 
 	port := cfg.Port
 	ln, err := net.Listen("tcp", fmt.Sprintf("127.0.0.1:%d", port))
@@ -648,6 +658,51 @@ func (s *Server) handleTaskView(w http.ResponseWriter, r *http.Request) {
 		"projection":  proj,
 		"evidence":    evidenceRecords,
 		"unknowns":    mapIR.Unknowns,
+	})
+}
+
+func (s *Server) handleWorkspaceActivity(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	act := s.engine.CurrentActivity()
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(act)
+}
+
+func (s *Server) handleWorkspaceEdit(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	var req struct {
+		Path            string `json:"path"`
+		Content         string `json:"content"`
+		DocumentVersion int    `json:"documentVersion"`
+		Source          string `json:"source"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	if req.Source == "" {
+		req.Source = workspace.SourceAgentTransaction
+	}
+	rev, snap, err := s.engine.ApplyVersionedEdit(r.Context(), workspace.EditRequest{
+		Path:            req.Path,
+		Content:         []byte(req.Content),
+		DocumentVersion: req.DocumentVersion,
+		Source:          req.Source,
+	})
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(map[string]any{
+		"revision": rev,
+		"snapshot": snap,
 	})
 }
 

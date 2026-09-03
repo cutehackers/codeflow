@@ -1,0 +1,41 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://codeflow.local/schemas/document-revision.schema.json",
+  "title": "CodeFlow Document Revision",
+  "$comment": "Raw §7.1 and VS-03 normative schema for immutable DocumentRevision: content CAS, documentVersion, path, source and workspaceEpoch.",
+  "type": "object",
+  "required": [
+    "schemaId",
+    "schemaVersion",
+    "revisionId",
+    "path",
+    "documentVersion",
+    "contentId",
+    "source",
+    "workspaceEpoch",
+    "createdAt"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "schemaId": {
+      "type": "string",
+      "enum": [
+        "https://codeflow.local/schemas/document-revision.schema.json",
+        "codeflow.document-revision"
+      ]
+    },
+    "schemaVersion": { "const": 1 },
+    "revisionId": { "type": "string", "minLength": 1, "maxLength": 128 },
+    "path": { "type": "string", "minLength": 1 },
+    "documentVersion": { "type": "integer", "minimum": 1 },
+    "contentId": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+    "source": {
+      "type": "string",
+      "enum": ["agent_transaction", "ide_versioned", "watcher_fallback"]
+    },
+    "workspaceEpoch": { "type": "string", "minLength": 1 },
+    "createdAt": { "type": "string", "format": "date-time" },
+    "content": { "type": "string" },
+    "byteLength": { "type": "integer", "minimum": 0 }
+  }
+}

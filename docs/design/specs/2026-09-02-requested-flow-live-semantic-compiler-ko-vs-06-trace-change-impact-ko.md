@@ -140,4 +140,15 @@ Changed symbol/change batch → impact target resolver → caller reverse traver
 
 ## 16. Open Decisions
 
-없음. impact mode의 확장 경계는 raw §8.6과 D2, D11, D23을 따른다.
+없음. impact mode의 확장 경계와 결정 사항은 아래 Resolved Implementation Decisions로 확정되었다.
+
+## 17. Resolved Implementation Decisions
+
+- `SID-C1` (정규 payload 물리 구성): `schemas/change-impact-graph.schema.json` 독립 스키마 분할 및 BaseURL 등록.
+- `SID-C2` (validation 경계): 직접 영향(1차), 간접 영향(2차), 추가 탐색 경계의 깊이 제한 및 순환 참조 방지 검증.
+- `SID-C3` (계약 검증 범위): 직접 vs 간접 vs 미해결 프론티어 영향 전파 픽스처, cyclic graph 차단 픽스처 구축.
+- `SID-C4` (기존 구현 재사용/교체): 언어별 어댑터의 역방향 호출 그래프 및 의존성 추출기 재사용.
+- `SID-C5` & `SID-06` (실행 예산, 동적 호출자 경계, Impact Critical Obligation):
+  - 직접 영향(1차 호출자): 100% 전수 탐색 및 증거 바인딩.
+  - 간접 영향(2차 호출자): 최대 깊이 5, 최대 노드 50개 소프트 예산 적용. 동적 디스패치나 리플렉션 등으로 정적 추적이 불가한 경계는 `unresolved_dynamic_caller`로 명시 분리하여 날조 금지 (`INV-04`).
+  - Impact Mode Settlement Gate 입력: 변경 심볼을 참조하는 모든 상위 진입점(UI/API)의 영향 평가 완료 및 미해결 차단 영향(`critical_impact_unknown == 0`) 확인.

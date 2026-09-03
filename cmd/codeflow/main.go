@@ -45,6 +45,8 @@ Usage:
                               Flags: --json
   codeflow query [path]       query task view and natural language feature flows.
                               Flags: --mode, --request, --entry, --flow, --domain, --json
+  codeflow status [path]      display workspace activity, epoch, and snapshot status.
+                              Flags: --json
   codeflow publish [path]     harvest, slice, fuse, and atomically publish flows.
                               Flags: --limit <N>
   codeflow show <id|entry>    display flow steps and business rules.
@@ -72,6 +74,8 @@ func main() {
 		runInit(args)
 	case "flows":
 		runFlows(args)
+	case "status":
+		runStatus(args)
 	case "query":
 		runQuery(args)
 	case "publish":

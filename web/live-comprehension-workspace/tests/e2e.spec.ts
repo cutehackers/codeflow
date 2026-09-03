@@ -48,4 +48,33 @@ test.describe('FlowView Live Semantic Comprehension Workspace E2E', () => {
     const codePath = page.locator('#code-path');
     await expect(codePath).not.toBeEmpty();
   });
+
+  test('displays workspace activity status, pending revisions, analysis lag, and scope', async ({ page }) => {
+    await page.goto('http://127.0.0.1:4589/?token=testtoken');
+
+    // 1. Activity badge
+    const badge = page.locator('#workspace-activity-badge');
+    await expect(badge).toBeVisible();
+    await expect(badge).toHaveText(/(idle|editing|analyzing|reconciling)/);
+
+    // 2. Epoch tag
+    const epochTag = page.locator('#workspace-epoch-tag');
+    await expect(epochTag).toBeVisible();
+    await expect(epochTag).toContainText('epoch');
+
+    // 3. Pending revisions count (VS03-A6)
+    const pendingCount = page.locator('#workspace-pending-count');
+    await expect(pendingCount).toBeVisible();
+    await expect(pendingCount).toContainText('pending');
+
+    // 4. Analysis lag (VS03-A6)
+    const analysisLag = page.locator('#workspace-analysis-lag');
+    await expect(analysisLag).toBeVisible();
+    await expect(analysisLag).toContainText('lag');
+
+    // 5. Active scope (VS03-A6)
+    const scopeTag = page.locator('#workspace-scope-tag');
+    await expect(scopeTag).toBeVisible();
+    await expect(scopeTag).not.toBeEmpty();
+  });
 });

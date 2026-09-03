@@ -161,3 +161,83 @@ func TestVS02A3_A4_A6_DeterministicCompiler(t *testing.T) {
 		}
 	}
 }
+
+func TestFeatureModeSettlementGate_ObligationsAndEvaluation(t *testing.T) {
+	target := &ResolvedTarget{
+		EntrySymbolPath: "AuthController.login",
+		FlowID:          "flow-login-001",
+		Title:           "사용자 로그인 흐름",
+	}
+
+	steps := []slicing.SliceStep{
+		makeStep(1, "Receive credentials", "user_action"),
+		makeStep(2, "Check password hash", "decision"),
+		makeStep(3, "Emit auth session token", "result"),
+	}
+
+	// Case 1: Fully resolved flow without unknowns -> Settlement: passed
+	cleanSlice := &slicing.SlicedPayload{
+		EntrySymbolPath: target.EntrySymbolPath,
+		Steps:           steps,
+		Edges: []slicing.SliceEdge{
+			{
+				Kind:             "resolved_cross_file",
+				ToSymbolPath:     "PasswordService.verify",
+				ResolutionStatus: "resolved",
+			},
+		},
+	}
+
+	mapClean, _, err := CompileDeterministicFeatureMap(target, nil, cleanSlice, CompileOptions{
+		ComputedBasisID: "basis-clean-001",
+	})
+	if err != nil {
+		t.Fatalf("Compile clean failed: %v", err)
+	}
+
+	if mapClean.Settlement != "passed" {
+		t.Errorf("expected settlement 'passed' for fully verified clean flow, got %q", mapClean.Settlement)
+	}
+	if mapClean.Quality.UnresolvedCriticalCount != 0 {
+		t.Errorf("expected 0 unresolved critical count, got %d", mapClean.Quality.UnresolvedCriticalCount)
+	}
+
+	// Verify all 5 kinds are present in critical obligations
+	kinds := make(map[string]bool)
+	for _, ob := range mapClean.Quality.CriticalObligations {
+		kinds[ob.Kind] = true
+	}
+	for _, expectedKind := range []string{"entry", "causal_chain", "critical_branch", "result", "no_critical_unknown"} {
+		if !kinds[expectedKind] {
+			t.Errorf("missing expected critical obligation kind: %s", expectedKind)
+		}
+	}
+
+	// Case 2: Flow with unknown edge -> Settlement: pending
+	unknownSlice := &slicing.SlicedPayload{
+		EntrySymbolPath: target.EntrySymbolPath,
+		Steps:           steps,
+		Edges: []slicing.SliceEdge{
+			{
+				Kind:             "unknown_edge",
+				ToSymbolPath:     "ExternalAuth.oauth",
+				ResolutionStatus: "unresolved",
+			},
+		},
+	}
+
+	mapUnknown, _, err := CompileDeterministicFeatureMap(target, nil, unknownSlice, CompileOptions{
+		ComputedBasisID: "basis-unknown-001",
+	})
+	if err != nil {
+		t.Fatalf("Compile unknown failed: %v", err)
+	}
+
+	if mapUnknown.Settlement != "pending" {
+		t.Errorf("expected settlement 'pending' when unknown edge exists, got %q", mapUnknown.Settlement)
+	}
+	if mapUnknown.Quality.UnresolvedCriticalCount <= 0 {
+		t.Errorf("expected unresolvedCriticalCount > 0 when unknown exists, got %d", mapUnknown.Quality.UnresolvedCriticalCount)
+	}
+}
+

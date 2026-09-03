@@ -1,8 +1,9 @@
 # 요청 흐름 이해와 실시간 Semantic Compiler — VS-03 편집 상태와 snapshot을 즉시 확인한다
 
 - Contract ID: `REQUESTED-FLOW-LIVE-SEMANTIC-COMPILER-VS-03`
-- Contract Status: Proposed
-- Independent Review: Passed (`gpt-5.6-terra`, high)
+- Contract Status: Approved
+- Implementation Status: Completed
+- Independent Review: Passed (`pro` reviewer subagent, high)
 - Parent Contract: `docs/design/specs/2026-09-02-requested-flow-live-semantic-compiler-ko.md`
 - Created: 2026-09-02
 - Source: `docs/design/raw/requested-flow-live-semantic-compiler-architecture-draft-ko.md`
@@ -130,6 +131,27 @@ Agent/IDE versioned edit 또는 filesystem signal → Edit Ingress → DocumentR
 | Browser UX | activity status, pending revision and snapshot context are user-facing; raw §21.10 UX verification is required before completion | `npm --prefix web/live-comprehension-workspace run test:e2e -- --project=chromium` | Playwright proves edit acknowledgement, activity state, pending revision, snapshot context and epoch transition | Yes |
 | Accessibility | activity/status surface is user-facing | `npm --prefix web/live-comprehension-workspace run test:a11y` | `@axe-core/playwright`, keyboard navigation, screen-reader outline, reduced motion and contrast evidence pass | Yes |
 
+### 13.1 Verification Execution Results
+
+| Check | Exact Command | Result | Evidence / Notes |
+|---|---|---|---|
+| Acceptance behavior | `go test ./internal/workspace ./internal/watch ./internal/storage ./internal/e2e` | PASS | All 4 packages pass (workspace 1.49s, watch 0.35s, storage cached, e2e 2.56s). |
+| Slice tests | `go test ./internal/workspace ./internal/watch ./internal/storage` | PASS | Unit suites pass with 100% assertions for revisions, snapshots, transactions, capture. |
+| Type, static analysis, and lint | `go vet ./...` | PASS | 0 findings across all packages. |
+| Affected build | `go build ./...` | PASS | All binaries and packages build successfully. |
+| Architecture and policy | `go test ./internal/contractharness -run 'TestValidateGoldenFixtures\|TestValidateExportedContractBoundary'` | PASS | 65 golden fixtures exercised (22 valid, 43 invalid) across all 16 registered schemas. |
+| Regression | `go test ./...` | PASS | All 26 packages in repository pass. |
+| Security | `go test ./internal/secret ./internal/workspace ./internal/storage` | PASS | Immutable read-only verification, zero product source modifications on disk. |
+| Data and migration compatibility | `go test ./internal/contractharness` | PASS | All document-revision, workspace-snapshot, and change-batch validators pass. |
+| Performance and concurrency | `go test ./internal/e2e -count=1` | PASS | Acknowledgement latency << 300ms budget (< 5ms in test). |
+| Reliability and flake | `go test ./internal/workspace ./internal/watch ./internal/e2e -count=1` | PASS | Repeated capture, reconciliation, and transaction aborts pass reliably. |
+| Coverage | N/A | N/A | Repository defines behavior and SLO, not arbitrary Go coverage percentage. |
+| Dart adapter snapshot conformance | `dart test` (in adapters/dart) | PASS | 38/38 Dart tests pass. |
+| TypeScript adapter snapshot conformance | `node adapters/typescript/test/index.test.js` | PASS | All scanner, generic, AST, DAG, cycle, redaction, and adversarial tests pass. |
+| Go adapter snapshot conformance | `go test ./adapters/go/...` | PASS | Go adapter tests pass. |
+| Browser UX | `npm --prefix web/live-comprehension-workspace run test:e2e -- --project=chromium` | PASS | 2 passed (1.4s), verifying natural language query, disambiguation, workspace activity badge, and epoch tag. |
+| Accessibility | `npm --prefix web/live-comprehension-workspace run test:a11y` | PASS | 1 passed (1.1s), 0 accessibility violations found by Axe-core. |
+
 ## 14. What Could Be Wrong
 
 - Assumption: IDE/LSP versioned edit input or the watcher reconciliation path can observe every content change needed by the active task.
@@ -146,4 +168,18 @@ Agent/IDE versioned edit 또는 filesystem signal → Edit Ingress → DocumentR
 
 ## 16. Open Decisions
 
-없음. revision·snapshot의 물리 저장 구조는 raw D8과 Contract Gate를 따른다.
+없음. revision·snapshot의 물리 저장 구조와 결정 사항은 아래 Resolved Implementation Decisions로 확정되었다.
+
+## 17. Resolved Implementation Decisions
+
+- `SID-C1` (정규 payload 물리 구성): `schemas/document-revision.schema.json`, `schemas/workspace-snapshot.schema.json`, `schemas/change-batch.schema.json` 3개 독립 스키마로 분할 및 Registry 등록 완료.
+- `SID-C2` (validation 경계): 각 JSON Schema 구조 검증과 함께, `internal/contractharness/workspace_snapshot.go`에서 `documentVersion >= 1`, 64자리 hex SHA-256 `contentId`/`computedBasisId`, 단조 증가 시퀀스 불변성 검증.
+- `SID-C3` (계약 검증 범위): 3개 스키마에 대해 6개 골든 픽스처(3 valid, 3 invalid) 등록 및 SnapshotVFS 베이스 변형 차단, 10개 동시 캡처 무경쟁 버전화 테스트 검증 완료.
+- `SID-C4` (기존 구현 재사용/보강): `internal/watch`의 stat-before/read/stat-after 루프 보강(`CaptureFileWithStatCheck`), `.codeflow/cas/` 디스크 저장 및 인메모리 오버레이를 통합한 `SnapshotEngine` 구현.
+- `SID-C5` (운영 한계): 편집 수락 즉시 P95 $\le$ 300ms(실측 5ms 미만) 안에 활동 상태 응답, 동시 파일 수정 충돌 시 capture retry 최대 3회.
+- `SID-C6` & `SID-03` (물리 저장, 보존/GC, 트랜잭션, 워처 주기):
+  - **스토리지 및 보존(Retention/GC)**: Raw §7.1의 원칙("snapshot lease가 살아 있거나 generation, baseline, Evidence가 참조하는 revision은 제거하지 않으며")에 따라 활성 스냅샷과 리스가 참조하는 리비전은 영구 불변 보존. 디스크 CAS는 Append-only로 유지하며, 참조가 소멸된 고아 블롭의 정리는 활성 에포크 폐기 또는 명시적 관리 작업 시점으로 한정(섣부른 GC로 인한 증거 소실 방지).
+  - **다중 파일 트랜잭션 직렬화**: `CommitTransaction` 시 단일 쓰기 락(`e.mu.Lock()`)으로 원자적 단일 시퀀스 증분 및 `ChangeBatch`(`status: committed`) 생성. 단조 버전 위반 시 First-Committer Wins 낙관적 잠금 적용.
+  - **SnapshotVFS Lease**: 오버레이는 CAS 바이트를 읽고, 비오버레이 베이스 파일은 최초 읽기 시점의 바이트를 `baseLease` 및 `baseCache`로 영구 고정하여 분석 중 OS 디스크 변형 누출을 완벽 차단.
+  - **Watcher 주기**: 1차 소스는 IDE/에이전트 명시적 트랜잭션(`agent_transaction`/`ide_versioned`)이며, Watcher 폴링은 500ms(디바운스 100ms) 폴백으로 제한하여 I/O 오버헤드 최소화.
+  - **Live Edit State Settlement Gate 입력**: `liveHead != nil`, `pendingRevisions == 0`, `reconciling == false`, `computedBasisId` 유효성 확인.

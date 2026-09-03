@@ -85,6 +85,7 @@ type Server struct {
 	registry   *AdapterRegistry
 	storageMap sync.Map // key: absRepoRoot -> *storage.Storage
 	eventLogs  sync.Map // key: absRepoRoot -> *fusion.EventLog
+	engines    sync.Map // key: absRepoRoot -> *workspace.SnapshotEngine
 	fv         *flowview.Server
 	fvMu       sync.Mutex
 }
@@ -481,6 +482,33 @@ func (s *Server) listTools() []map[string]any {
 				},
 			},
 		},
+		{
+			"name":        "get_workspace_activity",
+			"description": "Get current workspace activity status, pending revisions count, and live snapshot info",
+			"inputSchema": map[string]any{
+				"type": "object",
+				"properties": map[string]any{
+					"target": targetProp,
+					"token":  map[string]any{"type": "string", "description": "Auth token when RequireToken=true"},
+				},
+			},
+		},
+		{
+			"name":        "submit_versioned_edit",
+			"description": "Submit a versioned document edit to the workspace snapshot engine",
+			"inputSchema": map[string]any{
+				"type": "object",
+				"required": []string{"path", "content", "documentVersion"},
+				"properties": map[string]any{
+					"path":            map[string]any{"type": "string", "description": "Relative file path"},
+					"content":         map[string]any{"type": "string", "description": "New file content bytes"},
+					"documentVersion": map[string]any{"type": "integer", "description": "Monotonic document version >= 1"},
+					"source":          map[string]any{"type": "string", "description": "Edit source (agent_transaction, ide_versioned, watcher_fallback)"},
+					"target":          targetProp,
+					"token":           map[string]any{"type": "string", "description": "Auth token when RequireToken=true"},
+				},
+			},
+		},
 	}
 }
 
@@ -860,6 +888,12 @@ func (s *Server) executeTool(ctx context.Context, name string, args map[string]a
 
 	case "get_current_answer":
 		return s.handleGetCurrentAnswer(ctx, args)
+
+	case "get_workspace_activity":
+		return s.handleGetWorkspaceActivity(ctx, args)
+
+	case "submit_versioned_edit":
+		return s.handleSubmitVersionedEdit(ctx, args)
 
 	default:
 		return nil, fmt.Errorf("unknown tool %s", name)

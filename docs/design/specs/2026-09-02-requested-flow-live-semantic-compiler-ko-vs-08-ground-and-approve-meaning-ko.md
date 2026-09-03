@@ -148,4 +148,14 @@ Current verified Fact/Evidence → redacted Evidence Pack → isolated optional 
 
 ## 16. Open Decisions
 
-없음. model 후보와 성능은 raw §21.6, 결정 기록과 VS-10 release gate를 따른다.
+없음. model 후보와 성능 및 결정 사항은 아래 Resolved Implementation Decisions로 확정되었다.
+
+## 17. Resolved Implementation Decisions
+
+- `SID-C1` (정규 payload 물리 구성): `schemas/model-proposal.schema.json`, `schemas/semantic-approval.schema.json`, `schemas/evidence-pack.schema.json` 독립 스키마 분할 및 BaseURL 등록.
+- `SID-C2` (validation 경계): 모델 제안 권위(`authority=model_proposal`)와 컴파일러 검증 권위(`authority=compiler_verified`)의 엄격한 분리 검증, 승인 이벤트의 멱등성 및 원본 구조 불변 검증.
+- `SID-C3` (계약 검증 범위): Evidence Pack secret 마스킹 픽스처, 스키마 프로파일 적합성 픽스처, 중복/지연 승인 idempotent 픽스처 구축.
+- `SID-C4` (기존 구현 재사용/교체): VS-02/VS-03의 시맨틱 컴파일러 및 CAS 기반 Evidence를 Evidence Pack으로 패키징.
+- `SID-C5` & `SID-08` (Model Proposal Profile, Redaction, Approval 물리 계약):
+  - `ModelProposalSchemaProfile`은 JSON Schema 제약 출력(Constrained Decoding)을 강제하여 포맷 환각 원천 차단.
+  - 모델 호스트로 전송되기 전 모든 증거 바이트는 `internal/secret` 단일 게이트를 통과하여 마스킹. 모델 제안은 사용자의 명시적 `SemanticApproval` 이벤트가 기록되기 전까지 비공식(proposal) 상태로 유지되며 구조적 팩트를 대체하지 않음 (`INV-03`).

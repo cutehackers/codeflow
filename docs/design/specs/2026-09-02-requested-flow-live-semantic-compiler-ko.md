@@ -19,8 +19,8 @@
 - Raw authority: raw 문서의 제품 의도, 설계 결정, 데이터 계약, 실패 의미, 수용 기준과 기술 기준선.
 - Approval basis: 사용자가 raw 스팩을 여러 차례 리뷰를 거친 승인된 스팩으로 지정했고, `D1–D32` 결정 기록의 `Open Decisions: 없음`을 확인했다.
 - Normalization exception: 이 부모 파일은 상태 추적과 glossary, intent·goal·acceptance·slice 연결만 보유한다. raw 요구사항의 대체 요약본으로 사용하지 않는다.
-- Production code or schema changed: VS-01 and VS-02.
-- Implementation authorized: VS-01 (completed) and VS-02 (completed) by explicit user Deliver request. VS-03–VS-10 remain unauthorized.
+- Production code or schema changed: VS-01, VS-02 and VS-03.
+- Implementation authorized: VS-01 (completed), VS-02 (completed) and VS-03 (in progress) by explicit user Deliver request. VS-04–VS-10 remain unauthorized.
 
 ## 2. Intent Registry
 
@@ -89,7 +89,7 @@ The raw P0 phase must exit before any P1 or P2 child is approved or implemented.
 |---|---|---|---|---|
 | VS-02 | `GOAL-01` | `P0 Exit Gate` and an available structural evidence seam | `A1–A4`, `A15`, `A16–A17`, `A25–A27` | Implemented, verification passing, independent review passed |
 | VS-01 | `GOAL-02` | `P0 Exit Gate`, VS-02 baseline seam | `A9`, `A25–A27` and raw §21.8 | Implemented, verification passing, independent review passed |
-| VS-03 | `GOAL-03` | `P0 Exit Gate`, VS-02 baseline seam, VS-01 snapshot-capable adapter boundary | `A5–A6`, `A9`, `A11`, `A25–A27` | Proposed, independent review passed |
+| VS-03 | `GOAL-03` | `P0 Exit Gate`, VS-02 baseline seam, VS-01 snapshot-capable adapter boundary | `A5–A6`, `A9`, `A11`, `A25–A27` | Implemented, verification passing, independent review passed |
 | VS-04 | `GOAL-04` | VS-02, VS-03 | `A7–A11`, `A23–A28` | Proposed, independent review passed |
 | VS-05 | `GOAL-05` | VS-02, VS-04 | `A12–A16`, `A18`, `A23`, `A25–A27` | Proposed, independent review passed |
 | VS-06 | `GOAL-06` | VS-02, VS-04 | `A16`, `A19`, `A23`, `A25–A27` | Proposed, independent review passed |
@@ -99,6 +99,46 @@ The raw P0 phase must exit before any P1 or P2 child is approved or implemented.
 | VS-10 | `GOAL-10` | VS-01–VS-09 as applicable | `A16`, `A23–A28` and raw §16–§18 | Proposed, independent review passed |
 
 This ordering follows the raw P0 → P1 → P2 → P3 → P4 → P5 → P6 phases. VS-01 is the only slice approved and implemented under the current request. VS-02–VS-10 remain proposed and are not authorized.
+
+### 5.1 Slice 시작 공통 결정 Gate
+
+각 Vertical Slice는 production 구현을 시작하기 전에 아래 항목을 검토하고 결정 결과와 근거를 해당 child specification의 `Open Decisions` 또는 후속 `Resolved Implementation Decisions`에 기록해야 한다. 이 Gate는 raw D1–D32와 A1–A28을 구체화하며 새로운 제품 요구사항을 만들지 않는다.
+
+| ID | 시작 전에 결정할 사항 | 필수 결과 |
+|---|---|---|
+| `SID-C1` | Slice가 처음 생산하거나 소비하는 정규 payload의 물리 구성 | 독립 schema 파일 또는 부모 schema `$defs`, `schemaId`, `schemaVersion`, Registry 경로와 migration 필요 여부 |
+| `SID-C2` | structural validation과 Semantic Validator의 책임 경계 | JSON Schema 검증 조건, cross-artifact·basis·authority·CAS 불변 조건과 typed failure |
+| `SID-C3` | 계약 검증 범위 | valid·invalid fixture, producer-consumer compatibility test, replay·idempotency 적용 여부와 실행 command |
+| `SID-C4` | 기존 구현의 재사용 또는 교체 | 후보 component, contract·SLO·failure behavior 검증 결과, 재사용·보강·교체 판단과 근거 |
+| `SID-C5` | capability와 운영 한계 | 지원 language/framework/toolchain 범위, message·queue·concurrency·timeout·resource bound와 초과 시 fallback |
+| `SID-C6` | 해당 mode의 Settlement Gate 입력 | `required=true` Critical Obligation 산출 규칙, verified 조건, critical unknown·conflict 판정 fixture |
+
+적용 규칙:
+
+1. `SID-C1`–`SID-C3`은 해당 payload를 사용하는 production code보다 먼저 완료한다.
+2. `SID-C4`의 재사용률은 성공 지표가 아니다. 승인된 계약을 그대로 만족하는지가 판단 기준이다.
+3. `SID-C5`의 수치는 correctness, Evidence, current publication 또는 settlement gate를 약화할 수 없다.
+4. 결정이 기존 D1–D32, A1–A28, 보안 경계, 지원 범위 또는 release 약속을 변경하면 구현 결정을 중단하고 Parent amendment와 사용자 승인을 받는다.
+5. 그 외의 schema 배치, 내부 자료구조, library 선택과 측정 기반 tuning은 child specification에 근거를 기록한 뒤 구현자가 결정한다.
+
+### 5.2 Slice별 시작 결정 체크리스트
+
+아래 항목은 `SID-C1`–`SID-C6`에 추가하여 각 Slice 시작 시 검토한다. 이미 구현된 Slice도 후속 변경이나 migration을 시작할 때 동일하게 재검토한다.
+
+| Slice | ID | Slice 시작 시 결정할 사항 |
+|---|---|---|
+| VS-01 | `SID-01` | Dart·TypeScript/JavaScript·Go별 capability matrix와 analyzer/toolchain pin, adapter 재사용 여부, max message size·in-flight work·backpressure 한도 |
+| VS-02 | `SID-02` | feature entry 후보 resolution·동순위 ambiguity 규칙의 구현과 fixture, TaskIntent·TaskViewQuery·SemanticMapIR·FlowViewProjection·Evidence 계약 구성, feature Critical Obligation |
+| VS-03 | `SID-03` | DocumentRevision·WorkspaceSnapshot의 물리 저장·retention·GC, watcher backend, capture retry·reconciliation 주기, multi-file transaction 내부 표현 |
+| VS-04 | `SID-04` | closure 교차 판정 구조, publication queue와 load-shedding 한도, Generation Proof Manifest·active pointer CAS transaction 구조, EventEnvelope 보존과 reconnect snapshot 전환 기준 |
+| VS-05 | `SID-05` | stable step·claim identity matching, rename·move 판정, Semantic Delta 분류 fixture, Requirement Alignment validator와 review Critical Obligation |
+| VS-06 | `SID-06` | 직접·한 단계 간접·추가 탐색의 실행 예산과 최대 확장량, unresolved dynamic caller 경계, impact Critical Obligation |
+| VS-07 | `SID-07` | trace provider와 static/runtime correlation, 승인된 synthetic scenario, sandbox·resource limit 구현, debug·incident Critical Obligation |
+| VS-08 | `SID-08` | `ModelProposalSchemaProfile` 지원 범위, Evidence Pack 구성·redaction, model host protocol과 한도, SemanticApproval event의 물리 계약 |
+| VS-09 | `SID-09` | domain·ownership mining 신호, representative flow ranking과 selection Evidence, low-coverage 표시 기준, 대형 overview renderer, onboarding Critical Obligation |
+| VS-10 | `SID-10` | release별 지원 OS·hardware·repository 규모·language/framework·부하·browser 범위, versioned benchmark corpus, critical semantic closure 목표, 분리된 품질 통과 기준, 기본 Local SLM 후보와 capability state |
+
+`SID-07`에서 runtime의 source·credential·network 접근 범위를 확대하거나, `SID-10`에서 GA 지원 범위·품질 기준·기본 배포 모델을 확정하는 결정은 제품 및 보안 경계를 정하므로 사용자 승인을 요구한다. 나머지 항목은 승인된 raw 계약을 변경하지 않는 범위에서 구현 결정으로 처리한다.
 
 ## 6. Invariant Registry
 

@@ -1,0 +1,11 @@
+{
+  "schemaId": "https://codeflow.local/schemas/document-revision.schema.json",
+  "schemaVersion": 1,
+  "revisionId": "rev-checkout-flow-001",
+  "path": "app/page.tsx",
+  "documentVersion": 4,
+  "contentId": "not-a-sha256-hash",
+  "source": "ide_versioned",
+  "workspaceEpoch": "epoch-20260903-main",
+  "createdAt": "2026-09-03T05:00:00Z"
+}

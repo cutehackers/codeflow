@@ -153,4 +153,16 @@ WorkspaceSnapshot/liveHead → incremental flow·semantic compile → Workspace 
 
 ## 16. Open Decisions
 
-없음. raw D8–D32와 승인된 결정 기록을 따른다.
+없음. raw D8–D32와 승인된 결정 기록 및 아래 Resolved Implementation Decisions로 확정되었다.
+
+## 17. Resolved Implementation Decisions
+
+- `SID-C1` (정규 payload 물리 구성): `schemas/generation-proof-manifest.schema.json`, `schemas/active-pointer.schema.json`, `schemas/event-envelope.schema.json` 독립 스키마 분할 및 BaseURL 등록.
+- `SID-C2` (validation 경계): Generation Proof Manifest는 generation ID, basis ID, Causal Observation Closure, validation check 결과를 포함하며, active pointer는 `generationId`와 `snapshotId`의 CAS 불변성을 검증.
+- `SID-C3` (계약 검증 범위): current 발행 트레이스, verified gap 픽스처, CAS 경쟁 충돌 픽스처, SSE EventEnvelope 재생 픽스처 구축.
+- `SID-C4` (기존 구현 재사용/교체): VS-02의 `SemanticMapIR`과 VS-03의 `WorkspaceSnapshot`을 기본 입력으로 재사용하고, 신규 `PublicationGate` 및 SSE 스트림 링 버퍼 구현.
+- `SID-C5` (운영 한계): 2초 publication coalescing window 준수, P95 3초 이내 current 또는 explicit gap 발행, 큐 포화 시 부하 차단(load-shedding).
+- `SID-C6` & `SID-04` (Closure 교차, Gen Proof, Active Pointer CAS, EventEnvelope):
+  - Causal Observation Closure는 negative lookup, membership, dependency frontier를 포함하며 `computedBasisId -> liveHead` 델타와 교차 검증하여 안전한 currentness 판정.
+  - Active Pointer는 오직 CAS 트랜잭션으로만 원자적 전진하며, 지연된(late) 이전 세대 결과는 active pointer를 덮어쓸 수 없음 (`INV-10`).
+  - EventEnvelope는 최근 100개 이벤트를 메모리 링 버퍼에 보존하며, 클라이언트 재연결 시 `Last-Event-ID`가 버퍼 범위를 벗어날 경우 최신 전체 스냅샷(`snapshot_sync`)으로 안전 전환.

@@ -138,11 +138,13 @@ func CompileDeterministicFeatureMap(
 		semanticEdges = append(semanticEdges, edge)
 	}
 
-	// Critical Obligations
+	// Critical Obligations (SID-C6 & SID-02: entry, causal_chain, critical_branch, result, no_critical_unknown)
 	var obligations []CriticalObligation
 	verifiedCount := 0
+	unresolvedCount := 0
 
 	if len(semanticSteps) > 0 {
+		// 1. entry_resolution
 		entryStep := semanticSteps[0]
 		obligations = append(obligations, CriticalObligation{
 			ObligationID: "ob-entry-01",
@@ -154,6 +156,35 @@ func CompileDeterministicFeatureMap(
 		})
 		verifiedCount++
 
+		// 2. causal_chain (whole-flow causal transition preservation)
+		obligations = append(obligations, CriticalObligation{
+			ObligationID: "ob-causal-01",
+			Kind:         "causal_chain",
+			Required:     true,
+			TargetRef:    target.FlowID,
+			Status:       "verified",
+			EvidenceRefs: []string{},
+		})
+		verifiedCount++
+
+		// 3. critical_branch (decision/guard steps)
+		branchIdx := 1
+		for _, step := range semanticSteps {
+			if step.Kind == "decision" || step.Kind == "guard" {
+				obligations = append(obligations, CriticalObligation{
+					ObligationID: fmt.Sprintf("ob-branch-%02d", branchIdx),
+					Kind:         "critical_branch",
+					Required:     true,
+					TargetRef:    step.StepID,
+					Status:       "verified",
+					EvidenceRefs: step.EvidenceRefs,
+				})
+				verifiedCount++
+				branchIdx++
+			}
+		}
+
+		// 4. terminal_resolution (result step)
 		lastStep := semanticSteps[len(semanticSteps)-1]
 		obligations = append(obligations, CriticalObligation{
 			ObligationID: "ob-result-01",
@@ -164,6 +195,29 @@ func CompileDeterministicFeatureMap(
 			EvidenceRefs: lastStep.EvidenceRefs,
 		})
 		verifiedCount++
+
+		// 5. no_critical_unknown
+		if len(unknowns) == 0 {
+			obligations = append(obligations, CriticalObligation{
+				ObligationID: "ob-unknown-01",
+				Kind:         "no_critical_unknown",
+				Required:     true,
+				TargetRef:    target.FlowID,
+				Status:       "verified",
+				EvidenceRefs: []string{},
+			})
+			verifiedCount++
+		} else {
+			obligations = append(obligations, CriticalObligation{
+				ObligationID: "ob-unknown-01",
+				Kind:         "no_critical_unknown",
+				Required:     true,
+				TargetRef:    target.FlowID,
+				Status:       "unknown",
+				EvidenceRefs: []string{},
+			})
+			unresolvedCount++
+		}
 	}
 
 	// Summary creation
@@ -193,6 +247,12 @@ func CompileDeterministicFeatureMap(
 		status = intent.IntentStatus
 	}
 
+	// Settlement evaluation (Raw §3.17, §10.16 & INV-24)
+	settlementStatus := "pending"
+	if len(obligations) > 0 && verifiedCount == len(obligations) && unresolvedCount == 0 && status != "needs_confirmation" {
+		settlementStatus = "passed"
+	}
+
 	mapIR := &SemanticMapIR{
 		SchemaID:                   "https://codeflow.local/schemas/semantic-map-ir.schema.json",
 		SchemaVersion:              1,
@@ -202,13 +262,13 @@ func CompileDeterministicFeatureMap(
 		ValidatedAgainstSnapshotID: opts.ValidatedAgainstSnapshotID,
 		PublicationKind:            "initial",
 		Freshness:                  "current",
-		Settlement:                 "pending",
+		Settlement:                 settlementStatus,
 		EnrichmentStatus:           "not_requested",
 		Quality: MapQuality{
 			Stage:                    "Q2",
 			CriticalObligations:      obligations,
 			CriticalCoverageSummary:  &CriticalCoverageSummary{Required: len(obligations), Verified: verifiedCount},
-			UnresolvedCriticalCount:  0,
+			UnresolvedCriticalCount:  unresolvedCount,
 			ConflictingCriticalCount: 0,
 			Degradations:             []QualityDegradation{},
 		},

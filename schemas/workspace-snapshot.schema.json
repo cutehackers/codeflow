@@ -1,0 +1,52 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://codeflow.local/schemas/workspace-snapshot.schema.json",
+  "title": "CodeFlow Workspace Snapshot",
+  "$comment": "Raw §7.2 and VS-03 normative schema for immutable WorkspaceSnapshot: sequence, parentSnapshotId, workspaceEpoch, liveHead, computedBasisId, and entries.",
+  "type": "object",
+  "required": [
+    "schemaId",
+    "schemaVersion",
+    "snapshotId",
+    "workspaceEpoch",
+    "sequence",
+    "liveHead",
+    "computedBasisId",
+    "createdAt",
+    "configurationFingerprint",
+    "entries"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "schemaId": {
+      "type": "string",
+      "enum": [
+        "https://codeflow.local/schemas/workspace-snapshot.schema.json",
+        "codeflow.workspace-snapshot"
+      ]
+    },
+    "schemaVersion": { "const": 1 },
+    "snapshotId": { "type": "string", "minLength": 1, "maxLength": 128 },
+    "parentSnapshotId": { "type": ["string", "null"] },
+    "workspaceEpoch": { "type": "string", "minLength": 1 },
+    "sequence": { "type": "integer", "minimum": 1 },
+    "liveHead": { "type": "boolean" },
+    "computedBasisId": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+    "createdAt": { "type": "string", "format": "date-time" },
+    "configurationFingerprint": { "type": "string", "minLength": 1 },
+    "entries": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "object",
+        "required": ["revisionId", "contentId", "documentVersion", "byteLength"],
+        "additionalProperties": false,
+        "properties": {
+          "revisionId": { "type": "string", "minLength": 1 },
+          "contentId": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+          "documentVersion": { "type": "integer", "minimum": 1 },
+          "byteLength": { "type": "integer", "minimum": 0 }
+        }
+      }
+    }
+  }
+}

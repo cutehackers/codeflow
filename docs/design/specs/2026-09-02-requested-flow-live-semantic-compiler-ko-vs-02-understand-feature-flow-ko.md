@@ -167,4 +167,20 @@ User natural-language request → Task Intent normalizer → feature query valid
 
 ## 16. Open Decisions
 
-없음. feature baseline의 세부 schema 물리 파일 분할은 VS-02 구현 시작 시 Contract Gate에서 정한다.
+없음. feature baseline의 세부 schema 물리 파일 분할과 결정 사항은 아래 Resolved Implementation Decisions로 확정되었다.
+
+## 17. Resolved Implementation Decisions
+
+- `SID-C1` (정규 payload 물리 구성): `schemas/task-intent.schema.json`, `schemas/task-view-query.schema.json`, `schemas/semantic-map-ir.schema.json`, `schemas/flow-view-projection.schema.json` 4개 독립 스키마로 분할 및 Registry 등록 완료.
+- `SID-C2` (validation 경계): 각 JSON Schema 구조 검증과 함께, `internal/contractharness/semantic_map.go`에 크로스 필드 시맨틱 검증기(`ValidateSemanticMapIR`, `ValidateTaskIntent`, `ValidateTaskViewQuery`, `ValidateFlowViewProjection`)를 구현하여 typed failure 처리.
+- `SID-C3` (계약 검증 범위): 4개 스키마에 대해 8개 골든 픽스처(4 valid, 4 invalid) 등록 및 Playwright E2E / Axe-core A11y 자동화 검증 완료.
+- `SID-C4` (기존 구현 재사용/교체): 기존 슬라이싱 엔진(`internal/slicing`)과 퓨전(`internal/fusion`)을 정적 추출기로 재사용하고, 신규 `internal/semantic` 패키지로 외부 모델 없는 결정론적 시맨틱 컴파일러를 구현.
+- `SID-C5` (운영 한계): 전체 흐름은 `SemanticMapIR`에 100% 보존하되, 시각적 인지 부하를 줄이기 위해 `FlowViewProjection`에서 7~15단계 소프트 표시 예산(D32 핵심 분기/결과 불변 보존) 적용. 비밀정보는 `internal/secret` 단일 게이트 마스킹 강제.
+- `SID-C6` & `SID-02` (Feature Mode Critical Obligations 및 동순위 Ambiguity):
+  - 후보 심볼 매칭: 심볼명 완전일치 > 접두/접미 > 포함 순으로 스코어링하며, 2개 이상 동순위 발생 시 임의 추측 없이 `ambiguous_target`을 즉시 반환하여 사용자 중의성 해결을 유도.
+  - Feature Mode Settlement Gate 입력:
+    1) `entry_resolution` (`status=verified`): 진입 심볼 확정
+    2) `terminal_resolution` (`status=verified`): 종료/결과 심볼 확정
+    3) `causal_chain` (계층 전이 연결성 보존)
+    4) `critical_branch` (핵심 판단/가드 보존)
+    5) `no_critical_unknown` (`unresolvedCriticalCount=0`): 핵심 경로 상의 차단성 미해결 사항 부재 확인.
