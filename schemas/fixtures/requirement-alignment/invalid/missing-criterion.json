@@ -1,0 +1,9 @@
+{
+  "schemaId": "codeflow.requirement-alignment",
+  "schemaVersion": 1,
+  "status": "confirmed",
+  "coveredStepRefs": [],
+  "evidenceRefs": [],
+  "missingEvidence": [],
+  "computedBasisId": "wsnap-5042"
+}

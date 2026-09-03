@@ -2,9 +2,11 @@ package mcp
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"path/filepath"
 
+	"codeflow/internal/semantic"
 	"codeflow/internal/workspace"
 )
 
@@ -196,6 +198,114 @@ func (s *Server) handleGetVerifiedGap(ctx context.Context, args map[string]any) 
 		"affectedScope":     changedPaths,
 		"analysisLagMs":     curAct.AnalysisLagMs,
 		"pendingRevisions":  curAct.PendingRevisions,
+	}, nil
+}
+
+func (s *Server) handleGetSemanticDelta(ctx context.Context, args map[string]any) (any, error) {
+	if err := s.checkAuth(args["token"]); err != nil {
+		return nil, err
+	}
+
+	baseline, _ := args["baseline"].(string)
+	current, _ := args["current"].(string)
+	if baseline == "" || current == "" {
+		return map[string]any{
+			"code":    "missing_precondition",
+			"message": "baseline and current arguments are required",
+		}, nil
+	}
+
+	target := s.resolveTarget(args["target"])
+	absTarget, err := filepath.Abs(target)
+	if err != nil {
+		return nil, fmt.Errorf("resolve target: %w", err)
+	}
+
+	st, err := s.getStorage(absTarget)
+	if err != nil {
+		return nil, fmt.Errorf("get storage: %w", err)
+	}
+
+	ptr, _ := st.ReadActivePointer()
+	baseMap := &semantic.SemanticMapIR{
+		MapID:           "map-" + baseline,
+		GenerationID:    baseline,
+		ComputedBasisID: "basis-" + baseline,
+		SchemaVersion:   1,
+		Basis:           semantic.MapBasisContext{WorkspaceEpoch: 1},
+	}
+	currMap := &semantic.SemanticMapIR{
+		MapID:           "map-" + current,
+		GenerationID:    current,
+		ComputedBasisID: "basis-" + current,
+		SchemaVersion:   1,
+		Basis:           semantic.MapBasisContext{WorkspaceEpoch: 1},
+	}
+	if ptr != nil && ptr.GenerationID == current {
+		currMap.GenerationID = ptr.GenerationID
+		currMap.ComputedBasisID = ptr.ComputedBasisID
+		currMap.ValidatedAgainstSnapshotID = ptr.ValidatedAgainstSnapshotID
+	}
+
+	delta, err := semantic.ComputeSemanticDelta("comp-"+baseline+"-"+current, baseMap, currMap)
+	if err != nil {
+		if errors.Is(err, semantic.ErrIncomparableBasis) {
+			return map[string]any{
+				"code":    "incomparable_basis",
+				"message": err.Error(),
+			}, nil
+		}
+		if errors.Is(err, semantic.ErrMissingPrecondition) {
+			return map[string]any{
+				"code":    "missing_precondition",
+				"message": err.Error(),
+			}, nil
+		}
+		return nil, err
+	}
+
+	return delta, nil
+}
+
+func (s *Server) handleGetRequirementAlignment(ctx context.Context, args map[string]any) (any, error) {
+	if err := s.checkAuth(args["token"]); err != nil {
+		return nil, err
+	}
+
+	target := s.resolveTarget(args["target"])
+	absTarget, err := filepath.Abs(target)
+	if err != nil {
+		return nil, fmt.Errorf("resolve target: %w", err)
+	}
+
+	st, err := s.getStorage(absTarget)
+	if err != nil {
+		return nil, fmt.Errorf("get storage: %w", err)
+	}
+
+	ptr, _ := st.ReadActivePointer()
+	basisID := "active"
+	if ptr != nil {
+		basisID = ptr.ComputedBasisID
+	}
+
+	currMap := &semantic.SemanticMapIR{
+		MapID:           "map-active",
+		ComputedBasisID: basisID,
+		Coverage: &semantic.CoverageBoundary{
+			IncludedSourceRoots: []string{"."},
+		},
+		Steps: []semantic.SemanticStep{},
+	}
+
+	criteria := []semantic.AcceptanceCriterion{
+		{ID: "AC-1", Text: "기능 기본 동작 및 핵심 흐름 검증"},
+	}
+
+	alignments := semantic.ComputeRequirementAlignment(criteria, currMap, semantic.AlignmentOptions{})
+	return map[string]any{
+		"requirementAlignment": alignments,
+		"computedBasisId":      basisID,
 	}, nil
 }
 

@@ -287,6 +287,46 @@ const IndexHTML = `<!doctype html>
     </div>
   </section>
 
+  <!-- Change Pulse Section (VS-05, Raw §9.9) -->
+  <section id="change-pulse-section" class="flow-tabs-section" aria-label="Change Pulse 변경 감지" style="margin-top:14px;border:1px solid var(--line);border-radius:8px;padding:12px 16px;background:var(--paper)">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
+      <div style="display:flex;align-items:center;gap:8px">
+        <span style="font-weight:800;font-size:13px;letter-spacing:.05em;text-transform:uppercase">Change Pulse</span>
+        <span id="change-pulse-count" class="badge" style="background:#f4f4f2">0 changes</span>
+      </div>
+      <button id="btn-toggle-review" class="btn" style="font-size:11px;padding:4px 8px" onclick="triggerReviewMode()">비교 검토 (Review Mode)</button>
+    </div>
+    <ul id="change-pulse-list" style="list-style:none;padding:0;margin:0;display:flex;flex-direction:column;gap:6px">
+      <li style="font-size:12px;color:var(--muted)">표시할 변경 내역이 없습니다 (active generation 기준).</li>
+    </ul>
+  </section>
+
+  <!-- Requirement Alignment Board (VS-05, Raw §9.10) -->
+  <section id="requirement-alignment-section" class="flow-tabs-section" aria-label="Requirement Alignment 요구사항 정렬" style="margin-top:14px;border:1px solid var(--line);border-radius:8px;padding:12px 16px;background:var(--paper)">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
+      <div style="display:flex;align-items:center;gap:8px">
+        <span style="font-weight:800;font-size:13px;letter-spacing:.05em;text-transform:uppercase">Requirement Alignment</span>
+        <span id="intent-status-tag" class="badge" style="background:#e7f5ff;color:#1971c2">Intent: parsed</span>
+      </div>
+    </div>
+    <div style="overflow-x:auto">
+      <table id="requirement-alignment-table" style="width:100%;border-collapse:collapse;font-size:12px">
+        <thead>
+          <tr style="border-bottom:1px solid var(--line);text-align:left;color:var(--muted)">
+            <th style="padding:6px 8px">요구사항 (Criterion)</th>
+            <th style="padding:6px 8px">구현 정렬 상태 (Status)</th>
+            <th style="padding:6px 8px">연결 단계 (Steps)</th>
+            <th style="padding:6px 8px">근거 (Evidence)</th>
+            <th style="padding:6px 8px">비고 / 누락 (Gap)</th>
+          </tr>
+        </thead>
+        <tbody id="requirement-alignment-tbody">
+          <tr><td colspan="5" style="padding:10px 8px;color:var(--muted)">정렬된 요구사항이 없습니다.</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
   <div id="queue-banner" class="queue-banner" style="display:none">
     <span><b>승인 큐:</b> <span id="queue-count">0</span>개 단계 재승인 필요</span>
     <button class="btn" onclick="scrollToFirstStale()">검토</button>
@@ -407,6 +447,31 @@ const IndexHTML = `<!doctype html>
           <input id="edit-rules" class="input-text" placeholder="비즈니스 규칙 (쉼표 구분)">
           <button class="btn btn-primary" onclick="submitApproval()">승인 완료</button>
         </div>
+
+        <!-- Evidence Dock (VS-05, Raw §9.11) -->
+        <section id="evidence-dock-section" class="evidence-dock-panel" style="margin-top:16px;border-top:1px solid var(--line);padding-top:12px">
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
+            <span style="font-weight:800;font-size:12px;text-transform:uppercase;letter-spacing:.05em">Evidence Dock</span>
+            <div class="modes" role="tablist" aria-label="Evidence Dock 탭" style="display:flex;gap:4px">
+              <button id="dock-tab-why" class="btn-sm active" role="tab" aria-selected="true" onclick="switchEvidenceDockTab('why')">Why</button>
+              <button id="dock-tab-code" class="btn-sm" role="tab" aria-selected="false" onclick="switchEvidenceDockTab('code')">Code</button>
+              <button id="dock-tab-test" class="btn-sm" role="tab" aria-selected="false" onclick="switchEvidenceDockTab('test')">Test</button>
+              <button id="dock-tab-history" class="btn-sm" role="tab" aria-selected="false" onclick="switchEvidenceDockTab('history')">History</button>
+            </div>
+          </div>
+          <div id="dock-pane-why" class="dock-pane" role="tabpanel" aria-labelledby="dock-tab-why" style="font-size:13px;line-height:1.5;color:var(--ink)">
+            <div id="dock-why-text">—</div>
+          </div>
+          <div id="dock-pane-code" class="dock-pane" role="tabpanel" aria-labelledby="dock-tab-code" style="display:none;font-size:12px">
+            <div id="dock-code-anchor" class="mono" style="color:var(--muted)">—</div>
+          </div>
+          <div id="dock-pane-test" class="dock-pane" role="tabpanel" aria-labelledby="dock-tab-test" style="display:none;font-size:12px">
+            <ul id="dock-test-list" style="margin:0;padding-left:16px;color:var(--ink)"><li>연결된 테스트 근거가 없습니다.</li></ul>
+          </div>
+          <div id="dock-pane-history" class="dock-pane" role="tabpanel" aria-labelledby="dock-tab-history" style="display:none;font-size:12px">
+            <div id="dock-history-text" style="color:var(--muted)">이전 세대 대비 변경 사항 없음 (baseline 일치)</div>
+          </div>
+        </section>
       </article>
     </section>
   </section>
@@ -855,6 +920,10 @@ function renderSemanticTaskView(data,preserveSelection=false){
     }
 
     renderAll();
+    renderRequirementAlignment(data.taskIntent, data.semanticMap);
+    if(data.changePulse){
+      renderChangePulse(data.changePulse);
+    }
   }
 }
 
@@ -1271,6 +1340,131 @@ function renderDetail(){
     document.getElementById('unknowns-list').innerHTML=currentSpec.unknowns.map(u=>'<li><strong>'+esc(u.subject)+'</strong><span class="why">빠진 연결: '+esc(u.reason)+'</span></li>').join('');
   }else{
     up.hidden=true;
+  }
+  updateEvidenceDock(st);
+}
+
+function renderRequirementAlignment(intent, semanticMap){
+  const tag=document.getElementById('intent-status-tag');
+  if(tag){
+    tag.textContent='Intent: '+(intent&&intent.intentStatus?intent.intentStatus:'parsed');
+  }
+  const tbody=document.getElementById('requirement-alignment-tbody');
+  if(!tbody)return;
+
+  const criteria=(intent&&intent.acceptanceCriteria&&intent.acceptanceCriteria.length)?intent.acceptanceCriteria:[
+    {id:'AC-1',text:'기본 동작 및 핵심 흐름 검증'}
+  ];
+
+  const alignments=(semanticMap&&semanticMap.requirementAlignment)?semanticMap.requirementAlignment:[];
+  const alignMap=new Map();
+  alignments.forEach(a=>alignMap.set(a.criterionId,a));
+
+  tbody.innerHTML=criteria.map(c=>{
+    const a=alignMap.get(c.id)||{};
+    const status=a.status||'unknown';
+    let statusBadge='<span class="badge" style="background:#f1f3f5;color:#495057">unknown</span>';
+    if(status==='confirmed'){
+      statusBadge='<span class="badge" style="background:#d3f9d8;color:#2b8a3e;font-weight:bold">confirmed</span>';
+    }else if(status==='partial'){
+      statusBadge='<span class="badge" style="background:#fff3bf;color:#e67700">partial</span>';
+    }else if(status==='not_observed'){
+      statusBadge='<span class="badge" style="background:#e9ecef;color:#868e96">not_observed</span>';
+    }else if(status==='conflicting'){
+      statusBadge='<span class="badge" style="background:#ffe3e3;color:#c92a2a;font-weight:bold">conflicting</span>';
+    }
+
+    const steps=(a.coveredStepRefs&&a.coveredStepRefs.length)?a.coveredStepRefs.join(', '):'—';
+    const ev=(a.evidenceRefs&&a.evidenceRefs.length)?a.evidenceRefs.join(', '):'—';
+    const gap=(a.missingEvidence&&a.missingEvidence.length)?a.missingEvidence.join('; '):(a.notes||'—');
+
+    return '<tr style="border-bottom:1px solid var(--line)">'+
+      '<td style="padding:6px 8px"><b>'+esc(c.id)+'</b>: '+esc(c.text)+'</td>'+
+      '<td style="padding:6px 8px">'+statusBadge+'</td>'+
+      '<td style="padding:6px 8px">'+esc(steps)+'</td>'+
+      '<td style="padding:6px 8px;font-family:monospace">'+esc(ev)+'</td>'+
+      '<td style="padding:6px 8px;color:var(--muted)">'+esc(gap)+'</td>'+
+    '</tr>';
+  }).join('');
+}
+
+function renderChangePulse(pulseList){
+  const cnt=document.getElementById('change-pulse-count');
+  const list=document.getElementById('change-pulse-list');
+  if(!list)return;
+  if(cnt)cnt.textContent=(pulseList?pulseList.length:0)+' changes';
+  if(!pulseList||!pulseList.length){
+    list.innerHTML='<li style="font-size:12px;color:var(--muted)">표시할 변경 내역이 없습니다 (active generation 기준).</li>';
+    return;
+  }
+  list.innerHTML=pulseList.map(p=>{
+    let badgeColor='#e9ecef';
+    if(p.kind==='added_behavior')badgeColor='#d3f9d8';
+    else if(p.kind==='changed_rule')badgeColor='#fff3bf';
+    else if(p.kind==='removed_behavior')badgeColor='#ffe3e3';
+    else if(p.kind==='evidence_updated')badgeColor='#e7f5ff';
+    return '<li style="display:flex;align-items:center;justify-content:space-between;padding:4px 6px;border-radius:4px;background:#fff;border:1px solid var(--line)">'+
+      '<div style="display:flex;align-items:center;gap:8px">'+
+        '<span style="font-family:monospace;font-size:11px;color:var(--muted)">'+esc(p.time||'12:00:00')+'</span>'+
+        '<span style="font-size:13px;font-weight:600">'+esc(p.summary)+'</span>'+
+      '</div>'+
+      '<span class="badge" style="background:'+badgeColor+'">'+esc(p.kind)+'</span>'+
+    '</li>';
+  }).join('');
+}
+
+async function triggerReviewMode(){
+  try{
+    const r=await api('/api/task/review?baseline=active&current=active');
+    if(!r.ok){
+      const err=await r.json().catch(()=>({}));
+      alert('Review Query 실패: '+(err.message||r.statusText));
+      return;
+    }
+    const d=await r.json();
+    if(d.changePulse)renderChangePulse(d.changePulse);
+    if(d.requirementAlignment&&currentSpec)renderRequirementAlignment({acceptanceCriteria:[]},{requirementAlignment:d.requirementAlignment});
+  }catch(e){
+    console.error('triggerReviewMode error:',e);
+  }
+}
+
+function switchEvidenceDockTab(tab){
+  ['why','code','test','history'].forEach(t=>{
+    const btn=document.getElementById('dock-tab-'+t);
+    const pane=document.getElementById('dock-pane-'+t);
+    if(btn){
+      btn.className='btn-sm '+(t===tab?'active':'');
+      btn.setAttribute('aria-selected',String(t===tab));
+    }
+    if(pane){
+      pane.style.display=t===tab?'block':'none';
+    }
+  });
+}
+
+function updateEvidenceDock(st){
+  if(!st)return;
+  const whyText=document.getElementById('dock-why-text');
+  if(whyText){
+    const whyDesc='단계 목적: '+st.name+
+      (st.stateDelta?'\n상태 변화: '+st.stateDelta.before+' → '+st.stateDelta.after:'')+
+      (st.branch?'\n분기 조건: '+st.branch:'')+
+      (st.sideEffect?'\n외부 효과: '+st.sideEffect:'')+
+      (st.rules&&st.rules.length?'\n규칙: '+st.rules.join(', '):'');
+    whyText.innerText=whyDesc;
+  }
+  const codeAnchor=document.getElementById('dock-code-anchor');
+  if(codeAnchor&&st.anchor){
+    codeAnchor.textContent=(st.anchor.repoRelativePath||'—')+' (bytes: '+(st.anchor.byteRange?st.anchor.byteRange.join('..'):'—')+')';
+  }
+  const testList=document.getElementById('dock-test-list');
+  if(testList){
+    if(st.evidenceRefs&&st.evidenceRefs.length){
+      testList.innerHTML=st.evidenceRefs.map(ev=>'<li>'+esc(ev)+'</li>').join('');
+    }else{
+      testList.innerHTML='<li>연결된 테스트 근거가 없습니다.</li>';
+    }
   }
 }
 

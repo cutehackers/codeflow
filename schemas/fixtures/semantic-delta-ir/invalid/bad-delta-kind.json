@@ -1,0 +1,20 @@
+{
+  "schemaId": "codeflow.semantic-delta-ir",
+  "schemaVersion": 1,
+  "comparisonId": "comparison-session-8",
+  "taskIntentRevision": 4,
+  "baselineComputedBasisId": "wsnap-5031",
+  "currentComputedBasisId": "wsnap-5042",
+  "fromGeneration": "gen-42",
+  "toGeneration": "gen-43",
+  "changes": [
+    {
+      "deltaId": "delta-bad",
+      "kind": "unsupported_arbitrary_kind",
+      "targetStepId": "step-unknown",
+      "summary": "invalid kind",
+      "epistemicStatus": "observed",
+      "validationStatus": "verified"
+    }
+  ]
+}

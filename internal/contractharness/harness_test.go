@@ -72,7 +72,7 @@ func TestValidateGoldenFixtures(t *testing.T) {
 
 	var b strings.Builder
 	fmt.Fprintf(&b, "golden fixtures: %d valid + %d invalid = %d exercised\n", passedValid, passedInvalid, passedValid+passedInvalid)
-	for _, s := range []string{"identity", "candidate", "sliced-payload", "adapter-analysis", "flowspec", "session-artifact", "adapter-protocol", "core-artifact", "layers-config", "task-intent", "task-view-query", "semantic-map-ir", "flow-view-projection", "document-revision", "workspace-snapshot", "change-batch", "generation-proof-manifest", "active-pointer", "event-envelope"} {
+	for _, s := range []string{"identity", "candidate", "sliced-payload", "adapter-analysis", "flowspec", "session-artifact", "adapter-protocol", "core-artifact", "layers-config", "task-intent", "task-view-query", "semantic-map-ir", "flow-view-projection", "document-revision", "workspace-snapshot", "change-batch", "generation-proof-manifest", "active-pointer", "event-envelope", "semantic-delta-ir", "requirement-alignment"} {
 		if c, ok := counts[s]; ok {
 			fmt.Fprintf(&b, "  %-17s valid=%d invalid=%d\n", s, c[0], c[1])
 		}

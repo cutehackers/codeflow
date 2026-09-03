@@ -1,0 +1,48 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://codeflow.local/schemas/requirement-alignment.schema.json",
+  "title": "CodeFlow Requirement Alignment",
+  "$comment": "Raw §10.13 normative schema for RequirementAlignment: criterion alignment status against current evidence, covered steps, and missing evidence.",
+  "type": "object",
+  "required": [
+    "schemaId",
+    "schemaVersion",
+    "criterionId",
+    "status",
+    "coveredStepRefs",
+    "evidenceRefs",
+    "missingEvidence",
+    "computedBasisId"
+  ],
+  "properties": {
+    "schemaId": {
+      "type": "string",
+      "enum": [
+        "https://codeflow.local/schemas/requirement-alignment.schema.json",
+        "codeflow.requirement-alignment"
+      ]
+    },
+    "schemaVersion": { "const": 1 },
+    "criterionId": { "type": "string", "minLength": 1 },
+    "description": { "type": "string" },
+    "status": {
+      "type": "string",
+      "enum": ["confirmed", "partial", "not_observed", "conflicting", "unknown"]
+    },
+    "coveredStepRefs": {
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "evidenceRefs": {
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "missingEvidence": {
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "computedBasisId": { "type": "string", "minLength": 1 },
+    "notes": { "type": "string" }
+  },
+  "additionalProperties": false
+}

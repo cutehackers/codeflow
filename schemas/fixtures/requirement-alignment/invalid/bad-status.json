@@ -1,0 +1,10 @@
+{
+  "schemaId": "codeflow.requirement-alignment",
+  "schemaVersion": 1,
+  "criterionId": "AC-1",
+  "status": "fully_done_without_proof",
+  "coveredStepRefs": ["step-payment-retry"],
+  "evidenceRefs": [],
+  "missingEvidence": [],
+  "computedBasisId": "wsnap-5042"
+}

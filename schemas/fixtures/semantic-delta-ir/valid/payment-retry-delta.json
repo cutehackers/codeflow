@@ -1,0 +1,42 @@
+{
+  "schemaId": "codeflow.semantic-delta-ir",
+  "schemaVersion": 1,
+  "comparisonId": "comparison-session-8",
+  "taskIntentRevision": 4,
+  "baselineComputedBasisId": "wsnap-5031",
+  "currentComputedBasisId": "wsnap-5042",
+  "currentValidatedAgainstSnapshotId": "wsnap-5044",
+  "fromGeneration": "gen-42",
+  "toGeneration": "gen-43",
+  "status": "comparable",
+  "structuralSummary": {
+    "addedStepsCount": 1,
+    "changedStepsCount": 1,
+    "removedStepsCount": 0,
+    "collapsedStructuralCount": 2
+  },
+  "changes": [
+    {
+      "deltaId": "delta-retry-added",
+      "kind": "added_behavior",
+      "targetStepId": "step-payment-retry",
+      "summary": "결제 승인 재시도 행동이 추가됨",
+      "requirementRefs": ["AC-1"],
+      "structuralChanges": ["function PaymentRetryLoop added"],
+      "evidenceRefs": ["evidence-retry-loop"],
+      "epistemicStatus": "observed",
+      "validationStatus": "verified"
+    },
+    {
+      "deltaId": "delta-limit-changed",
+      "kind": "changed_rule",
+      "targetStepId": "step-payment-attempt",
+      "summary": "최대 재시도 횟수 3회에서 5회로 변경",
+      "requirementRefs": ["AC-2"],
+      "structuralChanges": ["max_retries updated to 5"],
+      "evidenceRefs": ["evidence-retry-const"],
+      "epistemicStatus": "observed",
+      "validationStatus": "verified"
+    }
+  ]
+}

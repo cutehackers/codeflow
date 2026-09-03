@@ -107,10 +107,51 @@ type SemanticEdge struct {
 }
 
 type RequirementAlignment struct {
+	SchemaID        string   `json:"schemaId,omitempty"`
+	SchemaVersion   int      `json:"schemaVersion,omitempty"`
 	CriterionID     string   `json:"criterionId"`
+	Description     string   `json:"description,omitempty"`
 	Status          string   `json:"status"` // confirmed | partial | not_observed | conflicting | unknown
 	CoveredStepRefs []string `json:"coveredStepRefs,omitempty"`
 	EvidenceRefs    []string `json:"evidenceRefs,omitempty"`
+	MissingEvidence []string `json:"missingEvidence,omitempty"`
+	ComputedBasisID string   `json:"computedBasisId,omitempty"`
+	Notes           string   `json:"notes,omitempty"`
+}
+
+// SemanticDeltaIR mirrors schemas/semantic-delta-ir.schema.json.
+type SemanticDeltaIR struct {
+	SchemaID                          string             `json:"schemaId"`
+	SchemaVersion                     int                `json:"schemaVersion"`
+	ComparisonID                      string             `json:"comparisonId"`
+	TaskIntentRevision                int                `json:"taskIntentRevision"`
+	BaselineComputedBasisID           string             `json:"baselineComputedBasisId"`
+	CurrentComputedBasisID            string             `json:"currentComputedBasisId"`
+	CurrentValidatedAgainstSnapshotID string             `json:"currentValidatedAgainstSnapshotId,omitempty"`
+	FromGeneration                    string             `json:"fromGeneration"`
+	ToGeneration                      string             `json:"toGeneration"`
+	Status                            string             `json:"status,omitempty"` // comparable | incomparable_basis | missing_precondition
+	StructuralSummary                 *StructuralSummary `json:"structuralSummary,omitempty"`
+	Changes                           []DeltaChange      `json:"changes"`
+}
+
+type StructuralSummary struct {
+	AddedStepsCount          int `json:"addedStepsCount"`
+	ChangedStepsCount        int `json:"changedStepsCount"`
+	RemovedStepsCount        int `json:"removedStepsCount"`
+	CollapsedStructuralCount int `json:"collapsedStructuralCount"`
+}
+
+type DeltaChange struct {
+	DeltaID           string   `json:"deltaId"`
+	Kind              string   `json:"kind"` // added_behavior | changed_rule | removed_behavior | evidence_updated | structural_only
+	TargetStepID      string   `json:"targetStepId"`
+	Summary           string   `json:"summary"`
+	RequirementRefs   []string `json:"requirementRefs,omitempty"`
+	StructuralChanges []string `json:"structuralChanges,omitempty"`
+	EvidenceRefs      []string `json:"evidenceRefs,omitempty"`
+	EpistemicStatus   string   `json:"epistemicStatus"`  // observed | inferred | unknown | unobserved
+	ValidationStatus  string   `json:"validationStatus"` // verified | pending | invalid | stale | orphaned
 }
 
 type SemanticEvidence struct {

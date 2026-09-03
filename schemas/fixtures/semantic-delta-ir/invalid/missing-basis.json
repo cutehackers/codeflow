@@ -1,0 +1,10 @@
+{
+  "schemaId": "codeflow.semantic-delta-ir",
+  "schemaVersion": 1,
+  "comparisonId": "comparison-session-8",
+  "taskIntentRevision": 4,
+  "currentComputedBasisId": "wsnap-5042",
+  "fromGeneration": "gen-42",
+  "toGeneration": "gen-43",
+  "changes": []
+}

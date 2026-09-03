@@ -531,6 +531,32 @@ func (s *Server) listTools() []map[string]any {
 				},
 			},
 		},
+		{
+			"name":        "get_semantic_delta",
+			"description": "Compute the semantic delta (added, changed, removed behavior, evidence updates) between baseline and current generations (VS-05, Raw §8.5, §10.12)",
+			"inputSchema": map[string]any{
+				"type": "object",
+				"required": []string{"baseline", "current"},
+				"properties": map[string]any{
+					"baseline": map[string]any{"type": "string", "description": "Baseline generation ID or basis"},
+					"current":  map[string]any{"type": "string", "description": "Current generation ID or basis"},
+					"target":   targetProp,
+					"token":    map[string]any{"type": "string", "description": "Auth token when RequireToken=true"},
+				},
+			},
+		},
+		{
+			"name":        "get_requirement_alignment",
+			"description": "Evaluate and retrieve the requirement alignment matrix and evidence grounding for the current workspace (VS-05, Raw §9.10, §10.13)",
+			"inputSchema": map[string]any{
+				"type": "object",
+				"properties": map[string]any{
+					"target":         targetProp,
+					"intentRevision": map[string]any{"type": "integer", "description": "Optional task intent revision filter"},
+					"token":          map[string]any{"type": "string", "description": "Auth token when RequireToken=true"},
+				},
+			},
+		},
 	}
 }
 
@@ -922,6 +948,12 @@ func (s *Server) executeTool(ctx context.Context, name string, args map[string]a
 
 	case "get_verified_gap":
 		return s.handleGetVerifiedGap(ctx, args)
+
+	case "get_semantic_delta":
+		return s.handleGetSemanticDelta(ctx, args)
+
+	case "get_requirement_alignment":
+		return s.handleGetRequirementAlignment(ctx, args)
 
 	default:
 		return nil, fmt.Errorf("unknown tool %s", name)

@@ -5,10 +5,13 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 	"time"
+
+	"codeflow/internal/semantic"
 )
 
 func TestFlowViewWorkspaceEndpoints(t *testing.T) {
@@ -98,3 +101,123 @@ func TestFlowViewWorkspaceEndpoints(t *testing.T) {
 		t.Logf("stream body: %s", recStream.Body.String())
 	}
 }
+
+func TestFlowViewReviewEndpoint(t *testing.T) {
+	tmpDir, err := os.MkdirTemp("", "codeflow-test-review-*")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.RemoveAll(tmpDir)
+
+	srv, err := NewServer(Config{
+		RepoRoot: tmpDir,
+		Port:     0,
+	})
+	if err != nil {
+		t.Fatalf("NewServer failed: %v", err)
+	}
+
+	// 1. Missing precondition (VS05-A2)
+	reqMissing := httptest.NewRequest(http.MethodGet, "http://127.0.0.1/api/task/review?token="+srv.AuthToken(), nil)
+	recMissing := httptest.NewRecorder()
+	srv.httpServer.Handler.ServeHTTP(recMissing, reqMissing)
+	if recMissing.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400 for missing params, got %d", recMissing.Code)
+	}
+
+	// 2. Seed maps
+	baseMap := &semantic.SemanticMapIR{
+		MapID:           "map-base",
+		GenerationID:    "gen-base",
+		ComputedBasisID: "basis-base",
+		SchemaVersion:   1,
+		Basis:           semantic.MapBasisContext{WorkspaceEpoch: 1},
+		Steps: []semantic.SemanticStep{
+			{
+				StepID:        "step-login",
+				Name:          "로그인",
+				TechnicalName: "Auth.login",
+				Rules:         []string{"AC-1"},
+				EvidenceRefs:  []string{"ev-1"},
+			},
+		},
+	}
+
+	currMap := &semantic.SemanticMapIR{
+		MapID:           "map-curr",
+		GenerationID:    "gen-curr",
+		ComputedBasisID: "basis-curr",
+		SchemaVersion:   1,
+		Basis:           semantic.MapBasisContext{WorkspaceEpoch: 1},
+		Evidence: []semantic.SemanticEvidence{
+			{EvidenceID: "ev-1", ValidationStatus: "verified"},
+			{EvidenceID: "ev-2", ValidationStatus: "verified"},
+		},
+		Steps: []semantic.SemanticStep{
+			{
+				StepID:        "step-login",
+				Name:          "로그인",
+				TechnicalName: "Auth.login",
+				Rules:         []string{"AC-1"},
+				EvidenceRefs:  []string{"ev-1"},
+			},
+			{
+				StepID:        "step-mfa",
+				Name:          "2차 인증",
+				TechnicalName: "Auth.mfa",
+				Rules:         []string{"AC-2"},
+				EvidenceRefs:  []string{"ev-2"},
+			},
+		},
+	}
+
+	incompatMap := &semantic.SemanticMapIR{
+		MapID:           "map-incompat",
+		GenerationID:    "gen-incompat",
+		ComputedBasisID: "basis-incompat",
+		SchemaVersion:   1,
+		Basis:           semantic.MapBasisContext{WorkspaceEpoch: 999}, // Mismatch!
+	}
+
+	srv.mu.Lock()
+	srv.mapCache["base"] = baseMap
+	srv.mapCache["curr"] = currMap
+	srv.mapCache["incompat"] = incompatMap
+	srv.mu.Unlock()
+
+	// 3. Incomparable basis (VS05-A1, A2)
+	reqIncompat := httptest.NewRequest(http.MethodGet, "http://127.0.0.1/api/task/review?baseline=base&current=incompat&token="+srv.AuthToken(), nil)
+	recIncompat := httptest.NewRecorder()
+	srv.httpServer.Handler.ServeHTTP(recIncompat, reqIncompat)
+	if recIncompat.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("expected 422 for epoch mismatch, got %d: %s", recIncompat.Code, recIncompat.Body.String())
+	}
+
+	// 4. Successful review query (VS05-A3, A5, A8)
+	reqOK := httptest.NewRequest(http.MethodGet, "http://127.0.0.1/api/task/review?baseline=base&current=curr&token="+srv.AuthToken(), nil)
+	recOK := httptest.NewRecorder()
+	srv.httpServer.Handler.ServeHTTP(recOK, reqOK)
+	if recOK.Code != http.StatusOK {
+		t.Fatalf("expected 200 for review query, got %d: %s", recOK.Code, recOK.Body.String())
+	}
+
+	var resp struct {
+		SemanticDelta        semantic.SemanticDeltaIR        `json:"semanticDelta"`
+		RequirementAlignment []semantic.RequirementAlignment `json:"requirementAlignment"`
+		ChangePulse          []map[string]any                `json:"changePulse"`
+	}
+	if err := json.Unmarshal(recOK.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("unmarshal review response: %v", err)
+	}
+
+	if len(resp.SemanticDelta.Changes) != 1 {
+		t.Errorf("expected 1 change (added step), got %d", len(resp.SemanticDelta.Changes))
+	}
+	if len(resp.RequirementAlignment) < 1 {
+		t.Errorf("expected requirement alignments, got none")
+	}
+	if len(resp.ChangePulse) != 1 {
+		t.Errorf("expected 1 change pulse item, got %d", len(resp.ChangePulse))
+	}
+}
+

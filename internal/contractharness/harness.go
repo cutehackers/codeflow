@@ -49,6 +49,8 @@ var SchemaIDs = []string{
 	BaseURL + "generation-proof-manifest.schema.json",
 	BaseURL + "active-pointer.schema.json",
 	BaseURL + "event-envelope.schema.json",
+	BaseURL + "semantic-delta-ir.schema.json",
+	BaseURL + "requirement-alignment.schema.json",
 }
 
 // SchemasDir locates the repo's schemas/ directory relative to this source

@@ -1,0 +1,100 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://codeflow.local/schemas/semantic-delta-ir.schema.json",
+  "title": "CodeFlow Semantic Delta IR",
+  "$comment": "Raw §10.12 normative schema for SemanticDeltaIR: structural vs semantic delta, added/changed/removed behavior, evidence updates, and comparison context.",
+  "type": "object",
+  "required": [
+    "schemaId",
+    "schemaVersion",
+    "comparisonId",
+    "taskIntentRevision",
+    "baselineComputedBasisId",
+    "currentComputedBasisId",
+    "fromGeneration",
+    "toGeneration",
+    "changes"
+  ],
+  "properties": {
+    "schemaId": {
+      "type": "string",
+      "enum": [
+        "https://codeflow.local/schemas/semantic-delta-ir.schema.json",
+        "codeflow.semantic-delta-ir"
+      ]
+    },
+    "schemaVersion": { "const": 1 },
+    "comparisonId": { "type": "string", "minLength": 1 },
+    "taskIntentRevision": { "type": "integer", "minimum": 1 },
+    "baselineComputedBasisId": { "type": "string", "minLength": 1 },
+    "currentComputedBasisId": { "type": "string", "minLength": 1 },
+    "currentValidatedAgainstSnapshotId": { "type": "string" },
+    "fromGeneration": { "type": "string", "minLength": 1 },
+    "toGeneration": { "type": "string", "minLength": 1 },
+    "status": {
+      "type": "string",
+      "enum": ["comparable", "incomparable_basis", "missing_precondition"]
+    },
+    "structuralSummary": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "addedStepsCount": { "type": "integer", "minimum": 0 },
+        "changedStepsCount": { "type": "integer", "minimum": 0 },
+        "removedStepsCount": { "type": "integer", "minimum": 0 },
+        "collapsedStructuralCount": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "changes": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "deltaId",
+          "kind",
+          "targetStepId",
+          "summary",
+          "epistemicStatus",
+          "validationStatus"
+        ],
+        "properties": {
+          "deltaId": { "type": "string", "minLength": 1 },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "added_behavior",
+              "changed_rule",
+              "removed_behavior",
+              "evidence_updated",
+              "structural_only"
+            ]
+          },
+          "targetStepId": { "type": "string", "minLength": 1 },
+          "summary": { "type": "string", "minLength": 1 },
+          "requirementRefs": {
+            "type": "array",
+            "items": { "type": "string" }
+          },
+          "structuralChanges": {
+            "type": "array",
+            "items": { "type": "string" }
+          },
+          "evidenceRefs": {
+            "type": "array",
+            "items": { "type": "string" }
+          },
+          "epistemicStatus": {
+            "type": "string",
+            "enum": ["observed", "inferred", "unknown", "unobserved"]
+          },
+          "validationStatus": {
+            "type": "string",
+            "enum": ["verified", "pending", "invalid", "stale", "orphaned"]
+          }
+        },
+        "additionalProperties": false
+      }
+    }
+  },
+  "additionalProperties": false
+}

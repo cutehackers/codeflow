@@ -46,6 +46,7 @@ type Server struct {
 	hub        *EventHub
 	gate       *semantic.PublicationGate
 	scheduler  *semantic.CoalescingScheduler
+	mapCache   map[string]*semantic.SemanticMapIR
 }
 
 // Config configures the FlowView server.
@@ -87,6 +88,7 @@ func NewServer(cfg Config) (*Server, error) {
 		hub:       hub,
 		gate:      gate,
 		scheduler: scheduler,
+		mapCache:  make(map[string]*semantic.SemanticMapIR),
 	}
 
 	mux := http.NewServeMux()
@@ -98,6 +100,7 @@ func NewServer(cfg Config) (*Server, error) {
 	mux.HandleFunc("/api/map", s.handleGetMap)
 	mux.HandleFunc("/api/map/override", s.handlePostLaneOverride)
 	mux.HandleFunc("/api/task/view", s.handleTaskView)
+	mux.HandleFunc("/api/task/review", s.handleTaskReview)
 	mux.HandleFunc("/api/workspace/activity", s.handleWorkspaceActivity)
 	mux.HandleFunc("/api/workspace/edit", s.handleWorkspaceEdit)
 	mux.HandleFunc("/api/workspace/stream", s.handleWorkspaceStream)
@@ -772,6 +775,15 @@ func (s *Server) handleTaskView(w http.ResponseWriter, r *http.Request) {
 		s.hub.Publish("generation.gap", gap, &mapIR.ComputedBasisID, nil, &mapIR.GenerationID)
 	}
 
+	s.mu.Lock()
+	if s.mapCache == nil {
+		s.mapCache = make(map[string]*semantic.SemanticMapIR)
+	}
+	s.mapCache[mapIR.GenerationID] = mapIR
+	s.mapCache[mapIR.ComputedBasisID] = mapIR
+	s.mapCache["active"] = mapIR
+	s.mu.Unlock()
+
 	evidenceRecords, _ := semantic.ExtractAndRedactEvidence(resolved, slicePayload, s.repoRoot)
 
 	w.Header().Set("Content-Type", "application/json")
@@ -927,6 +939,109 @@ func (s *Server) handleWorkspaceProof(w http.ResponseWriter, r *http.Request) {
 		"manifest": manifest,
 		"pointer":  ptr,
 	})
+}
+
+// handleTaskReview implements GET /api/task/review (Raw §8.2, §8.5, VS-05).
+func (s *Server) handleTaskReview(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	baseline := r.URL.Query().Get("baseline")
+	current := r.URL.Query().Get("current")
+	if baseline == "" || current == "" {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"code":    "missing_precondition",
+			"message": "baseline and current parameters are required",
+		})
+		return
+	}
+
+	s.mu.Lock()
+	baseMap := s.mapCache[baseline]
+	currMap := s.mapCache[current]
+	s.mu.Unlock()
+
+	if baseMap == nil {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"code":    "missing_precondition",
+			"message": fmt.Sprintf("baseline generation or basis %q not found", baseline),
+		})
+		return
+	}
+	if currMap == nil {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"code":    "missing_precondition",
+			"message": fmt.Sprintf("current generation or basis %q not found", current),
+		})
+		return
+	}
+
+	compID := fmt.Sprintf("comp-%s-%s", baseline, current)
+	delta, err := semantic.ComputeSemanticDelta(compID, baseMap, currMap)
+	if err != nil {
+		if errors.Is(err, semantic.ErrIncomparableBasis) {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusUnprocessableEntity)
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"code":    "incomparable_basis",
+				"message": err.Error(),
+			})
+			return
+		}
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	criteria := []semantic.AcceptanceCriterion{}
+	critSet := make(map[string]bool)
+	for _, st := range currMap.Steps {
+		for _, rule := range st.Rules {
+			if !critSet[rule] && strings.HasPrefix(strings.ToUpper(rule), "AC-") {
+				critSet[rule] = true
+				criteria = append(criteria, semantic.AcceptanceCriterion{
+					ID:   rule,
+					Text: fmt.Sprintf("요구사항 %s 검증", rule),
+				})
+			}
+		}
+	}
+	if len(criteria) == 0 {
+		criteria = append(criteria, semantic.AcceptanceCriterion{
+			ID:   "AC-1",
+			Text: "기능 기본 동작 및 핵심 흐름 검증",
+		})
+	}
+
+	alignments := semantic.ComputeRequirementAlignment(criteria, currMap, semantic.AlignmentOptions{})
+
+	changePulse := make([]map[string]any, 0, len(delta.Changes))
+	for _, ch := range delta.Changes {
+		changePulse = append(changePulse, map[string]any{
+			"time":            time.Now().UTC().Format("15:04:05"),
+			"summary":         ch.Summary,
+			"kind":            ch.Kind,
+			"targetStepId":    ch.TargetStepID,
+			"epistemicStatus": ch.EpistemicStatus,
+		})
+	}
+
+	resp := map[string]any{
+		"semanticDelta":        delta,
+		"requirementAlignment": alignments,
+		"changePulse":          changePulse,
+		"structuralSummary":    delta.StructuralSummary,
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(resp)
 }
 
 

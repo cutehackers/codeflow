@@ -1,0 +1,12 @@
+{
+  "schemaId": "codeflow.requirement-alignment",
+  "schemaVersion": 1,
+  "criterionId": "AC-1",
+  "description": "결제 실패 시 재시도 로직 수행",
+  "status": "confirmed",
+  "coveredStepRefs": ["step-payment-retry"],
+  "evidenceRefs": ["evidence-retry-loop"],
+  "missingEvidence": [],
+  "computedBasisId": "wsnap-5042",
+  "notes": "Verified against current snapshot basis"
+}

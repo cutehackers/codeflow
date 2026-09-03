@@ -5,6 +5,7 @@ import (
 	"os"
 	"testing"
 
+	"codeflow/internal/semantic"
 	"codeflow/internal/storage"
 )
 
@@ -167,4 +168,63 @@ func TestVS04_MCPProofAndGapTools(t *testing.T) {
 		t.Errorf("expected lastVerifiedGenId gen-mcp-1, got %v", gapMap2["lastVerifiedGenId"])
 	}
 }
+
+func TestVS05_MCPSemanticDeltaAndAlignmentTools(t *testing.T) {
+	tempDir, err := os.MkdirTemp("", "codeflow-mcp-vs05-*")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.RemoveAll(tempDir)
+
+	srv, err := NewServer(Config{
+		RepoRoot:     tempDir,
+		RequireToken: false,
+	})
+	if err != nil {
+		t.Fatalf("NewServer failed: %v", err)
+	}
+
+	ctx := context.Background()
+
+	// 1. get_semantic_delta missing arguments
+	resDeltaMissing, err := srv.executeTool(ctx, "get_semantic_delta", map[string]any{"target": tempDir})
+	if err != nil {
+		t.Fatalf("get_semantic_delta error: %v", err)
+	}
+	deltaMissingMap, ok := resDeltaMissing.(map[string]any)
+	if !ok || deltaMissingMap["code"] != "missing_precondition" {
+		t.Errorf("expected missing_precondition error for missing arguments, got %+v", resDeltaMissing)
+	}
+
+	// 2. get_semantic_delta valid
+	resDelta, err := srv.executeTool(ctx, "get_semantic_delta", map[string]any{
+		"target":   tempDir,
+		"baseline": "gen-1",
+		"current":  "gen-2",
+	})
+	if err != nil {
+		t.Fatalf("get_semantic_delta valid call failed: %v", err)
+	}
+	deltaDoc, ok := resDelta.(*semantic.SemanticDeltaIR)
+	if !ok {
+		t.Fatalf("expected *semantic.SemanticDeltaIR, got %T: %+v", resDelta, resDelta)
+	}
+	if deltaDoc.Status != "comparable" {
+		t.Errorf("expected delta status comparable, got %s", deltaDoc.Status)
+	}
+
+	// 3. get_requirement_alignment
+	resAlign, err := srv.executeTool(ctx, "get_requirement_alignment", map[string]any{"target": tempDir})
+	if err != nil {
+		t.Fatalf("get_requirement_alignment failed: %v", err)
+	}
+	alignDoc, ok := resAlign.(map[string]any)
+	if !ok {
+		t.Fatalf("unexpected type for requirement alignment: %T", resAlign)
+	}
+	if alignDoc["computedBasisId"] == "" {
+		t.Error("expected non-empty computedBasisId")
+	}
+}
+
 

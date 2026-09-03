@@ -119,5 +119,60 @@ test.describe('FlowView Live Semantic Comprehension Workspace E2E', () => {
 
     await expect(firstItem).toHaveAttribute('aria-current', 'step');
   });
+
+  test('displays Change Pulse, Requirement Alignment Board, and Evidence Dock with 4 tabs', async ({ page }) => {
+    await page.goto('http://127.0.0.1:4589/?token=testtoken');
+
+    // 1. Perform semantic query
+    const queryInput = page.locator('#query-input');
+    await queryInput.fill('HomePage.handleQuickCheckout');
+    await page.locator('#query-submit').click();
+
+    await expect(page.locator('#current-answer-strip')).toBeVisible({ timeout: 10000 });
+
+    // 2. Change Pulse section is present
+    const changePulseSection = page.locator('#change-pulse-section');
+    await expect(changePulseSection).toBeVisible();
+    await expect(page.locator('#btn-toggle-review')).toBeVisible();
+
+    // 3. Requirement Alignment Board is present with separate intent status tag (VS05-A9)
+    const alignmentSection = page.locator('#requirement-alignment-section');
+    await expect(alignmentSection).toBeVisible();
+    const intentStatusTag = page.locator('#intent-status-tag');
+    await expect(intentStatusTag).toBeVisible();
+    await expect(intentStatusTag).toContainText('Intent:');
+
+    const table = page.locator('#requirement-alignment-table');
+    await expect(table).toBeVisible();
+    await expect(table.locator('thead th').first()).toHaveText('요구사항 (Criterion)');
+
+    // 4. Evidence Dock is present with 4 tabs: Why, Code, Test, History
+    const dockSection = page.locator('#evidence-dock-section');
+    await expect(dockSection).toBeVisible();
+
+    const tabWhy = page.locator('#dock-tab-why');
+    const tabCode = page.locator('#dock-tab-code');
+    const tabTest = page.locator('#dock-tab-test');
+    const tabHistory = page.locator('#dock-tab-history');
+
+    await expect(tabWhy).toBeVisible();
+    await expect(tabCode).toBeVisible();
+    await expect(tabTest).toBeVisible();
+    await expect(tabHistory).toBeVisible();
+
+    // Tab switching test
+    await tabCode.click();
+    await expect(page.locator('#dock-pane-code')).toBeVisible();
+    await expect(page.locator('#dock-pane-why')).toBeHidden();
+
+    await tabTest.click();
+    await expect(page.locator('#dock-pane-test')).toBeVisible();
+    await expect(page.locator('#dock-pane-code')).toBeHidden();
+
+    await tabWhy.click();
+    await expect(page.locator('#dock-pane-why')).toBeVisible();
+    await expect(page.locator('#dock-why-text')).not.toBeEmpty();
+  });
 });
+
 
