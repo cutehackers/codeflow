@@ -44,7 +44,7 @@ func sha256Hex(b []byte) string {
 }
 
 // ---------------------------------------------------------------------------
-// TIER 1: Wire Protocol & NDJSON Framing
+// TIER 1: Content-Length JSON-RPC Framing
 // ---------------------------------------------------------------------------
 
 func TestTier1_WireProtocol_FramingAndEnvelopes(t *testing.T) {

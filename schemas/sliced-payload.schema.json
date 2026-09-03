@@ -106,6 +106,28 @@
       "type": "integer",
       "minimum": 0,
       "description": "Count of secret scanner matches replaced with '***REDACTED***'; >0 means redaction actually occurred, 0 means the payload was clean. Values are never negative."
+    },
+    "schemaId": {
+      "const": "https://codeflow.local/schemas/adapter-analysis.schema.json"
+    },
+    "schemaVersion": { "const": 1 },
+    "operation": { "const": "slice" },
+    "computedBasisId": { "type": "string", "minLength": 1, "maxLength": 256 },
+    "workspaceEpoch": { "type": "integer", "minimum": 0 },
+    "analysisReadSet": {
+      "$ref": "https://codeflow.local/schemas/adapter-analysis.schema.json#/$defs/analysisReadSet"
+    },
+    "causalObservationClosure": {
+      "$ref": "https://codeflow.local/schemas/adapter-analysis.schema.json#/$defs/causalObservationClosure"
+    },
+    "capabilityProfile": {
+      "$ref": "https://codeflow.local/schemas/adapter-analysis.schema.json#/$defs/capabilityProfile"
+    },
+    "analyzerVersion": { "type": "string", "minLength": 1, "maxLength": 256 },
+    "diagnostics": {
+      "type": "array",
+      "maxItems": 64,
+      "items": { "$ref": "https://codeflow.local/schemas/adapter-analysis.schema.json#/$defs/diagnostic" }
     }
   }
 }

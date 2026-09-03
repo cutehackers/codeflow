@@ -25,18 +25,21 @@ const (
 	DartAdapterEnvVar       = "CODEFLOW_ADAPTER_DART_BIN"
 	TypeScriptAdapterEnvVar = "CODEFLOW_ADAPTER_TYPESCRIPT_BIN"
 	TSAdapterEnvVar         = "CODEFLOW_ADAPTER_TS_BIN"
+	GoAdapterEnvVar         = "CODEFLOW_ADAPTER_GO_BIN"
 	KotlinAdapterEnvVar     = "CODEFLOW_ADAPTER_KOTLIN_BIN"
 	SwiftAdapterEnvVar      = "CODEFLOW_ADAPTER_SWIFT_BIN"
 	PythonAdapterEnvVar     = "CODEFLOW_ADAPTER_PYTHON_BIN"
 )
 
 const (
-	dartrunScheme   = "dartrun:"
-	dartEntrypoint  = "bin/codeflow_dart_adapter.dart"
-	noderunScheme   = "noderun:"
-	tsrunScheme     = "tsrun:"
-	tsEntrypointJS  = "bin/codeflow_ts_adapter.js"
-	tsEntrypointTS  = "bin/codeflow_ts_adapter.ts"
+	dartrunScheme    = "dartrun:"
+	dartEntrypoint   = "bin/codeflow_dart_adapter.dart"
+	noderunScheme    = "noderun:"
+	tsrunScheme      = "tsrun:"
+	gorunScheme      = "gorun:"
+	tsEntrypointJS   = "bin/codeflow_ts_adapter.js"
+	tsEntrypointTS   = "bin/codeflow_ts_adapter.ts"
+	goAdapterDir     = "adapters/go"
 	defaultLibSubdir = "lib"
 )
 
@@ -58,6 +61,8 @@ func ResolveAdapter(lang string, spec string) (protocol.Config, error) {
 			if spec == "" {
 				spec = strings.TrimSpace(os.Getenv(TSAdapterEnvVar))
 			}
+		case "go":
+			spec = strings.TrimSpace(os.Getenv(GoAdapterEnvVar))
 		case "kotlin", "java":
 			spec = strings.TrimSpace(os.Getenv(KotlinAdapterEnvVar))
 		case "swift":
@@ -117,6 +122,13 @@ func ResolveAdapter(lang string, spec string) (protocol.Config, error) {
 					spec = noderunScheme + tsDir
 				} else if info, err := os.Stat(filepath.Join(tsDir, tsEntrypointTS)); err == nil && !info.IsDir() {
 					spec = tsrunScheme + tsDir
+				}
+			} else if lang == "go" {
+				goDir := filepath.Join(cwd, goAdapterDir)
+				if info, err := os.Stat(filepath.Join(goDir, "main.go")); err == nil && !info.IsDir() {
+					if _, err := findExecutable("go"); err == nil {
+						spec = gorunScheme + goDir
+					}
 				}
 			}
 		}
@@ -191,6 +203,21 @@ func ResolveAdapter(lang string, spec string) (protocol.Config, error) {
 			return protocol.Config{}, fmt.Errorf("node or tsx must be on PATH: %v", err)
 		}
 		return protocol.Config{BinPath: nodeBin, Args: []string{entry}}, nil
+	}
+
+	// Handle gorun: scheme for the repository-local native Go adapter.
+	if dir, ok := strings.CutPrefix(spec, gorunScheme); ok {
+		if !filepath.IsAbs(dir) {
+			return protocol.Config{}, fmt.Errorf("%s needs an absolute adapter-directory path: %q", gorunScheme, spec)
+		}
+		if info, err := os.Stat(filepath.Join(dir, "main.go")); err != nil || info.IsDir() {
+			return protocol.Config{}, fmt.Errorf("Go adapter entrypoint %s not found", filepath.Join(dir, "main.go"))
+		}
+		goBin, err := findExecutable("go")
+		if err != nil {
+			return protocol.Config{}, fmt.Errorf("go must be on PATH: %v", err)
+		}
+		return protocol.Config{BinPath: goBin, Args: []string{"run", dir}}, nil
 	}
 
 	if !filepath.IsAbs(spec) {
@@ -345,6 +372,20 @@ func (r *Runner) Run(ctx context.Context, repoRoot string) ([]Candidate, error) 
 	if err != nil {
 		return nil, fmt.Errorf("resolve repoRoot: %w", err)
 	}
+	snapshot, err := protocol.CaptureSnapshot(root, 0)
+	if err != nil {
+		return nil, fmt.Errorf("capture analysis snapshot: %w", err)
+	}
+	return r.RunWithSnapshot(ctx, root, snapshot)
+}
+
+// RunWithSnapshot performs harvest against an explicit immutable analysis
+// basis. Its content overlay is sent to the adapter when present.
+func (r *Runner) RunWithSnapshot(ctx context.Context, repoRoot string, snapshot protocol.Snapshot) ([]Candidate, error) {
+	root, err := filepath.Abs(repoRoot)
+	if err != nil {
+		return nil, fmt.Errorf("resolve repoRoot: %w", err)
+	}
 
 	var vi protocol.VersionInfo
 	if err := r.pool.Call(ctx, protocol.OpPing, map[string]any{}, &vi); err != nil {
@@ -352,7 +393,9 @@ func (r *Runner) Run(ctx context.Context, repoRoot string) ([]Candidate, error) 
 	}
 
 	var det detectResult
-	if err := r.pool.Call(ctx, protocol.OpDetect, map[string]any{"repoRoot": root}, &det); err != nil {
+	detectParams := snapshot.Params()
+	detectParams["repoRoot"] = root
+	if err := r.pool.Call(ctx, protocol.OpDetect, detectParams, &det); err != nil {
 		return nil, fmt.Errorf("adapter detect: %w", err)
 	}
 	if !det.Confident {
@@ -364,7 +407,9 @@ func (r *Runner) Run(ctx context.Context, repoRoot string) ([]Candidate, error) 
 	var wire struct {
 		Candidates []Candidate `json:"candidates"`
 	}
-	params := map[string]any{"repoRoot": root, "libSubdir": defaultLibSubdir}
+	params := snapshot.Params()
+	params["repoRoot"] = root
+	params["libSubdir"] = defaultLibSubdir
 	if err := r.pool.Call(ctx, protocol.OpHarvestCandidates, params, &wire); err != nil {
 		return nil, fmt.Errorf("adapter harvest_candidates: %w", err)
 	}

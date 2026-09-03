@@ -3,7 +3,7 @@
 - Contract ID: `REQUESTED-FLOW-LIVE-SEMANTIC-COMPILER`
 - Contract Status: Approved
 - Intent Status: Hardened
-- Slice Set Status: Exactly 10 proposed slices, independent `gpt-5.6-terra` high-reasoning contract review passed; explicit child approval pending
+- Slice Set Status: Exactly 10 vertical slices; VS-01 implemented and verified; VS-02–VS-10 remain proposed; independent `gpt-5.6-terra` high-reasoning contract review passed
 - Created: 2026-09-02
 - Source: `docs/design/raw/requested-flow-live-semantic-compiler-architecture-draft-ko.md`
 - Source Authority: Raw Specification is canonical
@@ -12,15 +12,15 @@
 - Supersedes: `docs/design/specs/2026-09-01-semantic-map-layered-architecture-ko.md`
 - Historical Child Superseded: `docs/design/specs/2026-09-01-adapter-protocol-json-rpc-v2-migration-ko.md`
 
-이 파일은 정규 요구사항을 다시 복사한 부모 명세가 아니다. 사용자가 승인한 raw 스팩을 유일한 정본으로 두고, Codify의 상태·식별자·traceability와 Vertical Slice 목록만 추적한다. raw 스팩과 이 파일이 충돌하면 raw 스팩이 우선하며, 구현은 이 변경 범위에 포함하지 않는다.
+이 파일은 정규 요구사항을 다시 복사한 부모 명세가 아니다. 사용자가 승인한 raw 스팩을 유일한 정본으로 두고, Codify의 상태·식별자·traceability와 Vertical Slice 목록만 추적한다. raw 스팩과 이 파일이 충돌하면 raw 스팩이 우선하며, VS-01 구현 상태만 이 부모 tracker에 반영한다.
 
 ## 1. Authority and Approval
 
 - Raw authority: raw 문서의 제품 의도, 설계 결정, 데이터 계약, 실패 의미, 수용 기준과 기술 기준선.
 - Approval basis: 사용자가 raw 스팩을 여러 차례 리뷰를 거친 승인된 스팩으로 지정했고, `D1–D32` 결정 기록의 `Open Decisions: 없음`을 확인했다.
 - Normalization exception: 이 부모 파일은 상태 추적과 glossary, intent·goal·acceptance·slice 연결만 보유한다. raw 요구사항의 대체 요약본으로 사용하지 않는다.
-- Production code or schema changed: No.
-- Implementation authorized: No. Slice 승인과 구현 승인은 별도 단계다.
+- Production code or schema changed: VS-01 only.
+- Implementation authorized: VS-01 by explicit user Deliver request. VS-02–VS-10 remain unauthorized.
 
 ## 2. Intent Registry
 
@@ -88,7 +88,7 @@ The raw P0 phase must exit before any P1 or P2 child is approved or implemented.
 | Slice | Primary goal | Dependencies | Parent acceptance | Status |
 |---|---|---|---|---|
 | VS-02 | `GOAL-01` | `P0 Exit Gate` and an available structural evidence seam | `A1–A4`, `A15`, `A16–A17`, `A25–A27` | Proposed, independent review passed |
-| VS-01 | `GOAL-02` | `P0 Exit Gate`, VS-02 baseline seam | `A9`, `A25–A27` and raw §21.8 | Proposed, independent review passed |
+| VS-01 | `GOAL-02` | `P0 Exit Gate`, VS-02 baseline seam | `A9`, `A25–A27` and raw §21.8 | Implemented, verification passing, independent review passed |
 | VS-03 | `GOAL-03` | `P0 Exit Gate`, VS-02 baseline seam, VS-01 snapshot-capable adapter boundary | `A5–A6`, `A9`, `A11`, `A25–A27` | Proposed, independent review passed |
 | VS-04 | `GOAL-04` | VS-02, VS-03 | `A7–A11`, `A23–A28` | Proposed, independent review passed |
 | VS-05 | `GOAL-05` | VS-02, VS-04 | `A12–A16`, `A18`, `A23`, `A25–A27` | Proposed, independent review passed |
@@ -98,7 +98,7 @@ The raw P0 phase must exit before any P1 or P2 child is approved or implemented.
 | VS-09 | `GOAL-09` | VS-02, VS-04, VS-08 | `A16`, `A22–A23`, `A25–A27` | Proposed, independent review passed |
 | VS-10 | `GOAL-10` | VS-01–VS-09 as applicable | `A16`, `A23–A28` and raw §16–§18 | Proposed, independent review passed |
 
-This ordering follows the raw P0 → P1 → P2 → P3 → P4 → P5 → P6 phases and is not an authorization to implement. No slice is approved or implementation-ready until its independent review and explicit user approval are complete.
+This ordering follows the raw P0 → P1 → P2 → P3 → P4 → P5 → P6 phases. VS-01 is the only slice approved and implemented under the current request. VS-02–VS-10 remain proposed and are not authorized.
 
 ## 6. Invariant Registry
 
@@ -166,6 +166,6 @@ The raw glossary in §3 is normative. This compact registry only keeps the terms
 ## 9. Open Decisions and Done When
 
 - Blocking Open Decisions: None, according to the accepted decision record and the user's approval of the raw source.
-- Independent Contract Reviewer: the requested `gpt-5.6-terra` with high reasoning returned `PASS` after one correction cycle. All ten children are independently reviewed and remain `Proposed`; explicit child approval is still pending.
+- Independent Contract Reviewer: the requested `gpt-5.6-terra` with high reasoning returned `PASS` after one correction cycle. All ten children are independently reviewed. VS-01 is implemented, and VS-02–VS-10 remain `Proposed`.
 - This slicing task is done when VS-01 through VS-10 each contain intent traceability, one observable outcome, acceptance criteria, failure semantics and a complete Verification Plan, and the complete set passes independent Contract Review.
-- This slicing task does not include explicit user approval of any child slice, production implementation, test execution for future behavior, or release declaration.
+- This parent tracker does not include implementation details for VS-01 and does not authorize production implementation, test execution, or release declaration for VS-02–VS-10.

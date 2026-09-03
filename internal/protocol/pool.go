@@ -237,4 +237,3 @@ func (r *AdapterRegistry) Close() {
 		p.Close()
 	}
 }
-

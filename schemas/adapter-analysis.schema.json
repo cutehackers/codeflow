@@ -1,0 +1,164 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://codeflow.local/schemas/adapter-analysis.schema.json",
+  "title": "CodeFlow Adapter Analysis Metadata",
+  "$comment": "VS-01 adapter result metadata. Domain result fields may be added by the operation, but the basis, read set, closure, capability, analyzer, and diagnostic fields are stable.",
+  "type": "object",
+  "required": [
+    "schemaId",
+    "schemaVersion",
+    "operation",
+    "computedBasisId",
+    "workspaceEpoch",
+    "analysisReadSet",
+    "causalObservationClosure",
+    "capabilityProfile",
+    "analyzerVersion",
+    "diagnostics"
+  ],
+  "properties": {
+    "schemaId": { "const": "https://codeflow.local/schemas/adapter-analysis.schema.json" },
+    "schemaVersion": { "const": 1 },
+    "operation": {
+      "type": "string",
+      "enum": ["detect", "harvest_candidates", "slice"]
+    },
+    "computedBasisId": { "type": "string", "minLength": 1, "maxLength": 256 },
+    "workspaceEpoch": { "type": "integer", "minimum": 0 },
+    "analysisReadSet": { "$ref": "#/$defs/analysisReadSet" },
+    "causalObservationClosure": { "$ref": "#/$defs/causalObservationClosure" },
+    "capabilityProfile": { "$ref": "#/$defs/capabilityProfile" },
+    "analyzerVersion": { "type": "string", "minLength": 1, "maxLength": 256 },
+    "diagnostics": {
+      "type": "array",
+      "maxItems": 64,
+      "items": { "$ref": "#/$defs/diagnostic" }
+    }
+  },
+  "$defs": {
+    "analysisReadSet": {
+      "type": "object",
+      "additionalProperties": true,
+      "required": [
+        "schemaId",
+        "schemaVersion",
+        "readSetId",
+        "computedBasisId",
+        "workspaceEpoch",
+        "documents",
+        "negativeObservations",
+        "membershipObservations",
+        "dependencyFrontiers"
+      ],
+      "properties": {
+        "schemaId": { "const": "https://codeflow.local/schemas/analysis-read-set.schema.json" },
+        "schemaVersion": { "const": 1 },
+        "readSetId": { "type": "string", "minLength": 1, "maxLength": 256 },
+        "computedBasisId": { "type": "string", "minLength": 1, "maxLength": 256 },
+        "workspaceEpoch": { "type": "integer", "minimum": 0 },
+        "documents": {
+          "type": "array",
+          "maxItems": 4096,
+          "items": { "$ref": "#/$defs/readDocument" }
+        },
+        "indexes": { "type": "array", "maxItems": 256, "items": { "type": "object" } },
+        "negativeObservations": {
+          "type": "array",
+          "maxItems": 1024,
+          "items": { "$ref": "#/$defs/observation" }
+        },
+        "membershipObservations": {
+          "type": "array",
+          "maxItems": 1024,
+          "items": { "$ref": "#/$defs/observation" }
+        },
+        "dependencyFrontiers": {
+          "type": "array",
+          "maxItems": 1024,
+          "items": { "$ref": "#/$defs/observation" }
+        },
+        "configurationFingerprint": { "type": "string", "maxLength": 256 },
+        "adapterVersions": { "type": "object", "additionalProperties": { "type": "string", "maxLength": 256 } }
+      }
+    },
+    "readDocument": {
+      "type": "object",
+      "additionalProperties": true,
+      "required": ["path", "contentHash"],
+      "properties": {
+        "path": { "type": "string", "minLength": 1, "maxLength": 1024 },
+        "contentHash": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+        "documentRevisionId": { "type": "string", "maxLength": 256 },
+        "contentId": { "type": "string", "maxLength": 256 },
+        "byteLength": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "observation": {
+      "type": "object",
+      "additionalProperties": true,
+      "required": ["kind", "path"],
+      "properties": {
+        "kind": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "path": { "type": "string", "minLength": 1, "maxLength": 1024 },
+        "valueHash": { "type": "string", "maxLength": 256 },
+        "detail": { "type": "string", "maxLength": 512 }
+      }
+    },
+    "causalObservationClosure": {
+      "type": "object",
+      "additionalProperties": true,
+      "required": [
+        "schemaId",
+        "schemaVersion",
+        "closureId",
+        "analysisReadSetId",
+        "computedBasisId",
+        "workspaceEpoch",
+        "closureStatus",
+        "negativeObservations",
+        "membershipObservations",
+        "dependencyFrontiers",
+        "capabilityProfile",
+        "coverageBoundary"
+      ],
+      "properties": {
+        "schemaId": { "const": "https://codeflow.local/schemas/causal-observation-closure.schema.json" },
+        "schemaVersion": { "const": 1 },
+        "closureId": { "type": "string", "minLength": 1, "maxLength": 256 },
+        "analysisReadSetId": { "type": "string", "minLength": 1, "maxLength": 256 },
+        "computedBasisId": { "type": "string", "minLength": 1, "maxLength": 256 },
+        "workspaceEpoch": { "type": "integer", "minimum": 0 },
+        "closureStatus": { "type": "string", "enum": ["closed", "open"] },
+        "negativeObservations": { "type": "array", "maxItems": 1024, "items": { "$ref": "#/$defs/observation" } },
+        "membershipObservations": { "type": "array", "maxItems": 1024, "items": { "$ref": "#/$defs/observation" } },
+        "dependencyFrontiers": { "type": "array", "maxItems": 1024, "items": { "$ref": "#/$defs/observation" } },
+        "capabilityProfile": { "$ref": "#/$defs/capabilityProfile" },
+        "coverageBoundary": { "type": "object", "additionalProperties": true },
+        "incompleteReasons": { "type": "array", "maxItems": 64, "items": { "type": "string", "maxLength": 256 } },
+        "closureDigest": { "type": "string", "maxLength": 256 }
+      }
+    },
+    "capabilityProfile": {
+      "type": "object",
+      "additionalProperties": true,
+      "properties": {
+        "adapter": { "type": "string", "maxLength": 128 },
+        "features": { "type": "array", "maxItems": 128, "items": { "type": "string", "maxLength": 128 } },
+        "coverageBoundary": { "type": "object", "additionalProperties": true },
+        "protocolVersions": { "type": "array", "items": { "type": "integer", "minimum": 1 } }
+      }
+    },
+    "diagnostic": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["severity", "message"],
+      "properties": {
+        "severity": { "type": "string", "enum": ["info", "warning", "error"] },
+        "message": { "type": "string", "minLength": 1, "maxLength": 512 },
+        "path": { "type": "string", "maxLength": 1024 },
+        "line": { "type": "integer", "minimum": 1 },
+        "column": { "type": "integer", "minimum": 1 }
+      }
+    }
+  }
+}

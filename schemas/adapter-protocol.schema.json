@@ -1,99 +1,118 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://codeflow.local/schemas/adapter-protocol.schema.json",
-  "title": "CodeFlow Adapter Protocol (CORE <-> Language Adapter, NDJSON over stdio)",
-  "$comment": "Ticket 03. One JSON object per line. Root validates any single envelope: request | ok response | error response.",
-  "type": "object",
-  "description": "NDJSON envelope pair. NORMATIVE OPERATING CONTRACT (R11): (1) per-request timeout — CORE sends 'timeoutMs' inside params; the adapter MUST answer or the request fails E_TIMEOUT; (2) cancellation — params MAY carry 'cancellationToken' and CORE may send op 'shutdown' to drain; work observing a cancelled token returns E_CANCELLED; (3) maxMessageSizeBytes — envelopes above the negotiated size are rejected with E_BAD_REQUEST without parsing; (4) crash policy — a crashed adapter process is restarted ONCE per session; a second crash fails the flow with E_CRASHED; (5) backpressure — when the adapter's inbound queue exceeds its bound it responds E_BACKPRESSURE with retryable=true instead of buffering unboundedly; (6) version negotiation — the first exchange is always ping, whose ok result matches $defs.versionNegotiation {adapterVersion, protocolVersion}; a mismatching protocolVersion makes CORE stop with E_UNSUPPORTED_VERSION. Correlation rule: every response echoes the request 'id'; responses with unknown ids are dropped.",
+  "title": "CodeFlow Adapter Protocol (JSON-RPC 2.0 over Content-Length framed stdio)",
+  "$comment": "VS-01. Production adapter traffic is JSON-RPC 2.0 framed by Content-Length. The legacy branch is retained only for historical fixtures and direct helper compatibility.",
   "oneOf": [
-    { "$ref": "#/$defs/requestEnvelope" },
-    { "$ref": "#/$defs/responseOkEnvelope" },
-    { "$ref": "#/$defs/responseErrorEnvelope" }
+    { "$ref": "#/$defs/jsonrpcRequest" },
+    { "$ref": "#/$defs/jsonrpcResponse" },
+    { "$ref": "#/$defs/notification" },
+    { "$ref": "#/$defs/legacyRequest" },
+    { "$ref": "#/$defs/legacyResponse" }
   ],
   "$defs": {
-    "requestEnvelope": {
+    "jsonrpc": { "const": "2.0" },
+    "requestId": { "type": "string", "minLength": 1, "maxLength": 256 },
+    "params": { "type": "object" },
+    "methods": {
+      "type": "string",
+      "enum": ["initialize", "ping", "detect", "harvest_candidates", "slice", "shutdown"]
+    },
+    "notificationMethods": {
+      "type": "string",
+      "enum": ["$/cancelRequest", "$/progress", "codeflow/diagnostic", "codeflow/batchAck"]
+    },
+    "jsonrpcRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["jsonrpc", "id", "method", "params"],
+      "properties": {
+        "jsonrpc": { "$ref": "#/$defs/jsonrpc" },
+        "id": { "$ref": "#/$defs/requestId" },
+        "method": { "$ref": "#/$defs/methods" },
+        "params": { "$ref": "#/$defs/params" }
+      }
+    },
+    "notification": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["jsonrpc", "method", "params"],
+      "properties": {
+        "jsonrpc": { "$ref": "#/$defs/jsonrpc" },
+        "method": { "$ref": "#/$defs/notificationMethods" },
+        "params": { "$ref": "#/$defs/params" }
+      }
+    },
+    "jsonrpcResponse": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["jsonrpc", "id"],
+      "properties": {
+        "jsonrpc": { "$ref": "#/$defs/jsonrpc" },
+        "id": { "$ref": "#/$defs/requestId" },
+        "result": { "type": "object" },
+        "error": { "$ref": "#/$defs/rpcError" }
+      },
+      "oneOf": [
+        { "required": ["result"], "not": { "required": ["error"] } },
+        { "required": ["error"], "not": { "required": ["result"] } }
+      ]
+    },
+    "rpcError": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["code", "message"],
+      "properties": {
+        "code": { "type": "integer" },
+        "message": { "type": "string", "minLength": 1, "maxLength": 512 },
+        "data": { "type": ["object", "null"] }
+      }
+    },
+    "legacyRequest": {
       "type": "object",
       "additionalProperties": false,
       "required": ["v", "id", "op", "params"],
       "properties": {
-        "v": {
-          "const": 1,
-          "description": "Protocol major version; integer 1 only. Anything else => E_UNSUPPORTED_VERSION."
-        },
-        "id": {
-          "type": "string",
-          "minLength": 1,
-          "description": "Request correlation id; echoed verbatim in the response."
-        },
-        "op": {
-          "type": "string",
-          "enum": ["detect", "harvest_candidates", "slice", "ping", "shutdown"]
-        },
-        "params": {
-          "type": "object",
-          "description": "Operation parameters. Conventionally includes timeoutMs (int > 0, normative), optional cancellationToken (string, normative), plus op-specific fields: detect {} ; harvest_candidates {repoRoot} ; slice {candidateId, entrySymbolPath, repoRoot} ; ping {} ; shutdown {}. Envelopes larger than maxMessageSizeBytes are rejected unread."
-        }
+        "v": { "const": 1 },
+        "id": { "$ref": "#/$defs/requestId" },
+        "op": { "type": "string", "enum": ["ping", "detect", "harvest_candidates", "slice", "shutdown"] },
+        "params": { "$ref": "#/$defs/params" }
       }
     },
-    "responseOkEnvelope": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": ["id", "ok", "result"],
-      "properties": {
-        "id": { "type": "string", "minLength": 1 },
-        "ok": { "const": true },
-        "result": { "type": "object" }
-      },
-      "description": "Success half of the correlation pair. For op ping the result object MUST match $defs.versionNegotiation."
-    },
-    "responseErrorEnvelope": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": ["id", "ok", "err"],
-      "properties": {
-        "id": { "type": "string", "minLength": 1 },
-        "ok": { "const": false },
-        "err": {
+    "legacyResponse": {
+      "oneOf": [
+        {
           "type": "object",
           "additionalProperties": false,
-          "required": ["code", "message", "retryable"],
+          "required": ["id", "ok", "result"],
           "properties": {
-            "code": {
-              "type": "string",
-              "enum": [
-                "E_TIMEOUT",
-                "E_CANCELLED",
-                "E_CRASHED",
-                "E_BACKPRESSURE",
-                "E_BAD_REQUEST",
-                "E_UNSUPPORTED_VERSION",
-                "E_ADAPTER_INTERNAL"
-              ]
-            },
-            "message": { "type": "string", "minLength": 1 },
-            "retryable": { "type": "boolean" },
-            "detail": { "type": ["string", "null"] }
-          },
-          "description": "Typed error codes only — free-form codes are contract violations. retryable=true expected for E_BACKPRESSURE and transient E_TIMEOUT; E_CRASHED after the single restart budget stays non-retryable for that flow."
+            "id": { "$ref": "#/$defs/requestId" },
+            "ok": { "const": true },
+            "result": { "type": "object" }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["id", "ok", "err"],
+          "properties": {
+            "id": { "$ref": "#/$defs/requestId" },
+            "ok": { "const": false },
+            "err": { "$ref": "#/$defs/legacyError" }
+          }
         }
-      }
+      ]
     },
-    "versionNegotiation": {
+    "legacyError": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["adapterVersion", "protocolVersion"],
+      "required": ["code", "message", "retryable"],
       "properties": {
-        "adapterVersion": {
-          "type": "string",
-          "minLength": 1,
-          "description": "Adapter semantic version, pinned by core release (design §11.2)."
-        },
-        "protocolVersion": {
-          "const": 1,
-          "description": "Must equal request envelope v."
-        }
-      },
-      "description": "Handshake payload returned as the ok result of ping."
+        "code": { "type": "string", "enum": ["E_TIMEOUT", "E_CANCELLED", "E_CRASHED", "E_BACKPRESSURE", "E_BAD_REQUEST", "E_UNSUPPORTED_VERSION", "E_ADAPTER_INTERNAL"] },
+        "message": { "type": "string", "minLength": 1, "maxLength": 512 },
+        "retryable": { "type": "boolean" },
+        "detail": { "type": "string", "maxLength": 512 }
+      }
     }
   }
 }

@@ -1,46 +1,48 @@
 // Package protocol implements the CORE side of the CodeFlow adapter
-// protocol (design-v2 §5.2): NDJSON over stdio to a persistent adapter
-// subprocess, with request-id correlation, typed error codes,
-// per-request timeout and cancellation, crash detection with a
-// restart-once policy (§12), max-message-size enforcement, and
-// in-flight backpressure. The wire contract is
-// schemas/adapter-protocol.schema.json.
+// protocol. JSON-RPC 2.0 bodies are carried by Content-Length framed stdio.
+// The logical Op* names remain at the Go package seam for existing callers.
 package protocol
 
 import (
 	"encoding/json"
 	"errors"
 	"fmt"
+
+	"codeflow/internal/secret"
 )
 
-// ProtocolVersion is the major protocol version spoken by this CORE
-// build. Adapters echo it in the ping handshake result; any other major
-// version fails with E_UNSUPPORTED_VERSION (contract §6).
-const ProtocolVersion = 1
-
-// Wire operation names (the closed op enum of the contract).
 const (
+	// ProtocolVersion is the CodeFlow adapter capability version. JSON-RPC's
+	// protocol marker is JSONRPCVersion and is intentionally separate.
+	ProtocolVersion = 1
+	JSONRPCVersion  = "2.0"
+)
+
+const (
+	OpInitialize        = "initialize"
 	OpDetect            = "detect"
 	OpHarvestCandidates = "harvest_candidates"
 	OpSlice             = "slice"
-	OpPing              = "ping"
+	OpPing              = "ping" // compatibility alias for initialize
 	OpShutdown          = "shutdown"
 )
 
-// Ops is the closed set of valid wire operations.
+// Ops is the logical operation set exposed by Pool.Call. Ping is retained as
+// a compatibility alias but maps to the initialize method on the transport.
 var Ops = map[string]bool{
-	OpDetect:            true,
-	OpHarvestCandidates: true,
-	OpSlice:             true,
-	OpPing:              true,
-	OpShutdown:          true,
+	OpInitialize: true, OpDetect: true, OpHarvestCandidates: true,
+	OpSlice: true, OpPing: true, OpShutdown: true,
 }
 
-// ErrorCode is one of the typed error codes mandated by the contract.
-// Free-form codes are a violation and are rejected at decode time.
+func rpcMethodForOp(op string) string {
+	if op == OpPing {
+		return OpInitialize
+	}
+	return op
+}
+
 type ErrorCode string
 
-// The complete error-code enum of the contract.
 const (
 	ETimeout            ErrorCode = "E_TIMEOUT"
 	ECancelled          ErrorCode = "E_CANCELLED"
@@ -51,7 +53,6 @@ const (
 	EAdapterInternal    ErrorCode = "E_ADAPTER_INTERNAL"
 )
 
-// IsValidErrorCode reports whether c is part of the contract enum.
 func IsValidErrorCode(c ErrorCode) bool {
 	switch c {
 	case ETimeout, ECancelled, ECrashed, EBackpressure,
@@ -61,9 +62,6 @@ func IsValidErrorCode(c ErrorCode) bool {
 	return false
 }
 
-// Error is the typed protocol error. It marshals onto the wire exactly
-// as the schema's err object; Detail is coerced to a string on the wire
-// because the contract allows only string-or-null there.
 type Error struct {
 	Code      ErrorCode `json:"code"`
 	Message   string    `json:"message"`
@@ -71,9 +69,6 @@ type Error struct {
 	Detail    any       `json:"-"`
 }
 
-// Sentinel errors, one per contract code. Protocol errors returned by
-// this package are fresh instances, but errors.Is works against these
-// sentinels by code equality via (*Error).Is.
 var (
 	ErrTimeout            = &Error{Code: ETimeout, Message: "request timed out before the adapter responded", Retryable: true}
 	ErrCancelled          = &Error{Code: ECancelled, Message: "request cancelled"}
@@ -84,49 +79,25 @@ var (
 	ErrAdapterInternal    = &Error{Code: EAdapterInternal, Message: "adapter internal error"}
 )
 
-// defaultRetryable mirrors the contract note: retryable=true is
-// expected for E_BACKPRESSURE and transient E_TIMEOUT.
-var defaultRetryable = map[ErrorCode]bool{
-	ETimeout:      true,
-	EBackpressure: true,
-}
+var defaultRetryable = map[ErrorCode]bool{ETimeout: true, EBackpressure: true}
 
-// NewError builds a fresh *Error with the code's default retryability.
 func NewError(code ErrorCode, message string, detail any) *Error {
 	return &Error{Code: code, Message: message, Retryable: defaultRetryable[code], Detail: detail}
 }
-
-// Per-code constructors. All return fresh values safe to mutate.
-
-func TimeoutError(detail any) *Error {
-	return NewError(ETimeout, ErrTimeout.Message, detail)
-}
-
-func CancelledError(detail any) *Error {
-	return NewError(ECancelled, ErrCancelled.Message, detail)
-}
-
-func CrashedError(detail any) *Error {
-	return NewError(ECrashed, ErrCrashed.Message, detail)
-}
-
+func TimeoutError(detail any) *Error   { return NewError(ETimeout, ErrTimeout.Message, detail) }
+func CancelledError(detail any) *Error { return NewError(ECancelled, ErrCancelled.Message, detail) }
+func CrashedError(detail any) *Error   { return NewError(ECrashed, ErrCrashed.Message, detail) }
 func BackpressureError(detail any) *Error {
 	return NewError(EBackpressure, ErrBackpressure.Message, detail)
 }
-
-func BadRequestError(detail any) *Error {
-	return NewError(EBadRequest, ErrBadRequest.Message, detail)
-}
-
+func BadRequestError(detail any) *Error { return NewError(EBadRequest, ErrBadRequest.Message, detail) }
 func UnsupportedVersionError(detail any) *Error {
 	return NewError(EUnsupportedVersion, ErrUnsupportedVersion.Message, detail)
 }
-
 func AdapterInternalError(detail any) *Error {
 	return NewError(EAdapterInternal, ErrAdapterInternal.Message, detail)
 }
 
-// Error implements the error interface.
 func (e *Error) Error() string {
 	s := fmt.Sprintf("%s: %s", e.Code, e.Message)
 	if e.Detail != nil {
@@ -135,15 +106,11 @@ func (e *Error) Error() string {
 	return s
 }
 
-// Is reports code equality so errors.Is(err, protocol.ErrTimeout) and
-// friends work on freshly constructed errors of the same code.
 func (e *Error) Is(target error) bool {
 	t, ok := target.(*Error)
 	return ok && t.Code == e.Code
 }
 
-// MarshalJSON renders the wire shape: detail becomes a string (or is
-// omitted when nil), because the contract types detail as string|null.
 func (e *Error) MarshalJSON() ([]byte, error) {
 	wire := struct {
 		Code      ErrorCode `json:"code"`
@@ -158,8 +125,6 @@ func (e *Error) MarshalJSON() ([]byte, error) {
 	return json.Marshal(wire)
 }
 
-// UnmarshalJSON parses the wire shape and rejects unknown codes —
-// free-form codes are a contract violation.
 func (e *Error) UnmarshalJSON(b []byte) error {
 	var wire struct {
 		Code      ErrorCode `json:"code"`
@@ -173,108 +138,333 @@ func (e *Error) UnmarshalJSON(b []byte) error {
 	if !IsValidErrorCode(wire.Code) {
 		return fmt.Errorf("adapter-protocol: unknown error code %q (not in contract enum)", string(wire.Code))
 	}
-	e.Code = wire.Code
-	e.Message = wire.Message
-	e.Retryable = wire.Retryable
+	e.Code, e.Message, e.Retryable, e.Detail = wire.Code, wire.Message, wire.Retryable, nil
 	if wire.Detail != nil {
 		e.Detail = *wire.Detail
 	}
 	return nil
 }
 
-// IsRetryable unwraps err looking for a *Error and reports its
-// Retryable flag; non-protocol errors are not retryable.
 func IsRetryable(err error) bool {
 	var perr *Error
-	if errors.As(err, &perr) {
-		return perr.Retryable
-	}
-	return false
+	return errors.As(err, &perr) && perr.Retryable
 }
 
-// RequestEnvelope is the v1 request frame: {"v":1,"id","op","params"}.
+// RequestEnvelope is a source-compatible Go seam. New values marshal as
+// JSON-RPC 2.0. A value decoded from the historical v/op form is re-encoded
+// in that form so the old fixture and helper tests remain useful while the
+// subprocess transport has moved to framed JSON-RPC.
 type RequestEnvelope struct {
-	V      int             `json:"v"`
-	ID     string          `json:"id"`
-	Op     string          `json:"op"`
-	Params json.RawMessage `json:"params"`
+	JSONRPC string          `json:"jsonrpc,omitempty"`
+	ID      string          `json:"id"`
+	Method  string          `json:"method,omitempty"`
+	Params  json.RawMessage `json:"params"`
+	V       int             `json:"-"`
+	Op      string          `json:"-"`
+	legacy  bool
 }
 
-// MarshalJSON guarantees params is always present and an object, even
-// when Params is nil (emitted as {}).
 func (e RequestEnvelope) MarshalJSON() ([]byte, error) {
 	params := e.Params
 	if len(params) == 0 {
 		params = json.RawMessage("{}")
 	}
+	if e.legacy {
+		return json.Marshal(struct {
+			V      int             `json:"v"`
+			ID     string          `json:"id"`
+			Op     string          `json:"op"`
+			Params json.RawMessage `json:"params"`
+		}{protocolVersionOrDefault(e.V), e.ID, logicalOp(e), params})
+	}
+	method := e.Method
+	if method == "" {
+		method = rpcMethodForOp(e.Op)
+	}
 	return json.Marshal(struct {
-		V      int             `json:"v"`
-		ID     string          `json:"id"`
-		Op     string          `json:"op"`
-		Params json.RawMessage `json:"params"`
-	}{e.V, e.ID, e.Op, params})
+		JSONRPC string          `json:"jsonrpc"`
+		ID      string          `json:"id"`
+		Method  string          `json:"method"`
+		Params  json.RawMessage `json:"params"`
+	}{JSONRPCVersion, e.ID, method, params})
 }
 
-// OkEnvelope is the success response frame {"id","ok":true,"result"}.
+func logicalOp(e RequestEnvelope) string {
+	if e.Op != "" {
+		return e.Op
+	}
+	return e.Method
+}
+
+func protocolVersionOrDefault(v int) int {
+	if v == 0 {
+		return ProtocolVersion
+	}
+	return v
+}
+
+func (e *RequestEnvelope) UnmarshalJSON(b []byte) error {
+	var wire struct {
+		JSONRPC string          `json:"jsonrpc"`
+		ID      string          `json:"id"`
+		Method  string          `json:"method"`
+		Params  json.RawMessage `json:"params"`
+		V       int             `json:"v"`
+		Op      string          `json:"op"`
+	}
+	if err := json.Unmarshal(b, &wire); err != nil {
+		return err
+	}
+	e.JSONRPC, e.ID, e.Method, e.Params = wire.JSONRPC, wire.ID, wire.Method, wire.Params
+	e.V, e.Op, e.legacy = wire.V, wire.Op, wire.JSONRPC == ""
+	if e.Method != "" {
+		e.Op = e.Method
+		e.V = ProtocolVersion
+	}
+	return nil
+}
+
 type OkEnvelope struct {
-	ID     string          `json:"id"`
-	OK     bool            `json:"ok"`
-	Result json.RawMessage `json:"result"`
+	JSONRPC string          `json:"jsonrpc,omitempty"`
+	ID      string          `json:"id"`
+	Result  json.RawMessage `json:"result"`
+	OK      bool            `json:"-"`
+	legacy  bool
 }
 
-// ErrEnvelope is the error response frame {"id","ok":false,"err"}.
+func (e OkEnvelope) MarshalJSON() ([]byte, error) {
+	result := e.Result
+	if len(result) == 0 {
+		result = json.RawMessage("{}")
+	}
+	if e.legacy {
+		return json.Marshal(struct {
+			ID     string          `json:"id"`
+			OK     bool            `json:"ok"`
+			Result json.RawMessage `json:"result"`
+		}{e.ID, true, result})
+	}
+	return json.Marshal(struct {
+		JSONRPC string          `json:"jsonrpc"`
+		ID      string          `json:"id"`
+		Result  json.RawMessage `json:"result"`
+	}{JSONRPCVersion, e.ID, result})
+}
+
+func (e *OkEnvelope) UnmarshalJSON(b []byte) error {
+	var wire struct {
+		JSONRPC string          `json:"jsonrpc"`
+		ID      string          `json:"id"`
+		Result  json.RawMessage `json:"result"`
+		OK      *bool           `json:"ok"`
+	}
+	if err := json.Unmarshal(b, &wire); err != nil {
+		return err
+	}
+	e.JSONRPC, e.ID, e.Result, e.OK = wire.JSONRPC, wire.ID, wire.Result, true
+	e.legacy = wire.JSONRPC == ""
+	return nil
+}
+
 type ErrEnvelope struct {
-	ID  string `json:"id"`
-	OK  bool   `json:"ok"`
-	Err *Error `json:"err"`
+	JSONRPC string `json:"jsonrpc,omitempty"`
+	ID      string `json:"id"`
+	Err     *Error `json:"-"`
+	OK      bool   `json:"-"`
+	legacy  bool
 }
 
-// VersionInfo is the ping handshake payload ($defs.versionNegotiation).
+func (e ErrEnvelope) MarshalJSON() ([]byte, error) {
+	if e.Err == nil {
+		e.Err = BadRequestError("missing error")
+	}
+	if e.legacy {
+		return json.Marshal(struct {
+			ID  string `json:"id"`
+			OK  bool   `json:"ok"`
+			Err *Error `json:"err"`
+		}{e.ID, false, e.Err})
+	}
+	return json.Marshal(rpcErrorEnvelope{JSONRPC: JSONRPCVersion, ID: e.ID, Error: rpcErrorFor(e.Err)})
+}
+
+func (e *ErrEnvelope) UnmarshalJSON(b []byte) error {
+	var wire struct {
+		JSONRPC string    `json:"jsonrpc"`
+		ID      string    `json:"id"`
+		Error   *rpcError `json:"error"`
+		Err     *Error    `json:"err"`
+	}
+	if err := json.Unmarshal(b, &wire); err != nil {
+		return err
+	}
+	e.JSONRPC, e.ID, e.OK, e.legacy = wire.JSONRPC, wire.ID, false, wire.JSONRPC == ""
+	if wire.Error != nil {
+		e.Err = errorFromRPC(*wire.Error)
+	} else {
+		e.Err = wire.Err
+	}
+	return nil
+}
+
 type VersionInfo struct {
-	AdapterVersion  string `json:"adapterVersion"`
-	ProtocolVersion int    `json:"protocolVersion"`
+	AdapterVersion   string       `json:"adapterVersion"`
+	ProtocolVersion  int          `json:"protocolVersion"`
+	ProtocolVersions []int        `json:"protocolVersions,omitempty"`
+	AnalyzerVersion  string       `json:"analyzerVersion,omitempty"`
+	Capabilities     Capabilities `json:"capabilities,omitempty"`
+	SchemaID         string       `json:"schemaId,omitempty"`
+	SchemaVersion    int          `json:"schemaVersion,omitempty"`
 }
 
-// ValidateEnvelope validates any single raw envelope against the wire
-// contract: request | ok response | error response. It returns a *Error
-// with E_UNSUPPORTED_VERSION for a wrong major version and E_BAD_REQUEST
-// for every other shape violation.
+type Capabilities struct {
+	Cancellation     bool  `json:"cancellation"`
+	Progress         bool  `json:"progress"`
+	BatchAck         bool  `json:"batchAck"`
+	SnapshotOverlay  bool  `json:"snapshotOverlay"`
+	AnalysisMetadata bool  `json:"analysisMetadata"`
+	MaxMessageBytes  int64 `json:"maxMessageBytes"`
+	MaxInFlight      int   `json:"maxInFlight"`
+}
+
+type rpcError struct {
+	Code    int             `json:"code"`
+	Message string          `json:"message"`
+	Data    json.RawMessage `json:"data,omitempty"`
+}
+
+type rpcErrorEnvelope struct {
+	JSONRPC string    `json:"jsonrpc"`
+	ID      string    `json:"id"`
+	Error   *rpcError `json:"error"`
+}
+
+type rpcResponse struct {
+	JSONRPC string          `json:"jsonrpc"`
+	ID      string          `json:"id"`
+	Result  json.RawMessage `json:"result"`
+	Error   *rpcError       `json:"error"`
+}
+
+func rpcCodeFor(err *Error) int {
+	if err == nil {
+		return -32603
+	}
+	switch err.Code {
+	case EBadRequest, EUnsupportedVersion:
+		return -32602
+	case EAdapterInternal, ECrashed:
+		return -32603
+	default:
+		return -32000
+	}
+}
+
+func rpcErrorFor(err *Error) *rpcError {
+	data, _ := json.Marshal(err)
+	return &rpcError{Code: rpcCodeFor(err), Message: err.Message, Data: data}
+}
+
+func errorFromRPC(err rpcError) *Error {
+	message := secret.Redact(err.Message).Text
+	if len(err.Data) != 0 && string(err.Data) != "null" {
+		var domain Error
+		if json.Unmarshal(err.Data, &domain) == nil && IsValidErrorCode(domain.Code) {
+			if domain.Message == "" {
+				domain.Message = message
+			} else {
+				domain.Message = secret.Redact(domain.Message).Text
+			}
+			if detail, ok := domain.Detail.(string); ok {
+				domain.Detail = secret.Redact(detail).Text
+			}
+			return &domain
+		}
+	}
+	switch err.Code {
+	case -32602:
+		return BadRequestError(message)
+	case -32603:
+		return AdapterInternalError(message)
+	default:
+		return AdapterInternalError(message)
+	}
+}
+
+// ValidateEnvelope validates a JSON-RPC 2.0 body. The legacy branch is kept
+// for existing direct fixture helpers. Production framed readers use the
+// JSON-RPC branch only.
 func ValidateEnvelope(raw []byte) error {
 	var probe struct {
-		V      *int             `json:"v"`
-		ID     *string          `json:"id"`
-		Op     *string          `json:"op"`
-		Params json.RawMessage  `json:"params"`
-		OK     *bool            `json:"ok"`
-		Result *json.RawMessage `json:"result"`
-		ErrRaw *json.RawMessage `json:"err"`
+		JSONRPC *string          `json:"jsonrpc"`
+		ID      *string          `json:"id"`
+		Method  *string          `json:"method"`
+		Params  json.RawMessage  `json:"params"`
+		Result  *json.RawMessage `json:"result"`
+		Error   *json.RawMessage `json:"error"`
+		V       *int             `json:"v"`
+		Op      *string          `json:"op"`
+		OK      *bool            `json:"ok"`
+		ErrRaw  *json.RawMessage `json:"err"`
 	}
 	if err := json.Unmarshal(raw, &probe); err != nil {
 		return BadRequestError(fmt.Sprintf("envelope is not a JSON object: %v", err))
 	}
-	if probe.OK == nil {
-		return validateRequestShape(probe.V, probe.ID, probe.Op, probe.Params)
+	if probe.JSONRPC == nil {
+		return validateLegacyEnvelope(probe.V, probe.ID, probe.Op, probe.Params, probe.OK, probe.Result, probe.ErrRaw)
 	}
-	return validateResponseShape(probe.ID, *probe.OK, probe.Result, probe.ErrRaw)
+	if *probe.JSONRPC != JSONRPCVersion {
+		return UnsupportedVersionError(fmt.Sprintf("jsonrpc=%q, expected %q", *probe.JSONRPC, JSONRPCVersion))
+	}
+	if probe.Method != nil {
+		if probe.ID == nil {
+			return validateNotificationShape(*probe.Method, probe.Params)
+		}
+		return validateRPCRequestShape(probe.ID, *probe.Method, probe.Params)
+	}
+	return validateRPCResponseShape(probe.ID, probe.Result, probe.Error)
 }
 
-func validateRequestShape(v *int, id *string, op *string, params json.RawMessage) error {
-	switch {
-	case v == nil:
-		return BadRequestError("request envelope missing v")
-	case *v != ProtocolVersion:
-		return UnsupportedVersionError(fmt.Sprintf("request v=%d, CORE speaks v=%d", *v, ProtocolVersion))
-	case id == nil || *id == "":
-		return BadRequestError("request envelope missing id")
-	case op == nil || !Ops[*op]:
-		opName := "<missing>"
-		if op != nil {
-			opName = *op
-		}
-		return BadRequestError(fmt.Sprintf("unknown op %q (must be one of detect|harvest_candidates|slice|ping|shutdown)", opName))
+func validateRPCRequestShape(id *string, method string, params json.RawMessage) error {
+	if id == nil || *id == "" {
+		return BadRequestError("JSON-RPC request missing id")
+	}
+	if method != OpInitialize && !Ops[method] {
+		return BadRequestError(fmt.Sprintf("unknown method %q", method))
 	}
 	if !isJSONObject(params) {
 		return BadRequestError("params must be a JSON object")
+	}
+	return nil
+}
+
+func validateNotificationShape(method string, params json.RawMessage) error {
+	switch method {
+	case "$/cancelRequest", "$/progress", "codeflow/diagnostic", "codeflow/batchAck":
+	default:
+		return BadRequestError(fmt.Sprintf("unknown notification %q", method))
+	}
+	if !isJSONObject(params) {
+		return BadRequestError("notification params must be a JSON object")
+	}
+	return nil
+}
+
+func validateRPCResponseShape(id *string, result, rawErr *json.RawMessage) error {
+	if id == nil || *id == "" {
+		return BadRequestError("JSON-RPC response missing id")
+	}
+	if (result == nil) == (rawErr == nil) {
+		return BadRequestError("JSON-RPC response requires exactly one of result or error")
+	}
+	if result != nil && !isJSONObject(*result) {
+		return BadRequestError("JSON-RPC result must be an object")
+	}
+	if rawErr != nil {
+		var e rpcError
+		if err := json.Unmarshal(*rawErr, &e); err != nil || e.Message == "" {
+			return BadRequestError("invalid JSON-RPC error object")
+		}
 	}
 	return nil
 }
@@ -302,11 +492,48 @@ func validateResponseShape(id *string, ok bool, result, errRaw *json.RawMessage)
 	return nil
 }
 
-// ValidateRequest validates an already-decoded request envelope.
+func validateLegacyEnvelope(v *int, id *string, op *string, params json.RawMessage, ok *bool, result *json.RawMessage, rawErr *json.RawMessage) error {
+	if ok != nil {
+		if id == nil || *id == "" {
+			return BadRequestError("response envelope missing id")
+		}
+		if *ok {
+			return validateResponseShape(id, true, result, nil)
+		}
+		return validateResponseShape(id, false, nil, rawErr)
+	}
+	if v == nil {
+		return BadRequestError("request envelope missing protocol version")
+	}
+	if *v != ProtocolVersion {
+		return UnsupportedVersionError(fmt.Sprintf("request v=%d, CORE speaks v%d", *v, ProtocolVersion))
+	}
+	if id == nil || *id == "" || op == nil || *op == "" {
+		return BadRequestError("request envelope missing id or op")
+	}
+	method := rpcMethodForOp(*op)
+	if method != OpInitialize && !Ops[method] {
+		return BadRequestError(fmt.Sprintf("unknown op %q", *op))
+	}
+	if !isJSONObject(params) {
+		return BadRequestError("params must be a JSON object")
+	}
+	return nil
+}
+
 func ValidateRequest(e *RequestEnvelope) error {
-	v := e.V
-	id, op := e.ID, e.Op
-	return validateRequestShape(&v, &id, &op, e.Params)
+	if e == nil {
+		return BadRequestError("nil request envelope")
+	}
+	method := e.Method
+	if method == "" {
+		if e.V != 0 && e.V != ProtocolVersion {
+			return UnsupportedVersionError(fmt.Sprintf("request v=%d, CORE speaks v%d", e.V, ProtocolVersion))
+		}
+		method = rpcMethodForOp(e.Op)
+	}
+	id := e.ID
+	return validateRPCRequestShape(&id, method, e.Params)
 }
 
 func isJSONObject(raw json.RawMessage) bool {

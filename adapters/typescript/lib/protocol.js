@@ -4,9 +4,19 @@ const fs = require('fs');
 const path = require('path');
 const { harvestCandidates } = require('./harvest');
 const { sliceFlow } = require('./slice');
+const { analysisMetadata, SCHEMA_ID, ANALYZER_VERSION } = require('./analysis');
 
 const PROTOCOL_VERSION = 1;
 const ADAPTER_VERSION = '0.1.0';
+const CAPABILITIES = Object.freeze({
+  cancellation: true,
+  progress: true,
+  batchAck: true,
+  snapshotOverlay: true,
+  analysisMetadata: true,
+  maxMessageBytes: 1024 * 1024,
+  maxInFlight: 64,
+});
 
 /**
  * Handles a single parsed JSON-RPC request line and returns an envelope object.
@@ -68,7 +78,7 @@ function handleRequest(req) {
             },
           };
         }
-        const result = detectRepo(repoRoot);
+        const result = detectRepo(repoRoot, params);
         return { id, ok: true, result };
       }
 
@@ -142,13 +152,74 @@ function handleRequest(req) {
   }
 }
 
-function detectRepo(repoRoot) {
+/**
+ * Handles one production JSON-RPC request. The historical handleRequest
+ * helper above remains available for direct adapter tests and legacy callers.
+ * @param {object} req
+ * @returns {object}
+ */
+function handleRPCRequest(req) {
+  const id = req && typeof req.id === 'string' ? req.id : '';
+  if (!req || typeof req !== 'object' || Array.isArray(req)) {
+    return rpcError(id, 'E_BAD_REQUEST', 'request must be a JSON object');
+  }
+  if (req.jsonrpc !== '2.0') {
+    return rpcError(id, 'E_UNSUPPORTED_VERSION', 'jsonrpc must be "2.0"');
+  }
+  if (!id) return rpcError(id, 'E_BAD_REQUEST', 'request id must be a non-empty string');
+  if (typeof req.method !== 'string') return rpcError(id, 'E_BAD_REQUEST', 'method must be a string');
+  if (!req.params || typeof req.params !== 'object' || Array.isArray(req.params)) {
+    return rpcError(id, 'E_BAD_REQUEST', 'params must be a JSON object');
+  }
+
+  const method = req.method === 'ping' ? 'initialize' : req.method;
+  if (!['initialize', 'detect', 'harvest_candidates', 'slice', 'shutdown'].includes(method)) {
+    return rpcError(id, 'E_BAD_REQUEST', `unknown method: ${req.method}`);
+  }
+  if (method === 'initialize') {
+    return rpcSuccess(id, {
+      adapterVersion: ADAPTER_VERSION,
+      protocolVersion: PROTOCOL_VERSION,
+      protocolVersions: [PROTOCOL_VERSION],
+      analyzerVersion: ANALYZER_VERSION,
+      schemaId: SCHEMA_ID,
+      schemaVersion: 1,
+      capabilities: CAPABILITIES,
+    });
+  }
+
+  const legacy = handleRequest({ v: PROTOCOL_VERSION, id, op: method, params: req.params });
+  if (!legacy.ok) return rpcError(id, legacy.err.code, legacy.err.message, legacy.err.retryable, legacy.err.detail);
+  let result = legacy.result || {};
+  if (['detect', 'harvest_candidates', 'slice'].includes(method)) {
+    const explicitPaths = method === 'slice' && typeof req.params.entrySymbolPath === 'string'
+      ? [req.params.entrySymbolPath.split('#')[0]]
+      : [];
+    result = { ...result, ...analysisMetadata(req.params, method, explicitPaths) };
+  }
+  return rpcSuccess(id, result);
+}
+
+function rpcSuccess(id, result) {
+  return { jsonrpc: '2.0', id, result };
+}
+
+function rpcError(id, code, message, retryable = false, detail = undefined) {
+  const data = { code, retryable: Boolean(retryable) };
+  if (detail !== undefined) data.detail = String(detail).replace(/\b(?:api[_-]?key|secret|token|password)\s*[:=]\s*['"]?[^\s;'"}]+['"]?/gi, '***REDACTED***').slice(0, 512);
+  const rpcCode = code === 'E_BAD_REQUEST' || code === 'E_UNSUPPORTED_VERSION' ? -32602 : -32000;
+  const safeMessage = String(message).replace(/\b(?:api[_-]?key|secret|token|password)\s*[:=]\s*['"]?[^\s;'"}]+['"]?/gi, '***REDACTED***');
+  return { jsonrpc: '2.0', id, error: { code: rpcCode, message: safeMessage.slice(0, 512), data } };
+}
+
+function detectRepo(repoRoot, params = {}) {
   const root = path.resolve(repoRoot);
+  const overlay = params && typeof params === 'object' ? require('./analysis').overlayFor(params) : null;
   const pkgPath = path.join(root, 'package.json');
   const tsconfigPath = path.join(root, 'tsconfig.json');
 
-  const hasPkg = fs.existsSync(pkgPath);
-  const hasTs = fs.existsSync(tsconfigPath);
+  const hasPkg = overlay ? overlay.has('package.json') : fs.existsSync(pkgPath);
+  const hasTs = overlay ? overlay.has('tsconfig.json') : fs.existsSync(tsconfigPath);
 
   if (!hasPkg && !hasTs) {
     return {
@@ -166,7 +237,7 @@ function detectRepo(repoRoot) {
 
   if (hasPkg) {
     try {
-      const pkg = JSON.parse(fs.readFileSync(pkgPath, 'utf8'));
+      const pkg = JSON.parse(overlay ? overlay.get('package.json') : fs.readFileSync(pkgPath, 'utf8'));
       if (pkg.name) projectName = pkg.name;
       const deps = { ...(pkg.dependencies || {}), ...(pkg.devDependencies || {}) };
       if (deps['react']) frameworks.push('react');
@@ -184,7 +255,9 @@ function detectRepo(repoRoot) {
     confident: true,
     projectName,
     frameworks,
-    entryRoot: fs.existsSync(path.join(root, 'src')) ? 'src' : '.',
+    entryRoot: overlay
+      ? ([...overlay.keys()].some((rel) => rel.startsWith('src/')) ? 'src' : '.')
+      : (fs.existsSync(path.join(root, 'src')) ? 'src' : '.'),
     sourceExtensions: ['.ts', '.tsx', '.js', '.jsx'],
   };
 }
@@ -192,6 +265,10 @@ function detectRepo(repoRoot) {
 module.exports = {
   PROTOCOL_VERSION,
   ADAPTER_VERSION,
+  CAPABILITIES,
+  SCHEMA_ID,
+  ANALYZER_VERSION,
   handleRequest,
+  handleRPCRequest,
   detectRepo,
 };

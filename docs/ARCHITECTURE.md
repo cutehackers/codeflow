@@ -20,9 +20,9 @@ graph TD
     end
     
     Core --> Pool
-    Pool -->|stdio NDJSON v1| DartAdapter["adapters/dart<br/>(Dart SDK)"]
-    Pool -->|stdio NDJSON v1| TSAdapter["adapters/typescript<br/>(Node.js Built-ins)"]
-    Pool -->|stdio NDJSON v1| FutureAdapters["adapters/<lang><br/>(Kotlin, Swift, etc.)"]
+    Pool -->|stdio Content-Length JSON-RPC 2.0| DartAdapter["adapters/dart<br/>(Dart SDK)"]
+    Pool -->|stdio Content-Length JSON-RPC 2.0| TSAdapter["adapters/typescript<br/>(Node.js Built-ins)"]
+    Pool -->|stdio Content-Length JSON-RPC 2.0| FutureAdapters["adapters/<lang><br/>(Kotlin, Swift, etc.)"]
 ```
 
 ---
@@ -34,8 +34,8 @@ graph TD
 - **AI Agent**: Maps structural steps to 7 canonical layers (`presentation`, `controller`, `usecase`, `domain`, `data`, `infra`, `external`).
 - **Go Core**: Validates monotonic layer traversal (`ValidateLayerOrder`) with strict validation rules.
 
-### 2) Wire Protocol & Isolation (`stdio` NDJSON v=1)
-- Go Core and language adapters run as isolated subprocesses communicating via 1-line NDJSON messages over standard I/O (`schemas/adapter-protocol.schema.json`).
+### 2) Protocol & Isolation (`stdio` Content-Length framed JSON-RPC 2.0)
+- Go Core and language adapters run as isolated subprocesses communicating via bounded Content-Length framed JSON-RPC 2.0 messages over standard I/O (`schemas/adapter-protocol.schema.json`).
 - Max payload buffer: 1 MiB (`DefaultMaxMessageSizeBytes`).
 - Standard operations: `ping`, `detect`, `harvest_candidates`, `slice`, `shutdown`.
 
@@ -85,7 +85,7 @@ codeflow/
 
 1. **Adding a New Language Adapter**:
    - Follow [`docs/spec/llm-language-adapter-protocol.md`](file:///Users/junhyounglee/workspace/codeflow/docs/spec/llm-language-adapter-protocol.md).
-   - Implement single-line NDJSON protocol in `adapters/<language>/`.
+   - Implement the framed JSON-RPC protocol in `adapters/<language>/`.
    - Ensure zero heavy external runtime dependencies wherever possible.
    - Register the adapter in [`internal/pin/compatibility.json`](file:///Users/junhyounglee/workspace/codeflow/internal/pin/compatibility.json) and [`internal/detect/detect.go`](file:///Users/junhyounglee/workspace/codeflow/internal/detect/detect.go).
 

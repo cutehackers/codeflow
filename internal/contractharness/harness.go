@@ -33,6 +33,7 @@ var SchemaIDs = []string{
 	BaseURL + "identity.schema.json",
 	BaseURL + "candidate.schema.json",
 	BaseURL + "sliced-payload.schema.json",
+	BaseURL + "adapter-analysis.schema.json",
 	BaseURL + "flowspec.schema.json",
 	BaseURL + "session-artifact.schema.json",
 	BaseURL + "adapter-protocol.schema.json",
@@ -118,7 +119,7 @@ func EnsureAllCompiled() error {
 // *jsonschema.ValidationError on violation; the error text includes the
 // instance location of every failing keyword. CORE stages should call this at
 // every contract boundary (harvest output, slice output, fusion input/output,
-// MCP submissions, adapter NDJSON envelopes).
+// MCP submissions, adapter JSON-RPC envelopes).
 func Validate(schemaID string, data []byte) error {
 	sch, err := compile(schemaID)
 	if err != nil {

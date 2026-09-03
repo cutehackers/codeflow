@@ -1,0 +1,30 @@
+{
+  "schemaId": "https://codeflow.local/schemas/adapter-analysis.schema.json",
+  "schemaVersion": 1,
+  "operation": "detect",
+  "computedBasisId": "basis-001",
+  "workspaceEpoch": 42,
+  "analysisReadSet": {
+    "readSetId": "readset-001",
+    "computedBasisId": "basis-001",
+    "workspaceEpoch": 42,
+    "documents": [],
+    "negativeObservations": [],
+    "membershipObservations": [],
+    "dependencyFrontiers": []
+  },
+  "causalObservationClosure": {
+    "closureId": "closure-001",
+    "analysisReadSetId": "readset-001",
+    "computedBasisId": "basis-001",
+    "workspaceEpoch": 42,
+    "closureStatus": "closed",
+    "negativeObservations": [],
+    "membershipObservations": [],
+    "dependencyFrontiers": [],
+    "capabilityProfile": {}
+  },
+  "capabilityProfile": {},
+  "analyzerVersion": "test/1",
+  "diagnostics": []
+}

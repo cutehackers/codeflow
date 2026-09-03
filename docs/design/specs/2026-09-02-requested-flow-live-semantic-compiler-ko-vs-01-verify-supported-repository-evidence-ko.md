@@ -1,7 +1,8 @@
 # 요청 흐름 이해와 실시간 Semantic Compiler — VS-01 지원 저장소 분석 근거를 검증해 받는다
 
 - Contract ID: `REQUESTED-FLOW-LIVE-SEMANTIC-COMPILER-VS-01`
-- Contract Status: Proposed
+- Contract Status: Approved
+- Implementation Status: Complete
 - Independent Review: Passed (`gpt-5.6-terra`, high)
 - Parent Contract: `docs/design/specs/2026-09-02-requested-flow-live-semantic-compiler-ko.md`
 - Created: 2026-09-02
@@ -140,8 +141,24 @@ Core caller → initialize/capability 검증 → snapshot-aware adapter request 
 - malformed framing, unsupported capability, invalid schema와 bound 초과가 typed failure/backpressure로 처리된다.
 - 모든 applicable Verification Plan row가 passing evidence를 가지며, N/A row에는 이유가 남는다.
 - 후속 slice가 사용할 snapshot basis와 observation metadata가 adapter boundary에서 손실 없이 조회된다.
-- 이 계약은 구현 승인 상태가 아니며, production code와 schema는 이 slicing task에서 변경하지 않는다.
+- VS-01 구현이 완료되었다. raw 스팩은 계속 정본이며, VS-02–VS-10은 구현하지 않았다.
 
 ## 16. Open Decisions
 
 없음. raw 스팩의 승인된 D1–D32와 adapter cutover 결정 기록을 따른다.
+
+## 17. Verification Results
+
+| Check | Result |
+|---|---|
+| Core protocol and E2E | PASS — `go test ./internal/protocol ./internal/e2e` |
+| VS-01 protocol tests | PASS — `go test ./internal/protocol -run '^Test' -count=1` |
+| Contract boundary | PASS — `go test ./internal/contractharness -run 'TestValidateGoldenFixtures|TestValidateExportedContractBoundary'` |
+| Full regression | PASS — `go test ./...` |
+| Security and redaction | PASS — `go test ./internal/secret ./internal/protocol ./internal/e2e` |
+| Static analysis and build | PASS — `go vet ./...`, `go build ./...` |
+| Dart conformance | PASS — `cd adapters/dart && dart test` |
+| TypeScript/JavaScript conformance | PASS — `node adapters/typescript/test/index.test.js` |
+| Go adapter conformance | PASS — `go test ./adapters/go/...` |
+| Unbounded protocol and reliability checks | PASS — `go test ./internal/protocol -run '^Test' -count=1`, `go test ./internal/protocol ./internal/e2e -count=1` |
+| Coverage threshold | N/A — raw contract defines conformance cases, not a numeric threshold |

@@ -6,6 +6,7 @@ const { sha256Hex, canonicalAstFingerprint, byteOffset } = require('./sha256');
 const { redactSecrets } = require('./secret');
 const { humanizeIdentifier } = require('./humanize');
 const { scanSource } = require('./scanner');
+const { overlayFor } = require('./analysis');
 
 const boundarySuffixes = [
   'Repository',
@@ -47,14 +48,16 @@ function sliceFlow(params) {
   const candidateId = params.candidateId;
   const entrySymbolPath = params.entrySymbolPath;
   const maxDepth = (params.opts && params.opts.maxDepth) || 5;
+  const overlay = overlayFor(params);
 
   const [relPath, initialSymbol] = entrySymbolPath.split('#');
   const fileCache = new Map();
   const scanCache = new Map();
-  const tsConfig = loadTsConfig(repoRoot);
+  const tsConfig = loadTsConfig(repoRoot, overlay);
 
   function readFile(p) {
     if (fileCache.has(p)) return fileCache.get(p);
+    if (overlay) return overlay.has(p) ? overlay.get(p) : null;
     const full = path.join(repoRoot, p);
     if (!fs.existsSync(full)) return null;
     const content = fs.readFileSync(full, 'utf8');
@@ -394,13 +397,14 @@ function isBoundaryTarget(receiver, methodName) {
   return false;
 }
 
-function loadTsConfig(repoRoot) {
+function loadTsConfig(repoRoot, overlay = null) {
   const configFiles = ['tsconfig.json', 'jsconfig.json'];
   for (const file of configFiles) {
     const full = path.join(repoRoot, file);
-    if (fs.existsSync(full)) {
+    const overlayContent = overlay && overlay.has(file) ? overlay.get(file) : null;
+    if (overlayContent !== null || (!overlay && fs.existsSync(full))) {
       try {
-        let content = fs.readFileSync(full, 'utf8');
+        let content = overlay ? overlayContent : fs.readFileSync(full, 'utf8');
         content = content
           .replace(/\/\/[^\n]*/g, '')
           .replace(/\/\*[\s\S]*?\*\//g, '')

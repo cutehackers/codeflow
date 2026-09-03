@@ -197,11 +197,13 @@ class _ResolverContext {
     required this.repoRoot,
     required this.packageName,
     required this.boundarySuffixes,
+    this.overlay,
   });
 
   final String repoRoot;
   final String packageName;
   final List<String> boundarySuffixes;
+  final Map<String, String>? overlay;
 
   final Map<String, String> _fileCache = {};
   final Map<String, ScanResult> _scanCache = {};
@@ -209,6 +211,12 @@ class _ResolverContext {
   String? readFile(String repoRelPath) {
     if (_fileCache.containsKey(repoRelPath)) {
       return _fileCache[repoRelPath];
+    }
+    if (overlay != null) {
+      final content = overlay![repoRelPath];
+      if (content == null) return null;
+      _fileCache[repoRelPath] = content;
+      return content;
     }
     final fullPath = '$repoRoot/$repoRelPath';
     final file = File(fullPath);
@@ -362,8 +370,8 @@ _ResolvedTarget? _resolveCallTarget({
       } else {
         // Search imported files for the provider definition.
         for (final uri in _extractImports(currentContent)) {
-          final resolvedPath =
-              _resolveImportPath(uri, currentRelPath, ctx.packageName, workspacePackages);
+          final resolvedPath = _resolveImportPath(
+              uri, currentRelPath, ctx.packageName, workspacePackages);
           if (resolvedPath == null) continue;
           final importedContent = ctx.readFile(resolvedPath);
           if (importedContent == null) continue;
@@ -438,8 +446,8 @@ _ResolvedTarget? _resolveCallTarget({
   // 3. Search in imported files
   final importUris = _extractImports(currentContent);
   for (final uri in importUris) {
-    final resolvedPath =
-        _resolveImportPath(uri, currentRelPath, ctx.packageName, workspacePackages);
+    final resolvedPath = _resolveImportPath(
+        uri, currentRelPath, ctx.packageName, workspacePackages);
     if (resolvedPath == null) continue;
     final importedScan = ctx.scanFile(resolvedPath);
     if (importedScan == null) continue;
@@ -491,7 +499,6 @@ _ResolvedTarget? _resolveCallTarget({
 
 // --- Main Slicing Engine ----------------------------------------------------
 
-
 /// Walks [repoRootPosix] for nested `pubspec.yaml` files (packages/*,
 /// apps/*) and records `<package name> -> <package dir>` pairs so
 /// cross-package imports resolve inside a monorepo workspace. Bounded to
@@ -537,13 +544,17 @@ Map<String, Object?> sliceCandidate({
   required String candidateId,
   required String entrySymbolPath,
   Map<String, Object?> opts = const {},
+  Map<String, String>? contentOverlay,
 }) {
   final posixRoot = _toPosix(repoRoot);
   final pubspecFile = File('$posixRoot/pubspec.yaml');
   var packageName = '';
-  if (pubspecFile.existsSync()) {
+  final pubspecContent = contentOverlay != null
+      ? contentOverlay['pubspec.yaml']
+      : (pubspecFile.existsSync() ? pubspecFile.readAsStringSync() : null);
+  if (pubspecContent != null) {
     final match = RegExp(r'^name:\s*([a-zA-Z0-9_]+)', multiLine: true)
-        .firstMatch(pubspecFile.readAsStringSync());
+        .firstMatch(pubspecContent);
     if (match != null) {
       packageName = match.group(1)!;
     }
@@ -565,7 +576,8 @@ Map<String, Object?> sliceCandidate({
   // a nested package (workspace layout), that package's name is used.
   var effectivePackageName = packageName;
   final workspacePackages = <String, String>{};
-  _collectWorkspacePackages(posixRoot, workspacePackages);
+  if (contentOverlay == null)
+    _collectWorkspacePackages(posixRoot, workspacePackages);
   if (effectivePackageName.isEmpty && workspacePackages.isNotEmpty) {
     // Infer from the entry file path: packages/<name>/lib/...
     final m = RegExp(r'^packages/([^/]+)/').firstMatch(initialRelPath0);
@@ -594,6 +606,7 @@ Map<String, Object?> sliceCandidate({
     repoRoot: posixRoot,
     packageName: effectivePackageName,
     boundarySuffixes: boundarySuffixes,
+    overlay: contentOverlay,
   );
 
   final steps = <_SliceStep>[];
@@ -670,7 +683,8 @@ Map<String, Object?> sliceCandidate({
     // Symbol-scoped view range for FlowView: signature line through the end
     // of the method body. Presentation-only; never used for identity.
     final symbolRange = [
-      _byteOffset(fileContent, _lineStartOffset(fileContent, targetMethod.nameLine)),
+      _byteOffset(
+          fileContent, _lineStartOffset(fileContent, targetMethod.nameLine)),
       _byteOffset(fileContent, targetMethod.bodyEnd),
     ];
 
@@ -787,8 +801,8 @@ Map<String, Object?> sliceCandidate({
               receiverType = typeArg.split('<')[0].trim();
             } else {
               for (final uri in _extractImports(fileContent)) {
-                final resolvedPath =
-                    _resolveImportPath(uri, relPath, effectivePackageName, workspacePackages);
+                final resolvedPath = _resolveImportPath(
+                    uri, relPath, effectivePackageName, workspacePackages);
                 if (resolvedPath == null) continue;
                 final importedContent = ctx.readFile(resolvedPath);
                 if (importedContent == null) continue;
@@ -824,8 +838,9 @@ Map<String, Object?> sliceCandidate({
               _isBoundarySymbol(resolved.className, boundarySuffixes);
           final edgeKind =
               isResolvedBoundary ? 'boundary_call' : 'resolved_cross_file';
-          final redactDesc = _redactSecrets(
-              _deriveCallDescription(resolved.symbolPath, isBoundary: isResolvedBoundary));
+          final redactDesc = _redactSecrets(_deriveCallDescription(
+              resolved.symbolPath,
+              isBoundary: isResolvedBoundary));
           totalRedactedCount += redactDesc.count;
 
           steps.add(_SliceStep(
@@ -1309,7 +1324,16 @@ String _extractIntentIdentifier(String target) {
   if (genericMethods.contains(last.toLowerCase()) && parts.length >= 2) {
     var cls = parts[parts.length - 2];
     // Strip architecture suffixes to expose domain intent
-    for (final suf in ['UseCase', 'Usecase', 'Repository', 'Controller', 'Service', 'ApiClient', 'DataSource', 'Manager']) {
+    for (final suf in [
+      'UseCase',
+      'Usecase',
+      'Repository',
+      'Controller',
+      'Service',
+      'ApiClient',
+      'DataSource',
+      'Manager'
+    ]) {
       if (cls.endsWith(suf) && cls.length > suf.length) {
         cls = cls.substring(0, cls.length - suf.length);
         break;
@@ -1339,7 +1363,8 @@ String _deriveDomainTitle(String raw) {
       foundNounKo = _koNounMap[w]!;
     }
   }
-  if (foundVerbKo.isNotEmpty && foundNounKo.isNotEmpty) return '$foundNounKo $foundVerbKo';
+  if (foundVerbKo.isNotEmpty && foundNounKo.isNotEmpty)
+    return '$foundNounKo $foundVerbKo';
   if (foundVerbKo.isNotEmpty) return foundVerbKo;
   return humanizeIdentifier(raw);
 }

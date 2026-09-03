@@ -5,6 +5,7 @@ const path = require('path');
 const { sha256Hex } = require('./sha256');
 const { humanizeIdentifier } = require('./humanize');
 const { scanSource } = require('./scanner');
+const { overlayFor } = require('./analysis');
 
 const triggerUserAction = 'user_action';
 const triggerUseCaseInvocation = 'use_case_invocation';
@@ -25,14 +26,18 @@ const markerStateMutation = 'state_mutation';
  */
 function harvestCandidates(params) {
   const repoRoot = path.resolve(params.repoRoot);
+  const overlay = overlayFor(params);
   const candidates = [];
 
   // Determine packageName from package.json
   let packageName = path.basename(repoRoot) || 'root';
   const pkgPath = path.join(repoRoot, 'package.json');
-  if (fs.existsSync(pkgPath)) {
+  const packageJSON = overlay && overlay.has('package.json')
+    ? overlay.get('package.json')
+    : (overlay ? null : (fs.existsSync(pkgPath) ? fs.readFileSync(pkgPath, 'utf8') : null));
+  if (packageJSON) {
     try {
-      const pkg = JSON.parse(fs.readFileSync(pkgPath, 'utf8'));
+      const pkg = JSON.parse(packageJSON);
       if (pkg && pkg.name) {
         packageName = pkg.name;
       }
@@ -40,16 +45,16 @@ function harvestCandidates(params) {
   }
 
   // Walk files in sorted lexicographical order for determinism
-  const sourceFiles = listSourceFiles(repoRoot);
+  const sourceFiles = overlay ? listOverlaySourceFiles(overlay) : listSourceFiles(repoRoot);
 
   for (const relPath of sourceFiles) {
-    const fullPath = path.join(repoRoot, relPath);
     let code;
     try {
-      code = fs.readFileSync(fullPath, 'utf8');
+      code = overlay ? overlay.get(relPath) : fs.readFileSync(path.join(repoRoot, relPath), 'utf8');
     } catch (_) {
       continue;
     }
+    if (typeof code !== 'string') continue;
 
     const scan = scanSource(code);
     const classNameFromPath = path.basename(relPath, path.extname(relPath));
@@ -309,8 +314,16 @@ function listSourceFiles(repoRoot, subDir = '') {
   return files;
 }
 
+function listOverlaySourceFiles(overlay) {
+  return [...overlay.keys()]
+    .filter((rel) => /\.(ts|tsx|js|jsx|mjs|cjs)$/.test(rel))
+    .filter((rel) => !rel.endsWith('.d.ts') && !rel.includes('.test.') && !rel.includes('.spec.'))
+    .sort();
+}
+
 module.exports = {
   harvestCandidates,
   classifyMarker,
   listSourceFiles,
+  listOverlaySourceFiles,
 };

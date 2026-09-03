@@ -103,8 +103,20 @@ class _Marker {
 }
 
 /// Result payload of the detect op: {"language": "dart", "confident": bool}.
-Map<String, Object?> detectRepo({required String repoRoot}) {
+Map<String, Object?> detectRepo({
+  required String repoRoot,
+  Map<String, String>? contentOverlay,
+}) {
   final root = _toPosix(repoRoot);
+  if (contentOverlay != null) {
+    final pubspec = contentOverlay['pubspec.yaml'];
+    final confident = pubspec != null &&
+        (RegExp(r'^\s*sdk\s*:', multiLine: true).hasMatch(pubspec) ||
+            RegExp(r'^\s*flutter\s*:', multiLine: true).hasMatch(pubspec));
+    final hasDartSource = contentOverlay.keys
+        .any((path) => path.startsWith('lib/') && path.endsWith('.dart'));
+    return {'language': 'dart', 'confident': confident || hasDartSource};
+  }
   final pubspec = File(_join(root, 'pubspec.yaml'));
   if (!pubspec.existsSync()) {
     return {'language': 'dart', 'confident': false};
@@ -115,9 +127,8 @@ Map<String, Object?> detectRepo({required String repoRoot}) {
   } catch (_) {
     return {'language': 'dart', 'confident': false};
   }
-  var confident =
-      RegExp(r'^\s*sdk\s*:', multiLine: true).hasMatch(content) ||
-          RegExp(r'^\s*flutter\s*:', multiLine: true).hasMatch(content);
+  var confident = RegExp(r'^\s*sdk\s*:', multiLine: true).hasMatch(content) ||
+      RegExp(r'^\s*flutter\s*:', multiLine: true).hasMatch(content);
   // A bare directory without any Dart source under lib/ is not confidently
   // harvestable either way.
   var hasDartSource = false;
@@ -139,8 +150,7 @@ String? readPackageName(String repoRoot) {
   if (!file.existsSync()) return null;
   try {
     for (final line in file.readAsStringSync().split('\n')) {
-      final m =
-          RegExp(r'^name:\s*([^\s#]+)').firstMatch(line.trimLeft());
+      final m = RegExp(r'^name:\s*([^\s#]+)').firstMatch(line.trimLeft());
       if (m != null) return m.group(1);
     }
   } catch (_) {
@@ -182,7 +192,8 @@ List<String> _collectDartFiles(String libDirPosix) {
 
 bool _isWorkspaceRepo(String repoRootPosix) {
   try {
-    final content = File(_join(repoRootPosix, 'pubspec.yaml')).readAsStringSync();
+    final content =
+        File(_join(repoRootPosix, 'pubspec.yaml')).readAsStringSync();
     return content.contains(RegExp(r'^\s*workspace\s*:', multiLine: true));
   } catch (_) {
     return false;
@@ -206,11 +217,13 @@ List<String> _collectWorkspaceDartFiles(String repoRootPosix) {
     for (final entity in entities) {
       final abs = _toPosix(entity.path);
       final base = _basename(abs);
-      if (base.startsWith('.') || base == 'build' || base == '.dart_tool') continue;
+      if (base.startsWith('.') || base == 'build' || base == '.dart_tool')
+        continue;
       if (entity is Directory) {
         if (base == 'lib') {
           // Found a lib dir — collect all dart files under it, repo-relative.
-          final relLibPrefix = abs.substring(repoRootPosix.length + 1); // e.g. packages/foo/lib
+          final relLibPrefix =
+              abs.substring(repoRootPosix.length + 1); // e.g. packages/foo/lib
           final libFiles = _collectDartFiles(abs);
           for (final f in libFiles) {
             results.add('$relLibPrefix/$f');
@@ -265,16 +278,26 @@ Map<String, Object?> harvestCandidates(Map<Object?, Object?> params) {
     throw ArgumentError('harvest_candidates requires params.repoRoot');
   }
   final repoRoot = _stripTrailingSlash(_toPosix(repoRootRaw));
-  final libSubdirRaw = params['libSubdir'] is String
-      ? params['libSubdir'] as String
-      : 'lib';
+  final overlay = _overlayFromParams(params);
+  final libSubdirRaw =
+      params['libSubdir'] is String ? params['libSubdir'] as String : 'lib';
   final libSubdir = _stripTrailingSlash(_toPosix(libSubdirRaw));
   final profile = resolveProfiles(params['profiles']);
 
   final libDirPosix = _join(repoRoot, libSubdir);
   List<String> relFiles;
   var isWorkspaceFallback = false;
-  if (Directory(libDirPosix).existsSync()) {
+  if (overlay != null) {
+    final prefix = libSubdir == '.' || libSubdir.isEmpty ? '' : '$libSubdir/';
+    relFiles = overlay.keys
+        .where((key) => key.endsWith('.dart'))
+        .where((key) => prefix.isEmpty || key.startsWith(prefix))
+        .map((key) => prefix.isEmpty ? key : key.substring(prefix.length))
+        .where((key) => !_isGenerated(key))
+        .toList()
+      ..sort();
+    if (relFiles.isEmpty) return {'candidates': const <Object?>[]};
+  } else if (Directory(libDirPosix).existsSync()) {
     relFiles = _collectDartFiles(libDirPosix);
   } else if (libSubdir == 'lib' && _isWorkspaceRepo(repoRoot)) {
     // Monorepo workspace fallback: collect from all `lib` dirs under repoRoot
@@ -289,21 +312,30 @@ Map<String, Object?> harvestCandidates(Map<Object?, Object?> params) {
   }
 
   final resolver = _PackageNameResolver(repoRoot);
+  final overlayPackageName =
+      overlay == null ? null : _packageNameFromOverlay(overlay);
   final candidates = <Map<String, Object?>>[];
   final subdirPrefix =
       libSubdir == '.' || libSubdir == '' ? '' : '${_toPosix(libSubdir)}/';
 
   for (final rel in relFiles) {
-    final absFile = isWorkspaceFallback ? _join(repoRoot, rel) : _join(libDirPosix, rel);
+    final absFile =
+        isWorkspaceFallback ? _join(repoRoot, rel) : _join(libDirPosix, rel);
     ScanResult scanned;
     try {
-      scanned = scanSource(File(absFile).readAsStringSync());
+      final content = overlay == null
+          ? File(absFile).readAsStringSync()
+          : overlay[
+              libSubdir == '.' || libSubdir.isEmpty ? rel : '$libSubdir/$rel'];
+      if (content == null) continue;
+      scanned = scanSource(content);
     } catch (_) {
       continue; // unreadable file: skip deterministically, never crash
     }
     final posixRel = isWorkspaceFallback ? rel : '$subdirPrefix$rel';
     final fileStem = _stem(rel);
-    final packageName = resolver.packageNameFor(_dirname(absFile));
+    final packageName =
+        overlayPackageName ?? resolver.packageNameFor(_dirname(absFile));
 
     for (final cls in scanned.classes) {
       for (final method in cls.methods) {
@@ -354,6 +386,38 @@ Map<String, Object?> harvestCandidates(Map<Object?, Object?> params) {
   candidates.sort((a, b) => (a['entrySymbolPath']! as String)
       .compareTo(b['entrySymbolPath']! as String));
   return {'candidates': candidates};
+}
+
+Map<String, String>? _overlayFromParams(Map<Object?, Object?> params) {
+  final snapshot = params['snapshot'] is Map
+      ? (params['snapshot'] as Map).cast<Object?, Object?>()
+      : const <Object?, Object?>{};
+  final raw = params['contentOverlay'] ??
+      snapshot['contentOverlay'] ??
+      snapshot['files'];
+  if (raw is! Map) return null;
+  final out = <String, String>{};
+  for (final entry in raw.entries) {
+    if (entry.key is! String) continue;
+    final key = (entry.key as String)
+        .replaceAll('\\', '/')
+        .replaceFirst(RegExp(r'^\./'), '');
+    if (key.isEmpty || key.startsWith('/') || key.contains('..')) continue;
+    if (entry.value is String) {
+      out[key] = entry.value as String;
+    } else if (entry.value is Map && entry.value['content'] is String) {
+      out[key] = entry.value['content'] as String;
+    }
+  }
+  return out;
+}
+
+String? _packageNameFromOverlay(Map<String, String> overlay) {
+  final content = overlay['pubspec.yaml'];
+  if (content == null) return null;
+  final match =
+      RegExp(r'^name:\s*([^\s#]+)', multiLine: true).firstMatch(content);
+  return match?.group(1);
 }
 
 String _stripTrailingSlash(String s) =>
@@ -407,12 +471,14 @@ _Marker? _classifyMethod({
   }
 
   // 4. Bloc / Controller event handlers (`void _on<Event>(...)` registration shape).
-  if ((endsBloc || endsCubit || endsController) && _blocHandlerName.hasMatch(methodName)) {
+  if ((endsBloc || endsCubit || endsController) &&
+      _blocHandlerName.hasMatch(methodName)) {
     return const _Marker(triggerUserAction, markerBlocHandler);
   }
 
   // 5. Notifier / Controller action methods (anything except build / plumbing names).
-  if ((endsNotifier || endsController) && !_excludedMethodNames.contains(methodName)) {
+  if ((endsNotifier || endsController) &&
+      !_excludedMethodNames.contains(methodName)) {
     return const _Marker(triggerUserAction, markerNotifierMethod);
   }
 

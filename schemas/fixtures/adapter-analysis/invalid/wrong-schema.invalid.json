@@ -1,0 +1,12 @@
+{
+  "schemaId": "https://codeflow.local/schemas/not-adapter-analysis.schema.json",
+  "schemaVersion": 1,
+  "operation": "slice",
+  "computedBasisId": "basis-001",
+  "workspaceEpoch": 42,
+  "analysisReadSet": {},
+  "causalObservationClosure": {},
+  "capabilityProfile": {},
+  "analyzerVersion": "test/1",
+  "diagnostics": []
+}

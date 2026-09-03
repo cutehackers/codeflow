@@ -55,20 +55,30 @@ type SliceEdge struct {
 	Depth            int    `json:"depth"`
 	// StepOrdinal is OPTIONAL: 1-based ordinal of the step that produced this
 	// edge. Absent in older adapter payloads — consumers must not guess.
-	StepOrdinal *int `json:"stepOrdinal,omitempty"`
+	StepOrdinal *int   `json:"stepOrdinal,omitempty"`
 	ToLayer     string `json:"toLayer,omitempty"`
 }
 
 // SlicedPayload is the language-neutral contract output returned by adapters.
 type SlicedPayload struct {
-	CandidateID          string      `json:"candidateId"`
-	Language             string      `json:"language"`
-	EntrySymbolPath      string      `json:"entrySymbolPath"`
-	Steps                []SliceStep `json:"steps"`
-	Edges                []SliceEdge `json:"edges"`
-	Truncated            bool        `json:"truncated"`
-	VisitedCycleDetected bool        `json:"visitedCycleDetected"`
-	RedactedCount        int         `json:"redactedCount"`
+	CandidateID              string         `json:"candidateId"`
+	Language                 string         `json:"language"`
+	EntrySymbolPath          string         `json:"entrySymbolPath"`
+	Steps                    []SliceStep    `json:"steps"`
+	Edges                    []SliceEdge    `json:"edges"`
+	Truncated                bool           `json:"truncated"`
+	VisitedCycleDetected     bool           `json:"visitedCycleDetected"`
+	RedactedCount            int            `json:"redactedCount"`
+	SchemaID                 string         `json:"schemaId,omitempty"`
+	SchemaVersion            int            `json:"schemaVersion,omitempty"`
+	Operation                string         `json:"operation,omitempty"`
+	ComputedBasisID          string         `json:"computedBasisId,omitempty"`
+	WorkspaceEpoch           int64          `json:"workspaceEpoch,omitempty"`
+	AnalysisReadSet          map[string]any `json:"analysisReadSet,omitempty"`
+	CausalObservationClosure map[string]any `json:"causalObservationClosure,omitempty"`
+	CapabilityProfile        map[string]any `json:"capabilityProfile,omitempty"`
+	AnalyzerVersion          string         `json:"analyzerVersion,omitempty"`
+	Diagnostics              []any          `json:"diagnostics,omitempty"`
 }
 
 // Runner orchestrates slicing requests across adapter processes.
@@ -88,17 +98,29 @@ func NewRunner(pool *protocol.Pool) *Runner {
 // validation writes the result via WriteSliceCache. Cache I/O is best-effort
 // and never fails the slice.
 func (r *Runner) Slice(ctx context.Context, repoRoot, candidateID, entrySymbolPath string, opts map[string]any) (*SlicedPayload, error) {
+	snapshot, err := protocol.CaptureSnapshot(repoRoot, 0)
+	if err != nil {
+		return nil, fmt.Errorf("capture analysis snapshot: %w", err)
+	}
+	return r.SliceWithSnapshot(ctx, repoRoot, candidateID, entrySymbolPath, opts, snapshot)
+}
+
+// SliceWithSnapshot executes a structural slice against an explicit immutable
+// basis and optional content overlay.
+func (r *Runner) SliceWithSnapshot(ctx context.Context, repoRoot, candidateID, entrySymbolPath string, opts map[string]any, snapshot protocol.Snapshot) (*SlicedPayload, error) {
 	// Best-effort cache lookup before calling adapter.
 	if repoRoot != "" {
-		cacheKey := computeSliceCacheKey(repoRoot, candidateID, entrySymbolPath, opts)
+		cacheKey := computeSliceCacheKey(repoRoot, candidateID, entrySymbolPath, opts, snapshot.ComputedBasisID)
 		if data, ok := storage.New(repoRoot).ReadSliceCache(cacheKey); ok {
 			// Validate cached bytes still pass redaction + schema before returning.
 			sanitizedBytes, _, err := secret.RedactJSON(data)
 			if err == nil {
 				if err := contractharness.Validate(contractharness.BaseURL+"sliced-payload.schema.json", sanitizedBytes); err == nil {
-					var payload SlicedPayload
-					if err := json.Unmarshal(sanitizedBytes, &payload); err == nil {
-						return &payload, nil
+					if err := contractharness.ValidateAdapterAnalysis(sanitizedBytes, protocol.OpSlice, snapshot.ComputedBasisID, snapshot.WorkspaceEpoch); err == nil {
+						var payload SlicedPayload
+						if err := json.Unmarshal(sanitizedBytes, &payload); err == nil {
+							return &payload, nil
+						}
 					}
 				}
 			}
@@ -111,11 +133,10 @@ func (r *Runner) Slice(ctx context.Context, repoRoot, candidateID, entrySymbolPa
 	}
 	defer r.pool.Put(proc)
 
-	params := map[string]any{
-		"repoRoot":        repoRoot,
-		"candidateId":     candidateID,
-		"entrySymbolPath": entrySymbolPath,
-	}
+	params := snapshot.Params()
+	params["repoRoot"] = repoRoot
+	params["candidateId"] = candidateID
+	params["entrySymbolPath"] = entrySymbolPath
 	if opts != nil {
 		params["opts"] = opts
 	}
@@ -143,7 +164,7 @@ func (r *Runner) Slice(ctx context.Context, repoRoot, candidateID, entrySymbolPa
 
 	// Best-effort cache write after successful validation.
 	if repoRoot != "" {
-		cacheKey := computeSliceCacheKey(repoRoot, candidateID, entrySymbolPath, opts)
+		cacheKey := computeSliceCacheKey(repoRoot, candidateID, entrySymbolPath, opts, snapshot.ComputedBasisID)
 		_ = storage.New(repoRoot).WriteSliceCache(cacheKey, sanitizedBytes)
 	}
 
@@ -155,7 +176,7 @@ func (r *Runner) Slice(ctx context.Context, repoRoot, candidateID, entrySymbolPa
 // candidateID and entrySymbolPath identify the candidate, versionInfo is a
 // static version string for cache invalidation, optsHash is sha256 of opts JSON
 // (empty if opts is nil). The final key is storage.SliceCacheKey(...).
-func computeSliceCacheKey(repoRoot, candidateID, entrySymbolPath string, opts map[string]any) string {
+func computeSliceCacheKey(repoRoot, candidateID, entrySymbolPath string, opts map[string]any, basis ...string) string {
 	fileByteHash := ""
 	if idx := strings.Index(entrySymbolPath, "#"); idx >= 0 {
 		relPath := entrySymbolPath[:idx]
@@ -166,6 +187,9 @@ func computeSliceCacheKey(repoRoot, candidateID, entrySymbolPath string, opts ma
 		}
 	}
 	versionInfo := "v3"
+	if len(basis) > 0 && basis[0] != "" {
+		versionInfo += "|" + basis[0]
+	}
 	optsHash := ""
 	if opts != nil {
 		if b, err := json.Marshal(opts); err == nil {

@@ -1,0 +1,38 @@
+{
+  "schemaId": "https://codeflow.local/schemas/adapter-analysis.schema.json",
+  "schemaVersion": 1,
+  "operation": "slice",
+  "computedBasisId": "basis-001",
+  "workspaceEpoch": 42,
+  "analysisReadSet": {
+    "schemaId": "https://codeflow.local/schemas/analysis-read-set.schema.json",
+    "schemaVersion": 1,
+    "readSetId": "readset-001",
+    "computedBasisId": "basis-001",
+    "workspaceEpoch": 42,
+    "documents": [
+      {"path": "lib/main.dart", "contentHash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "byteLength": 12}
+    ],
+    "negativeObservations": [],
+    "membershipObservations": [],
+    "dependencyFrontiers": []
+  },
+  "causalObservationClosure": {
+    "schemaId": "https://codeflow.local/schemas/causal-observation-closure.schema.json",
+    "schemaVersion": 1,
+    "closureId": "closure-001",
+    "analysisReadSetId": "readset-001",
+    "computedBasisId": "basis-001",
+    "workspaceEpoch": 42,
+    "closureStatus": "closed",
+    "negativeObservations": [],
+    "membershipObservations": [],
+    "dependencyFrontiers": [],
+    "capabilityProfile": {"adapter": "dart", "features": ["stdlib-scan"]},
+    "coverageBoundary": {"language": "dart"},
+    "closureDigest": "closure-digest-001"
+  },
+  "capabilityProfile": {"adapter": "dart", "features": ["stdlib-scan"]},
+  "analyzerVersion": "dart-scanner/0.1.0",
+  "diagnostics": []
+}
