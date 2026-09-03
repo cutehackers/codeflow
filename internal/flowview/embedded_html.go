@@ -243,6 +243,31 @@ const IndexHTML = `<!doctype html>
     </div>
   </header>
 
+  <!-- Task View Feature Query Bar & Current Answer Strip (VS-02) -->
+  <section class="semantic-query-section" data-region="semantic-query" aria-label="기능 흐름 자연어 질의">
+    <form id="query-form" onsubmit="handleSemanticQuery(event)" style="display:flex;gap:8px;margin-top:14px">
+      <input id="query-input" type="text" placeholder="자연어로 기능 흐름을 질문하세요 (예: 결제 처리, 회원가입, 장바구니)..." style="flex:1;padding:8px 12px;border:1px solid var(--ink);border-radius:6px;font-size:13px" />
+      <button id="query-submit" type="submit" class="btn" style="padding:8px 16px;background:var(--ink);color:var(--paper);border:1px solid var(--ink);border-radius:6px;font-weight:700;cursor:pointer">질의</button>
+    </form>
+    <div id="disambiguation-dialog" style="display:none;margin-top:10px;padding:12px;border:1px solid var(--ink);border-radius:6px;background:var(--soft)">
+      <strong id="disambiguation-title" style="display:block;margin-bottom:8px">일치하는 후보 흐름이 여러 개 있습니다:</strong>
+      <div id="disambiguation-list" style="display:flex;flex-direction:column;gap:6px"></div>
+    </div>
+  </section>
+
+  <!-- Current Answer Strip (VS-02: Answer First) -->
+  <section id="current-answer-strip" data-region="current-answer" style="display:none;margin-top:14px;padding:14px 16px;border:2px solid var(--ink);border-radius:8px;background:var(--paper)">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">
+      <span style="font-size:11px;font-weight:800;letter-spacing:.08em;text-transform:uppercase;color:var(--muted)">Current Verified Answer</span>
+      <div style="display:flex;gap:6px;align-items:center">
+        <span id="current-answer-stage" class="badge">Q2 Verified</span>
+        <span id="current-answer-basis" style="font-size:11px;color:var(--muted)"></span>
+      </div>
+    </div>
+    <div style="margin-bottom:4px;font-size:12px;color:var(--muted)"><b>요청 의도:</b> <span id="current-answer-requested">—</span></div>
+    <div style="font-size:15px;font-weight:700;line-height:1.4;color:var(--ink)" id="current-answer-statement">—</div>
+  </section>
+
   <div id="queue-banner" class="queue-banner" style="display:none">
     <span><b>승인 큐:</b> <span id="queue-count">0</span>개 단계 재승인 필요</span>
     <button class="btn" onclick="scrollToFirstStale()">검토</button>
@@ -410,7 +435,7 @@ async function api(path,opts={}){
   const h=Object.assign({},opts.headers);
   if(token)h['X-CodeFlow-Token']=token;
   const r=await fetch(u.toString(),Object.assign({},opts,{headers:h}));
-  if(!r.ok)throw new Error(r.status+' '+r.statusText);
+  if(!r.ok && !opts.allowErrors)throw new Error(r.status+' '+r.statusText);
   return r;
 }
 
@@ -499,6 +524,121 @@ async function loadFlow(id){
     if(mapMode==='project')highlightFlowPath();
   }catch(e){
     document.getElementById('flow-title').textContent='흐름 로드 오류: '+e.message;
+  }
+}
+
+/* ---- Semantic Task View (VS-02) ---- */
+
+async function handleSemanticQuery(event){
+  if(event)event.preventDefault();
+  const input=document.getElementById('query-input');
+  const query=(input?input.value:'').trim();
+  if(!query)return;
+
+  const dialog=document.getElementById('disambiguation-dialog');
+  if(dialog)dialog.style.display='none';
+
+  try{
+    const r=await api('/api/task/view?query='+encodeURIComponent(query)+'&mode=feature',{allowErrors:true});
+    if(!r.ok){
+      const err=await r.json().catch(()=>({}));
+      if(err.code==='ambiguous_target'&&err.candidateTargets){
+        showDisambiguation(err.candidateTargets);
+        return;
+      }
+      alert(err.message||'질의 처리 실패');
+      return;
+    }
+    const d=await r.json();
+    renderSemanticTaskView(d);
+  }catch(e){
+    alert('질의 요청 오류: '+e.message);
+  }
+}
+
+function showDisambiguation(candidates){
+  const dialog=document.getElementById('disambiguation-dialog');
+  const list=document.getElementById('disambiguation-list');
+  if(!dialog||!list)return;
+  list.innerHTML='';
+  candidates.forEach(c=>{
+    const btn=document.createElement('button');
+    btn.className='btn';
+    btn.style.textAlign='left';
+    btn.style.padding='6px 10px';
+    btn.style.background='#fff';
+    btn.style.border='1px solid var(--ink)';
+    btn.style.borderRadius='4px';
+    btn.style.cursor='pointer';
+    btn.textContent=c;
+    btn.onclick=()=>{
+      document.getElementById('query-input').value=c;
+      selectSpecificEntry(c);
+    };
+    list.appendChild(btn);
+  });
+  dialog.style.display='block';
+}
+
+async function selectSpecificEntry(entrySymbol){
+  const dialog=document.getElementById('disambiguation-dialog');
+  if(dialog)dialog.style.display='none';
+  try{
+    const r=await api('/api/task/view?entrySymbol='+encodeURIComponent(entrySymbol)+'&mode=feature',{allowErrors:true});
+    if(r.ok){
+      const d=await r.json();
+      renderSemanticTaskView(d);
+    }
+  }catch(e){
+    console.error(e);
+  }
+}
+
+function renderSemanticTaskView(data){
+  const strip=document.getElementById('current-answer-strip');
+  if(strip&&data.currentAnswer){
+    strip.style.display='block';
+    const reqEl=document.getElementById('current-answer-requested');
+    const stmtEl=document.getElementById('current-answer-statement');
+    const stageEl=document.getElementById('current-answer-stage');
+    const basisEl=document.getElementById('current-answer-basis');
+    if(reqEl)reqEl.textContent=data.currentAnswer.requested||'—';
+    if(stmtEl)stmtEl.textContent=data.currentAnswer.current||'—';
+    if(stageEl&&data.semanticMap&&data.semanticMap.quality)stageEl.textContent=data.semanticMap.quality.stage+' Verified';
+    if(basisEl&&data.semanticMap)basisEl.textContent='basis: '+(data.semanticMap.computedBasisId||'active');
+  }
+
+  if(data.semanticMap){
+    const projVisible=new Set(data.projection?(data.projection.visibleStepRefs||[]):[]);
+    const projPreserved=new Set(data.projection?(data.projection.preservedStepRefs||[]):[]);
+
+    currentSpec={
+      title:data.semanticMap.summary.requested||data.taskIntent.request.rawRequest,
+      description:data.semanticMap.summary.current,
+      flowId:data.semanticMap.mapId,
+      basisSha:data.semanticMap.computedBasisId||'active',
+      entrySymbolPath:(data.semanticMap.steps[0]||{}).technicalName||'',
+      steps:data.semanticMap.steps.map(s=>({
+        ordinal:s.ordinal,
+        name:s.name,
+        layer:s.layer,
+        kind:s.kind,
+        code:s.technicalName,
+        anchor:s.anchor,
+        codeLens:s.codeLens,
+        stateDelta:s.stateDelta,
+        sideEffect:s.sideEffect,
+        branch:s.branch,
+        rules:s.rules,
+        freshness:'fresh',
+        isVisible:projVisible.size===0||projVisible.has(s.stepId),
+        isPreserved:projPreserved.has(s.stepId),
+      })),
+      unknowns:data.unknowns||[]
+    };
+    currentFlowId=currentSpec.flowId;
+    selected=0;
+    renderAll();
   }
 }
 
@@ -687,7 +827,7 @@ function renderHeader(){
   const hash=entry.indexOf('#');
   document.getElementById('bc-entry').textContent=hash>=0?entry.slice(hash+1):entry;
   document.getElementById('bc-file').textContent=hash>=0?entry.slice(0,hash):'—';
-  document.getElementById('bc-flow').textContent=s.flowId.slice(0,16)+'@'+s.basisSha.slice(0,8);
+  document.getElementById('bc-flow').textContent=(s.flowId||'').slice(0,16)+'@'+((s.basisSha||'').slice(0,8)||'active');
   document.getElementById('flow-basis').textContent=s.steps.length+'단계';
   document.getElementById('flow-badge').textContent=s.flowId.slice(0,12);
   

@@ -1,0 +1,13 @@
+{
+  "name": "live-comprehension-workspace",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "test:e2e": "playwright test tests/e2e.spec.ts",
+    "test:a11y": "playwright test tests/a11y.spec.ts"
+  },
+  "devDependencies": {
+    "@axe-core/playwright": "^4.10.1",
+    "@playwright/test": "^1.50.1"
+  }
+}

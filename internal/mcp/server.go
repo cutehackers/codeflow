@@ -455,6 +455,32 @@ func (s *Server) listTools() []map[string]any {
 				},
 			},
 		},
+		{
+			"name":        "query_task_view",
+			"description": "Execute a task-scoped query against the workspace (e.g. mode=feature for business flows), returning Current Answer, SemanticMapIR, FlowViewProjection, and Evidence without requiring an external model.",
+			"inputSchema": map[string]any{
+				"type": "object",
+				"required": []string{"query"},
+				"properties": map[string]any{
+					"query":  map[string]any{"$ref": "https://codeflow.local/schemas/task-view-query.schema.json"},
+					"target": targetProp,
+					"token":  map[string]any{"type": "string", "description": "Auth token when RequireToken=true"},
+				},
+			},
+		},
+		{
+			"name":        "get_current_answer",
+			"description": "Get the verified Current Answer (requested vs current behavior) for a flow query or flowId.",
+			"inputSchema": map[string]any{
+				"type": "object",
+				"properties": map[string]any{
+					"query":  map[string]any{"type": "string", "description": "Natural language question or flow query"},
+					"flowId": map[string]any{"type": "string", "description": "Optional explicit flow ID"},
+					"target": targetProp,
+					"token":  map[string]any{"type": "string", "description": "Auth token when RequireToken=true"},
+				},
+			},
+		},
 	}
 }
 
@@ -828,6 +854,12 @@ func (s *Server) executeTool(ctx context.Context, name string, args map[string]a
 			"url":    url,
 			"token":  fv.AuthToken(),
 		}, nil
+
+	case "query_task_view":
+		return s.handleQueryTaskView(ctx, args)
+
+	case "get_current_answer":
+		return s.handleGetCurrentAnswer(ctx, args)
 
 	default:
 		return nil, fmt.Errorf("unknown tool %s", name)

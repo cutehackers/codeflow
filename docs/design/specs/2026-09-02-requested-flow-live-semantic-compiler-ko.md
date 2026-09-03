@@ -19,8 +19,8 @@
 - Raw authority: raw 문서의 제품 의도, 설계 결정, 데이터 계약, 실패 의미, 수용 기준과 기술 기준선.
 - Approval basis: 사용자가 raw 스팩을 여러 차례 리뷰를 거친 승인된 스팩으로 지정했고, `D1–D32` 결정 기록의 `Open Decisions: 없음`을 확인했다.
 - Normalization exception: 이 부모 파일은 상태 추적과 glossary, intent·goal·acceptance·slice 연결만 보유한다. raw 요구사항의 대체 요약본으로 사용하지 않는다.
-- Production code or schema changed: VS-01 only.
-- Implementation authorized: VS-01 by explicit user Deliver request. VS-02–VS-10 remain unauthorized.
+- Production code or schema changed: VS-01 and VS-02.
+- Implementation authorized: VS-01 (completed) and VS-02 (completed) by explicit user Deliver request. VS-03–VS-10 remain unauthorized.
 
 ## 2. Intent Registry
 
@@ -87,7 +87,7 @@ The raw P0 phase must exit before any P1 or P2 child is approved or implemented.
 
 | Slice | Primary goal | Dependencies | Parent acceptance | Status |
 |---|---|---|---|---|
-| VS-02 | `GOAL-01` | `P0 Exit Gate` and an available structural evidence seam | `A1–A4`, `A15`, `A16–A17`, `A25–A27` | Proposed, independent review passed |
+| VS-02 | `GOAL-01` | `P0 Exit Gate` and an available structural evidence seam | `A1–A4`, `A15`, `A16–A17`, `A25–A27` | Implemented, verification passing, independent review passed |
 | VS-01 | `GOAL-02` | `P0 Exit Gate`, VS-02 baseline seam | `A9`, `A25–A27` and raw §21.8 | Implemented, verification passing, independent review passed |
 | VS-03 | `GOAL-03` | `P0 Exit Gate`, VS-02 baseline seam, VS-01 snapshot-capable adapter boundary | `A5–A6`, `A9`, `A11`, `A25–A27` | Proposed, independent review passed |
 | VS-04 | `GOAL-04` | VS-02, VS-03 | `A7–A11`, `A23–A28` | Proposed, independent review passed |

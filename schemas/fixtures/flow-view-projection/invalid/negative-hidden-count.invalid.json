@@ -1,0 +1,23 @@
+{
+  "schemaId": "https://codeflow.local/schemas/flow-view-projection.schema.json",
+  "schemaVersion": 1,
+  "projectionId": "proj-bad-hidden-count",
+  "generationId": "gen-001",
+  "computedBasisId": "basis-001",
+  "mode": "feature",
+  "displayBudget": {
+    "targetMin": 7,
+    "targetMax": 15,
+    "enforcement": "soft"
+  },
+  "visibleStepRefs": ["step-01"],
+  "preservedStepRefs": ["step-01"],
+  "foldedSubflows": [
+    {
+      "foldId": "fold-01",
+      "entryStepRef": "step-01",
+      "exitStepRef": "step-02",
+      "hiddenCount": 0
+    }
+  ]
+}

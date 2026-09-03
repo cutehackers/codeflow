@@ -1,0 +1,67 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://codeflow.local/schemas/flow-view-projection.schema.json",
+  "title": "CodeFlow FlowView Projection",
+  "$comment": "Raw §10.10 and D32 normative schema for FlowViewProjection: soft 7~15 display budget, visibleStepRefs, preservedStepRefs, and foldedSubflows.",
+  "type": "object",
+  "required": [
+    "schemaId",
+    "schemaVersion",
+    "projectionId",
+    "generationId",
+    "computedBasisId",
+    "mode",
+    "displayBudget",
+    "visibleStepRefs",
+    "preservedStepRefs",
+    "foldedSubflows"
+  ],
+  "properties": {
+    "schemaId": {
+      "type": "string",
+      "enum": [
+        "https://codeflow.local/schemas/flow-view-projection.schema.json",
+        "codeflow.flow-view-projection"
+      ]
+    },
+    "schemaVersion": { "const": 1 },
+    "projectionId": { "type": "string", "minLength": 1 },
+    "generationId": { "type": "string", "minLength": 1 },
+    "computedBasisId": { "type": "string", "minLength": 1 },
+    "mode": {
+      "type": "string",
+      "enum": ["feature", "review", "impact", "debug", "incident", "onboarding"]
+    },
+    "displayBudget": {
+      "type": "object",
+      "required": ["targetMin", "targetMax", "enforcement"],
+      "properties": {
+        "targetMin": { "type": "integer", "minimum": 1 },
+        "targetMax": { "type": "integer", "minimum": 1 },
+        "enforcement": { "type": "string", "enum": ["soft", "strict"] }
+      }
+    },
+    "visibleStepRefs": {
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "preservedStepRefs": {
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "foldedSubflows": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["foldId", "entryStepRef", "exitStepRef", "hiddenCount"],
+        "properties": {
+          "foldId": { "type": "string" },
+          "entryStepRef": { "type": "string" },
+          "exitStepRef": { "type": "string" },
+          "hiddenCount": { "type": "integer", "minimum": 1 },
+          "drilldownTarget": { "type": "string" }
+        }
+      }
+    }
+  }
+}

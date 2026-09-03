@@ -43,6 +43,8 @@ Usage:
                               adapter pins, create .codeflow/workspace.json
   codeflow flows [path]       harvest flow candidates in automatic score order.
                               Flags: --json
+  codeflow query [path]       query task view and natural language feature flows.
+                              Flags: --mode, --request, --entry, --flow, --domain, --json
   codeflow publish [path]     harvest, slice, fuse, and atomically publish flows.
                               Flags: --limit <N>
   codeflow show <id|entry>    display flow steps and business rules.
@@ -70,6 +72,8 @@ func main() {
 		runInit(args)
 	case "flows":
 		runFlows(args)
+	case "query":
+		runQuery(args)
 	case "publish":
 		runPublish(args)
 	case "show":
@@ -464,6 +468,7 @@ func runShow(args []string) {
 func runServe(args []string) {
 	fs := flag.NewFlagSet("view", flag.ContinueOnError)
 	portFlag := fs.Int("port", 4567, "loopback port for FlowView UI")
+	tokenFlag := fs.String("token", "", "fixed auth token for testing or headless use")
 	if err := fs.Parse(reorderFlags(fs, args)); err != nil {
 		os.Exit(2)
 	}
@@ -475,8 +480,9 @@ func runServe(args []string) {
 
 	absTarget, _ := filepath.Abs(target)
 	srv, err := flowview.NewServer(flowview.Config{
-		RepoRoot: absTarget,
-		Port:     *portFlag,
+		RepoRoot:  absTarget,
+		Port:      *portFlag,
+		AuthToken: *tokenFlag,
 	})
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "start flowview: %v\n", err)

@@ -7,6 +7,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -18,8 +19,13 @@ import (
 	"sync"
 	"time"
 
+	"codeflow/internal/contractharness"
+	"codeflow/internal/detect"
 	"codeflow/internal/fusion"
 	"codeflow/internal/harvest"
+	"codeflow/internal/protocol"
+	"codeflow/internal/semantic"
+	"codeflow/internal/slicing"
 	"codeflow/internal/storage"
 )
 
@@ -72,6 +78,7 @@ func NewServer(cfg Config) (*Server, error) {
 	mux.HandleFunc("/api/approve", s.handleApprove)
 	mux.HandleFunc("/api/map", s.handleGetMap)
 	mux.HandleFunc("/api/map/override", s.handlePostLaneOverride)
+	mux.HandleFunc("/api/task/view", s.handleTaskView)
 
 	port := cfg.Port
 	ln, err := net.Listen("tcp", fmt.Sprintf("127.0.0.1:%d", port))
@@ -498,3 +505,149 @@ func (s *Server) handleApprove(w http.ResponseWriter, r *http.Request) {
 		"flowId": req.FlowID,
 	})
 }
+
+func (s *Server) handleTaskView(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet && r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	mode := r.URL.Query().Get("mode")
+	if mode == "" {
+		mode = "feature"
+	}
+	reqQuery := r.URL.Query().Get("query")
+	if reqQuery == "" {
+		reqQuery = r.URL.Query().Get("request")
+	}
+	flowID := r.URL.Query().Get("flowId")
+	entrySymbol := r.URL.Query().Get("entrySymbol")
+	domain := r.URL.Query().Get("domain")
+
+	if r.Method == http.MethodPost {
+		var body map[string]any
+		if err := json.NewDecoder(r.Body).Decode(&body); err == nil {
+			if m, ok := body["mode"].(string); ok && m != "" {
+				mode = m
+			}
+			if f, ok := body["feature"].(map[string]any); ok {
+				if q, ok := f["request"].(string); ok && q != "" {
+					reqQuery = q
+				}
+				if fid, ok := f["flowId"].(string); ok && fid != "" {
+					flowID = fid
+				}
+				if ent, ok := f["entrySymbol"].(string); ok && ent != "" {
+					entrySymbol = ent
+				}
+				if dom, ok := f["domain"].(string); ok && dom != "" {
+					domain = dom
+				}
+			}
+		}
+	}
+
+	query := &semantic.TaskViewQuery{
+		SchemaID:      "https://codeflow.local/schemas/task-view-query.schema.json",
+		SchemaVersion: 1,
+		Mode:          mode,
+		Feature: &semantic.FeatureQueryParams{
+			Request:     reqQuery,
+			FlowID:      flowID,
+			EntrySymbol: entrySymbol,
+			Domain:      domain,
+		},
+	}
+
+	qBytes, _ := json.Marshal(query)
+	if err := contractharness.ValidateTaskViewQuery(qBytes); err != nil {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"code":    semantic.ErrCodeMissingPrecondition,
+			"message": err.Error(),
+		})
+		return
+	}
+
+	ctx := r.Context()
+	det := detect.Detect(s.repoRoot)
+	lang := det.Language
+	if lang == "" || lang == "unknown" {
+		lang = "typescript"
+	}
+	adapterCfg, err := harvest.ResolveAdapter(lang, "")
+	if err != nil {
+		http.Error(w, fmt.Sprintf("resolve adapter: %v", err), http.StatusInternalServerError)
+		return
+	}
+	pool := protocol.NewPool(adapterCfg, 2)
+	defer pool.Close()
+
+	harvester := harvest.NewRunnerWithPool(pool)
+	candidates, err := harvester.Run(ctx, s.repoRoot)
+	if err != nil {
+		http.Error(w, fmt.Sprintf("harvest candidates: %v", err), http.StatusInternalServerError)
+		return
+	}
+
+	resolved, err := semantic.ResolveFeatureQueryTarget(query, candidates)
+	if err != nil {
+		var qErr *semantic.QueryError
+		if errors.As(err, &qErr) {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusBadRequest)
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"code":             qErr.Code,
+				"message":          qErr.Message,
+				"candidateTargets": qErr.CandidateTargets,
+			})
+			return
+		}
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	slicer := slicing.NewRunner(pool)
+	slicePayload, err := slicer.Slice(ctx, s.repoRoot, resolved.CandidateID, resolved.EntrySymbolPath, nil)
+	if err != nil {
+		http.Error(w, fmt.Sprintf("slice error: %v", err), http.StatusInternalServerError)
+		return
+	}
+
+	reqText := reqQuery
+	if reqText == "" {
+		reqText = resolved.Title
+	}
+
+	intent, err := semantic.NormalizeTaskIntent(reqText, semantic.IntentOptions{Mode: mode})
+	if err != nil {
+		http.Error(w, fmt.Sprintf("normalize intent: %v", err), http.StatusInternalServerError)
+		return
+	}
+
+	mapIR, proj, err := semantic.CompileDeterministicFeatureMap(resolved, intent, slicePayload, semantic.CompileOptions{
+		ComputedBasisID: slicePayload.ComputedBasisID,
+		WorkspaceEpoch:  slicePayload.WorkspaceEpoch,
+	})
+	if err != nil {
+		http.Error(w, fmt.Sprintf("compile map: %v", err), http.StatusInternalServerError)
+		return
+	}
+
+	evidenceRecords, _ := semantic.ExtractAndRedactEvidence(resolved, slicePayload, s.repoRoot)
+
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(map[string]any{
+		"currentAnswer": map[string]string{
+			"requested": mapIR.Summary.Requested,
+			"current":   mapIR.Summary.Current,
+		},
+		"taskIntent":  intent,
+		"semanticMap": mapIR,
+		"projection":  proj,
+		"evidence":    evidenceRecords,
+		"unknowns":    mapIR.Unknowns,
+	})
+}
+

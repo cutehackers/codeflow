@@ -1,0 +1,13 @@
+{
+  "schemaId": "https://codeflow.local/schemas/task-intent.schema.json",
+  "schemaVersion": 1,
+  "taskId": "task-missing-raw",
+  "revision": 1,
+  "request": {},
+  "normalizedIntent": {
+    "expectedOutcome": "missing rawRequest"
+  },
+  "acceptanceCriteria": [],
+  "intentStatus": "parsed",
+  "mode": "feature"
+}

@@ -1,7 +1,8 @@
 # 요청 흐름 이해와 실시간 Semantic Compiler — VS-02 자연어로 기능 흐름을 이해한다
 
 - Contract ID: `REQUESTED-FLOW-LIVE-SEMANTIC-COMPILER-VS-02`
-- Contract Status: Proposed
+- Contract Status: Approved
+- Implementation Status: Completed
 - Independent Review: Passed (`gpt-5.6-terra`, high)
 - Parent Contract: `docs/design/specs/2026-09-02-requested-flow-live-semantic-compiler-ko.md`
 - Created: 2026-09-02
@@ -129,6 +130,26 @@ User natural-language request → Task Intent normalizer → feature query valid
 | TypeScript adapter compatibility | adapter contract is consumed by baseline | `node adapters/typescript/test/index.test.js` | TypeScript/JavaScript evidence fixtures pass | When applicable |
 | Browser UX | FlowView와 Evidence navigation user surface is in scope; raw §21.10 browser verification is required before slice completion | `npm --prefix web/live-comprehension-workspace run test:e2e -- --project=chromium` | Playwright proves feature query, Flow Rail, critical-boundary preservation, Evidence/CodeLens navigation and unknown/coverage display | Yes |
 | Accessibility | FlowView and Evidence Dock are user-facing | `npm --prefix web/live-comprehension-workspace run test:a11y` | `@axe-core/playwright`, keyboard navigation, screen-reader outline, reduced motion and contrast evidence pass | Yes |
+
+### 13.1. Verification Results
+
+| Check | Exact Command | Result | Evidence Summary |
+|---|---|---|---|
+| Acceptance behavior | `go test ./internal/mcp ./internal/harvest ./internal/slicing ./internal/fusion ./internal/flowview ./internal/semantic ./internal/e2e` | PASS | All 7 acceptance packages pass; task query, deterministic compilation, CodeLens, unknowns verified |
+| Slice tests | `go test ./internal/mcp ./internal/harvest ./internal/slicing ./internal/fusion ./internal/flowview ./internal/semantic` | PASS | All core unit/slice tests pass cleanly |
+| Type, static analysis, and lint | `go vet ./...` | PASS | Exit code 0, 0 findings across all packages |
+| Affected build | `go build ./...` | PASS | Core and cmd/codeflow build successfully with no warnings |
+| Architecture and policy | `go test ./internal/contractharness -run 'TestValidateGoldenFixtures\|TestValidateExportedContractBoundary'` | PASS | Golden fixtures: 19 valid + 37 invalid = 56 exercised; task-intent, task-view-query, semantic-map-ir, flow-view-projection pass |
+| Regression | `go test ./...` | PASS | Full Go regression suite (26 packages) passes with zero errors |
+| Security | `go test ./internal/secret ./internal/fusion ./internal/flowview ./internal/semantic ./internal/e2e` | PASS | Secret redaction enforced and product source confirmed strictly read-only |
+| Data and migration compatibility | `go test ./internal/contractharness` | PASS | All registered schema IDs compile and validate |
+| Performance and concurrency | N/A | Recorded | Repository has no configured initial-query benchmark |
+| Reliability and flake | `go test ./internal/mcp ./internal/e2e -count=1` | PASS | Count=1 run deterministic without flakiness |
+| Coverage | N/A | Recorded | No repository coverage threshold configured |
+| Dart adapter compatibility | `cd adapters/dart && dart test` | PASS | 38/38 Dart tests pass |
+| TypeScript adapter compatibility | `node adapters/typescript/test/index.test.js` | PASS | All unit and adversarial empirical suites pass |
+| Browser UX | `npm --prefix web/live-comprehension-workspace run test:e2e -- --project=chromium` | PASS | Playwright Chromium passes: feature query, ambiguity resolution, Current Answer, Flow Rail, CodeLens |
+| Accessibility | `npm --prefix web/live-comprehension-workspace run test:a11y` | PASS | Axe-core accessibility audit passes with 0 critical or serious violations |
 
 ## 14. What Could Be Wrong
 

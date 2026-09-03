@@ -1,0 +1,6 @@
+{
+  "schemaId": "https://codeflow.local/schemas/task-view-query.schema.json",
+  "schemaVersion": 1,
+  "mode": "feature",
+  "feature": {}
+}

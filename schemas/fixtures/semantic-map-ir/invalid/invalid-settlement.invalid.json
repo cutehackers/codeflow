@@ -1,0 +1,27 @@
+{
+  "schemaId": "https://codeflow.local/schemas/semantic-map-ir.schema.json",
+  "schemaVersion": 1,
+  "mapId": "map-bad-settlement",
+  "generationId": "gen-001",
+  "computedBasisId": "basis-001",
+  "publicationKind": "initial",
+  "freshness": "current",
+  "settlement": "invalid_settlement_status",
+  "enrichmentStatus": "not_requested",
+  "quality": {
+    "stage": "Q1"
+  },
+  "task": {
+    "taskId": "task-01",
+    "intentRevision": 1,
+    "mode": "feature"
+  },
+  "basis": {},
+  "summary": {
+    "requested": "req",
+    "current": "cur"
+  },
+  "steps": [],
+  "edges": [],
+  "unknowns": []
+}

@@ -1,0 +1,98 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://codeflow.local/schemas/task-intent.schema.json",
+  "title": "CodeFlow Task Intent",
+  "$comment": "Raw §10.1 and D29 normative schema for Task Intent: immutable rawRequest, normalizedIntent, acceptanceCriteria, and lifecycle intentStatus.",
+  "type": "object",
+  "required": [
+    "schemaId",
+    "schemaVersion",
+    "taskId",
+    "revision",
+    "request",
+    "normalizedIntent",
+    "acceptanceCriteria",
+    "intentStatus",
+    "mode"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "schemaId": {
+      "type": "string",
+      "enum": [
+        "https://codeflow.local/schemas/task-intent.schema.json",
+        "codeflow.task-intent"
+      ]
+    },
+    "schemaVersion": { "const": 1 },
+    "taskId": { "type": "string", "minLength": 1, "maxLength": 128 },
+    "revision": { "type": "integer", "minimum": 1 },
+    "request": {
+      "type": "object",
+      "required": ["rawRequest"],
+      "additionalProperties": false,
+      "properties": {
+        "rawRequest": { "type": "string", "minLength": 1 }
+      }
+    },
+    "normalizedIntent": {
+      "type": "object",
+      "required": ["expectedOutcome"],
+      "additionalProperties": false,
+      "properties": {
+        "actor": { "type": "string" },
+        "trigger": { "type": "string" },
+        "expectedOutcome": { "type": "string", "minLength": 1 },
+        "unresolvedInterpretations": {
+          "type": "array",
+          "items": { "type": "string" }
+        }
+      }
+    },
+    "acceptanceCriteria": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "text"],
+        "additionalProperties": false,
+        "properties": {
+          "id": { "type": "string", "minLength": 1 },
+          "text": { "type": "string", "minLength": 1 }
+        }
+      }
+    },
+    "intentStatus": {
+      "type": "string",
+      "enum": ["parsed", "needs_confirmation", "user_confirmed"]
+    },
+    "scopeHints": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "entrySymbols": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "domains": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "excludedPaths": {
+          "type": "array",
+          "items": { "type": "string" }
+        }
+      }
+    },
+    "mode": {
+      "type": "string",
+      "enum": ["feature", "review", "impact", "debug", "incident", "onboarding"]
+    },
+    "authority": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "source": { "type": "string" }
+      }
+    }
+  }
+}

@@ -1,0 +1,19 @@
+{
+  "schemaId": "https://codeflow.local/schemas/task-view-query.schema.json",
+  "schemaVersion": 1,
+  "mode": "feature",
+  "common": {
+    "taskId": "task-auth-signup",
+    "intentRevision": 1,
+    "basisSelector": {
+      "kind": "active"
+    },
+    "filters": {
+      "includeTests": true,
+      "maxVisibleCoreSteps": 15
+    }
+  },
+  "feature": {
+    "request": "이메일 회원가입 흐름"
+  }
+}

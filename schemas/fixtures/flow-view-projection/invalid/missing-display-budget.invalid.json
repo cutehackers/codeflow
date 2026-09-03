@@ -1,0 +1,11 @@
+{
+  "schemaId": "https://codeflow.local/schemas/flow-view-projection.schema.json",
+  "schemaVersion": 1,
+  "projectionId": "proj-bad-budget",
+  "generationId": "gen-001",
+  "computedBasisId": "basis-001",
+  "mode": "feature",
+  "visibleStepRefs": ["step-01"],
+  "preservedStepRefs": ["step-01"],
+  "foldedSubflows": []
+}

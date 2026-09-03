@@ -1,0 +1,250 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://codeflow.local/schemas/semantic-map-ir.schema.json",
+  "title": "CodeFlow Semantic Map IR",
+  "$comment": "Raw §10.10 normative schema for SemanticMapIR: complete requested flow preservation, quality stage, critical obligations, task context, and evidence.",
+  "type": "object",
+  "required": [
+    "schemaId",
+    "schemaVersion",
+    "mapId",
+    "generationId",
+    "computedBasisId",
+    "publicationKind",
+    "freshness",
+    "settlement",
+    "enrichmentStatus",
+    "quality",
+    "task",
+    "basis",
+    "summary",
+    "steps",
+    "edges",
+    "unknowns"
+  ],
+  "properties": {
+    "schemaId": {
+      "type": "string",
+      "enum": [
+        "https://codeflow.local/schemas/semantic-map-ir.schema.json",
+        "codeflow.semantic-map-ir"
+      ]
+    },
+    "schemaVersion": { "const": 1 },
+    "mapId": { "type": "string", "minLength": 1 },
+    "generationId": { "type": "string", "minLength": 1 },
+    "computedBasisId": { "type": "string", "minLength": 1 },
+    "validatedAgainstSnapshotId": { "type": "string" },
+    "generationSequence": { "type": "integer", "minimum": 0 },
+    "derivationParent": { "type": "string" },
+    "supersedes": { "type": "string" },
+    "publicationKind": {
+      "type": "string",
+      "enum": ["initial", "checkpoint", "refinement"]
+    },
+    "freshness": {
+      "type": "string",
+      "enum": ["current", "historical", "invalid"]
+    },
+    "settlement": {
+      "type": "string",
+      "enum": ["pending", "passed", "failed"]
+    },
+    "enrichmentStatus": {
+      "type": "string",
+      "enum": ["not_requested", "pending", "available", "timed_out", "unavailable"]
+    },
+    "quality": {
+      "type": "object",
+      "required": ["stage"],
+      "properties": {
+        "stage": {
+          "type": "string",
+          "enum": ["Q1", "Q2", "Q3", "Q4"]
+        },
+        "criticalObligations": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["obligationId", "kind", "required", "status"],
+            "properties": {
+              "obligationId": { "type": "string" },
+              "kind": { "type": "string" },
+              "required": { "type": "boolean" },
+              "targetRef": { "type": "string" },
+              "status": {
+                "type": "string",
+                "enum": ["pending", "verified", "unknown", "conflicting", "invalid"]
+              },
+              "evidenceRefs": {
+                "type": "array",
+                "items": { "type": "string" }
+              }
+            }
+          }
+        },
+        "criticalCoverageSummary": {
+          "type": "object",
+          "properties": {
+            "required": { "type": "integer" },
+            "verified": { "type": "integer" }
+          }
+        },
+        "unresolvedCriticalCount": { "type": "integer" },
+        "conflictingCriticalCount": { "type": "integer" },
+        "degradations": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["code", "impact", "recoveryCondition"],
+            "properties": {
+              "code": { "type": "string" },
+              "scopeRefs": { "type": "array", "items": { "type": "string" } },
+              "impact": { "type": "string" },
+              "recoveryCondition": { "type": "string" }
+            }
+          }
+        }
+      }
+    },
+    "task": {
+      "type": "object",
+      "required": ["taskId", "intentRevision", "mode"],
+      "properties": {
+        "taskId": { "type": "string" },
+        "intentRevision": { "type": "integer", "minimum": 1 },
+        "intentStatus": { "type": "string" },
+        "mode": { "type": "string" }
+      }
+    },
+    "basis": {
+      "type": "object",
+      "properties": {
+        "workspaceEpoch": { "type": "integer" },
+        "computedWorkspaceSnapshotId": { "type": "string" },
+        "computedBasisId": { "type": "string" },
+        "analysisReadSetId": { "type": "string" },
+        "causalObservationClosureId": { "type": "string" }
+      }
+    },
+    "summary": {
+      "type": "object",
+      "required": ["requested", "current"],
+      "properties": {
+        "requested": { "type": "string" },
+        "current": { "type": "string" }
+      }
+    },
+    "steps": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["stepId", "ordinal", "name", "anchor"],
+        "properties": {
+          "stepId": { "type": "string" },
+          "ordinal": { "type": "integer", "minimum": 1 },
+          "name": { "type": "string" },
+          "technicalName": { "type": "string" },
+          "layer": { "type": "string" },
+          "kind": { "type": "string" },
+          "anchor": { "$ref": "https://codeflow.local/schemas/identity.schema.json#/$defs/anchor" },
+          "codeLens": {
+            "type": "object",
+            "required": ["path", "startLine", "endLine"],
+            "properties": {
+              "path": { "type": "string" },
+              "startLine": { "type": "integer" },
+              "endLine": { "type": "integer" },
+              "viewStartLine": { "type": "integer" },
+              "viewEndLine": { "type": "integer" }
+            }
+          },
+          "stateDelta": {
+            "type": "object",
+            "properties": {
+              "before": { "type": "string" },
+              "after": { "type": "string" }
+            }
+          },
+          "sideEffect": { "type": "string" },
+          "branch": { "type": "string" },
+          "rules": { "type": "array", "items": { "type": "string" } },
+          "evidenceRefs": { "type": "array", "items": { "type": "string" } }
+        }
+      }
+    },
+    "edges": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["kind", "toSymbolPath", "resolutionStatus"],
+        "properties": {
+          "fromStepId": { "type": "string" },
+          "toStepId": { "type": "string" },
+          "toSymbolPath": { "type": "string" },
+          "kind": { "type": "string" },
+          "resolutionStatus": { "type": "string" }
+        }
+      }
+    },
+    "requirementAlignment": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["criterionId", "status"],
+        "properties": {
+          "criterionId": { "type": "string" },
+          "status": {
+            "type": "string",
+            "enum": ["confirmed", "partial", "not_observed", "conflicting", "unknown"]
+          },
+          "coveredStepRefs": { "type": "array", "items": { "type": "string" } },
+          "evidenceRefs": { "type": "array", "items": { "type": "string" } }
+        }
+      }
+    },
+    "evidence": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["evidenceId", "kind", "sourceAuthority", "anchor"],
+        "properties": {
+          "evidenceId": { "type": "string" },
+          "kind": { "type": "string" },
+          "sourceAuthority": { "type": "string" },
+          "computedBasisId": { "type": "string" },
+          "documentRevisionId": { "type": "string" },
+          "anchor": { "$ref": "https://codeflow.local/schemas/identity.schema.json#/$defs/anchor" },
+          "producer": {
+            "type": "object",
+            "properties": {
+              "name": { "type": "string" },
+              "version": { "type": "string" }
+            }
+          },
+          "validationStatus": { "type": "string" },
+          "redactionStatus": { "type": "string" }
+        }
+      }
+    },
+    "unknowns": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["subject", "reason"],
+        "properties": {
+          "subject": { "type": "string" },
+          "reason": { "type": "string" },
+          "location": { "type": "string" }
+        }
+      }
+    },
+    "coverage": {
+      "type": "object",
+      "properties": {
+        "includedSourceRoots": { "type": "array", "items": { "type": "string" } },
+        "excludedReasons": { "type": "array", "items": { "type": "string" } }
+      }
+    }
+  }
+}

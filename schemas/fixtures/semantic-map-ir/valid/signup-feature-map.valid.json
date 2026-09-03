@@ -1,0 +1,104 @@
+{
+  "schemaId": "https://codeflow.local/schemas/semantic-map-ir.schema.json",
+  "schemaVersion": 1,
+  "mapId": "map-auth-signup-001",
+  "generationId": "gen-001",
+  "computedBasisId": "basis-snap-001",
+  "publicationKind": "initial",
+  "freshness": "current",
+  "settlement": "pending",
+  "enrichmentStatus": "not_requested",
+  "quality": {
+    "stage": "Q2",
+    "criticalObligations": [
+      {
+        "obligationId": "ob-01",
+        "kind": "entry",
+        "required": true,
+        "targetRef": "step-01",
+        "status": "verified",
+        "evidenceRefs": ["ev-01"]
+      },
+      {
+        "obligationId": "ob-02",
+        "kind": "result",
+        "required": true,
+        "targetRef": "step-02",
+        "status": "verified",
+        "evidenceRefs": ["ev-02"]
+      }
+    ],
+    "criticalCoverageSummary": {
+      "required": 2,
+      "verified": 2
+    },
+    "unresolvedCriticalCount": 0,
+    "conflictingCriticalCount": 0,
+    "degradations": []
+  },
+  "task": {
+    "taskId": "task-auth-signup",
+    "intentRevision": 1,
+    "intentStatus": "parsed",
+    "mode": "feature"
+  },
+  "basis": {
+    "workspaceEpoch": 1,
+    "computedWorkspaceSnapshotId": "basis-snap-001"
+  },
+  "summary": {
+    "requested": "사용자 이메일 회원가입 흐름 분석",
+    "current": "이메일 검증 후 사용자 계정을 생성하고 결과를 반환함"
+  },
+  "steps": [
+    {
+      "stepId": "step-01",
+      "ordinal": 1,
+      "name": "Submit Signup Form",
+      "technicalName": "EmailSignupNotifier.submit",
+      "layer": "presentation",
+      "kind": "user_action",
+      "anchor": {
+        "repoRelativePath": "lib/main.dart",
+        "byteRange": [10, 50],
+        "fileHash": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+        "spanHash": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+        "enclosingSymbolPath": "EmailSignupNotifier.submit",
+        "canonicalAstFingerprint": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+      },
+      "codeLens": {
+        "path": "lib/main.dart",
+        "startLine": 2,
+        "endLine": 5,
+        "viewStartLine": 1,
+        "viewEndLine": 10
+      }
+    },
+    {
+      "stepId": "step-02",
+      "ordinal": 2,
+      "name": "Create Account Result",
+      "technicalName": "AuthService.createAccount",
+      "layer": "domain",
+      "kind": "mutation",
+      "anchor": {
+        "repoRelativePath": "lib/auth_service.dart",
+        "byteRange": [20, 80],
+        "fileHash": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+        "spanHash": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+        "enclosingSymbolPath": "AuthService.createAccount",
+        "canonicalAstFingerprint": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+      }
+    }
+  ],
+  "edges": [
+    {
+      "fromStepId": "step-01",
+      "toStepId": "step-02",
+      "toSymbolPath": "AuthService.createAccount",
+      "kind": "call",
+      "resolutionStatus": "resolved"
+    }
+  ],
+  "unknowns": []
+}

@@ -1,0 +1,30 @@
+{
+  "schemaId": "https://codeflow.local/schemas/task-intent.schema.json",
+  "schemaVersion": 1,
+  "taskId": "task-auth-signup",
+  "revision": 1,
+  "request": {
+    "rawRequest": "사용자 이메일 회원가입 흐름을 분석해줘"
+  },
+  "normalizedIntent": {
+    "actor": "user",
+    "trigger": "signup submit button click",
+    "expectedOutcome": "validate email and create account",
+    "unresolvedInterpretations": []
+  },
+  "acceptanceCriteria": [
+    {
+      "id": "AC-01",
+      "text": "validate email format and unique existence"
+    }
+  ],
+  "intentStatus": "parsed",
+  "scopeHints": {
+    "entrySymbols": ["EmailSignupNotifier.submit"],
+    "domains": ["auth"]
+  },
+  "mode": "feature",
+  "authority": {
+    "source": "user"
+  }
+}

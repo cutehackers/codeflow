@@ -1,0 +1,146 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://codeflow.local/schemas/task-view-query.schema.json",
+  "title": "CodeFlow Task View Query",
+  "$comment": "Raw §8.2 and D22 normative schema for Task View Query: mode discriminator with required mode variants.",
+  "type": "object",
+  "required": ["schemaId", "schemaVersion", "mode"],
+  "properties": {
+    "schemaId": {
+      "type": "string",
+      "enum": [
+        "https://codeflow.local/schemas/task-view-query.schema.json",
+        "codeflow.task-view-query"
+      ]
+    },
+    "schemaVersion": { "const": 1 },
+    "mode": {
+      "type": "string",
+      "enum": ["feature", "review", "impact", "debug", "incident", "onboarding"]
+    },
+    "common": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "taskId": { "type": "string" },
+        "intentRevision": { "type": "integer", "minimum": 1 },
+        "basisSelector": {
+          "type": "object",
+          "required": ["kind"],
+          "additionalProperties": false,
+          "properties": {
+            "kind": { "type": "string", "enum": ["active", "generation", "workspaceSnapshot"] },
+            "id": { "type": "string" }
+          }
+        },
+        "filters": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "includeTests": { "type": "boolean" },
+            "includeRuntimeEvidence": { "type": "boolean" },
+            "maxVisibleCoreSteps": { "type": "integer", "minimum": 1, "maximum": 100 }
+          }
+        }
+      }
+    },
+    "feature": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "request": { "type": "string", "minLength": 1 },
+        "flowId": { "type": "string", "minLength": 1 },
+        "entrySymbol": { "type": "string", "minLength": 1 },
+        "domain": { "type": "string", "minLength": 1 }
+      },
+      "anyOf": [
+        { "required": ["request"] },
+        { "required": ["flowId"] },
+        { "required": ["entrySymbol"] },
+        { "required": ["domain"] }
+      ]
+    },
+    "review": {
+      "type": "object",
+      "required": ["baseline", "current"],
+      "additionalProperties": false,
+      "properties": {
+        "baseline": { "type": "string", "minLength": 1 },
+        "current": { "type": "string", "minLength": 1 }
+      }
+    },
+    "impact": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "symbolId": { "type": "string", "minLength": 1 },
+        "changeBatchId": { "type": "string", "minLength": 1 }
+      },
+      "anyOf": [
+        { "required": ["symbolId"] },
+        { "required": ["changeBatchId"] }
+      ]
+    },
+    "debug": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "error": { "type": "string", "minLength": 1 },
+        "symptom": { "type": "string", "minLength": 1 },
+        "failureEvidenceId": { "type": "string", "minLength": 1 }
+      },
+      "anyOf": [
+        { "required": ["error"] },
+        { "required": ["symptom"] },
+        { "required": ["failureEvidenceId"] }
+      ]
+    },
+    "incident": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "traceId": { "type": "string", "minLength": 1 },
+        "incidentEvidenceId": { "type": "string", "minLength": 1 }
+      },
+      "anyOf": [
+        { "required": ["traceId"] },
+        { "required": ["incidentEvidenceId"] }
+      ]
+    },
+    "onboarding": {
+      "type": "object",
+      "required": ["repositoryId"],
+      "additionalProperties": false,
+      "properties": {
+        "repositoryId": { "type": "string", "minLength": 1 },
+        "domain": { "type": "string" }
+      }
+    }
+  },
+  "oneOf": [
+    {
+      "properties": { "mode": { "const": "feature" } },
+      "required": ["feature"]
+    },
+    {
+      "properties": { "mode": { "const": "review" } },
+      "required": ["review"]
+    },
+    {
+      "properties": { "mode": { "const": "impact" } },
+      "required": ["impact"]
+    },
+    {
+      "properties": { "mode": { "const": "debug" } },
+      "required": ["debug"]
+    },
+    {
+      "properties": { "mode": { "const": "incident" } },
+      "required": ["incident"]
+    },
+    {
+      "properties": { "mode": { "const": "onboarding" } },
+      "required": ["onboarding"]
+    }
+  ]
+}

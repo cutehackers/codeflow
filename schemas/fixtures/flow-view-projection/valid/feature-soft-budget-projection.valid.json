@@ -1,0 +1,22 @@
+{
+  "schemaId": "https://codeflow.local/schemas/flow-view-projection.schema.json",
+  "schemaVersion": 1,
+  "projectionId": "proj-gen-001-feature",
+  "generationId": "gen-001",
+  "computedBasisId": "basis-snap-001",
+  "mode": "feature",
+  "displayBudget": {
+    "targetMin": 7,
+    "targetMax": 15,
+    "enforcement": "soft"
+  },
+  "visibleStepRefs": [
+    "step-01",
+    "step-02"
+  ],
+  "preservedStepRefs": [
+    "step-01",
+    "step-02"
+  ],
+  "foldedSubflows": []
+}

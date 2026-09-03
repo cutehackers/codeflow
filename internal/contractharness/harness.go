@@ -39,6 +39,10 @@ var SchemaIDs = []string{
 	BaseURL + "adapter-protocol.schema.json",
 	BaseURL + "core-artifact.schema.json",
 	BaseURL + "layers-config.schema.json",
+	BaseURL + "task-intent.schema.json",
+	BaseURL + "task-view-query.schema.json",
+	BaseURL + "semantic-map-ir.schema.json",
+	BaseURL + "flow-view-projection.schema.json",
 }
 
 // SchemasDir locates the repo's schemas/ directory relative to this source
