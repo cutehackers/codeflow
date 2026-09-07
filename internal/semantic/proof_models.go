@@ -2,6 +2,8 @@ package semantic
 
 import (
 	"time"
+
+	"codeflow/internal/rflscvs02"
 )
 
 // GenerationProofManifest represents the canonical proof manifest for a published generation (Raw §10.11, VS-04).
@@ -11,6 +13,7 @@ type GenerationProofManifest struct {
 	ProofID                        string                   `json:"proofId"`
 	GenerationID                   string                   `json:"generationId"`
 	ComputedBasisID                string                   `json:"computedBasisId"`
+	ComputedSnapshotID             string                   `json:"computedSnapshotId"`
 	ValidatedAgainstSnapshotID     string                   `json:"validatedAgainstSnapshotId"`
 	ValidatedWorkspaceDeltaID      *string                  `json:"validatedWorkspaceDeltaId,omitempty"`
 	TaskIntentRevision             int                      `json:"taskIntentRevision"`
@@ -19,11 +22,12 @@ type GenerationProofManifest struct {
 	CausalObservationClosureID     string                   `json:"causalObservationClosureId"`
 	CausalObservationClosureDigest string                   `json:"causalObservationClosureDigest"`
 	CapabilityProfileDigest        string                   `json:"capabilityProfileDigest,omitempty"`
+	WorkspaceEpoch                 int64                    `json:"workspaceEpoch"`
 	CurrentPublication             CurrentPublicationResult `json:"currentPublication"`
 	SettlementEvaluation           SettlementEvaluation     `json:"settlementEvaluation"`
 	ArtifactRefs                   ArtifactRefs             `json:"artifactRefs"`
 	ExpectedLiveHeadSnapshotID     string                   `json:"expectedLiveHeadSnapshotId"`
-	ExpectedPreviousGenerationID   *string                  `json:"expectedPreviousGenerationId,omitempty"`
+	ExpectedPreviousGenerationID   *string                  `json:"expectedPreviousGenerationId"`
 	PublishedAt                    time.Time                `json:"publishedAt"`
 }
 
@@ -47,10 +51,13 @@ type SettlementEvaluation struct {
 
 // ArtifactRefs contains CAS references for canonical artifacts of the generation.
 type ArtifactRefs struct {
-	SemanticMap   string `json:"semanticMap"`
-	SemanticDelta string `json:"semanticDelta,omitempty"`
-	EvidenceIndex string `json:"evidenceIndex,omitempty"`
-	Projection    string `json:"projection,omitempty"`
+	SemanticMap        string `json:"semanticMap"`
+	SemanticDelta      string `json:"semanticDelta,omitempty"`
+	EvidenceIndex      string `json:"evidenceIndex,omitempty"`
+	Projection         string `json:"projection,omitempty"`
+	AnalysisReadSet    string `json:"analysisReadSet,omitempty"`
+	ObservationClosure string `json:"observationClosure,omitempty"`
+	AnalyzerResult     string `json:"analyzerResult,omitempty"`
 }
 
 // ActivePointer represents the atomic active generation pointer in storage (Raw §10.11).
@@ -63,8 +70,8 @@ type ActivePointer struct {
 	ComputedBasisID              string    `json:"computedBasisId"`
 	ValidatedAgainstSnapshotID   string    `json:"validatedAgainstSnapshotId"`
 	ExpectedLiveHeadSnapshotID   string    `json:"expectedLiveHeadSnapshotId"`
-	ExpectedPreviousGenerationID *string   `json:"expectedPreviousGenerationId,omitempty"`
-	WorkspaceEpoch               string    `json:"workspaceEpoch"`
+	ExpectedPreviousGenerationID *string   `json:"expectedPreviousGenerationId"`
+	WorkspaceEpoch               int64     `json:"workspaceEpoch"`
 	TaskIntentRevision           int       `json:"taskIntentRevision"`
 	NormalizedQueryHash          string    `json:"normalizedQueryHash"`
 	FlowCount                    int       `json:"flowCount"`
@@ -88,22 +95,30 @@ type EventEnvelope struct {
 
 // CausalObservationClosure captures dependencies, negative lookups, memberships, and frontiers (Raw §10.5).
 type CausalObservationClosure struct {
-	SchemaID                       string                   `json:"schemaId"`
-	SchemaVersion                  int                      `json:"schemaVersion"`
-	ClosureID                      string                   `json:"closureId"`
-	ComputedBasisID                string                   `json:"computedBasisId"`
-	TaskIntentRevision             int                      `json:"taskIntentRevision"`
-	NormalizedQueryHash            string                   `json:"normalizedQueryHash"`
-	AnalysisReadSetID              string                   `json:"analysisReadSetId"`
-	PositiveDependencies           PositiveDependencies     `json:"positiveDependencies"`
-	NegativeObservations           []NegativeObservation    `json:"negativeObservations"`
-	MembershipObservations         []MembershipObservation  `json:"membershipObservations"`
-	DependencyFrontiers            []DependencyFrontier     `json:"dependencyFrontiers"`
-	CapabilityProfile              *CapabilityProfile       `json:"capabilityProfile,omitempty"`
-	CoverageBoundary               *CoverageBoundary        `json:"coverageBoundary,omitempty"`
-	ClosureStatus                  string                   `json:"closureStatus"` // closed | open
-	IncompleteReasons              []string                 `json:"incompleteReasons,omitempty"`
-	ClosureDigest                  string                   `json:"closureDigest"`
+	SchemaID               string                  `json:"schemaId"`
+	SchemaVersion          int                     `json:"schemaVersion"`
+	ClosureID              string                  `json:"closureId"`
+	ComputedBasisID        string                  `json:"computedBasisId"`
+	WorkspaceEpoch         int64                   `json:"workspaceEpoch"`
+	TaskIntentRevision     int                     `json:"taskIntentRevision"`
+	NormalizedQueryHash    string                  `json:"normalizedQueryHash"`
+	RequiredObservations   []string                `json:"requiredObservations,omitempty"`
+	MeasuredObservations   []string                `json:"measuredObservations,omitempty"`
+	AnalysisReadSetID      string                  `json:"analysisReadSetId"`
+	PositiveDependencies   PositiveDependencies    `json:"positiveDependencies"`
+	NegativeObservations   []NegativeObservation   `json:"negativeObservations"`
+	MembershipObservations []MembershipObservation `json:"membershipObservations"`
+	DependencyFrontiers    []DependencyFrontier    `json:"dependencyFrontiers"`
+	CapabilityProfile      *CapabilityProfile      `json:"capabilityProfile,omitempty"`
+	CoverageBoundary       *CoverageBoundary       `json:"coverageBoundary,omitempty"`
+	ClosureStatus          string                  `json:"closureStatus"` // closed | open
+	IncompleteReasons      []string                `json:"incompleteReasons,omitempty"`
+	ClosureDigest          string                  `json:"closureDigest"`
+	// CanonicalResult retains the lossless VS-02 evidence that established this
+	// closure. It is intentionally not serialized as part of the legacy
+	// semantic closure shape. Current publication must validate this envelope
+	// before using the compatibility projection above.
+	CanonicalResult *rflscvs02.Result `json:"-"`
 }
 
 type PositiveDependencies struct {
@@ -139,13 +154,19 @@ type CapabilityProfile struct {
 
 // VerifiedGap describes a verified gap between last verified generation and current workspace state (Raw §7.3, §7.4).
 type VerifiedGap struct {
+	SchemaID          string    `json:"schemaId,omitempty"`
+	SchemaVersion     int       `json:"schemaVersion,omitempty"`
 	Freshness         string    `json:"freshness"` // last_verified
 	Activity          string    `json:"activity"`  // editing
 	LastVerifiedGenID string    `json:"lastVerifiedGenId"`
 	LatestSnapshotID  string    `json:"latestSnapshotId"`
+	WorkspaceEpoch    int64     `json:"workspaceEpoch"`
 	AffectedScope     []string  `json:"affectedScope"`
 	AnalysisLagMs     int64     `json:"analysisLagMs"`
 	PendingRevisions  int       `json:"pendingRevisions"`
 	IntersectedCauses []string  `json:"intersectedCauses"`
 	Timestamp         time.Time `json:"timestamp"`
+	TraceID           string    `json:"traceId,omitempty"`
+	DeltaRef          string    `json:"deltaRef,omitempty"`
+	ClosureRef        string    `json:"closureRef,omitempty"`
 }

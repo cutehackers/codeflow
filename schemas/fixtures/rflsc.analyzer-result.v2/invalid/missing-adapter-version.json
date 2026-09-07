@@ -1,0 +1,17 @@
+{
+  "schemaId":"https://codeflow.local/schemas/rflsc.analyzer-result.v2.schema.json",
+  "schemaVersion":2,
+  "requestId":"req-1",
+  "operation":"slice",
+  "analyzerRevision":"go-structural/0.2.0",
+  "workspaceEpoch":7,
+  "computedBasisId":"basis-1",
+  "snapshotId":"snap-1",
+  "snapshotTreeDigest":"tree-1",
+  "dependencyFingerprint":"dep-1",
+  "analysisReadSet":{},
+  "causalObservationClosure":{},
+  "capabilityProfile":{},
+  "coverage":{"includedSourceRoots":[],"measured":true},
+  "diagnostics":[]
+}

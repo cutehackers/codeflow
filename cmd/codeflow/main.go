@@ -25,6 +25,7 @@ import (
 	"codeflow/internal/mcp"
 	"codeflow/internal/naming"
 	"codeflow/internal/protocol"
+	"codeflow/internal/semantic"
 	"codeflow/internal/slicing"
 	"codeflow/internal/storage"
 )
@@ -52,9 +53,11 @@ Usage:
   codeflow show <id|entry>    display flow steps and business rules.
                               Flags: --json
   codeflow view [path]        start FlowView interactive web UI.
-                              Flags: --port <port>
+                              Flags: --port <port>, --token <token>,
+                              --release-decisions <sealed-json>
   codeflow serve [path]       alias for 'codeflow view'
   codeflow mcp [path]         start MCP stdio JSON-RPC server for AI agents.
+                              Flags: --release-decisions <sealed-json>
   codeflow doctor [path]      check environment, adapter, and workspace integrity.
   codeflow uninstall          remove the CodeFlow MCP, skill, and owned files.
   codeflow version            print version information
@@ -212,7 +215,14 @@ func runFlows(args []string) {
 		os.Exit(1)
 	}
 
-	det := detect.Detect(absTarget)
+	snapshot, releaseSnapshot, err := captureCLISnapshot(absTarget, 0)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "capture workspace snapshot: %v\n", err)
+		os.Exit(1)
+	}
+	defer releaseSnapshot()
+
+	det := detect.DetectSnapshot(snapshot.Files)
 	lang := "dart"
 	if det.Confident && det.Language != "" && det.Language != "unknown" {
 		lang = det.Language
@@ -230,7 +240,7 @@ func runFlows(args []string) {
 	ctx, cancel := context.WithTimeout(context.Background(), 120*time.Second)
 	defer cancel()
 
-	candidates, err := runner.Run(ctx, absTarget)
+	candidates, err := runner.RunWithSnapshot(ctx, absTarget, snapshot)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "codeflow flows: %v\n", err)
 		os.Exit(1)
@@ -267,7 +277,14 @@ func runPublish(args []string) {
 		os.Exit(1)
 	}
 
-	det := detect.Detect(absTarget)
+	snapshot, releaseSnapshot, err := captureCLISnapshot(absTarget, 0)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "capture workspace snapshot: %v\n", err)
+		os.Exit(1)
+	}
+	defer releaseSnapshot()
+
+	det := detect.DetectSnapshot(snapshot.Files)
 	lang := "dart"
 	if det.Confident && det.Language != "" && det.Language != "unknown" {
 		lang = det.Language
@@ -292,7 +309,7 @@ func runPublish(args []string) {
 	defer cancel()
 
 	fmt.Println("Harvesting flow candidates...")
-	candidates, err := harvester.Run(ctx, absTarget)
+	candidates, err := harvester.RunWithSnapshot(ctx, absTarget, snapshot)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "harvest: %v\n", err)
 		os.Exit(1)
@@ -337,11 +354,7 @@ func runPublish(args []string) {
 			relPaths = append(relPaths, fp)
 		}
 	}
-	basisSha, err := storage.ComputeWorktreeFingerprint(absTarget, relPaths)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "compute basisSha: %v\n", err)
-		os.Exit(1)
-	}
+	basisSha := snapshotFileFingerprint(snapshot, relPaths)
 
 	sess, err := st.BeginGeneration(basisSha)
 	if err != nil {
@@ -353,7 +366,7 @@ func runPublish(args []string) {
 	fmt.Printf("Slicing and fusing %d flows...\n", len(toPublish))
 	for _, c := range toPublish {
 		cid := c.CandidateID
-		sliced, err := slicer.Slice(ctx, absTarget, cid, c.EntrySymbolPath, nil)
+		sliced, err := slicer.SliceWithSnapshot(ctx, absTarget, cid, c.EntrySymbolPath, nil, snapshot)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "warning: slice failed for %s: %v\n", c.EntrySymbolPath, err)
 			continue
@@ -371,7 +384,7 @@ func runPublish(args []string) {
 		spec, err := fusion.Fuse(sliced, fusion.FuseOptions{
 			CustomTitle:       title,
 			CustomDescription: desc,
-			RepoRoot:          absTarget,
+			SnapshotFiles:     snapshotContentBytes(snapshot),
 			ApprovedLedger:    approved,
 			SessionDrafts:     session,
 			BasisSha:          basisSha,
@@ -473,6 +486,7 @@ func runServe(args []string) {
 	fs := flag.NewFlagSet("view", flag.ContinueOnError)
 	portFlag := fs.Int("port", 4567, "loopback port for FlowView UI")
 	tokenFlag := fs.String("token", "", "fixed auth token for testing or headless use")
+	releaseDecisionsFlag := fs.String("release-decisions", "", "immutable approved release threshold decision JSON")
 	if err := fs.Parse(reorderFlags(fs, args)); err != nil {
 		os.Exit(2)
 	}
@@ -483,10 +497,12 @@ func runServe(args []string) {
 	}
 
 	absTarget, _ := filepath.Abs(target)
+	releaseDecisions := loadReleaseThresholdDecisions(*releaseDecisionsFlag)
 	srv, err := flowview.NewServer(flowview.Config{
-		RepoRoot:  absTarget,
-		Port:      *portFlag,
-		AuthToken: *tokenFlag,
+		RepoRoot:                  absTarget,
+		Port:                      *portFlag,
+		AuthToken:                 *tokenFlag,
+		ReleaseThresholdDecisions: releaseDecisions,
 	})
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "start flowview: %v\n", err)
@@ -503,26 +519,50 @@ func runServe(args []string) {
 }
 
 func runMCP(args []string) {
+	fs := flag.NewFlagSet("mcp", flag.ContinueOnError)
+	releaseDecisionsFlag := fs.String("release-decisions", "", "immutable approved release threshold decision JSON")
+	if err := fs.Parse(reorderFlags(fs, args)); err != nil {
+		os.Exit(2)
+	}
+	posArgs := fs.Args()
 	target := "."
-	if len(args) > 0 && !strings.HasPrefix(args[0], "-") {
-		target = args[0]
+	if len(posArgs) == 1 {
+		target = posArgs[0]
 	}
 	absTarget, _ := filepath.Abs(target)
+	releaseDecisions := loadReleaseThresholdDecisions(*releaseDecisionsFlag)
 
 	srv, err := mcp.NewServer(mcp.Config{
-		RepoRoot:     absTarget,
-		RequireToken: false,
+		RepoRoot:                  absTarget,
+		RequireToken:              false,
+		ReleaseThresholdDecisions: releaseDecisions,
 	})
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "start mcp: %v\n", err)
 		os.Exit(1)
 	}
-	defer srv.Close()
+	defer func() {
+		if closeErr := srv.Close(); closeErr != nil {
+			fmt.Fprintf(os.Stderr, "mcp close: %v\n", closeErr)
+		}
+	}()
 
 	if err := srv.Serve(context.Background(), os.Stdin, os.Stdout); err != nil {
 		fmt.Fprintf(os.Stderr, "mcp serve: %v\n", err)
 		os.Exit(1)
 	}
+}
+
+func loadReleaseThresholdDecisions(path string) semantic.ThresholdDecisionResolver {
+	if strings.TrimSpace(path) == "" {
+		return nil
+	}
+	resolver, err := semantic.LoadReleaseThresholdDecisionRegistry(path)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "load release threshold decisions: %v\n", err)
+		os.Exit(2)
+	}
+	return resolver
 }
 
 func runDoctor(args []string) {

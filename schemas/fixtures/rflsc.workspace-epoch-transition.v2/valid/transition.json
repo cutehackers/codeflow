@@ -1,0 +1,9 @@
+{
+  "schemaId": "https://codeflow.local/schemas/rflsc.workspace-epoch-transition.v2.schema.json",
+  "schemaVersion": 2,
+  "previousEpoch": 1,
+  "newEpoch": 2,
+  "reason": "branch_switch",
+  "historicalSnapshotIds": ["snap-rflsc-1"],
+  "occurredAt": "2026-09-04T00:00:00Z"
+}

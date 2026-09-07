@@ -1,9 +1,13 @@
 package semantic
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"reflect"
+	"sort"
+	"strings"
 )
 
 var (
@@ -11,43 +15,59 @@ var (
 	ErrIncomparableBasis   = errors.New("incomparable_basis")
 )
 
-// ValidateComparableBases verifies that baseline and current are non-nil,
-// share compatible repository/workspace epochs, and have compatible schemas (Raw §8.2, VS05-A1, A2).
+// ValidateComparableBases requires explicit immutable identity on both maps.
+// Epoch, repository, snapshot tree, dependency and schema mismatches are not
+// comparable, including when one side omitted an identity field.
 func ValidateComparableBases(baselineMap, currentMap *SemanticMapIR) error {
 	if baselineMap == nil || currentMap == nil {
 		return ErrMissingPrecondition
 	}
-	if baselineMap.MapID == "" || currentMap.MapID == "" {
+	if baselineMap.MapID == "" || currentMap.MapID == "" || baselineMap.GenerationID == "" || currentMap.GenerationID == "" {
 		return ErrMissingPrecondition
 	}
-
-	// Incompatible repository / epoch check
-	if baselineMap.Basis.WorkspaceEpoch != 0 && currentMap.Basis.WorkspaceEpoch != 0 {
-		if baselineMap.Basis.WorkspaceEpoch != currentMap.Basis.WorkspaceEpoch {
-			return fmt.Errorf("%w: workspace epoch mismatch (%d vs %d)",
-				ErrIncomparableBasis, baselineMap.Basis.WorkspaceEpoch, currentMap.Basis.WorkspaceEpoch)
-		}
+	if baselineMap.ComputedBasisID == "" || currentMap.ComputedBasisID == "" {
+		return ErrMissingPrecondition
 	}
-
-	// Schema compatibility
-	if baselineMap.SchemaVersion != currentMap.SchemaVersion {
-		return fmt.Errorf("%w: schema version mismatch (%d vs %d)",
-			ErrIncomparableBasis, baselineMap.SchemaVersion, currentMap.SchemaVersion)
+	if baselineMap.Basis.ComputedWorkspaceSnapshotID == "" || currentMap.Basis.ComputedWorkspaceSnapshotID == "" || baselineMap.Basis.SnapshotTreeID == "" || currentMap.Basis.SnapshotTreeID == "" || baselineMap.Basis.RepositoryID == "" || currentMap.Basis.RepositoryID == "" {
+		return ErrMissingPrecondition
 	}
-
+	if baselineMap.SchemaID == "" || currentMap.SchemaID == "" {
+		return ErrMissingPrecondition
+	}
+	if baselineMap.SchemaID != currentMap.SchemaID || baselineMap.SchemaVersion != currentMap.SchemaVersion {
+		return fmt.Errorf("%w: schema identity mismatch", ErrIncomparableBasis)
+	}
+	if baselineMap.Basis.RepositoryID != currentMap.Basis.RepositoryID {
+		return fmt.Errorf("%w: repository or basis identity mismatch", ErrIncomparableBasis)
+	}
+	if baselineMap.Task.Mode == "" || currentMap.Task.Mode == "" {
+		return ErrMissingPrecondition
+	}
+	if baselineMap.Task.Mode != currentMap.Task.Mode {
+		return fmt.Errorf("%w: task mode mismatch", ErrIncomparableBasis)
+	}
+	if baselineMap.Task.TaskID == "" || currentMap.Task.TaskID == "" || baselineMap.Task.TaskID == "task-unknown" || currentMap.Task.TaskID == "task-unknown" {
+		return ErrMissingPrecondition
+	}
+	if baselineMap.Task.TaskID != currentMap.Task.TaskID {
+		return fmt.Errorf("%w: task scope mismatch", ErrIncomparableBasis)
+	}
+	if baselineMap.Basis.WorkspaceEpoch != currentMap.Basis.WorkspaceEpoch {
+		return fmt.Errorf("%w: workspace epoch mismatch (%d vs %d)", ErrIncomparableBasis, baselineMap.Basis.WorkspaceEpoch, currentMap.Basis.WorkspaceEpoch)
+	}
 	return nil
 }
 
-// ComputeSemanticDelta compares baseline and current SemanticMapIRs and generates
-// a structured SemanticDeltaIR distinguishing added, changed, removed, and evidence-updated behaviors (VS05-A3, A4).
+// ComputeSemanticDelta compares two explicit candidate generations. It uses a
+// one-to-many structural index and never treats a symbol-name coincidence as a
+// proven rename.
 func ComputeSemanticDelta(comparisonID string, baselineMap, currentMap *SemanticMapIR) (*SemanticDeltaIR, error) {
 	if err := ValidateComparableBases(baselineMap, currentMap); err != nil {
 		return nil, err
 	}
-
 	delta := &SemanticDeltaIR{
-		SchemaID:                          "codeflow.semantic-delta-ir",
-		SchemaVersion:                     1,
+		SchemaID:                          SemanticDeltaSchemaID,
+		SchemaVersion:                     SemanticSchemaVersion,
 		ComparisonID:                      comparisonID,
 		TaskIntentRevision:                currentMap.Task.IntentRevision,
 		BaselineComputedBasisID:           baselineMap.ComputedBasisID,
@@ -56,145 +76,145 @@ func ComputeSemanticDelta(comparisonID string, baselineMap, currentMap *Semantic
 		FromGeneration:                    baselineMap.GenerationID,
 		ToGeneration:                      currentMap.GenerationID,
 		Status:                            "comparable",
-		Changes:                           make([]DeltaChange, 0),
+		Changes:                           []DeltaChange{},
 		StructuralSummary:                 &StructuralSummary{},
 	}
 
-	// Index baseline steps by StepID and secondary fingerprint (symbolPath/technicalName)
-	baselineByID := make(map[string]SemanticStep)
-	baselineByFingerprint := make(map[string]SemanticStep)
-	for _, st := range baselineMap.Steps {
-		baselineByID[st.StepID] = st
-		fp := stepFingerprint(st)
-		if fp != "" {
-			baselineByFingerprint[fp] = st
-		}
+	baselineByID, err := uniqueStepIndex(baselineMap.Steps, func(step SemanticStep) string { return step.StepID })
+	if err != nil {
+		return nil, err
 	}
-
-	// Index current steps by StepID and fingerprint
-	currentByID := make(map[string]SemanticStep)
-	currentByFingerprint := make(map[string]SemanticStep)
-	for _, st := range currentMap.Steps {
-		currentByID[st.StepID] = st
-		fp := stepFingerprint(st)
-		if fp != "" {
-			currentByFingerprint[fp] = st
-		}
+	baselineByStructural, err := structuralIndex(baselineMap.Steps)
+	if err != nil {
+		return nil, err
 	}
+	matchedBaseline := make(map[string]bool, len(baselineMap.Steps))
 
-	matchedBaselineIDs := make(map[string]bool)
-
-	// Process current steps (added, changed, evidence_updated, structural_only)
-	for _, currStep := range currentMap.Steps {
-		var prevStep SemanticStep
-		var found bool
-
-		if b, ok := baselineByID[currStep.StepID]; ok {
-			prevStep = b
-			found = true
-			matchedBaselineIDs[currStep.StepID] = true
-		} else if b, ok := baselineByFingerprint[stepFingerprint(currStep)]; ok {
-			// Stable identity rename/move match (SID-C6)
-			prevStep = b
-			found = true
-			matchedBaselineIDs[b.StepID] = true
+	for _, current := range currentMap.Steps {
+		previous, matched, ambiguous := matchStep(current, baselineByID, baselineByStructural, matchedBaseline)
+		if ambiguous {
+			candidates := make([]string, 0)
+			for _, candidate := range baselineByStructural[stepStructuralKey(current)] {
+				if !matchedBaseline[candidate.StepID] {
+					candidates = append(candidates, candidate.StepID)
+				}
+			}
+			sort.Strings(candidates)
+			delta.Changes = append(delta.Changes, DeltaChange{DeltaID: deterministicDeltaID("ambiguous", current.StepID), Kind: "ambiguous_move", TargetStepID: current.StepID, Summary: "구조적 대상이 여러 baseline step과 일치하여 이동을 확정할 수 없음", CandidateStepRefs: candidates, StructuralChanges: []string{"ambiguous structural identity"}, EpistemicStatus: "unknown", ValidationStatus: "pending", MoveStatus: "ambiguous"})
+			delta.StructuralSummary.CollapsedStructuralCount++
+			continue
 		}
-
-		if !found {
-			// Added behavior (VS05-A3)
-			delta.Changes = append(delta.Changes, DeltaChange{
-				DeltaID:           fmt.Sprintf("delta-add-%s", currStep.StepID),
-				Kind:              "added_behavior",
-				TargetStepID:      currStep.StepID,
-				Summary:           fmt.Sprintf("새 행동 추가됨: %s (%s)", currStep.Name, currStep.TechnicalName),
-				RequirementRefs:   currStep.Rules,
-				StructuralChanges: []string{fmt.Sprintf("step %s declared at %s", currStep.StepID, currStep.Anchor.RepoRelativePath)},
-				EvidenceRefs:      currStep.EvidenceRefs,
-				EpistemicStatus:   "observed",
-				ValidationStatus:  "verified",
-			})
+		if !matched {
+			delta.Changes = append(delta.Changes, DeltaChange{DeltaID: deterministicDeltaID("added", current.StepID), Kind: "added_behavior", TargetStepID: current.StepID, Summary: fmt.Sprintf("새 행동 추가됨: %s (%s)", current.Name, current.TechnicalName), RequirementRefs: append([]string(nil), current.Rules...), StructuralChanges: []string{"new structural target"}, EvidenceRefs: append([]string(nil), current.EvidenceRefs...), EpistemicStatus: "observed", ValidationStatus: "verified", ToStepID: current.StepID, MoveStatus: "not_applicable"})
 			delta.StructuralSummary.AddedStepsCount++
 			continue
 		}
-
-		// Existing step: compare rules, branch, stateDelta, sideEffect
-		ruleChanged := !reflect.DeepEqual(currStep.Rules, prevStep.Rules)
-		branchChanged := (currStep.Branch != nil && prevStep.Branch != nil && *currStep.Branch != *prevStep.Branch) ||
-			(currStep.Branch != nil && prevStep.Branch == nil) || (currStep.Branch == nil && prevStep.Branch != nil)
-		sideEffectChanged := (currStep.SideEffect != nil && prevStep.SideEffect != nil && *currStep.SideEffect != *prevStep.SideEffect) ||
-			(currStep.SideEffect != nil && prevStep.SideEffect == nil) || (currStep.SideEffect == nil && prevStep.SideEffect != nil)
-		stateDeltaChanged := !reflect.DeepEqual(currStep.StateDelta, prevStep.StateDelta)
-
-		if ruleChanged || branchChanged || sideEffectChanged || stateDeltaChanged {
-			// Changed rule/behavior (VS05-A3, A4)
-			delta.Changes = append(delta.Changes, DeltaChange{
-				DeltaID:           fmt.Sprintf("delta-change-%s", currStep.StepID),
-				Kind:              "changed_rule",
-				TargetStepID:      currStep.StepID,
-				Summary:           fmt.Sprintf("규칙/상태 전이 변경됨: %s (%s)", currStep.Name, currStep.TechnicalName),
-				RequirementRefs:   currStep.Rules,
-				StructuralChanges: []string{fmt.Sprintf("modified rules/branches for %s", currStep.StepID)},
-				EvidenceRefs:      currStep.EvidenceRefs,
-				EpistemicStatus:   "observed",
-				ValidationStatus:  "verified",
-			})
+		matchedBaseline[previous.StepID] = true
+		if changedBehavior(previous, current) {
+			delta.Changes = append(delta.Changes, DeltaChange{DeltaID: deterministicDeltaID("changed", current.StepID), Kind: "changed_rule", TargetStepID: current.StepID, Summary: fmt.Sprintf("규칙 또는 행동 변경됨: %s", current.Name), RequirementRefs: append([]string(nil), current.Rules...), StructuralChanges: []string{"behavioral fields changed"}, EvidenceRefs: append([]string(nil), current.EvidenceRefs...), EpistemicStatus: "observed", ValidationStatus: "verified", FromStepID: previous.StepID, ToStepID: current.StepID, MoveStatus: moveStatus(previous, current)})
 			delta.StructuralSummary.ChangedStepsCount++
 			continue
 		}
-
-		// Check if evidence changed
-		evidenceChanged := !reflect.DeepEqual(currStep.EvidenceRefs, prevStep.EvidenceRefs)
-		if evidenceChanged && len(currStep.EvidenceRefs) > 0 {
-			delta.Changes = append(delta.Changes, DeltaChange{
-				DeltaID:           fmt.Sprintf("delta-ev-%s", currStep.StepID),
-				Kind:              "evidence_updated",
-				TargetStepID:      currStep.StepID,
-				Summary:           fmt.Sprintf("근거 갱신됨: %s", currStep.Name),
-				RequirementRefs:   currStep.Rules,
-				EvidenceRefs:      currStep.EvidenceRefs,
-				EpistemicStatus:   "observed",
-				ValidationStatus:  "verified",
-			})
+		if !reflect.DeepEqual(previous.EvidenceRefs, current.EvidenceRefs) {
+			delta.Changes = append(delta.Changes, DeltaChange{DeltaID: deterministicDeltaID("evidence", current.StepID), Kind: "evidence_updated", TargetStepID: current.StepID, Summary: fmt.Sprintf("근거 갱신됨: %s", current.Name), RequirementRefs: append([]string(nil), current.Rules...), EvidenceRefs: append([]string(nil), current.EvidenceRefs...), EpistemicStatus: "observed", ValidationStatus: "verified", FromStepID: previous.StepID, ToStepID: current.StepID, MoveStatus: moveStatus(previous, current)})
 			continue
 		}
-
-		// Check if line/byte range moved (structural only)
-		byteMoved := currStep.Anchor.ByteRange != prevStep.Anchor.ByteRange
-		if byteMoved {
+		if structuralChanged(previous, current) {
+			delta.Changes = append(delta.Changes, DeltaChange{DeltaID: deterministicDeltaID("structural", current.StepID), Kind: "structural_only", TargetStepID: current.StepID, Summary: fmt.Sprintf("구조적 위치 변경됨: %s", current.Name), StructuralChanges: []string{"source range moved"}, EvidenceRefs: append([]string(nil), current.EvidenceRefs...), EpistemicStatus: "observed", ValidationStatus: "verified", FromStepID: previous.StepID, ToStepID: current.StepID, MoveStatus: "proven"})
 			delta.StructuralSummary.CollapsedStructuralCount++
 		}
 	}
 
-	// Check for removed steps in baseline
-	for _, bStep := range baselineMap.Steps {
-		if !matchedBaselineIDs[bStep.StepID] {
-			delta.Changes = append(delta.Changes, DeltaChange{
-				DeltaID:           fmt.Sprintf("delta-remove-%s", bStep.StepID),
-				Kind:              "removed_behavior",
-				TargetStepID:      bStep.StepID,
-				Summary:           fmt.Sprintf("행동 제거됨: %s (%s)", bStep.Name, bStep.TechnicalName),
-				RequirementRefs:   bStep.Rules,
-				StructuralChanges: []string{fmt.Sprintf("step %s removed from %s", bStep.StepID, bStep.Anchor.RepoRelativePath)},
-				EvidenceRefs:      bStep.EvidenceRefs,
-				EpistemicStatus:   "observed",
-				ValidationStatus:  "verified",
-			})
-			delta.StructuralSummary.RemovedStepsCount++
+	for _, previous := range baselineMap.Steps {
+		if matchedBaseline[previous.StepID] {
+			continue
 		}
+		delta.Changes = append(delta.Changes, DeltaChange{DeltaID: deterministicDeltaID("removed", previous.StepID), Kind: "removed_behavior", TargetStepID: previous.StepID, Summary: fmt.Sprintf("행동 제거됨: %s (%s)", previous.Name, previous.TechnicalName), RequirementRefs: append([]string(nil), previous.Rules...), StructuralChanges: []string{"structural target removed"}, EvidenceRefs: append([]string(nil), previous.EvidenceRefs...), EpistemicStatus: "observed", ValidationStatus: "verified", FromStepID: previous.StepID, MoveStatus: "not_applicable"})
+		delta.StructuralSummary.RemovedStepsCount++
 	}
-
 	return delta, nil
 }
 
-func stepFingerprint(st SemanticStep) string {
-	if st.Anchor.EnclosingSymbolPath != "" {
-		return st.Anchor.EnclosingSymbolPath
+func uniqueStepIndex(steps []SemanticStep, key func(SemanticStep) string) (map[string]SemanticStep, error) {
+	result := make(map[string]SemanticStep, len(steps))
+	for _, step := range steps {
+		id := key(step)
+		if id == "" {
+			return nil, ErrMissingPrecondition
+		}
+		if _, exists := result[id]; exists {
+			return nil, fmt.Errorf("%w: duplicate step id %s", ErrIncomparableBasis, id)
+		}
+		result[id] = step
 	}
-	if st.Anchor.CanonicalAstFingerprint != "" {
-		return st.Anchor.CanonicalAstFingerprint
-	}
-	if st.TechnicalName != "" && st.Anchor.RepoRelativePath != "" {
-		return fmt.Sprintf("%s::%s", st.Anchor.RepoRelativePath, st.TechnicalName)
-	}
-	return st.Name
+	return result, nil
 }
+
+func structuralIndex(steps []SemanticStep) (map[string][]SemanticStep, error) {
+	result := make(map[string][]SemanticStep)
+	for _, step := range steps {
+		key := stepStructuralKey(step)
+		if key == "" {
+			return nil, fmt.Errorf("%w: step %s lacks structural identity", ErrMissingPrecondition, step.StepID)
+		}
+		result[key] = append(result[key], step)
+	}
+	for key := range result {
+		sort.Slice(result[key], func(i, j int) bool { return result[key][i].StepID < result[key][j].StepID })
+	}
+	return result, nil
+}
+
+func matchStep(current SemanticStep, byID map[string]SemanticStep, byStructural map[string][]SemanticStep, matched map[string]bool) (SemanticStep, bool, bool) {
+	if previous, ok := byID[current.StepID]; ok && !matched[previous.StepID] {
+		return previous, true, false
+	}
+	candidates := []SemanticStep{}
+	for _, candidate := range byStructural[stepStructuralKey(current)] {
+		if !matched[candidate.StepID] {
+			candidates = append(candidates, candidate)
+		}
+	}
+	if len(candidates) == 1 {
+		return candidates[0], true, false
+	}
+	if len(candidates) > 1 {
+		return SemanticStep{}, false, true
+	}
+	return SemanticStep{}, false, false
+}
+
+func stepStructuralKey(step SemanticStep) string {
+	if step.StructuralIdentity != "" {
+		return step.StructuralIdentity
+	}
+	if step.Anchor.RepoRelativePath == "" || step.Anchor.EnclosingSymbolPath == "" && step.TechnicalName == "" {
+		return ""
+	}
+	return strings.Join([]string{step.Anchor.RepoRelativePath, step.Anchor.EnclosingSymbolPath, step.TechnicalName, step.Kind}, "\x00")
+}
+
+func changedBehavior(previous, current SemanticStep) bool {
+	return !reflect.DeepEqual(previous.Rules, current.Rules) || !reflect.DeepEqual(previous.Branch, current.Branch) || !reflect.DeepEqual(previous.SideEffect, current.SideEffect) || !reflect.DeepEqual(previous.StateDelta, current.StateDelta) || previous.Kind != current.Kind
+}
+
+func structuralChanged(previous, current SemanticStep) bool {
+	return previous.Anchor.RepoRelativePath != current.Anchor.RepoRelativePath || previous.Anchor.ByteRange != current.Anchor.ByteRange || !reflect.DeepEqual(previous.Anchor.SymbolRange, current.Anchor.SymbolRange)
+}
+
+func moveStatus(previous, current SemanticStep) string {
+	if structuralChanged(previous, current) {
+		return "proven"
+	}
+	return "not_applicable"
+}
+
+func deterministicDeltaID(kind, stepID string) string {
+	h := sha256.Sum256([]byte(kind + "\x00" + stepID))
+	return "delta-" + hex.EncodeToString(h[:])[:20]
+}
+
+// stepFingerprint remains as a compatibility helper for consumers that used
+// the old name. It now returns the complete structural key, never a symbol-only
+// identity.
+func stepFingerprint(st SemanticStep) string { return stepStructuralKey(st) }

@@ -139,6 +139,17 @@ const coverageFlowPrefix = "coverage:"
 // before any inference runs. Signatures are best-effort read-time excerpts
 // bounded to the signatureComponentCap most important components.
 func buildArchitectureMap(repoRoot, generationID string, docs [][]byte, overrides map[string]string, entryPoints []string) *ArchitectureMap {
+	return buildArchitectureMapWithSources(repoRoot, nil, generationID, docs, overrides, entryPoints)
+}
+
+// buildArchitectureMapFromSnapshot builds the same projection from one
+// retained VS-01 content set. Signature extraction never consults the live
+// repository when sourceFiles is supplied.
+func buildArchitectureMapFromSnapshot(sourceFiles map[string][]byte, generationID string, docs [][]byte, overrides map[string]string, entryPoints []string) *ArchitectureMap {
+	return buildArchitectureMapWithSources("", sourceFiles, generationID, docs, overrides, entryPoints)
+}
+
+func buildArchitectureMapWithSources(repoRoot string, sourceFiles map[string][]byte, generationID string, docs [][]byte, overrides map[string]string, entryPoints []string) *ArchitectureMap {
 	graph := buildGraph(docs, overrides)
 	plan := inferLanes(graph, overrides)
 
@@ -201,7 +212,17 @@ func buildArchitectureMap(repoRoot, generationID string, docs [][]byte, override
 		if !ok || a.path == "" {
 			continue
 		}
-		sig := extractSignature(repoRoot, a.path, a.byteOffset, a.lineHint, lastSegment(sc.sym))
+		var sig signatureResult
+		if sourceFiles != nil {
+			data, ok := sourceFiles[a.path]
+			if !ok {
+				sig = extractSignatureFromBytes(nil, a.byteOffset, a.lineHint, lastSegment(sc.sym))
+			} else {
+				sig = extractSignatureFromBytes(data, a.byteOffset, a.lineHint, lastSegment(sc.sym))
+			}
+		} else {
+			sig = extractSignature(repoRoot, a.path, a.byteOffset, a.lineHint, lastSegment(sc.sym))
+		}
 		for i := range m.Components {
 			if m.Components[i].SymbolPath == sc.sym {
 				m.Components[i].Signature = sig.Signature

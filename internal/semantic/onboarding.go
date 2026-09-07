@@ -53,10 +53,19 @@ type RepresentativeFlow struct {
 }
 
 type CandidateEntry struct {
-	CandidateID     string `json:"candidateId"`
-	EntrySymbolPath string `json:"entrySymbolPath"`
-	Domain          string `json:"domain,omitempty"`
-	Title           string `json:"title,omitempty"`
+	CandidateID        string   `json:"candidateId"`
+	EntrySymbolPath    string   `json:"entrySymbolPath"`
+	Domain             string   `json:"domain,omitempty"`
+	Title              string   `json:"title,omitempty"`
+	SourceRoot         string   `json:"sourceRoot,omitempty"`
+	Module             string   `json:"module,omitempty"`
+	Package            string   `json:"package,omitempty"`
+	Rationale          string   `json:"rationale,omitempty"`
+	EvidenceRefs       []string `json:"evidenceRefs,omitempty"`
+	DomainEvidenceRefs []string `json:"domainEvidenceRefs,omitempty"`
+	ResultEvidenceRefs []string `json:"resultEvidenceRefs,omitempty"`
+	KeyMutations       []string `json:"keyMutations,omitempty"`
+	SelectionScore     float64  `json:"selectionScore,omitempty"`
 }
 
 type OnboardingOptions struct {

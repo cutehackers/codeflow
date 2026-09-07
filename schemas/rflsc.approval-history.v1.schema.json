@@ -1,0 +1,60 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://codeflow.local/schemas/rflsc.approval-history.v1.schema.json",
+  "title": "RFL-SC Approval History v1",
+  "description": "The canonical read-time projection of an append-only approval history.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaId",
+    "schemaVersion",
+    "target",
+    "events",
+    "aggregate",
+    "freshness"
+  ],
+  "properties": {
+    "schemaId": { "const": "https://codeflow.local/schemas/rflsc.approval-history.v1.schema.json" },
+    "schemaVersion": { "const": 1 },
+    "target": { "$ref": "#/$defs/target" },
+    "events": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 256,
+      "items": { "$ref": "https://codeflow.local/schemas/rflsc.approval-event.v2.schema.json" }
+    },
+    "aggregate": { "$ref": "https://codeflow.local/schemas/rflsc.approval-aggregate.v2.schema.json" },
+    "freshness": { "enum": ["current", "historical"] }
+  },
+  "$defs": {
+    "boundedId": { "type": "string", "minLength": 1, "maxLength": 256 },
+    "target": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "workspaceId",
+        "proposalId",
+        "evidencePackId",
+        "computedBasisId",
+        "generationId",
+        "intentRevision",
+        "validatedSnapshotId",
+        "workspaceEpoch",
+        "mapId",
+        "taskId"
+      ],
+      "properties": {
+        "workspaceId": { "$ref": "#/$defs/boundedId" },
+        "proposalId": { "$ref": "#/$defs/boundedId" },
+        "evidencePackId": { "$ref": "#/$defs/boundedId" },
+        "computedBasisId": { "$ref": "#/$defs/boundedId" },
+        "generationId": { "$ref": "#/$defs/boundedId" },
+        "intentRevision": { "type": "integer", "minimum": 1, "maximum": 1000000 },
+        "validatedSnapshotId": { "$ref": "#/$defs/boundedId" },
+        "workspaceEpoch": { "type": "integer", "minimum": 0 },
+        "mapId": { "$ref": "#/$defs/boundedId" },
+        "taskId": { "$ref": "#/$defs/boundedId" }
+      }
+    }
+  }
+}

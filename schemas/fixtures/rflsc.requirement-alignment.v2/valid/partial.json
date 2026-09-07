@@ -1,0 +1,1 @@
+{"schemaId":"https://codeflow.local/schemas/rflsc.requirement-alignment.v2.schema.json","schemaVersion":2,"criterionId":"AC-1","description":"checkout","status":"partial","coveredStepRefs":["step-1"],"evidenceRefs":["ev-1"],"missingEvidence":["current_runtime_proof"],"computedBasisId":"basis-1","authority":"candidate","reason":"awaiting_current_proof"}

@@ -3,6 +3,7 @@
 const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
+const { redactDiagnostic, redactSecrets } = require('./secret');
 
 const SCHEMA_ID = 'https://codeflow.local/schemas/adapter-analysis.schema.json';
 const READ_SET_SCHEMA_ID = 'https://codeflow.local/schemas/analysis-read-set.schema.json';
@@ -49,10 +50,11 @@ function suppliedEpoch(params) {
 function collectReadDocuments(params, operation, explicitPaths = []) {
   const overlay = overlayFor(params);
   if (overlay) {
+    const identities = snapshotDocumentIdentities(params);
     return [...overlay.entries()]
       .sort(([a], [b]) => a.localeCompare(b))
       .slice(0, MAX_DOCUMENTS)
-      .map(([rel, content]) => ({ path: rel, content }));
+      .map(([rel, content]) => ({ path: rel, content, ...(identities.get(rel) || {}) }));
   }
 
   const repoRoot = params && typeof params.repoRoot === 'string' ? path.resolve(params.repoRoot) : null;
@@ -82,69 +84,206 @@ function collectReadDocuments(params, operation, explicitPaths = []) {
   return docs.sort((a, b) => a.path.localeCompare(b.path));
 }
 
-function analysisMetadata(params, operation, explicitPaths = [], diagnostics = []) {
-  const docs = collectReadDocuments(params, operation, explicitPaths);
-  const documentMetadata = docs.map(({ path: rel, content }) => ({
-    path: rel,
-    contentHash: sha256(Buffer.from(content, 'utf8')),
-    byteLength: Buffer.byteLength(content, 'utf8'),
-  }));
-  const basis = suppliedBasis(params) || sha256(documentMetadata.map((doc) => `${doc.path}:${doc.contentHash}\n`).join(''));
-  const workspaceEpoch = suppliedEpoch(params);
-  const readSetId = `readset-${sha256(`${basis}:${workspaceEpoch}:${operation}`).slice(0, 24)}`;
-  const closureId = `closure-${sha256(`${readSetId}:${operation}`).slice(0, 24)}`;
-  const capabilityProfile = {
-    adapter: 'typescript',
-    features: ['symbols', 'calls', 'snapshot_overlay', 'negative_lookup', 'membership', 'dependency_frontier'],
-    protocolVersions: [PROTOCOL_VERSION],
-    coverageBoundary: { includedSourceRoots: ['.'], excludedReasons: [] },
-  };
-  const boundedDiagnostics = Array.isArray(diagnostics) ? diagnostics.slice(0, 64).map((item) => ({
-    severity: ['info', 'warning', 'error'].includes(item.severity) ? item.severity : 'warning',
-    message: String(item.message || 'adapter diagnostic').slice(0, 512),
-    ...(item.path ? { path: String(item.path).slice(0, 1024) } : {}),
-  })) : [];
-  const analysisReadSet = {
-    schemaId: READ_SET_SCHEMA_ID,
-    schemaVersion: 1,
-    readSetId,
-    computedBasisId: basis,
-    workspaceEpoch,
-    documents: documentMetadata,
-    indexes: [],
-    negativeObservations: [],
-    membershipObservations: [{ kind: 'source_membership', path: '.', valueHash: sha256(documentMetadata.map((doc) => doc.path).join('\n')) }],
-    dependencyFrontiers: [{ kind: 'dependency_frontier', path: operation, detail: 'frontier bounded at adapter boundary' }],
-    adapterVersions: { typescript: ADAPTER_VERSION },
-  };
-  const causalObservationClosure = {
-    schemaId: CLOSURE_SCHEMA_ID,
-    schemaVersion: 1,
-    closureId,
-    analysisReadSetId: readSetId,
-    computedBasisId: basis,
-    workspaceEpoch,
-    closureStatus: 'closed',
-    negativeObservations: [],
-    membershipObservations: analysisReadSet.membershipObservations,
-    dependencyFrontiers: analysisReadSet.dependencyFrontiers,
-    capabilityProfile,
-    coverageBoundary: capabilityProfile.coverageBoundary,
-    incompleteReasons: [],
-    closureDigest: sha256(JSON.stringify({ analysisReadSet, capabilityProfile })),
-  };
-  return {
-    schemaId: SCHEMA_ID,
-    schemaVersion: 1,
-    operation,
-    computedBasisId: basis,
-    workspaceEpoch,
-    analysisReadSet,
-    causalObservationClosure,
-    capabilityProfile,
-    analyzerVersion: ANALYZER_VERSION,
-    diagnostics: boundedDiagnostics,
-  };
+function snapshotDocumentIdentities(params) {
+  const raw = params && params.snapshot && Array.isArray(params.snapshot.documents)
+    ? params.snapshot.documents
+    : [];
+  const out = new Map();
+  for (const item of raw) {
+    if (!item || typeof item !== 'object' || typeof item.path !== 'string') continue;
+    out.set(item.path, {
+      ...(typeof item.documentRevisionId === 'string' ? { documentRevisionId: item.documentRevisionId } : {}),
+      ...(typeof item.contentId === 'string' ? { contentId: item.contentId } : {}),
+      ...(Number.isInteger(item.documentVersion) ? { documentVersion: item.documentVersion } : {}),
+    });
+  }
+  return out;
+}
+
+class AnalysisTracker {
+  constructor(params, operation) {
+    this.params = params && typeof params === 'object' ? params : {};
+    this.operation = operation;
+    this.overlay = overlayFor(this.params);
+    this.repoRoot = typeof this.params.repoRoot === 'string' ? path.resolve(this.params.repoRoot) : null;
+    this.identities = snapshotDocumentIdentities(this.params);
+    this.documents = new Map();
+    this.missing = new Map();
+    this.membership = new Map();
+    this.frontiers = new Map();
+    this.coverageRoots = new Set(['.']);
+  }
+
+  normalize(rel) {
+    const normalized = String(rel || '').replaceAll('\\', '/').replace(/^\.\//, '');
+    if (!normalized || normalized.startsWith('/') || normalized.split('/').includes('..')) return null;
+    return normalized;
+  }
+
+  read(rel) {
+    const normalized = this.normalize(rel);
+    if (!normalized) return null;
+    let content = null;
+    if (this.overlay) {
+      if (!this.overlay.has(normalized)) {
+        this.recordMissing(normalized);
+        return null;
+      }
+      content = this.overlay.get(normalized);
+    } else if (this.repoRoot) {
+      try {
+        content = fs.readFileSync(path.join(this.repoRoot, normalized), 'utf8');
+      } catch (_) {
+        this.recordMissing(normalized);
+        return null;
+      }
+    } else {
+      this.recordMissing(normalized);
+      return null;
+    }
+    this.documents.set(normalized, { path: normalized, content: String(content) });
+    this.missing.delete(normalized);
+    return String(content);
+  }
+
+  recordMissing(rel, detail = 'lookup was absent from the captured snapshot') {
+    const normalized = this.normalize(rel);
+    if (!normalized || this.documents.has(normalized)) return;
+    this.missing.set(normalized, {
+      kind: 'negative_lookup',
+      path: normalized,
+      valueHash: sha256(Buffer.from(`${normalized}:absent`, 'utf8')),
+      detail,
+      measured: true,
+    });
+  }
+
+  enumerateSourceFiles() {
+    let files;
+    if (this.overlay) {
+      files = [...this.overlay.keys()]
+        .filter((rel) => /\.(ts|tsx|js|jsx|mjs|cjs)$/.test(rel))
+        .filter((rel) => !rel.endsWith('.d.ts') && !rel.includes('.test.') && !rel.includes('.spec.'))
+        .sort();
+    } else if (this.repoRoot) {
+      try {
+        const { listSourceFiles } = require('./harvest');
+        files = listSourceFiles(this.repoRoot);
+      } catch (_) {
+        files = [];
+      }
+    } else {
+      files = [];
+    }
+    this.recordMembership('.', files);
+    return files;
+  }
+
+  recordMembership(scope, files) {
+    const normalized = [...new Set((files || []).map((item) => this.normalize(item)).filter(Boolean))].sort();
+    this.membership.set(scope, {
+      kind: 'source_membership',
+      path: scope,
+      valueHash: sha256(Buffer.from(normalized.join('\n'), 'utf8')),
+      detail: 'membership measured from the source enumeration used by the operation',
+      measured: true,
+    });
+    this.coverageRoots.add(scope);
+  }
+
+  recordDependency(rel) {
+    const normalized = this.normalize(rel);
+    const document = normalized ? this.documents.get(normalized) : null;
+    if (!document) return false;
+    this.frontiers.set(normalized, {
+      kind: 'dependency_frontier',
+      path: normalized,
+      valueHash: sha256(Buffer.from(document.content, 'utf8')),
+      detail: 'dependency/configuration frontier established by the analyzer',
+      measured: true,
+    });
+    return true;
+  }
+
+  metadata(diagnostics = []) {
+    const snapshot = this.params.snapshot && typeof this.params.snapshot === 'object' ? this.params.snapshot : {};
+    const documentMetadata = [...this.documents.values()].sort((a, b) => a.path.localeCompare(b.path)).map((document) => {
+      const identity = this.identities.get(document.path) || {};
+      const contentHash = sha256(Buffer.from(document.content, 'utf8'));
+      return {
+        path: document.path,
+        ...(identity.documentRevisionId ? { documentRevisionId: identity.documentRevisionId } : {}),
+        ...(identity.contentId ? { contentId: identity.contentId } : {}),
+        ...(Number.isInteger(identity.documentVersion) ? { documentVersion: identity.documentVersion } : {}),
+        contentHash,
+        byteLength: Buffer.byteLength(document.content, 'utf8'),
+      };
+    });
+    const basis = suppliedBasis(this.params) || sha256(Buffer.from(documentMetadata.map((doc) => `${doc.path}:${doc.contentHash}\n`).join(''), 'utf8'));
+    const workspaceEpoch = suppliedEpoch(this.params);
+    const readSetId = `readset-${sha256(Buffer.from(`${basis}:${workspaceEpoch}:${this.operation}`, 'utf8')).slice(0, 24)}`;
+    const closureId = `closure-${sha256(Buffer.from(`${readSetId}:${this.operation}`, 'utf8')).slice(0, 24)}`;
+    const requiredObservations = Array.isArray(this.params.requiredObservations)
+      ? this.params.requiredObservations.filter((item) => typeof item === 'string' && item.length > 0)
+      : [];
+    const negativeObservations = [...this.missing.values()].sort((a, b) => a.path.localeCompare(b.path));
+    const membershipObservations = [...this.membership.values()];
+    const dependencyFrontiers = [...this.frontiers.values()].sort((a, b) => a.path.localeCompare(b.path));
+    const measuredObservations = [];
+    if (negativeObservations.length > 0) measuredObservations.push('negative_lookup');
+    if (membershipObservations.length > 0) measuredObservations.push('membership');
+    if (dependencyFrontiers.length > 0) measuredObservations.push('dependency_frontier');
+    const unsupported = ['runtime_observation', 'dynamic_resolution'];
+    const incompleteReasons = requiredObservations
+      .filter((kind) => !measuredObservations.includes(kind))
+      .map((kind) => unsupported.includes(kind) ? `${kind} is unsupported and was not measured` : `${kind} is not measured for ${this.operation}`);
+    const capabilityProfile = {
+      adapter: 'typescript', adapterVersion: ADAPTER_VERSION, analyzerRevision: ANALYZER_VERSION,
+      features: ['symbols', 'calls', 'snapshot_overlay', 'negative_lookup', 'membership', 'dependency_frontier'],
+      unsupported, protocolVersions: [PROTOCOL_VERSION],
+      coverageBoundary: { includedSourceRoots: [...this.coverageRoots].sort(), excludedReasons: [], measured: true },
+    };
+    const boundedDiagnostics = Array.isArray(diagnostics) ? diagnostics.slice(0, 64).map((item) => ({
+      severity: ['info', 'warning', 'error'].includes(item.severity) ? item.severity : 'warning',
+      message: redactDiagnostic(String(item.message || 'adapter diagnostic'), 512),
+      ...(item.path ? { path: redactDiagnostic(String(item.path), 256) } : {}),
+    })) : [];
+    const analysisReadSet = {
+      schemaId: READ_SET_SCHEMA_ID, schemaVersion: 1, readSetId, computedBasisId: basis, workspaceEpoch,
+      documents: documentMetadata, indexes: [], negativeObservations, membershipObservations, dependencyFrontiers,
+      requiredObservations, adapterVersions: { typescript: ADAPTER_VERSION },
+    };
+    const causalObservationClosure = {
+      schemaId: CLOSURE_SCHEMA_ID, schemaVersion: 1, closureId, analysisReadSetId: readSetId,
+      computedBasisId: basis, workspaceEpoch,
+      closureStatus: incompleteReasons.length > 0 ? 'open' : 'closed',
+      negativeObservations, membershipObservations, dependencyFrontiers,
+      requiredObservations, measuredObservations, capabilityProfile,
+      coverageBoundary: capabilityProfile.coverageBoundary, incompleteReasons,
+      closureDigest: sha256(Buffer.from(JSON.stringify({ analysisReadSet, capabilityProfile }), 'utf8')),
+    };
+    const snapshotIdentity = {};
+    for (const field of ['snapshotId', 'rootTreeId', 'dependencyFingerprint', 'configurationFingerprint']) {
+      if (typeof snapshot[field] === 'string' && snapshot[field]) snapshotIdentity[field] = snapshot[field];
+    }
+    return {
+      schemaId: SCHEMA_ID, schemaVersion: 1, operation: this.operation, computedBasisId: basis, workspaceEpoch,
+      analysisReadSet, causalObservationClosure, capabilityProfile, analyzerVersion: ANALYZER_VERSION,
+      diagnostics: boundedDiagnostics, ...snapshotIdentity,
+    };
+  }
+}
+
+function createAnalysisTracker(params, operation) {
+  return new AnalysisTracker(params, operation);
+}
+
+function analysisMetadata(params, operation, explicitPaths = [], diagnostics = [], tracker = null) {
+  const active = tracker || createAnalysisTracker(params, operation);
+  if (!tracker) {
+    for (const rel of explicitPaths) active.read(rel);
+  }
+  return active.metadata(diagnostics);
 }
 
 module.exports = {
@@ -157,4 +296,6 @@ module.exports = {
   overlayFor,
   analysisMetadata,
   collectReadDocuments,
+  AnalysisTracker,
+  createAnalysisTracker,
 };

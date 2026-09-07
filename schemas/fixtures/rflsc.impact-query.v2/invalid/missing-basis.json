@@ -1,0 +1,12 @@
+{
+  "schemaId": "https://codeflow.local/schemas/rflsc.impact-query.v2.schema.json",
+  "schemaVersion": 2,
+  "target": { "symbolId": "PaymentService.process" },
+  "generationId": "generation-impact",
+  "freshness": "historical",
+  "maxDepth": 3,
+  "maxNodes": 50,
+  "relationKinds": ["calls"],
+  "coverageComplete": true,
+  "currentProofVerified": false
+}

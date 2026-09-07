@@ -4,14 +4,15 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"path/filepath"
 	"testing"
 )
 
 func TestFlowViewTaskViewEndpoint(t *testing.T) {
-	root, err := filepath.Abs("../../test/fixtures/nextjs-app-fixture")
-	if err != nil {
-		t.Fatal(err)
+	root := copyFixtureWithoutCodeflow(t, "nextjs-app-fixture")
+	if _, err := os.Stat(filepath.Join(root, ".codeflow")); !os.IsNotExist(err) {
+		t.Fatalf("fixture copy is not pristine: .codeflow stat error=%v", err)
 	}
 
 	moduleRoot, _ := filepath.Abs("../..")
@@ -69,8 +70,8 @@ func TestFlowViewTaskViewEndpoint(t *testing.T) {
 	if err := json.Unmarshal(recValid.Body.Bytes(), &resDoc); err != nil {
 		t.Fatalf("failed to decode response: %v", err)
 	}
-	if _, ok := resDoc["currentAnswer"]; !ok {
-		t.Error("missing currentAnswer in response")
+	if _, ok := resDoc["candidateAnswer"]; !ok {
+		t.Error("missing candidateAnswer in response")
 	}
 	if _, ok := resDoc["semanticMap"]; !ok {
 		t.Error("missing semanticMap in response")

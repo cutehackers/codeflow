@@ -114,7 +114,7 @@ Semantic Map의 목표는 저장소 전체를 그래프로 표시하는 것이 �
 - CF-09 `[Confirmed]` 현재 language adapter protocol은 NDJSON v1 over stdio이며 request ID, timeout, message size, in-flight bound, typed error와 crash retry를 지원한다. 근거: `internal/protocol/`, `schemas/adapter-protocol.schema.json`.
 - CF-10 `[Confirmed]` 현재 adapter는 Dart와 TypeScript/JavaScript가 존재한다. Dart는 Dart Analyzer를 사용하고 TypeScript/JavaScript adapter는 현재 저장소의 scanner 구현을 사용한다. 근거: `adapters/dart/`, `adapters/typescript/`, `docs/PROJECT-ko.md`.
 - CF-11 `[Confirmed]` 현재 FlowSpec schema에는 이 계약이 요구하는 `structuralStatus`, `semanticStatus`, `evidenceScope`, `scenarioRefs`, `coverageSummary`, `deltas` 전체가 없다. 근거: `schemas/flowspec.schema.json`.
-- CF-12 `[Confirmed]` 기존 제품 원칙은 현재 worktree 우선, 구조와 의미 분리, unknown 보존, source read-only, versioned schema와 모델 없는 deterministic flow다. 근거: `docs/design-v2.md`, `docs/codeflow-production-design-ko.md`, `docs/PROJECT-ko.md`.
+- CF-12 `[Confirmed]` 기존 제품 원칙은 현재 worktree 우선, 구조와 의미 분리, unknown 보존, source read-only, versioned schema와 모델 없는 deterministic flow다. 근거: `docs/design/specs/design-v2.md`, `docs/design/specs/codeflow-production-design-ko.md`, `docs/PROJECT-ko.md`.
 
 ### 4.2 External Evidence
 
@@ -372,8 +372,8 @@ Open Decision은 없다.
 
 ### 12.1 Existing Contract Amendments Required Before Implementation
 
-- `docs/design-v2.md`의 model 비의존 원칙은 deterministic baseline을 유지하면서 optional local model capability를 허용하도록 명시적으로 개정하고 다시 승인해야 한다.
-- `docs/spec/llm-language-adapter-protocol.md`와 새 v2 schema는 Content-Length JSON-RPC 2.0, v1 rejection, Dart·TypeScript/JavaScript native v2와 MAJOR cutover를 정의해야 한다.
+- `docs/design/specs/design-v2.md`의 model 비의존 원칙은 deterministic baseline을 유지하면서 optional local model capability를 허용하도록 명시적으로 개정하고 다시 승인해야 한다.
+- `docs/design/specs/llm-language-adapter-protocol.md`와 새 v2 schema는 Content-Length JSON-RPC 2.0, v1 rejection, Dart·TypeScript/JavaScript native v2와 MAJOR cutover를 정의해야 한다.
 - 위 변경은 해당 개정 계약의 승인 전에는 구현하지 않는다.
 
 ## 13. Done When

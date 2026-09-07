@@ -1,18 +1,22 @@
 #!/usr/bin/env node
 'use strict';
 
-const { handleRequest, handleRPCRequest, CAPABILITIES } = require('../lib/protocol');
+const { handleRequest, handleRPCRequest, CAPABILITIES, encodeBoundedResponse } = require('../lib/protocol');
+const { redactDiagnostic } = require('../lib/secret');
 
 const MAX_MESSAGE_BYTES = CAPABILITIES.maxMessageBytes;
 const MAX_HEADER_BYTES = 8 * 1024;
+const MAX_BUFFER_BYTES = MAX_MESSAGE_BYTES + MAX_HEADER_BYTES;
 let input = Buffer.alloc(0);
 let mode = null;
+let discardBytes = 0;
 let active = 0;
 const cancelled = new Set();
 let shuttingDown = false;
 
 function writeBody(body) {
-  const bytes = Buffer.isBuffer(body) ? body : Buffer.from(JSON.stringify(body), 'utf8');
+  const bytes = encodeBoundedResponse(body, MAX_MESSAGE_BYTES);
+  if (!bytes) return;
   process.stdout.write(`Content-Length: ${bytes.length}\r\n\r\n`);
   process.stdout.write(bytes);
 }
@@ -26,8 +30,12 @@ function rpcError(id, code, message, retryable = false) {
   return {
     jsonrpc: '2.0',
     id: typeof id === 'string' ? id : '',
-    error: { code: rpcCode, message: String(message).slice(0, 512), data: { code, retryable } },
+    error: { code: rpcCode, message: boundedDiagnostic(message), data: { code, retryable } },
   };
+}
+
+function boundedDiagnostic(value) {
+  return redactDiagnostic(value, 512);
 }
 
 function writeNotification(method, params) {
@@ -96,7 +104,7 @@ function processLegacyLine(line) {
   try {
     req = JSON.parse(trimmed);
   } catch (err) {
-    writeLegacy({ id: '', ok: false, err: { code: 'E_BAD_REQUEST', message: `request line is not valid JSON: ${err.message}`, retryable: false } });
+    writeLegacy({ id: '', ok: false, err: { code: 'E_BAD_REQUEST', message: boundedDiagnostic(`request line is not valid JSON: ${err.message}`), retryable: false } });
     return;
   }
   const response = handleRequest(req);
@@ -122,6 +130,7 @@ function consumeLegacy() {
 }
 
 function consumeFramed() {
+  if (discardBytes > 0) return;
   while (true) {
     const headerEnd = input.indexOf(Buffer.from('\r\n\r\n'));
     if (headerEnd < 0) {
@@ -150,10 +159,13 @@ function consumeFramed() {
       continue;
     }
     if (length > MAX_MESSAGE_BYTES) {
-      const frameEnd = headerEnd + 4 + length;
-      if (input.length < frameEnd) return;
-      input = input.subarray(frameEnd);
       writeBody(rpcError('', 'E_BAD_REQUEST', 'message exceeds maxMessageBytes'));
+      const bodyStart = headerEnd + 4;
+      const available = Math.max(0, input.length - bodyStart);
+      const consumed = Math.min(length, available);
+      input = input.subarray(bodyStart + consumed);
+      discardBytes = length - consumed;
+      if (discardBytes > 0) return;
       continue;
     }
     const frameEnd = headerEnd + 4 + length;
@@ -165,6 +177,23 @@ function consumeFramed() {
 }
 
 process.stdin.on('data', (chunk) => {
+  if (mode === 'framed' && discardBytes > 0) {
+    const consumed = Math.min(discardBytes, chunk.length);
+    discardBytes -= consumed;
+    chunk = chunk.subarray(consumed);
+    if (chunk.length === 0) return;
+  }
+  // Drain complete frames before retaining more bytes. An incomplete or
+  // oversized frame is never allowed to grow the parser buffer without a
+  // negotiated bound.
+  if (mode === 'framed') consumeFramed();
+  const remaining = MAX_BUFFER_BYTES - input.length;
+  if (chunk.length > remaining) {
+    if (remaining > 0) input = Buffer.concat([input, chunk.subarray(0, remaining)]);
+    input = Buffer.alloc(0);
+    writeBody(rpcError('', 'E_BAD_REQUEST', 'frame buffer exceeds negotiated bound'));
+    return;
+  }
   input = Buffer.concat([input, chunk]);
   const selected = chooseMode();
   if (selected === 'legacy') consumeLegacy();

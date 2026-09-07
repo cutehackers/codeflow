@@ -13,7 +13,7 @@ func TestVS03A3_MultiFileEditTransaction(t *testing.T) {
 	}
 	defer os.RemoveAll(tempDir)
 
-	engine, err := NewSnapshotEngine(tempDir, "epoch-tx-test")
+	engine, err := NewSnapshotEngine(tempDir, 1)
 	if err != nil {
 		t.Fatalf("NewSnapshotEngine failed: %v", err)
 	}

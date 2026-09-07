@@ -1,0 +1,16 @@
+{
+  "schemaId": "https://codeflow.local/schemas/rflsc.model-activation-disclosure.v1.schema.json",
+  "schemaVersion": 1,
+  "disclosureId": "disclosure-a1",
+  "modelId": "local-slm",
+  "revision": "rev-a1",
+  "license": "Apache-2.0",
+  "checksum": "sha256:abc",
+  "runtime": "sandbox-v2",
+  "dataBoundary": "local-only",
+  "currentCapabilities": ["cancellation"],
+  "proposedCapabilities": ["cancellation", "semantic_proposal"],
+  "capabilityChange": ["added:semantic_proposal"],
+  "choiceRequired": false,
+  "approved": false
+}

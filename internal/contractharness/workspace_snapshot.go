@@ -7,7 +7,7 @@ import (
 
 // ValidateDocumentRevision validates raw JSON against document-revision.schema.json.
 func ValidateDocumentRevision(data []byte) error {
-	schemaID := BaseURL + "document-revision.schema.json"
+	schemaID := BaseURL + "rflsc.document-revision.v2.schema.json"
 	if err := Validate(schemaID, data); err != nil {
 		return fmt.Errorf("document-revision schema violation: %w", err)
 	}
@@ -15,6 +15,7 @@ func ValidateDocumentRevision(data []byte) error {
 		DocumentVersion int    `json:"documentVersion"`
 		Path            string `json:"path"`
 		ContentID       string `json:"contentId"`
+		WorkspaceEpoch  int64  `json:"workspaceEpoch"`
 	}
 	if err := json.Unmarshal(data, &rev); err != nil {
 		return fmt.Errorf("parse document-revision JSON: %w", err)
@@ -33,15 +34,16 @@ func ValidateDocumentRevision(data []byte) error {
 
 // ValidateWorkspaceSnapshot validates raw JSON against workspace-snapshot.schema.json.
 func ValidateWorkspaceSnapshot(data []byte) error {
-	schemaID := BaseURL + "workspace-snapshot.schema.json"
+	schemaID := BaseURL + "rflsc.workspace-snapshot.v2.schema.json"
 	if err := Validate(schemaID, data); err != nil {
 		return fmt.Errorf("workspace-snapshot schema violation: %w", err)
 	}
 	var snap struct {
-		Sequence        int               `json:"sequence"`
-		ComputedBasisID string            `json:"computedBasisId"`
-		WorkspaceEpoch  string            `json:"workspaceEpoch"`
-		Entries         map[string]any    `json:"entries"`
+		Sequence        int            `json:"sequence"`
+		ComputedBasisID string         `json:"computedBasisId"`
+		WorkspaceEpoch  int64          `json:"workspaceEpoch"`
+		Entries         map[string]any `json:"entries"`
+		RootTreeID      string         `json:"rootTreeId"`
 	}
 	if err := json.Unmarshal(data, &snap); err != nil {
 		return fmt.Errorf("parse workspace-snapshot JSON: %w", err)
@@ -52,8 +54,11 @@ func ValidateWorkspaceSnapshot(data []byte) error {
 	if len(snap.ComputedBasisID) != 64 {
 		return fmt.Errorf("workspace-snapshot: computedBasisId must be 64-char hex SHA256")
 	}
-	if snap.WorkspaceEpoch == "" {
-		return fmt.Errorf("workspace-snapshot: workspaceEpoch must not be empty")
+	if snap.WorkspaceEpoch < 0 {
+		return fmt.Errorf("workspace-snapshot: workspaceEpoch must be non-negative, got %d", snap.WorkspaceEpoch)
+	}
+	if snap.RootTreeID == "" {
+		return fmt.Errorf("workspace-snapshot: rootTreeId must not be empty")
 	}
 	return nil
 }

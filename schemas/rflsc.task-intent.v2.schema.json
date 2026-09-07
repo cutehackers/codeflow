@@ -1,0 +1,21 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://codeflow.local/schemas/rflsc.task-intent.v2.schema.json",
+  "title": "RFL-SC VS04 Task Intent v2",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaId", "schemaVersion", "taskId", "revision", "request", "normalizedIntent", "acceptanceCriteria", "intentStatus", "mode", "authority"],
+  "properties": {
+    "schemaId": {"const": "https://codeflow.local/schemas/rflsc.task-intent.v2.schema.json"},
+    "schemaVersion": {"const": 2},
+    "taskId": {"type": "string", "minLength": 1},
+    "revision": {"type": "integer", "minimum": 1},
+    "request": {"type": "object", "additionalProperties": false, "required": ["rawRequest"], "properties": {"rawRequest": {"type": "string", "minLength": 1}}},
+    "normalizedIntent": {"type": "object", "additionalProperties": false, "required": ["expectedOutcome", "unresolvedInterpretations"], "properties": {"actor": {"type": "string"}, "trigger": {"type": "string"}, "expectedOutcome": {"type": "string", "minLength": 1}, "unresolvedInterpretations": {"type": "array", "items": {"type": "string"}}}},
+    "acceptanceCriteria": {"type": "array", "items": {"type": "object", "additionalProperties": false, "required": ["id", "text"], "properties": {"id": {"type": "string", "minLength": 1}, "text": {"type": "string", "minLength": 1}, "requiredEvidenceKinds": {"type": "array", "items": {"type": "string"}}}}},
+    "intentStatus": {"enum": ["parsed", "needs_confirmation", "user_confirmed"]},
+    "scopeHints": {"type": "object", "additionalProperties": false, "properties": {"entrySymbols": {"type": "array", "items": {"type": "string"}}, "domains": {"type": "array", "items": {"type": "string"}}, "excludedPaths": {"type": "array", "items": {"type": "string"}}}},
+    "mode": {"enum": ["feature", "review", "impact", "debug", "incident", "onboarding"]},
+    "authority": {"type": "object", "additionalProperties": false, "required": ["source"], "properties": {"source": {"const": "user"}}}
+  }
+}

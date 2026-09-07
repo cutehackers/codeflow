@@ -1,0 +1,32 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://codeflow.local/schemas/rflsc.adapter-diagnostic.v2.schema.json",
+  "title": "CodeFlow R2 Adapter Diagnostic",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaId", "schemaVersion", "code", "severity", "message"],
+  "properties": {
+    "schemaId": { "const": "https://codeflow.local/schemas/rflsc.adapter-diagnostic.v2.schema.json" },
+    "schemaVersion": { "const": 2 },
+    "code": { "type": "string", "minLength": 1, "maxLength": 128 },
+    "severity": { "type": "string", "enum": ["info", "warning", "error"] },
+    "message": { "type": "string", "minLength": 1, "maxLength": 512 },
+    "path": { "type": "string", "maxLength": 1024 },
+    "redacted": { "type": "boolean" }
+  },
+  "$defs": {
+    "diagnostic": {
+      "type": "object", "additionalProperties": false,
+      "required": ["schemaId", "schemaVersion", "code", "severity", "message"],
+      "properties": {
+        "schemaId": { "const": "https://codeflow.local/schemas/rflsc.adapter-diagnostic.v2.schema.json" },
+        "schemaVersion": { "const": 2 },
+        "code": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "severity": { "type": "string", "enum": ["info", "warning", "error"] },
+        "message": { "type": "string", "minLength": 1, "maxLength": 512 },
+        "path": { "type": "string", "maxLength": 1024 },
+        "redacted": { "type": "boolean" }
+      }
+    }
+  }
+}

@@ -1,0 +1,392 @@
+{
+  "schemaId": "https://codeflow.local/schemas/rflsc.release-benchmark-report.v2.schema.json",
+  "schemaVersion": 2,
+  "reportId": "evaluation-synthetic",
+  "targetVersion": "v1.0.0",
+  "evaluatedAt": "2026-09-07T00:00:00Z",
+  "status": "passed",
+  "profileRef": "sha256:e71fa701143b4703eccaae5d1e47fad9fd93a5c6a737ef717e7e34165c03f37c",
+  "corpusRef": "sha256:09be266f70e81bc1c220b1652b4c364c6df1cd737d52f040b43237a2754b7f40",
+  "executionRefs": [
+    "sha256:fa4cdf821c812ddf6a68f2655cc904eb0896f97c44ea38a23a2306f5a51adb12"
+  ],
+  "thresholdRef": "sha256:3000000000000000000000000000000000000000000000000000000000000001",
+  "childEvidenceRefs": [
+    "sha256:4000000000000000000000000000000000000000000000000000000000000001"
+  ],
+  "metrics": [
+    {
+      "metric": "activity_latency_ms",
+      "capabilityId": "live-current-or-gap",
+      "category": "latency",
+      "unit": "ms",
+      "aggregation": "p95",
+      "value": 100,
+      "profileId": "profile-synthetic",
+      "scenarioIds": [
+        "s1"
+      ],
+      "traceIds": [
+        "t1"
+      ],
+      "toolchainIds": [
+        "go-1.25"
+      ],
+      "evidenceRefs": [
+        "sha256:2100000000000000000000000000000000000000000000000000000000000001"
+      ]
+    },
+    {
+      "metric": "current_or_gap_latency_ms",
+      "capabilityId": "live-current-or-gap",
+      "category": "latency",
+      "unit": "ms",
+      "aggregation": "p95",
+      "value": 1000,
+      "profileId": "profile-synthetic",
+      "scenarioIds": [
+        "s1"
+      ],
+      "traceIds": [
+        "t1"
+      ],
+      "toolchainIds": [
+        "go-1.25"
+      ],
+      "evidenceRefs": [
+        "sha256:2100000000000000000000000000000000000000000000000000000000000002"
+      ]
+    },
+    {
+      "metric": "precision",
+      "capabilityId": "live-current-or-gap",
+      "category": "quality",
+      "unit": "ratio",
+      "aggregation": "mean",
+      "value": 0.9,
+      "profileId": "profile-synthetic",
+      "scenarioIds": [
+        "s1"
+      ],
+      "traceIds": [
+        "t1"
+      ],
+      "toolchainIds": [
+        "go-1.25"
+      ],
+      "evidenceRefs": [
+        "sha256:2100000000000000000000000000000000000000000000000000000000000003"
+      ]
+    },
+    {
+      "metric": "recall",
+      "capabilityId": "live-current-or-gap",
+      "category": "quality",
+      "unit": "ratio",
+      "aggregation": "mean",
+      "value": 0.9,
+      "profileId": "profile-synthetic",
+      "scenarioIds": [
+        "s1"
+      ],
+      "traceIds": [
+        "t1"
+      ],
+      "toolchainIds": [
+        "go-1.25"
+      ],
+      "evidenceRefs": [
+        "sha256:2100000000000000000000000000000000000000000000000000000000000004"
+      ]
+    },
+    {
+      "metric": "semantic_delta",
+      "capabilityId": "live-current-or-gap",
+      "category": "quality",
+      "unit": "ratio",
+      "aggregation": "mean",
+      "value": 1,
+      "profileId": "profile-synthetic",
+      "scenarioIds": [
+        "s1"
+      ],
+      "traceIds": [
+        "t1"
+      ],
+      "toolchainIds": [
+        "go-1.25"
+      ],
+      "evidenceRefs": [
+        "sha256:2100000000000000000000000000000000000000000000000000000000000005"
+      ]
+    },
+    {
+      "metric": "alignment_validity",
+      "capabilityId": "live-current-or-gap",
+      "category": "quality",
+      "unit": "ratio",
+      "aggregation": "mean",
+      "value": 1,
+      "profileId": "profile-synthetic",
+      "scenarioIds": [
+        "s1"
+      ],
+      "traceIds": [
+        "t1"
+      ],
+      "toolchainIds": [
+        "go-1.25"
+      ],
+      "evidenceRefs": [
+        "sha256:2100000000000000000000000000000000000000000000000000000000000006"
+      ]
+    },
+    {
+      "metric": "unknown_coverage",
+      "capabilityId": "live-current-or-gap",
+      "category": "quality",
+      "unit": "ratio",
+      "aggregation": "mean",
+      "value": 1,
+      "profileId": "profile-synthetic",
+      "scenarioIds": [
+        "s1"
+      ],
+      "traceIds": [
+        "t1"
+      ],
+      "toolchainIds": [
+        "go-1.25"
+      ],
+      "evidenceRefs": [
+        "sha256:2100000000000000000000000000000000000000000000000000000000000007"
+      ]
+    },
+    {
+      "metric": "comprehension",
+      "capabilityId": "live-current-or-gap",
+      "category": "quality",
+      "unit": "ratio",
+      "aggregation": "mean",
+      "value": 0.9,
+      "profileId": "profile-synthetic",
+      "scenarioIds": [
+        "s1"
+      ],
+      "traceIds": [
+        "t1"
+      ],
+      "toolchainIds": [
+        "go-1.25"
+      ],
+      "evidenceRefs": [
+        "sha256:2100000000000000000000000000000000000000000000000000000000000008"
+      ]
+    },
+    {
+      "metric": "peak_memory_bytes",
+      "capabilityId": "live-current-or-gap",
+      "category": "resource",
+      "unit": "bytes",
+      "aggregation": "mean",
+      "value": 1000,
+      "profileId": "profile-synthetic",
+      "scenarioIds": [
+        "s1"
+      ],
+      "traceIds": [
+        "t1"
+      ],
+      "toolchainIds": [
+        "go-1.25"
+      ],
+      "evidenceRefs": [
+        "sha256:2100000000000000000000000000000000000000000000000000000000000009"
+      ]
+    }
+  ],
+  "gates": [
+    {
+      "metric": "activity_latency_ms",
+      "capabilityId": "live-current-or-gap",
+      "passed": true,
+      "decisionRef": "decision:D36",
+      "thresholdRef": "sha256:3000000000000000000000000000000000000000000000000000000000000001",
+      "profileId": "profile-synthetic",
+      "scenarioIds": [
+        "s1"
+      ],
+      "traceIds": [
+        "t1"
+      ],
+      "toolchainIds": [
+        "go-1.25"
+      ],
+      "evidenceRefs": [
+        "sha256:2100000000000000000000000000000000000000000000000000000000000001"
+      ]
+    },
+    {
+      "metric": "current_or_gap_latency_ms",
+      "capabilityId": "live-current-or-gap",
+      "passed": true,
+      "decisionRef": "decision:D36",
+      "thresholdRef": "sha256:3000000000000000000000000000000000000000000000000000000000000001",
+      "profileId": "profile-synthetic",
+      "scenarioIds": [
+        "s1"
+      ],
+      "traceIds": [
+        "t1"
+      ],
+      "toolchainIds": [
+        "go-1.25"
+      ],
+      "evidenceRefs": [
+        "sha256:2100000000000000000000000000000000000000000000000000000000000002"
+      ]
+    },
+    {
+      "metric": "precision",
+      "capabilityId": "live-current-or-gap",
+      "passed": true,
+      "decisionRef": "decision:D36",
+      "thresholdRef": "sha256:3000000000000000000000000000000000000000000000000000000000000001",
+      "profileId": "profile-synthetic",
+      "scenarioIds": [
+        "s1"
+      ],
+      "traceIds": [
+        "t1"
+      ],
+      "toolchainIds": [
+        "go-1.25"
+      ],
+      "evidenceRefs": [
+        "sha256:2100000000000000000000000000000000000000000000000000000000000003"
+      ]
+    },
+    {
+      "metric": "recall",
+      "capabilityId": "live-current-or-gap",
+      "passed": true,
+      "decisionRef": "decision:D36",
+      "thresholdRef": "sha256:3000000000000000000000000000000000000000000000000000000000000001",
+      "profileId": "profile-synthetic",
+      "scenarioIds": [
+        "s1"
+      ],
+      "traceIds": [
+        "t1"
+      ],
+      "toolchainIds": [
+        "go-1.25"
+      ],
+      "evidenceRefs": [
+        "sha256:2100000000000000000000000000000000000000000000000000000000000004"
+      ]
+    },
+    {
+      "metric": "semantic_delta",
+      "capabilityId": "live-current-or-gap",
+      "passed": true,
+      "decisionRef": "decision:D36",
+      "thresholdRef": "sha256:3000000000000000000000000000000000000000000000000000000000000001",
+      "profileId": "profile-synthetic",
+      "scenarioIds": [
+        "s1"
+      ],
+      "traceIds": [
+        "t1"
+      ],
+      "toolchainIds": [
+        "go-1.25"
+      ],
+      "evidenceRefs": [
+        "sha256:2100000000000000000000000000000000000000000000000000000000000005"
+      ]
+    },
+    {
+      "metric": "alignment_validity",
+      "capabilityId": "live-current-or-gap",
+      "passed": true,
+      "decisionRef": "decision:D36",
+      "thresholdRef": "sha256:3000000000000000000000000000000000000000000000000000000000000001",
+      "profileId": "profile-synthetic",
+      "scenarioIds": [
+        "s1"
+      ],
+      "traceIds": [
+        "t1"
+      ],
+      "toolchainIds": [
+        "go-1.25"
+      ],
+      "evidenceRefs": [
+        "sha256:2100000000000000000000000000000000000000000000000000000000000006"
+      ]
+    },
+    {
+      "metric": "unknown_coverage",
+      "capabilityId": "live-current-or-gap",
+      "passed": true,
+      "decisionRef": "decision:D36",
+      "thresholdRef": "sha256:3000000000000000000000000000000000000000000000000000000000000001",
+      "profileId": "profile-synthetic",
+      "scenarioIds": [
+        "s1"
+      ],
+      "traceIds": [
+        "t1"
+      ],
+      "toolchainIds": [
+        "go-1.25"
+      ],
+      "evidenceRefs": [
+        "sha256:2100000000000000000000000000000000000000000000000000000000000007"
+      ]
+    },
+    {
+      "metric": "comprehension",
+      "capabilityId": "live-current-or-gap",
+      "passed": true,
+      "decisionRef": "decision:D36",
+      "thresholdRef": "sha256:3000000000000000000000000000000000000000000000000000000000000001",
+      "profileId": "profile-synthetic",
+      "scenarioIds": [
+        "s1"
+      ],
+      "traceIds": [
+        "t1"
+      ],
+      "toolchainIds": [
+        "go-1.25"
+      ],
+      "evidenceRefs": [
+        "sha256:2100000000000000000000000000000000000000000000000000000000000008"
+      ]
+    },
+    {
+      "metric": "peak_memory_bytes",
+      "capabilityId": "live-current-or-gap",
+      "passed": true,
+      "decisionRef": "decision:D36",
+      "thresholdRef": "sha256:3000000000000000000000000000000000000000000000000000000000000001",
+      "profileId": "profile-synthetic",
+      "scenarioIds": [
+        "s1"
+      ],
+      "traceIds": [
+        "t1"
+      ],
+      "toolchainIds": [
+        "go-1.25"
+      ],
+      "evidenceRefs": [
+        "sha256:2100000000000000000000000000000000000000000000000000000000000009"
+      ]
+    }
+  ],
+  "reasons": [],
+  "releaseReady": true
+}

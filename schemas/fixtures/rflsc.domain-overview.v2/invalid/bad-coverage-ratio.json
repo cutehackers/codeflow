@@ -1,0 +1,16 @@
+{
+  "schemaId": "https://codeflow.local/schemas/rflsc.domain-overview.v2.schema.json",
+  "schemaVersion": 2,
+  "repositoryId": "repo-vs07",
+  "computedBasisId": "basis-vs07",
+  "generationId": "generation-vs07",
+  "validatedAgainstSnapshotId": "snapshot-vs07",
+  "freshness": "historical",
+  "domains": [],
+  "unmappedModules": [],
+  "unknowns": [],
+  "coverageBoundary": {"includedSourceRoots": [], "excludedReasons": []},
+  "recoveryGuidance": [],
+  "summary": {"totalDomains": 0, "totalFlows": 0, "coverageRatio": 1.1},
+  "redactionStatus": "clean"
+}

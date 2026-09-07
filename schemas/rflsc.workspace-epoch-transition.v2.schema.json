@@ -1,0 +1,18 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://codeflow.local/schemas/rflsc.workspace-epoch-transition.v2.schema.json",
+  "title": "RFL-SC VS-01 Workspace Epoch Transition v2",
+  "type": "object",
+  "required": ["schemaId", "schemaVersion", "previousEpoch", "newEpoch", "reason", "historicalSnapshotIds", "occurredAt"],
+  "additionalProperties": false,
+  "properties": {
+    "schemaId": { "const": "https://codeflow.local/schemas/rflsc.workspace-epoch-transition.v2.schema.json" },
+    "schemaVersion": { "const": 2 },
+    "previousEpoch": { "type": "integer", "minimum": 0 },
+    "newEpoch": { "type": "integer", "minimum": 0 },
+    "reason": { "type": "string", "minLength": 1 },
+    "historicalSnapshotIds": { "type": "array", "items": { "type": "string", "minLength": 1 } },
+    "occurredAt": { "type": "string", "format": "date-time" },
+    "legacyArtifactRefs": { "type": "array", "items": { "type": "string", "minLength": 1 } }
+  }
+}

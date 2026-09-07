@@ -1,0 +1,107 @@
+{
+  "schemaId": "https://codeflow.local/schemas/rflsc.scenario-manifest.v2.schema.json",
+  "schemaVersion": 2,
+  "corpusId": "corpus-synthetic",
+  "corpusVersion": "1.0.0",
+  "artifactRef": "sha256:bc60026d396199d5edf95eebae1af4af623f99e64958de7d998823defc208746",
+  "profileId": "profile-synthetic",
+  "profileRef": "sha256:abe9551ff3a21b43eab4a0d3426486aa9e9e9dc16ebf6cbbe3d9a6c49c034ea9",
+  "scenarios": [
+    {
+      "scenarioId": "s1",
+      "kind": "rapid_edit",
+      "capabilityIds": [
+        "live-current-or-gap"
+      ],
+      "fixtureRef": "sha256:1000000000000000000000000000000000000000000000000000000000000002"
+    },
+    {
+      "scenarioId": "s2",
+      "kind": "multi_file",
+      "capabilityIds": [
+        "live-current-or-gap"
+      ],
+      "fixtureRef": "sha256:1000000000000000000000000000000000000000000000000000000000000003"
+    },
+    {
+      "scenarioId": "s3",
+      "kind": "rename_delete",
+      "capabilityIds": [
+        "live-current-or-gap"
+      ],
+      "fixtureRef": "sha256:1000000000000000000000000000000000000000000000000000000000000004"
+    },
+    {
+      "scenarioId": "s4",
+      "kind": "syntax_error",
+      "capabilityIds": [
+        "live-current-or-gap"
+      ],
+      "fixtureRef": "sha256:1000000000000000000000000000000000000000000000000000000000000005"
+    },
+    {
+      "scenarioId": "s5",
+      "kind": "branch_switch",
+      "capabilityIds": [
+        "live-current-or-gap"
+      ],
+      "fixtureRef": "sha256:1000000000000000000000000000000000000000000000000000000000000006"
+    },
+    {
+      "scenarioId": "s6",
+      "kind": "watcher_gap",
+      "capabilityIds": [
+        "live-current-or-gap"
+      ],
+      "fixtureRef": "sha256:1000000000000000000000000000000000000000000000000000000000000007"
+    },
+    {
+      "scenarioId": "s7",
+      "kind": "open_closure",
+      "capabilityIds": [
+        "live-current-or-gap"
+      ],
+      "fixtureRef": "sha256:1000000000000000000000000000000000000000000000000000000000000008"
+    },
+    {
+      "scenarioId": "s8",
+      "kind": "late_result",
+      "capabilityIds": [
+        "live-current-or-gap"
+      ],
+      "fixtureRef": "sha256:1000000000000000000000000000000000000000000000000000000000000009"
+    },
+    {
+      "scenarioId": "s9",
+      "kind": "cas_conflict",
+      "capabilityIds": [
+        "live-current-or-gap"
+      ],
+      "fixtureRef": "sha256:100000000000000000000000000000000000000000000000000000000000000a"
+    },
+    {
+      "scenarioId": "s10",
+      "kind": "adapter_crash",
+      "capabilityIds": [
+        "live-current-or-gap"
+      ],
+      "fixtureRef": "sha256:100000000000000000000000000000000000000000000000000000000000000b"
+    },
+    {
+      "scenarioId": "s11",
+      "kind": "model_crash",
+      "capabilityIds": [
+        "live-current-or-gap"
+      ],
+      "fixtureRef": "sha256:100000000000000000000000000000000000000000000000000000000000000c"
+    },
+    {
+      "scenarioId": "s12",
+      "kind": "reconnect",
+      "capabilityIds": [
+        "live-current-or-gap"
+      ],
+      "fixtureRef": "sha256:100000000000000000000000000000000000000000000000000000000000000d"
+    }
+  ]
+}

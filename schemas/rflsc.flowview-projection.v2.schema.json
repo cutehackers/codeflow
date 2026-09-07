@@ -1,0 +1,21 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://codeflow.local/schemas/rflsc.flowview-projection.v2.schema.json",
+  "title": "RFL-SC FlowView Projection v2",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaId", "schemaVersion", "projectionId", "generationId", "computedBasisId", "mode", "displayBudget", "visibleStepRefs", "preservedStepRefs", "foldedSubflows", "unknownBoundaryRefs"],
+  "properties": {
+    "schemaId": {"const": "https://codeflow.local/schemas/rflsc.flowview-projection.v2.schema.json"},
+    "schemaVersion": {"const": 2},
+    "projectionId": {"type": "string", "minLength": 1},
+    "generationId": {"type": "string", "minLength": 1},
+    "computedBasisId": {"type": "string", "minLength": 1},
+    "mode": {"enum": ["feature", "review", "impact", "debug", "incident", "onboarding"]},
+    "displayBudget": {"type": "object", "additionalProperties": false, "required": ["targetMin", "targetMax", "enforcement"], "properties": {"targetMin": {"type": "integer", "minimum": 1}, "targetMax": {"type": "integer", "minimum": 1}, "enforcement": {"enum": ["soft", "strict"]}}},
+    "visibleStepRefs": {"type": "array", "items": {"type": "string", "minLength": 1}},
+    "preservedStepRefs": {"type": "array", "items": {"type": "string", "minLength": 1}},
+    "unknownBoundaryRefs": {"type": "array", "items": {"type": "string", "minLength": 1}},
+    "foldedSubflows": {"type": "array", "items": {"type": "object", "additionalProperties": false, "required": ["foldId", "entryStepRef", "exitStepRef", "hiddenCount"], "properties": {"foldId": {"type": "string", "minLength": 1}, "entryStepRef": {"type": "string"}, "exitStepRef": {"type": "string"}, "hiddenCount": {"type": "integer", "minimum": 1}, "drilldownTarget": {"type": "string"}}}}
+  }
+}

@@ -1,0 +1,20 @@
+{
+  "schemaId": "https://codeflow.local/schemas/rflsc.failure-query.v2.schema.json",
+  "schemaVersion": 2,
+  "mode": "debug",
+  "computedBasisId": "basis-vs06",
+  "generationId": "generation-vs06",
+  "validatedAgainstSnapshotId": "snapshot-vs06",
+  "freshness": "historical",
+  "debug": { "error": "PaymentDeclined" },
+  "incident": {
+    "traceId": "trace-vs06",
+    "scenario": "checkout",
+    "environment": "staging",
+    "dependencyFingerprint": "deps-vs06",
+    "timeWindow": {
+      "from": "2026-09-05T00:00:00Z",
+      "to": "2026-09-05T00:05:00Z"
+    }
+  }
+}

@@ -1,0 +1,15 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://codeflow.local/schemas/rflsc.feature-query.v2.schema.json",
+  "title": "RFL-SC Feature Query v2",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaId", "schemaVersion", "mode", "feature"],
+  "properties": {
+    "schemaId": {"const": "https://codeflow.local/schemas/rflsc.feature-query.v2.schema.json"},
+    "schemaVersion": {"const": 2},
+    "mode": {"const": "feature"},
+    "feature": {"type": "object", "additionalProperties": false, "properties": {"request": {"type": "string", "minLength": 1}, "flowId": {"type": "string", "minLength": 1}, "entrySymbol": {"type": "string", "minLength": 1}, "domain": {"type": "string", "minLength": 1}}, "anyOf": [{"required": ["request"]}, {"required": ["flowId"]}, {"required": ["entrySymbol"]}, {"required": ["domain"]}]},
+    "common": {"type": "object", "additionalProperties": false, "properties": {"taskId": {"type": "string"}, "intentRevision": {"type": "integer", "minimum": 1}, "basisSelector": {"type": "object", "additionalProperties": false, "required": ["kind"], "properties": {"kind": {"enum": ["active", "generation", "workspaceSnapshot"]}, "id": {"type": "string"}}}}}
+  }
+}

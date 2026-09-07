@@ -1,0 +1,15 @@
+{
+  "schemaId":"https://codeflow.local/schemas/rflsc.observation-closure.v2.schema.json",
+  "schemaVersion":2,
+  "closureId":"closure-1",
+  "analysisReadSetId":"rs-1",
+  "computedBasisId":"basis-1",
+  "workspaceEpoch":7,
+  "closureStatus":"closed",
+  "negativeObservations":[{"kind":"negative_lookup","path":"lib/missing.go","measured":true}],
+  "membershipObservations":[{"kind":"membership","path":"lib","measured":true}],
+  "dependencyFrontiers":[{"kind":"dependency_frontier","path":"go.mod","measured":true}],
+  "requiredObservations":["negative_lookup","membership","dependency_frontier"],
+  "measuredObservations":["negative_lookup","membership","dependency_frontier"],
+  "closureDigest":"ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+}

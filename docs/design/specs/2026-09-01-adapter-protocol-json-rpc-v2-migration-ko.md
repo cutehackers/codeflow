@@ -5,11 +5,11 @@
 - Created: 2026-09-01
 - Updated: 2026-09-02
 - Approved: 2026-09-02
-- Superseded By: `docs/design/specs/2026-09-02-requested-flow-live-semantic-compiler-ko-vs-01-verify-supported-repository-evidence-ko.md`
+- Superseded By: `.tasks/2026-09-02-requested-flow-live-semantic-compiler-ko/vs-02-receive-honest-analyzer-evidence-ko.md`
 - Approval Basis: Legacy backward compatibility 제외 정책 고정 후 사용자 명시 승인 및 독립 재검토 PASS
 - Source: 2026-09-01 Q1~Q9 결정 및 2026-09-02 legacy 호환 제외 결정
 - Parent Contract: `docs/design/specs/2026-09-01-semantic-map-layered-architecture-ko.md`
-- Affects: `docs/spec/llm-language-adapter-protocol.md`, `schemas/adapter-protocol.schema.json`, Core, Dart adapter, TypeScript/JavaScript adapter, installer와 `doctor`
+- Affects: `docs/design/specs/llm-language-adapter-protocol.md`, `schemas/adapter-protocol.schema.json`, Core, Dart adapter, TypeScript/JavaScript adapter, installer와 `doctor`
 
 이 계약은 historical child contract다. 현재 정본은 `docs/design/raw/requested-flow-live-semantic-compiler-architecture-draft-ko.md`와 그 raw-backed slice다. 아래 내용은 v2 cutover 결정의 provenance로 보존하며, 독립 구현 계약으로 사용하지 않는다.
 
@@ -47,9 +47,9 @@ CodeFlow caller는 취소, 진행 상태, 큰 결과 전송, typed failure와 bo
 ## 3. Confirmed Current State
 
 - CF-01 `[Confirmed]` 현재 Core와 adapter는 NDJSON v1 over stdio를 사용한다. 근거: `internal/protocol/`, `schemas/adapter-protocol.schema.json`.
-- CF-02 `[Confirmed]` 현재 operation은 `ping`, `detect`, `harvest_candidates`, `slice`, `shutdown`이다. 근거: `docs/spec/llm-language-adapter-protocol.md`.
-- CF-03 `[Confirmed]` 현재 request ID, timeout, cancellation token, typed error와 retryability seam이 존재한다. 근거: `docs/spec/llm-language-adapter-protocol.md`, `internal/protocol/`.
-- CF-04 `[Confirmed]` 현재 단일 message limit은 1MiB이고 최대 concurrent request 계약은 64개다. 근거: `docs/spec/llm-language-adapter-protocol.md`.
+- CF-02 `[Confirmed]` 현재 operation은 `ping`, `detect`, `harvest_candidates`, `slice`, `shutdown`이다. 근거: `docs/design/specs/llm-language-adapter-protocol.md`.
+- CF-03 `[Confirmed]` 현재 request ID, timeout, cancellation token, typed error와 retryability seam이 존재한다. 근거: `docs/design/specs/llm-language-adapter-protocol.md`, `internal/protocol/`.
+- CF-04 `[Confirmed]` 현재 단일 message limit은 1MiB이고 최대 concurrent request 계약은 64개다. 근거: `docs/design/specs/llm-language-adapter-protocol.md`.
 - CF-05 `[Confirmed]` Dart와 TypeScript/JavaScript adapter 및 compatibility pin이 존재한다. 근거: `adapters/dart/`, `adapters/typescript/`, `internal/pin/compatibility.json`.
 - CF-06 `[Confirmed]` malformed, oversized, timeout, crash와 unsupported-version behavior를 검증하는 test seam이 존재한다. 근거: `internal/protocol/*_test.go`, `adapters/dart/test/`, `adapters/typescript/test/`.
 - CF-07 `[Confirmed]` 현재 Core는 adapter stderr tail을 최대 8KiB로 제한한다. 근거: `internal/protocol/client.go`의 `stderrTailBytes = 8 << 10`.

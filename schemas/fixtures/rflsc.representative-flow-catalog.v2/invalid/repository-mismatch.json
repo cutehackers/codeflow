@@ -1,0 +1,13 @@
+{
+  "schemaId": "https://codeflow.local/schemas/rflsc.representative-flow-catalog.v2.schema.json",
+  "schemaVersion": 2,
+  "catalogId": "catalog-domain-billing",
+  "domainId": "domain-billing",
+  "computedBasisId": "basis-vs07",
+  "generationId": "",
+  "validatedAgainstSnapshotId": "snapshot-vs07",
+  "freshness": "historical",
+  "flows": [], "unmappedModules": [], "unknowns": [],
+  "coverageBoundary": {"includedSourceRoots": [], "excludedReasons": []},
+  "recoveryGuidance": [], "redactionStatus": "clean"
+}

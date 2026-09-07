@@ -1,0 +1,12 @@
+{
+  "schemaId":"https://codeflow.local/schemas/rflsc.analysis-read-set.v2.schema.json",
+  "schemaVersion":2,
+  "readSetId":"rs-1",
+  "computedBasisId":"basis-1",
+  "workspaceEpoch":7,
+  "documents":[{"path":"lib/main.go","documentRevisionId":"rev-1","contentId":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","contentHash":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","documentVersion":1,"byteLength":14}],
+  "negativeObservations":[{"kind":"negative_lookup","path":"lib/missing.go","valueHash":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb","measured":true}],
+  "membershipObservations":[{"kind":"membership","path":"lib","valueHash":"cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc","measured":true}],
+  "dependencyFrontiers":[{"kind":"dependency_frontier","path":"go.mod","valueHash":"dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd","measured":true}],
+  "readSetDigest":"eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
+}

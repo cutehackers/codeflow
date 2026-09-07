@@ -1,0 +1,19 @@
+{
+  "schemaId": "https://codeflow.local/schemas/rflsc.settlement.v2.schema.json",
+  "schemaVersion": 2,
+  "generationId": "generation-001",
+  "computedBasisId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "validatedAgainstSnapshotId": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+  "workspaceEpoch": 7,
+  "qualityStage": "Q3",
+  "gate": "passed",
+  "obligations": [
+    { "obligationId": "entry", "kind": "entry", "required": true, "status": "verified", "evidenceRefs": ["evidence-entry"] },
+    { "obligationId": "result", "kind": "result", "required": true, "status": "verified", "evidenceRefs": ["evidence-result"] }
+  ],
+  "blockingObligationRefs": [],
+  "evaluatedAt": "2026-09-04T00:00:00Z",
+  "unresolvedCriticalCount": 0,
+  "conflictingCriticalCount": 0,
+  "settlementDigest": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+}

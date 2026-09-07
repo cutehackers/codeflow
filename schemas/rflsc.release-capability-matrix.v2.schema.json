@@ -1,0 +1,38 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://codeflow.local/schemas/rflsc.release-capability-matrix.v2.schema.json",
+  "title": "Scoped evidence-derived release capability matrix",
+  "type": "object", "additionalProperties": false,
+  "required": ["schemaId", "schemaVersion", "matrixId", "targetVersion", "capabilities", "releaseReady"],
+  "properties": {
+    "schemaId": {"const": "https://codeflow.local/schemas/rflsc.release-capability-matrix.v2.schema.json"}, "schemaVersion": {"const": 2}, "matrixId": {"type": "string"}, "targetVersion": {"type": "string"},
+    "profileId": {"type": "string", "minLength": 1}, "corpusId": {"type": "string", "minLength": 1}, "corpusVersion": {"type": "string", "minLength": 1},
+    "capabilities": {"type": "array", "items": {"$ref": "#/$defs/capability"}}, "releaseReady": {"type": "boolean"}
+  },
+  "allOf": [
+    {
+      "if": {"properties": {"releaseReady": {"const": true}}, "required": ["releaseReady"]},
+      "then": {
+        "required": ["profileId", "corpusId", "corpusVersion"],
+        "properties": {
+          "capabilities": {
+            "minItems": 1,
+            "items": {
+              "allOf": [
+                {"$ref": "#/$defs/capability"},
+                {"properties": {"state": {"const": "ga"}, "toolchainIds": {"minItems": 1}, "scenarioIds": {"minItems": 1}, "evidenceRefs": {"minItems": 1}, "failureReasons": {"maxItems": 0}, "recoveryConditions": {"maxItems": 0}}}
+              ]
+            }
+          }
+        }
+      }
+    }
+  ],
+  "$defs": {
+    "immutableRef": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
+    "capability": {"type": "object", "additionalProperties": false, "required": ["capabilityId", "state", "toolchainIds", "scenarioIds", "evidenceRefs", "failureReasons", "recoveryConditions"], "properties": {
+      "capabilityId": {"type": "string", "minLength": 1}, "state": {"enum": ["ga", "partial", "experimental", "unsupported", "blocked"]}, "profileId": {"type": "string", "minLength": 1}, "corpusId": {"type": "string", "minLength": 1}, "corpusVersion": {"type": "string", "minLength": 1},
+      "toolchainIds": {"type": "array", "uniqueItems": true, "items": {"type": "string", "minLength": 1}}, "scenarioIds": {"type": "array", "uniqueItems": true, "items": {"type": "string", "minLength": 1}}, "evidenceRefs": {"type": "array", "uniqueItems": true, "items": {"$ref": "#/$defs/immutableRef"}}, "failureReasons": {"type": "array", "items": {"type": "string", "minLength": 1}}, "recoveryConditions": {"type": "array", "items": {"type": "string", "minLength": 1}}
+    }, "allOf": [{"if": {"properties": {"state": {"enum": ["partial", "blocked"]}}, "required": ["state"]}, "then": {"properties": {"failureReasons": {"minItems": 1}, "recoveryConditions": {"minItems": 1}}}}]}
+  }
+}

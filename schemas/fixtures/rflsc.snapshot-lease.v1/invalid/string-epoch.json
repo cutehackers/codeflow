@@ -1,0 +1,10 @@
+{
+  "schemaId": "https://codeflow.local/schemas/rflsc.snapshot-lease.v1.schema.json",
+  "schemaVersion": 1,
+  "leaseId": "lease-rflsc-1",
+  "snapshotId": "snap-rflsc-1",
+  "workspaceEpoch": "epoch-1",
+  "rootTreeId": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+  "openedAt": "2026-09-04T00:00:00Z",
+  "retainedRevisionIds": []
+}

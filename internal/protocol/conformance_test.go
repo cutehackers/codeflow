@@ -128,6 +128,20 @@ func spawnConn(t *testing.T, bin string, env map[string]string, mutate func(*Con
 	return c
 }
 
+func conformanceParams(extra map[string]any) map[string]any {
+	snapshot, err := NewSnapshot(0, map[string]string{
+		"mock.dart": "class Mock { void run() {} }\n",
+	}, "conformance-basis")
+	if err != nil {
+		panic(err)
+	}
+	params := snapshot.Params()
+	for key, value := range extra {
+		params[key] = value
+	}
+	return params
+}
+
 func wantCode(t *testing.T, err error, code ErrorCode) *Error {
 	t.Helper()
 	if err == nil {
@@ -151,8 +165,8 @@ type detResult struct {
 
 type harvestResult struct {
 	Candidates []struct {
-		ID     string  `json:"id"`
-		Symbol string  `json:"symbol"`
+		ID     string  `json:"candidateId"`
+		Symbol string  `json:"entrySymbolPath"`
 		Score  float64 `json:"score"`
 	} `json:"candidates"`
 }

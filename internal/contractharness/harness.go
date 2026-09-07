@@ -57,10 +57,65 @@ var SchemaIDs = []string{
 	BaseURL + "model-proposal.schema.json",
 	BaseURL + "semantic-approval.schema.json",
 	BaseURL + "evidence-pack.schema.json",
+	BaseURL + "rflsc.evidence-pack.v2.schema.json",
+	BaseURL + "rflsc.model-host-request.v2.schema.json",
+	BaseURL + "rflsc.model-host-response.v2.schema.json",
+	BaseURL + "rflsc.semantic-proposal.v2.schema.json",
+	BaseURL + "rflsc.enrichment-state.v2.schema.json",
+	BaseURL + "rflsc.model-activation-disclosure.v1.schema.json",
+	BaseURL + "rflsc.approval-command.v2.schema.json",
+	BaseURL + "rflsc.approval-event.v2.schema.json",
+	BaseURL + "rflsc.approval-aggregate.v2.schema.json",
+	BaseURL + "rflsc.approval-idempotency-result.v1.schema.json",
+	BaseURL + "rflsc.approval-outbox.v1.schema.json",
+	BaseURL + "rflsc.approval-history.v1.schema.json",
 	BaseURL + "domain-overview.schema.json",
 	BaseURL + "representative-flow-catalog.schema.json",
-	BaseURL + "release-benchmark-report.schema.json",
-	BaseURL + "slm-capability-state.schema.json",
+	BaseURL + "rflsc.task-intent.v2.schema.json",
+	BaseURL + "rflsc.feature-query.v2.schema.json",
+	BaseURL + "rflsc.review-query.v2.schema.json",
+	BaseURL + "rflsc.semantic-map-ir.v2.schema.json",
+	BaseURL + "rflsc.semantic-delta-ir.v2.schema.json",
+	BaseURL + "rflsc.requirement-alignment.v2.schema.json",
+	BaseURL + "rflsc.flowview-projection.v2.schema.json",
+	BaseURL + "rflsc.document-revision.v2.schema.json",
+	BaseURL + "rflsc.workspace-snapshot.v2.schema.json",
+	BaseURL + "rflsc.workspace-live-head.v2.schema.json",
+	BaseURL + "rflsc.snapshot-lease.v1.schema.json",
+	BaseURL + "rflsc.workspace-epoch-transition.v2.schema.json",
+	BaseURL + "rflsc.analyzer-request.v2.schema.json",
+	BaseURL + "rflsc.analyzer-result.v2.schema.json",
+	BaseURL + "rflsc.analysis-read-set.v2.schema.json",
+	BaseURL + "rflsc.observation-closure.v2.schema.json",
+	BaseURL + "rflsc.evidence.v2.schema.json",
+	BaseURL + "rflsc.adapter-capability-matrix.v1.schema.json",
+	BaseURL + "rflsc.adapter-diagnostic.v2.schema.json",
+	BaseURL + "rflsc.activity-state.v2.schema.json",
+	BaseURL + "rflsc.publication-candidate.v2.schema.json",
+	BaseURL + "rflsc.generation-proof-manifest.v2.schema.json",
+	BaseURL + "rflsc.active-pointer.v2.schema.json",
+	BaseURL + "rflsc.verified-gap.v2.schema.json",
+	BaseURL + "rflsc.settlement.v2.schema.json",
+	BaseURL + "rflsc.event-envelope.v2.schema.json",
+	BaseURL + "rflsc.flowview-view-state.v2.schema.json",
+	BaseURL + "rflsc.impact-query.v2.schema.json",
+	BaseURL + "rflsc.change-impact-graph.v2.schema.json",
+	BaseURL + "rflsc.impact-frontier.v1.schema.json",
+	BaseURL + "rflsc.failure-query.v2.schema.json",
+	BaseURL + "rflsc.failure-path-trace.v2.schema.json",
+	BaseURL + "rflsc.runtime-observation.v2.schema.json",
+	BaseURL + "rflsc.runtime-consent.v1.schema.json",
+	BaseURL + "rflsc.runtime-isolation-result.v1.schema.json",
+	BaseURL + "rflsc.onboarding-query.v2.schema.json",
+	BaseURL + "rflsc.domain-overview.v2.schema.json",
+	BaseURL + "rflsc.domain-candidate.v2.schema.json",
+	BaseURL + "rflsc.representative-flow-catalog.v2.schema.json",
+	BaseURL + "rflsc.onboarding-flow-drilldown.v2.schema.json",
+	BaseURL + "rflsc.release-profile.v2.schema.json",
+	BaseURL + "rflsc.scenario-manifest.v2.schema.json",
+	BaseURL + "rflsc.execution-report.v2.schema.json",
+	BaseURL + "rflsc.release-benchmark-report.v2.schema.json",
+	BaseURL + "rflsc.release-capability-matrix.v2.schema.json",
 }
 
 // SchemasDir locates the repo's schemas/ directory relative to this source
@@ -124,9 +179,9 @@ func compile(id string) (*jsonschema.Schema, error) {
 	return sch, nil
 }
 
-// EnsureAllCompiled compiles all six contracts (including cross-file $ref
-// resolution against identity.schema.json). The golden-fixture test calls it
-// first so a ref-resolution breakage fails loudly even if no fixture hits it.
+// EnsureAllCompiled compiles all registered contracts (including cross-file
+// $ref resolution against identity.schema.json). The golden-fixture test calls
+// it first so a ref-resolution breakage fails loudly even if no fixture hits it.
 func EnsureAllCompiled() error {
 	for _, id := range SchemaIDs {
 		if _, err := compile(id); err != nil {
@@ -193,7 +248,7 @@ func FixtureTree() ([]FixtureResult, error) {
 				if err != nil {
 					return nil, err
 				}
-				vErr := Validate(schemaID, data)
+				vErr := validateVS09FixtureData(schemaID, data)
 				results = append(results, FixtureResult{
 					Schema:   entry.Name(),
 					Path:     filepath.ToSlash(filepath.Join(kind.dir, f.Name())),

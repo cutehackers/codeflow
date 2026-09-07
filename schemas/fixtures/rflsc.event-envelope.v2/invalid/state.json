@@ -1,0 +1,9 @@
+{
+  "schemaId": "https://codeflow.local/schemas/rflsc.event-envelope.v2.schema.json",
+  "schemaVersion": 2,
+  "streamId": "stream-001",
+  "sequence": 0,
+  "eventId": "event-001",
+  "eventType": "unknown",
+  "occurredAt": "not-a-time"
+}

@@ -1,0 +1,21 @@
+{
+  "schemaId": "https://codeflow.local/schemas/rflsc.domain-overview.v2.schema.json",
+  "schemaVersion": 2,
+  "repositoryId": "repo-vs07",
+  "computedBasisId": "basis-vs07",
+  "generationId": "generation-vs07",
+  "validatedAgainstSnapshotId": "snapshot-vs07",
+  "freshness": "historical",
+  "domains": [{
+    "domainId": "domain-billing", "name": "Billing", "responsibility": "billing", "description": "billing",
+    "representativeFlowCount": 1, "entryPoints": ["services/billing/charge.rb#Billing#charge"],
+    "rationale": "unproven", "evidenceRefs": [], "confidence": 0.75, "epistemicState": "candidate",
+    "coverageBoundary": {"includedSourceRoots": ["services"], "excludedReasons": []},
+    "selectionReason": "candidate", "redactionStatus": "clean"
+  }],
+  "unmappedModules": [], "unknowns": [],
+  "coverageBoundary": {"includedSourceRoots": ["services"], "excludedReasons": []},
+  "recoveryGuidance": [],
+  "summary": {"totalDomains": 1, "totalFlows": 1, "coverageRatio": 1},
+  "redactionStatus": "clean"
+}

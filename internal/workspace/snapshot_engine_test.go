@@ -16,7 +16,7 @@ func TestVS03A1_A2_DocumentRevisionAndLiveHead(t *testing.T) {
 	}
 	defer os.RemoveAll(tempDir)
 
-	engine, err := NewSnapshotEngine(tempDir, "epoch-test-01")
+	engine, err := NewSnapshotEngine(tempDir, 1)
 	if err != nil {
 		t.Fatalf("NewSnapshotEngine failed: %v", err)
 	}
@@ -53,8 +53,8 @@ func TestVS03A1_A2_DocumentRevisionAndLiveHead(t *testing.T) {
 	if rev1.Source != "ide_versioned" {
 		t.Errorf("expected source ide_versioned, got %s", rev1.Source)
 	}
-	if rev1.WorkspaceEpoch != "epoch-test-01" {
-		t.Errorf("expected epoch epoch-test-01, got %s", rev1.WorkspaceEpoch)
+	if rev1.WorkspaceEpoch != 1 {
+		t.Errorf("expected epoch 1, got %d", rev1.WorkspaceEpoch)
 	}
 
 	// VS03-A2 assertions: Snapshot created, liveHead updated atomically
@@ -119,7 +119,7 @@ func TestVS03A1_A2_DocumentRevisionAndLiveHead(t *testing.T) {
 
 func TestPruneOrphanCAS_PreservesLivingReferencesAndPrunesOrphans(t *testing.T) {
 	tmpDir := t.TempDir()
-	engine, err := NewSnapshotEngine(tmpDir, "epoch-test")
+	engine, err := NewSnapshotEngine(tmpDir, 1)
 	if err != nil {
 		t.Fatalf("failed to create engine: %v", err)
 	}
@@ -174,4 +174,3 @@ func TestPruneOrphanCAS_PreservesLivingReferencesAndPrunesOrphans(t *testing.T) 
 		t.Errorf("live CAS blob corrupted: %s", string(liveData))
 	}
 }
-

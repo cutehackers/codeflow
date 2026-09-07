@@ -107,7 +107,9 @@ func TestPublishCoreFlow_HappyPathAndIdempotent(t *testing.T) {
 	}
 	var resp struct {
 		Result struct {
-			Content []struct{ Text string `json:"text"` } `json:"content"`
+			Content []struct {
+				Text string `json:"text"`
+			} `json:"content"`
 			IsError bool `json:"isError"`
 		} `json:"result"`
 	}
@@ -140,7 +142,9 @@ func TestPublishCoreFlow_HappyPathAndIdempotent(t *testing.T) {
 	lines = strings.Split(strings.TrimSpace(out.String()), "\n")
 	var resp2 struct {
 		Result struct {
-			Content []struct{ Text string `json:"text"` } `json:"content"`
+			Content []struct {
+				Text string `json:"text"`
+			} `json:"content"`
 			IsError bool `json:"isError"`
 		} `json:"result"`
 	}
@@ -165,7 +169,9 @@ func TestPublishCoreFlow_HappyPathAndIdempotent(t *testing.T) {
 	lines = strings.Split(strings.TrimSpace(out.String()), "\n")
 	var resp3 struct {
 		Result struct {
-			Content []struct{ Text string `json:"text"` } `json:"content"`
+			Content []struct {
+				Text string `json:"text"`
+			} `json:"content"`
 			IsError bool `json:"isError"`
 		} `json:"result"`
 	}
@@ -216,7 +222,9 @@ func TestPublishCoreFlow_Errors(t *testing.T) {
 		srv.Serve(ctx, &buf, &out)
 		var resp struct {
 			Result struct {
-				Content []struct{ Text string `json:"text"` } `json:"content"`
+				Content []struct {
+					Text string `json:"text"`
+				} `json:"content"`
 				IsError bool `json:"isError"`
 			} `json:"result"`
 		}
@@ -401,7 +409,9 @@ func TestPublishCoreFlow_Errors(t *testing.T) {
 		srvStrict.Serve(ctx, &buf, &out)
 		var resp struct {
 			Result struct {
-				Content []struct{ Text string `json:"text"` } `json:"content"`
+				Content []struct {
+					Text string `json:"text"`
+				} `json:"content"`
 				IsError bool `json:"isError"`
 			} `json:"result"`
 		}
@@ -434,7 +444,9 @@ func TestPublishCoreFlow_Errors(t *testing.T) {
 		srvPermissive.Serve(ctx, &buf, &out)
 		var respPerm struct {
 			Result struct {
-				Content []struct{ Text string `json:"text"` } `json:"content"`
+				Content []struct {
+					Text string `json:"text"`
+				} `json:"content"`
 				IsError bool `json:"isError"`
 			} `json:"result"`
 		}
@@ -468,7 +480,9 @@ func TestPublishCoreFlow_Errors(t *testing.T) {
 		srvPats.Serve(ctx, &buf, &out)
 		var resp struct {
 			Result struct {
-				Content []struct{ Text string `json:"text"` } `json:"content"`
+				Content []struct {
+					Text string `json:"text"`
+				} `json:"content"`
 				IsError bool `json:"isError"`
 			} `json:"result"`
 		}
@@ -490,7 +504,9 @@ func TestPublishCoreFlow_Errors(t *testing.T) {
 		srvPats.Serve(ctx, &buf, &out)
 		var getResp struct {
 			Result struct {
-				Content []struct{ Text string `json:"text"` } `json:"content"`
+				Content []struct {
+					Text string `json:"text"`
+				} `json:"content"`
 			} `json:"result"`
 		}
 		json.Unmarshal([]byte(strings.TrimSpace(out.String())), &getResp)
@@ -535,7 +551,9 @@ func TestPublishCoreFlow_Errors(t *testing.T) {
 		srv2.Serve(ctx2, &buf, &out)
 		var resp struct {
 			Result struct {
-				Content []struct{ Text string `json:"text"` } `json:"content"`
+				Content []struct {
+					Text string `json:"text"`
+				} `json:"content"`
 				IsError bool `json:"isError"`
 			} `json:"result"`
 		}
@@ -570,7 +588,9 @@ func TestPublishCoreFlow_Unauthorized(t *testing.T) {
 	srv.Serve(context.Background(), &buf, &out)
 	var resp struct {
 		Result struct {
-			Content []struct{ Text string `json:"text"` } `json:"content"`
+			Content []struct {
+				Text string `json:"text"`
+			} `json:"content"`
 			IsError bool `json:"isError"`
 		} `json:"result"`
 	}
@@ -665,4 +685,3 @@ func TestPublishCoreFlow_TypeScriptProject(t *testing.T) {
 		t.Errorf("title = %q, want '이메일 로그인 핵심 흐름'", payload.Title)
 	}
 }
-

@@ -1,0 +1,33 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://codeflow.local/schemas/rflsc.model-host-request.v2.schema.json",
+  "title": "RFL-SC Model Host Request v2",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaId", "schemaVersion", "requestId", "operation", "maxResponseBytes"],
+  "properties": {
+    "schemaId": { "const": "https://codeflow.local/schemas/rflsc.model-host-request.v2.schema.json" },
+    "schemaVersion": { "const": 2 },
+    "requestId": { "type": "string", "minLength": 1, "maxLength": 256 },
+    "operation": { "enum": ["initialize", "semantic_enrich"] },
+    "evidencePack": { "$ref": "https://codeflow.local/schemas/rflsc.evidence-pack.v2.schema.json" },
+    "packDigest": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "targetStepId": { "type": "string", "minLength": 1, "maxLength": 256 },
+    "targetSymbolPath": { "type": "string", "minLength": 1, "maxLength": 1024 },
+    "promptRevision": { "type": "string", "maxLength": 256 },
+    "correctionAttempt": { "type": "integer", "minimum": 1, "maximum": 1 },
+    "correctionReason": { "type": "string", "minLength": 1, "maxLength": 512 },
+    "correctionFor": { "type": "string", "minLength": 1, "maxLength": 256 },
+    "maxResponseBytes": { "type": "integer", "minimum": 1, "maximum": 10485760 }
+  },
+  "allOf": [
+    {
+      "if": { "properties": { "operation": { "const": "semantic_enrich" } } },
+      "then": { "required": ["evidencePack", "packDigest", "targetStepId", "targetSymbolPath"], "properties": { "maxResponseBytes": { "minimum": 1 } } }
+    },
+    {
+      "if": { "required": ["correctionAttempt"] },
+      "then": { "required": ["correctionReason", "correctionFor"] }
+    }
+  ]
+}

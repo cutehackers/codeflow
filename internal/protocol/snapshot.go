@@ -1,13 +1,16 @@
 package protocol
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
-	"os"
 	"path/filepath"
 	"sort"
 	"strings"
+
+	"codeflow/internal/rflscvs02"
+	"codeflow/internal/workspace"
 )
 
 // Snapshot is the immutable analysis input passed to an adapter. A caller
@@ -15,9 +18,95 @@ import (
 // an overlay is present, adapters must read it as authoritative and must not
 // fall back to the live file for those paths.
 type Snapshot struct {
-	ComputedBasisID string            `json:"computedBasisId"`
-	WorkspaceEpoch  int64             `json:"workspaceEpoch"`
-	ContentOverlay  map[string]string `json:"contentOverlay,omitempty"`
+	SnapshotID               string                       `json:"snapshotId,omitempty"`
+	ComputedBasisID          string                       `json:"computedBasisId"`
+	WorkspaceEpoch           int64                        `json:"workspaceEpoch"`
+	RootTreeID               string                       `json:"rootTreeId,omitempty"`
+	ConfigurationFingerprint string                       `json:"configurationFingerprint,omitempty"`
+	DependencyFingerprint    string                       `json:"dependencyFingerprint,omitempty"`
+	RepositoryID             string                       `json:"repositoryId,omitempty"`
+	WorktreeID               string                       `json:"worktreeId,omitempty"`
+	Documents                []workspace.SnapshotDocument `json:"documents,omitempty"`
+	Files                    map[string]string            `json:"files,omitempty"`
+	ContentOverlay           map[string]string            `json:"contentOverlay,omitempty"`
+	SourceWriteAudit         workspace.SourceWriteAudit   `json:"repositoryPathWriteAudit,omitempty"`
+}
+
+// AnalyzerInput converts captured protocol bytes into the canonical VS-02
+// analyzer envelope. It performs no filesystem access.
+func (s Snapshot) AnalyzerInput() (rflscvs02.SnapshotInput, error) {
+	files := s.Files
+	if len(files) == 0 {
+		files = s.ContentOverlay
+	}
+	input, err := rflscvs02.SnapshotInputFromContent(
+		s.SnapshotID, s.ComputedBasisID, s.RootTreeID,
+		s.ConfigurationFingerprint, s.DependencyFingerprint,
+		s.WorkspaceEpoch, files,
+	)
+	if err != nil {
+		return rflscvs02.SnapshotInput{}, err
+	}
+	identities := make(map[string]workspace.SnapshotDocument, len(s.Documents))
+	for _, document := range s.Documents {
+		if _, ok := files[document.Path]; !ok {
+			return rflscvs02.SnapshotInput{}, fmt.Errorf("snapshot document %s has no captured bytes", document.Path)
+		}
+		identities[document.Path] = document
+	}
+	for i := range input.Documents {
+		if identity, ok := identities[input.Documents[i].Path]; ok {
+			if identity.ContentID != "" && identity.ContentID != input.Documents[i].ContentID {
+				return rflscvs02.SnapshotInput{}, fmt.Errorf("snapshot document %s content identity mismatch", identity.Path)
+			}
+			if identity.ByteLength != 0 && identity.ByteLength != input.Documents[i].ByteLength {
+				return rflscvs02.SnapshotInput{}, fmt.Errorf("snapshot document %s byte length mismatch", identity.Path)
+			}
+			input.Documents[i].RevisionID = identity.RevisionID
+			input.Documents[i].ContentID = identity.ContentID
+			input.Documents[i].DocumentVersion = identity.DocumentVersion
+			input.Documents[i].ByteLength = identity.ByteLength
+		}
+	}
+	input.SourceWriteAudit = s.SourceWriteAudit
+	if input.SourceWriteAudit.CapturedSnapshotTreeDigest == "" {
+		input.SourceWriteAudit.CapturedSnapshotTreeDigest = input.RootTreeID
+	}
+	return input, nil
+}
+
+// SnapshotFromLease converts one retained VS-01 lease into the protocol
+// snapshot used by Core analysis. All bytes come from the lease's CAS-backed
+// VFS and are copied before the adapter is invoked. The returned Snapshot has
+// no repository path from which an adapter could perform a live-disk read.
+func SnapshotFromLease(lease workspace.SnapshotLease) (Snapshot, error) {
+	input, err := rflscvs02.SnapshotInputFromLease(lease)
+	if err != nil {
+		return Snapshot{}, err
+	}
+	files := make(map[string]string, len(input.Documents))
+	documents := make([]workspace.SnapshotDocument, 0, len(input.Documents))
+	for _, doc := range input.Documents {
+		files[doc.Path] = string(doc.Bytes)
+		documents = append(documents, workspace.SnapshotDocument{
+			Path: doc.Path, RevisionID: doc.RevisionID, ContentID: doc.ContentID,
+			DocumentVersion: doc.DocumentVersion, ByteLength: doc.ByteLength,
+		})
+	}
+	return Snapshot{
+		SnapshotID:               input.SnapshotID,
+		ComputedBasisID:          input.ComputedBasisID,
+		WorkspaceEpoch:           input.WorkspaceEpoch,
+		RootTreeID:               input.RootTreeID,
+		ConfigurationFingerprint: input.ConfigurationFingerprint,
+		DependencyFingerprint:    input.DependencyFingerprint,
+		RepositoryID:             lease.RepositoryID(),
+		WorktreeID:               lease.WorktreeID(),
+		Documents:                documents,
+		Files:                    files,
+		ContentOverlay:           cloneFiles(files),
+		SourceWriteAudit:         input.SourceWriteAudit,
+	}, nil
 }
 
 // NewSnapshot constructs a snapshot from an optional overlay. The basis is
@@ -38,55 +127,57 @@ func NewSnapshot(workspaceEpoch int64, overlay map[string]string, basis string) 
 	if basis == "" {
 		basis = basisForOverlay(clean)
 	}
-	return Snapshot{ComputedBasisID: basis, WorkspaceEpoch: workspaceEpoch, ContentOverlay: clean}, nil
+	files := cloneFiles(clean)
+	documents := make([]workspace.SnapshotDocument, 0, len(files))
+	keys := make([]string, 0, len(files))
+	for key := range files {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	for _, key := range keys {
+		contentID := sha256.Sum256([]byte(files[key]))
+		documents = append(documents, workspace.SnapshotDocument{
+			Path: key, RevisionID: "rev-" + hex.EncodeToString(contentID[:]),
+			ContentID: hex.EncodeToString(contentID[:]), DocumentVersion: 1,
+			ByteLength: len([]byte(files[key])),
+		})
+	}
+	rootTreeID := basisForOverlay(files)
+	if rootTreeID == "" {
+		rootTreeID = basis
+	}
+	dependencyDigest := sha256.Sum256([]byte(rootTreeID + "\x00"))
+	return Snapshot{
+		SnapshotID:      "snapshot-" + rootTreeID,
+		ComputedBasisID: basis, WorkspaceEpoch: workspaceEpoch,
+		RootTreeID:            rootTreeID,
+		DependencyFingerprint: hex.EncodeToString(dependencyDigest[:]),
+		Documents:             documents, Files: files, ContentOverlay: clean,
+		SourceWriteAudit: workspace.SourceWriteAudit{CapturedSnapshotTreeDigest: rootTreeID},
+	}, nil
 }
 
-// CaptureSnapshot captures a deterministic basis from the current worktree
-// without copying source contents into the request. It is bounded to the
-// same document count used by adapter read sets.
+// CaptureSnapshot captures a deterministic basis and the complete textual
+// document content from the current worktree. Analysis consumers must use the
+// captured Files map. They must not re-read repoRoot after this call returns.
 func CaptureSnapshot(repoRoot string, workspaceEpoch int64) (Snapshot, error) {
 	if workspaceEpoch < 0 {
 		return Snapshot{}, fmt.Errorf("workspace epoch must be non-negative")
 	}
-	root, err := filepath.Abs(repoRoot)
+	engine, err := workspace.NewSnapshotEngine(repoRoot, workspaceEpoch)
 	if err != nil {
 		return Snapshot{}, err
 	}
-	entries := make([]string, 0, 4096)
-	err = filepath.WalkDir(root, func(path string, entry os.DirEntry, walkErr error) error {
-		if walkErr != nil {
-			return nil
-		}
-		if entry.IsDir() {
-			switch entry.Name() {
-			case ".git", ".codeflow", "node_modules", "build", "dist", ".dart_tool", "vendor":
-				return filepath.SkipDir
-			}
-			return nil
-		}
-		if len(entries) >= 4096 || !entry.Type().IsRegular() {
-			return nil
-		}
-		rel, relErr := filepath.Rel(root, path)
-		if relErr == nil {
-			entries = append(entries, filepath.ToSlash(rel))
-		}
-		return nil
-	})
+	head, err := engine.Reconcile(context.Background(), nil)
 	if err != nil {
 		return Snapshot{}, err
 	}
-	sort.Strings(entries)
-	h := sha256.New()
-	for _, rel := range entries {
-		data, readErr := os.ReadFile(filepath.Join(root, filepath.FromSlash(rel)))
-		if readErr != nil {
-			continue
-		}
-		fileHash := sha256.Sum256(data)
-		fmt.Fprintf(h, "%s:%s\n", rel, hex.EncodeToString(fileHash[:]))
+	lease, err := engine.SnapshotVFS(head.SnapshotID)
+	if err != nil {
+		return Snapshot{}, err
 	}
-	return Snapshot{ComputedBasisID: hex.EncodeToString(h.Sum(nil)), WorkspaceEpoch: workspaceEpoch}, nil
+	defer lease.Close()
+	return SnapshotFromLease(lease)
 }
 
 func basisForOverlay(overlay map[string]string) string {
@@ -106,21 +197,77 @@ func basisForOverlay(overlay map[string]string) string {
 // Params returns a request-ready copy. The overlay map is copied so callers
 // cannot mutate the snapshot while an adapter is reading it.
 func (s Snapshot) Params() map[string]any {
+	files := cloneFiles(s.Files)
+	if len(files) == 0 {
+		files = cloneFiles(s.ContentOverlay)
+	}
 	params := map[string]any{
 		"computedBasisId": s.ComputedBasisID,
 		"workspaceEpoch":  s.WorkspaceEpoch,
 		"snapshot": map[string]any{
-			"computedBasisId": s.ComputedBasisID,
-			"workspaceEpoch":  s.WorkspaceEpoch,
+			"schemaId":                 rflscvs02.AnalyzerRequestSchemaID,
+			"schemaVersion":            rflscvs02.SchemaVersion,
+			"computedBasisId":          s.ComputedBasisID,
+			"workspaceEpoch":           s.WorkspaceEpoch,
+			"snapshotId":               s.SnapshotID,
+			"rootTreeId":               s.RootTreeID,
+			"dependencyFingerprint":    s.DependencyFingerprint,
+			"repositoryPathWriteAudit": s.SourceWriteAudit,
 		},
 	}
-	if len(s.ContentOverlay) > 0 {
-		overlay := make(map[string]string, len(s.ContentOverlay))
-		for key, value := range s.ContentOverlay {
-			overlay[key] = value
+	if files == nil {
+		files = map[string]string{}
+	}
+	if len(s.Documents) > 0 {
+		metadata := make([]map[string]any, 0, len(s.Documents))
+		for _, document := range s.Documents {
+			metadata = append(metadata, map[string]any{
+				"path": document.Path, "documentRevisionId": document.RevisionID,
+				"contentId": document.ContentID, "documentVersion": document.DocumentVersion,
+				"contentHash": document.ContentID, "byteLength": document.ByteLength,
+			})
 		}
-		params["contentOverlay"] = overlay
-		params["snapshot"].(map[string]any)["contentOverlay"] = overlay
+		params["snapshot"].(map[string]any)["documents"] = metadata
+	}
+	if _, ok := params["snapshot"].(map[string]any)["documents"]; !ok {
+		params["snapshot"].(map[string]any)["documents"] = []map[string]any{}
+	}
+	if s.SnapshotID != "" {
+		params["snapshot"].(map[string]any)["snapshotId"] = s.SnapshotID
+	}
+	if s.RootTreeID != "" {
+		params["snapshot"].(map[string]any)["rootTreeId"] = s.RootTreeID
+	}
+	if s.ConfigurationFingerprint != "" {
+		params["snapshot"].(map[string]any)["configurationFingerprint"] = s.ConfigurationFingerprint
+	}
+	if s.DependencyFingerprint != "" {
+		params["snapshot"].(map[string]any)["dependencyFingerprint"] = s.DependencyFingerprint
+	}
+	{
+		params["files"] = cloneFiles(files)
+		if params["files"] == nil {
+			params["files"] = map[string]string{}
+		}
+		params["snapshot"].(map[string]any)["files"] = cloneFiles(files)
+		if params["snapshot"].(map[string]any)["files"] == nil {
+			params["snapshot"].(map[string]any)["files"] = map[string]string{}
+		}
+		// contentOverlay remains for protocol-v1 adapters and is always a
+		// defensive copy of the immutable snapshot, never a live-disk hint.
+		params["contentOverlay"] = cloneFiles(files)
+		params["snapshot"].(map[string]any)["contentOverlay"] = cloneFiles(files)
 	}
 	return params
+}
+
+func cloneFiles(in map[string]string) map[string]string {
+	if len(in) == 0 {
+		return nil
+	}
+	out := make(map[string]string, len(in))
+	for key, value := range in {
+		out[key] = value
+	}
+	return out
 }

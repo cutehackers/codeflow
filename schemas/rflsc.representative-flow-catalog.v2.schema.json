@@ -1,0 +1,70 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://codeflow.local/schemas/rflsc.representative-flow-catalog.v2.schema.json",
+  "title": "RFL-SC Representative Flow Catalog v2",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaId", "schemaVersion", "catalogId", "domainId", "computedBasisId", "generationId", "validatedAgainstSnapshotId", "freshness", "flows", "unmappedModules", "unknowns", "coverageBoundary", "recoveryGuidance", "redactionStatus"],
+  "properties": {
+    "schemaId": { "const": "https://codeflow.local/schemas/rflsc.representative-flow-catalog.v2.schema.json" },
+    "schemaVersion": { "const": 2 },
+    "catalogId": { "type": "string", "minLength": 1 },
+    "domainId": { "type": "string", "minLength": 1 },
+    "computedBasisId": { "type": "string", "minLength": 1 },
+    "generationId": { "type": "string", "minLength": 1 },
+    "validatedAgainstSnapshotId": { "type": "string", "minLength": 1 },
+    "freshness": { "enum": ["current", "historical"] },
+    "flows": { "type": "array", "items": { "$ref": "#/$defs/flow" } },
+    "unmappedModules": { "type": "array", "items": { "type": "string", "minLength": 1 } },
+    "unknowns": { "type": "array", "items": { "$ref": "#/$defs/unknown" } },
+    "coverageBoundary": { "$ref": "#/$defs/coverageBoundary" },
+    "recoveryGuidance": { "type": "array", "items": { "type": "string", "minLength": 1 } },
+    "redactionStatus": { "enum": ["clean", "redacted"] }
+  },
+  "$defs": {
+    "flow": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["flowId", "title", "entrySymbol", "complexityScore", "keyMutations", "groundedMapId", "generationId", "selectionReason", "rationale", "evidenceRefs", "entryEvidenceRefs", "resultEvidenceRefs", "confidence", "epistemicState", "coverageBoundary", "redactionStatus"],
+      "properties": {
+        "flowId": { "type": "string", "minLength": 1 },
+        "title": { "type": "string", "minLength": 1 },
+        "entrySymbol": { "type": "string", "minLength": 1 },
+        "complexityScore": { "type": "number", "minimum": 0 },
+        "keyMutations": { "type": "array", "items": { "type": "string" } },
+        "groundedMapId": { "type": "string", "minLength": 1 },
+        "generationId": { "type": "string", "minLength": 1 },
+        "selectionReason": { "type": "string", "minLength": 1 },
+        "rationale": { "type": "string", "minLength": 1 },
+        "evidenceRefs": { "type": "array", "minItems": 1, "items": { "type": "string", "minLength": 1 } },
+        "entryEvidenceRefs": { "type": "array", "minItems": 1, "items": { "type": "string", "minLength": 1 } },
+        "resultEvidenceRefs": { "type": "array", "items": { "type": "string", "minLength": 1 } },
+        "confidence": { "type": "number", "minimum": 0, "maximum": 1 },
+        "epistemicState": { "enum": ["candidate", "confirmed", "unknown"] },
+        "coverageBoundary": { "$ref": "#/$defs/coverageBoundary" },
+        "missingEvidence": { "type": "array", "items": { "type": "string", "minLength": 1 } },
+        "redactionStatus": { "enum": ["clean", "redacted"] },
+        "projection": { "$ref": "https://codeflow.local/schemas/rflsc.flowview-projection.v2.schema.json" }
+      }
+    },
+    "coverageBoundary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["includedSourceRoots", "excludedReasons"],
+      "properties": {
+        "includedSourceRoots": { "type": "array", "items": { "type": "string", "minLength": 1 } },
+        "excludedReasons": { "type": "array", "items": { "type": "string", "minLength": 1 } }
+      }
+    },
+    "unknown": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["subject", "reason", "recoveryGuidance"],
+      "properties": {
+        "subject": { "type": "string", "minLength": 1 },
+        "reason": { "type": "string", "minLength": 1 },
+        "recoveryGuidance": { "type": "array", "items": { "type": "string", "minLength": 1 } }
+      }
+    }
+  }
+}

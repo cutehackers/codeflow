@@ -35,8 +35,9 @@ type NormalizedIntent struct {
 }
 
 type AcceptanceCriterion struct {
-	ID   string `json:"id"`
-	Text string `json:"text"`
+	ID                    string   `json:"id"`
+	Text                  string   `json:"text"`
+	RequiredEvidenceKinds []string `json:"requiredEvidenceKinds,omitempty"`
 }
 
 type ScopeHints struct {
@@ -73,7 +74,10 @@ func NormalizeTaskIntent(raw string, opts IntentOptions) (*TaskIntent, error) {
 
 	taskID := opts.TaskID
 	if taskID == "" {
-		h := sha256.Sum256([]byte(trimmed))
+		// The task identity is derived from the exact request bytes. Parsing may
+		// trim whitespace, but two raw revisions must never collapse because of
+		// normalization.
+		h := sha256.Sum256([]byte(raw))
 		taskID = "task-" + hex.EncodeToString(h[:8])
 	}
 
@@ -134,12 +138,12 @@ func NormalizeTaskIntent(raw string, opts IntentOptions) (*TaskIntent, error) {
 	}
 
 	intent := &TaskIntent{
-		SchemaID:      "https://codeflow.local/schemas/task-intent.schema.json",
-		SchemaVersion: 1,
+		SchemaID:      TaskIntentSchemaID,
+		SchemaVersion: SemanticSchemaVersion,
 		TaskID:        taskID,
 		Revision:      rev,
 		Request: TaskRequest{
-			RawRequest: trimmed,
+			RawRequest: raw,
 		},
 		NormalizedIntent: NormalizedIntent{
 			Actor:                     actor,
@@ -156,4 +160,66 @@ func NormalizeTaskIntent(raw string, opts IntentOptions) (*TaskIntent, error) {
 	}
 
 	return intent, nil
+}
+
+// ConfirmTaskIntent records an explicit user-selected candidate and scope as a
+// new immutable revision. In particular, a needs_confirmation intent cannot be
+// promoted by a caller that omits either selection.
+func ConfirmTaskIntent(previous *TaskIntent, candidate, scope string) (*TaskIntent, error) {
+	if previous == nil {
+		return nil, errors.New("previous task intent cannot be nil")
+	}
+	if strings.TrimSpace(candidate) == "" || strings.TrimSpace(scope) == "" {
+		return nil, errors.New("explicit candidate and scope are required for confirmation")
+	}
+
+	next := cloneTaskIntent(previous)
+	next.Revision = previous.Revision + 1
+	next.IntentStatus = "user_confirmed"
+	next.NormalizedIntent.UnresolvedInterpretations = nil
+	next.ScopeHints = &ScopeHints{
+		EntrySymbols: []string{strings.TrimSpace(candidate)},
+		Domains:      []string{strings.TrimSpace(scope)},
+	}
+	next.Authority = &IntentAuthority{Source: "user"}
+	return next, nil
+}
+
+// ReviseTaskIntent parses a new raw request into a new revision while leaving
+// the prior revision untouched. The raw bytes are preserved exactly in the new
+// request as well.
+func ReviseTaskIntent(previous *TaskIntent, raw string, opts IntentOptions) (*TaskIntent, error) {
+	if previous == nil {
+		return nil, errors.New("previous task intent cannot be nil")
+	}
+	if opts.TaskID == "" {
+		opts.TaskID = previous.TaskID
+	}
+	if opts.Revision <= previous.Revision {
+		opts.Revision = previous.Revision + 1
+	}
+	if opts.Authority == "" && previous.Authority != nil {
+		opts.Authority = previous.Authority.Source
+	}
+	return NormalizeTaskIntent(raw, opts)
+}
+
+func cloneTaskIntent(previous *TaskIntent) *TaskIntent {
+	next := *previous
+	next.Request = previous.Request
+	next.NormalizedIntent = previous.NormalizedIntent
+	next.NormalizedIntent.UnresolvedInterpretations = append([]string(nil), previous.NormalizedIntent.UnresolvedInterpretations...)
+	next.AcceptanceCriteria = append([]AcceptanceCriterion(nil), previous.AcceptanceCriteria...)
+	if previous.ScopeHints != nil {
+		scope := *previous.ScopeHints
+		scope.EntrySymbols = append([]string(nil), previous.ScopeHints.EntrySymbols...)
+		scope.Domains = append([]string(nil), previous.ScopeHints.Domains...)
+		scope.ExcludedPaths = append([]string(nil), previous.ScopeHints.ExcludedPaths...)
+		next.ScopeHints = &scope
+	}
+	if previous.Authority != nil {
+		authority := *previous.Authority
+		next.Authority = &authority
+	}
+	return &next
 }

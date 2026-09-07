@@ -1,0 +1,22 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://codeflow.local/schemas/rflsc.evidence.v2.schema.json",
+  "title": "CodeFlow R2 Snapshot Evidence",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaId", "schemaVersion", "evidenceId", "snapshotId", "computedBasisId", "documentRevisionId", "path", "byteRange", "lineRange", "snippet", "validationStatus", "redactionStatus"],
+  "properties": {
+    "schemaId": { "const": "https://codeflow.local/schemas/rflsc.evidence.v2.schema.json" },
+    "schemaVersion": { "const": 2 },
+    "evidenceId": { "type": "string", "minLength": 1, "maxLength": 256 },
+    "snapshotId": { "type": "string", "minLength": 1, "maxLength": 256 },
+    "computedBasisId": { "type": "string", "minLength": 1, "maxLength": 256 },
+    "documentRevisionId": { "type": "string", "minLength": 1, "maxLength": 256 },
+    "path": { "type": "string", "minLength": 1, "pattern": "^[^/].*", "not": { "pattern": "(^|/)\\.\\.(/|$)" } },
+    "byteRange": { "type": "array", "prefixItems": [{ "type": "integer", "minimum": 0 }, { "type": "integer", "minimum": 0 }], "items": false, "minItems": 2, "maxItems": 2 },
+    "lineRange": { "type": "array", "prefixItems": [{ "type": "integer", "minimum": 1 }, { "type": "integer", "minimum": 1 }], "items": false, "minItems": 2, "maxItems": 2 },
+    "snippet": { "type": "string", "maxLength": 16384 },
+    "validationStatus": { "type": "string", "enum": ["verified", "unknown", "invalid", "stale"] },
+    "redactionStatus": { "type": "string", "enum": ["clean", "redacted"] }
+  }
+}

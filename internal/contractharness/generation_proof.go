@@ -15,23 +15,27 @@ func ValidateGenerationProofManifest(data []byte) error {
 
 	var manifest struct {
 		CurrentPublication struct {
-			Eligibility          string `json:"eligibility"`
-			SnapshotGate         string `json:"snapshotGate"`
-			ClosureGate          string `json:"closureGate"`
-			EvidenceGate         string `json:"evidenceGate"`
+			Eligibility           string `json:"eligibility"`
+			SnapshotGate          string `json:"snapshotGate"`
+			ClosureGate           string `json:"closureGate"`
+			EvidenceGate          string `json:"evidenceGate"`
 			SemanticAtomicityGate string `json:"semanticAtomicityGate"`
-			TaskRelevanceGate    string `json:"taskRelevanceGate"`
-			ComprehensionGate    string `json:"comprehensionGate"`
+			TaskRelevanceGate     string `json:"taskRelevanceGate"`
+			ComprehensionGate     string `json:"comprehensionGate"`
 		} `json:"currentPublication"`
 		SettlementEvaluation struct {
 			Gate                   string   `json:"gate"`
 			EvaluatedAt            *string  `json:"evaluatedAt"`
 			BlockingObligationRefs []string `json:"blockingObligationRefs"`
 		} `json:"settlementEvaluation"`
+		WorkspaceEpoch int64 `json:"workspaceEpoch"`
 	}
 
 	if err := json.Unmarshal(data, &manifest); err != nil {
 		return fmt.Errorf("parse generation-proof-manifest JSON: %w", err)
+	}
+	if manifest.WorkspaceEpoch < 0 {
+		return fmt.Errorf("generation-proof-manifest: workspaceEpoch must be non-negative, got %d", manifest.WorkspaceEpoch)
 	}
 
 	// Semantic invariant 1: currentPublication.eligibility == passed requires all subgates to be passed
@@ -83,6 +87,7 @@ func ValidateActivePointer(data []byte) error {
 		GenerationID      string `json:"generationId"`
 		ManifestObjectRef string `json:"manifestObjectRef"`
 		FlowCount         int    `json:"flowCount"`
+		WorkspaceEpoch    int64  `json:"workspaceEpoch"`
 	}
 	if err := json.Unmarshal(data, &ptr); err != nil {
 		return fmt.Errorf("parse active-pointer JSON: %w", err)
@@ -95,6 +100,9 @@ func ValidateActivePointer(data []byte) error {
 	}
 	if ptr.FlowCount < 0 {
 		return fmt.Errorf("active-pointer: flowCount must be >= 0, got %d", ptr.FlowCount)
+	}
+	if ptr.WorkspaceEpoch < 0 {
+		return fmt.Errorf("active-pointer: workspaceEpoch must be non-negative, got %d", ptr.WorkspaceEpoch)
 	}
 	return nil
 }

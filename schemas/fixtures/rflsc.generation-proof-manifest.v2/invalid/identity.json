@@ -1,0 +1,36 @@
+{
+  "schemaId": "https://codeflow.local/schemas/rflsc.generation-proof-manifest.v2.schema.json",
+  "schemaVersion": 2,
+  "proofId": "proof-001",
+  "generationId": "generation-001",
+  "computedBasisId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "computedSnapshotId": "",
+  "validatedAgainstSnapshotId": "snap-live-001",
+  "taskIntentRevision": 3,
+  "normalizedQueryHash": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+  "analysisReadSetId": "read-set-001",
+  "causalObservationClosureId": "closure-001",
+  "causalObservationClosureDigest": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+  "capabilityProfileDigest": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+  "workspaceEpoch": 7,
+  "currentPublication": {
+    "eligibility": "passed",
+    "snapshotGate": "passed",
+    "closureGate": "passed",
+    "evidenceGate": "passed",
+    "semanticAtomicityGate": "passed",
+    "taskRelevanceGate": "passed",
+    "comprehensionGate": "passed"
+  },
+  "settlementEvaluation": { "gate": "passed", "evaluatedAt": "2026-09-04T00:00:00Z", "blockingObligationRefs": [] },
+  "artifactRefs": {
+    "semanticMap": "cas:sha256:ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+    "projection": "cas:sha256:3333333333333333333333333333333333333333333333333333333333333333",
+    "analysisReadSet": "cas:sha256:4444444444444444444444444444444444444444444444444444444444444444",
+    "observationClosure": "cas:sha256:5555555555555555555555555555555555555555555555555555555555555555",
+    "analyzerResult": "cas:sha256:6666666666666666666666666666666666666666666666666666666666666666"
+  },
+  "expectedLiveHeadSnapshotId": "snap-live-001",
+  "expectedPreviousGenerationId": "generation-000",
+  "publishedAt": "2026-09-04T00:00:00Z"
+}

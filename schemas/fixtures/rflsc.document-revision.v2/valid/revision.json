@@ -1,0 +1,12 @@
+{
+  "schemaId": "https://codeflow.local/schemas/rflsc.document-revision.v2.schema.json",
+  "schemaVersion": 2,
+  "revisionId": "rev-rflsc-1",
+  "path": "src/main.go",
+  "documentVersion": 1,
+  "contentId": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+  "source": "ide_versioned",
+  "workspaceEpoch": 0,
+  "createdAt": "2026-09-04T00:00:00Z",
+  "byteLength": 0
+}

@@ -9,6 +9,29 @@ import 'helpers.dart';
 /// Spawns the real adapter binary and feeds NDJSON lines through the stdin
 /// sink, asserting response framing, correlation ids and clean shutdown.
 void main() {
+	test('production framed entrypoint rejects an oversized body', () async {
+		final packageRoot = findPackageRoot();
+		final process = await Process.start(
+			Platform.resolvedExecutable,
+			['bin/codeflow_dart_adapter.dart'],
+			workingDirectory: packageRoot,
+		);
+		final outputFuture = process.stdout.fold<List<int>>(<int>[], (all, chunk) {
+			all.addAll(chunk);
+			return all;
+		});
+		final body = List<int>.filled((1 << 20) + 1, 0x78);
+		final header = utf8.encode('Content-Length: ${body.length}\r\n\r\n');
+		process.stdin.add(<int>[...header, ...body]);
+		await process.stdin.flush();
+		await process.stdin.close();
+		final output = await outputFuture;
+		final exitCode = await process.exitCode;
+		expect(exitCode, 0);
+		expect(output.length, lessThan(4096));
+		expect(utf8.decode(output), contains('maxMessageBytes'));
+	}, timeout: const Timeout(Duration(minutes: 2)));
+
   test(
     'protocol framing over stdio '
     '(ping/malformed/unknown/version/detect/harvest/slice/shutdown)',

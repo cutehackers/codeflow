@@ -1,0 +1,20 @@
+{
+  "schemaId": "https://codeflow.local/schemas/rflsc.workspace-snapshot.v2.schema.json",
+  "schemaVersion": 2,
+  "snapshotId": "snap-legacy",
+  "parentSnapshotId": null,
+  "workspaceEpoch": "epoch-legacy",
+  "sequence": 1,
+  "liveHead": true,
+  "computedBasisId": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+  "rootTreeId": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+  "createdAt": "2026-09-03T05:00:00Z",
+  "configurationFingerprint": "config-fingerprint-default",
+  "entries": {},
+  "changedEntries": [],
+  "repositoryPathWriteAudit": {
+    "codeflowWriteCount": 0,
+    "sourceIntegrityViolation": false,
+    "capturedSnapshotTreeDigest": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  }
+}

@@ -23,6 +23,22 @@ type ModelProposal struct {
 	Confidence       float64  `json:"confidence,omitempty"`
 	Rationale        string   `json:"rationale,omitempty"`
 	EvidenceRefs     []string `json:"evidenceRefs"`
+	// The v2 fields bind an inferred proposal to one target, one immutable
+	// snapshot, one model response, and the Q3 canonical digests that must
+	// remain unchanged when it is displayed.
+	Authority        string `json:"authority,omitempty"`
+	ModelID          string `json:"modelId"`
+	ModelRevision    string `json:"modelRevision"`
+	SchemaProfile    string `json:"schemaProfile"`
+	PackDigest       string `json:"packDigest"`
+	TargetStepID     string `json:"targetStepId,omitempty"`
+	SnapshotID       string `json:"snapshotId,omitempty"`
+	PromptRevision   string `json:"promptRevision"`
+	ClaimScope       string `json:"claimScope,omitempty"`
+	FactDigest       string `json:"factDigest,omitempty"`
+	ObligationDigest string `json:"obligationDigest,omitempty"`
+	AlignmentDigest  string `json:"alignmentDigest,omitempty"`
+	SettlementDigest string `json:"settlementDigest,omitempty"`
 }
 
 // SemanticApproval mirrors schemas/semantic-approval.schema.json (VS-08).
@@ -56,14 +72,27 @@ type EvidencePack struct {
 	GenerationID     string         `json:"generationId"`
 	Items            []EvidenceItem `json:"items"`
 	RedactionStatus  string         `json:"redactionStatus"` // unredacted | redacted | clean
+	RepositoryID     string         `json:"repositoryId"`
+	WorktreeID       string         `json:"worktreeId"`
+	SnapshotID       string         `json:"snapshotId"`
+	WorkspaceEpoch   int64          `json:"workspaceEpoch"`
+	TargetStepIDs    []string       `json:"targetStepIds"`
+	ScopePaths       []string       `json:"scopePaths"`
+	PackDigest       string         `json:"packDigest"`
+	PromptRevision   string         `json:"promptRevision,omitempty"`
 }
 
 type EvidenceItem struct {
-	EvidenceID string `json:"evidenceId"`
-	Kind       string `json:"kind"` // ast_anchor | call_edge | runtime_span | test_assertion | doc_reference
-	Source     string `json:"source"`
-	Content    string `json:"content"`
-	Verified   bool   `json:"verified"`
+	EvidenceID         string `json:"evidenceId"`
+	Kind               string `json:"kind"` // ast_anchor | call_edge | runtime_span | test_assertion | doc_reference
+	Source             string `json:"source"`
+	Content            string `json:"content"`
+	Verified           bool   `json:"verified"`
+	SnapshotID         string `json:"snapshotId,omitempty"`
+	ComputedBasisID    string `json:"computedBasisId,omitempty"`
+	DocumentRevisionID string `json:"documentRevisionId,omitempty"`
+	ContentDigest      string `json:"contentDigest,omitempty"`
+	ByteRange          [2]int `json:"byteRange,omitempty"`
 }
 
 type ApprovalRequest struct {

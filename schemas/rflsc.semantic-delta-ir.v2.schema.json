@@ -1,0 +1,22 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://codeflow.local/schemas/rflsc.semantic-delta-ir.v2.schema.json",
+  "title": "RFL-SC Semantic Delta IR v2",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaId", "schemaVersion", "comparisonId", "taskIntentRevision", "baselineComputedBasisId", "currentComputedBasisId", "fromGeneration", "toGeneration", "status", "changes", "structuralSummary"],
+  "properties": {
+    "schemaId": {"const": "https://codeflow.local/schemas/rflsc.semantic-delta-ir.v2.schema.json"},
+    "schemaVersion": {"const": 2},
+    "comparisonId": {"type": "string", "minLength": 1},
+    "taskIntentRevision": {"type": "integer", "minimum": 1},
+    "baselineComputedBasisId": {"type": "string", "minLength": 1},
+    "currentComputedBasisId": {"type": "string", "minLength": 1},
+    "currentValidatedAgainstSnapshotId": {"type": "string"},
+    "fromGeneration": {"type": "string", "minLength": 1},
+    "toGeneration": {"type": "string", "minLength": 1},
+    "status": {"enum": ["comparable", "incomparable_basis", "missing_precondition"]},
+    "structuralSummary": {"type": "object", "additionalProperties": false, "required": ["addedStepsCount", "changedStepsCount", "removedStepsCount", "collapsedStructuralCount"], "properties": {"addedStepsCount": {"type": "integer", "minimum": 0}, "changedStepsCount": {"type": "integer", "minimum": 0}, "removedStepsCount": {"type": "integer", "minimum": 0}, "collapsedStructuralCount": {"type": "integer", "minimum": 0}}},
+    "changes": {"type": "array", "items": {"type": "object", "additionalProperties": false, "required": ["deltaId", "kind", "targetStepId", "summary", "epistemicStatus", "validationStatus"], "properties": {"deltaId": {"type": "string", "minLength": 1}, "kind": {"enum": ["added_behavior", "changed_rule", "removed_behavior", "evidence_updated", "structural_only", "ambiguous_move"]}, "targetStepId": {"type": "string", "minLength": 1}, "summary": {"type": "string", "minLength": 1}, "requirementRefs": {"type": "array", "items": {"type": "string"}}, "structuralChanges": {"type": "array", "items": {"type": "string"}}, "evidenceRefs": {"type": "array", "items": {"type": "string"}}, "epistemicStatus": {"enum": ["observed", "inferred", "unknown", "unobserved"]}, "validationStatus": {"enum": ["verified", "pending", "invalid", "stale", "orphaned"]}, "fromStepId": {"type": "string"}, "toStepId": {"type": "string"}, "candidateStepRefs": {"type": "array", "items": {"type": "string"}}, "moveStatus": {"enum": ["proven", "ambiguous", "not_applicable"]}}}}
+  }
+}

@@ -1,0 +1,14 @@
+{
+  "schemaId": "https://codeflow.local/schemas/rflsc.activity-state.v2.schema.json",
+  "schemaVersion": 2,
+  "activity": "analyzing",
+  "analysisLagMs": 20,
+  "pendingRevisions": 2,
+  "currentSnapshotId": "snapshot-001",
+  "workspaceEpoch": 7,
+  "timestamp": "2026-09-04T00:00:00Z",
+  "traceId": "trace-activity-001",
+  "scope": ["service.go"],
+  "ackLatencyMs": 4.5,
+  "revisionIds": ["revision-001", "revision-002"]
+}

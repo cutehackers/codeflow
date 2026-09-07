@@ -1,0 +1,48 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://codeflow.local/schemas/rflsc.publication-candidate.v2.schema.json",
+  "title": "RFL-SC Publication Candidate v2",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaId", "schemaVersion", "candidateId", "generationId", "computedBasisId",
+    "validatedAgainstSnapshotId", "workspaceEpoch", "taskIntentRevision", "normalizedQueryHash",
+    "authority", "freshness", "publicationKind", "status", "mapRef", "closureRef",
+    "currentPublication", "settlement", "createdAt"
+  ],
+  "properties": {
+    "schemaId": { "const": "https://codeflow.local/schemas/rflsc.publication-candidate.v2.schema.json" },
+    "schemaVersion": { "const": 2 },
+    "candidateId": { "type": "string", "minLength": 1 },
+    "generationId": { "type": "string", "minLength": 1 },
+    "computedBasisId": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+    "validatedAgainstSnapshotId": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+    "workspaceEpoch": { "type": "integer", "minimum": 0 },
+    "taskIntentRevision": { "type": "integer", "minimum": 1 },
+    "normalizedQueryHash": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+    "authority": { "const": "candidate" },
+    "freshness": { "enum": ["candidate", "historical"] },
+    "publicationKind": { "enum": ["checkpoint", "refinement"] },
+    "status": { "enum": ["pending", "eligible", "rejected"] },
+    "mapRef": { "type": "string", "minLength": 1 },
+    "closureRef": { "type": "string", "minLength": 1 },
+    "proofManifestRef": { "type": "string", "minLength": 1 },
+    "currentPublication": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["eligibility", "snapshotGate", "closureGate", "evidenceGate", "semanticAtomicityGate", "taskRelevanceGate", "comprehensionGate"],
+      "properties": {
+        "eligibility": { "enum": ["passed", "rejected"] },
+        "snapshotGate": { "enum": ["passed", "failed"] },
+        "closureGate": { "enum": ["passed", "failed"] },
+        "evidenceGate": { "enum": ["passed", "failed"] },
+        "semanticAtomicityGate": { "enum": ["passed", "failed"] },
+        "taskRelevanceGate": { "enum": ["passed", "failed"] },
+        "comprehensionGate": { "enum": ["passed", "failed"] }
+      }
+    },
+    "settlement": { "enum": ["pending", "passed", "failed"] },
+    "createdAt": { "type": "string", "format": "date-time" },
+    "artifactRefs": { "type": "array", "items": { "type": "string", "minLength": 1 }, "uniqueItems": true }
+  }
+}

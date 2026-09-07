@@ -176,6 +176,12 @@ func LoadLayersConfig(repoRoot string) (*LayersConfig, error) {
 		}
 		return nil, fmt.Errorf("read codeflow.layers.yaml: %w", err)
 	}
+	return LoadLayersConfigFromBytes(data)
+}
+
+// LoadLayersConfigFromBytes parses the configuration captured in an immutable
+// analysis snapshot. It deliberately has no repository path fallback.
+func LoadLayersConfigFromBytes(data []byte) (*LayersConfig, error) {
 	if len(strings.TrimSpace(string(data))) == 0 {
 		return defaultLayersConfig(), nil
 	}

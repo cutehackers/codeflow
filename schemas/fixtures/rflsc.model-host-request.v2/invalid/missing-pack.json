@@ -1,0 +1,11 @@
+{
+  "schemaId": "https://codeflow.local/schemas/rflsc.model-host-request.v2.schema.json",
+  "schemaVersion": 2,
+  "requestId": "request-a1",
+  "operation": "semantic_enrich",
+  "packDigest": "0000000000000000000000000000000000000000000000000000000000000000",
+  "targetStepId": "step-submit",
+  "targetSymbolPath": "Submit",
+  "promptRevision": "prompt-a1",
+  "maxResponseBytes": 1048576
+}

@@ -1,0 +1,14 @@
+{
+  "schemaId":"https://codeflow.local/schemas/rflsc.observation-closure.v2.schema.json",
+  "schemaVersion":2,
+  "closureId":"closure-invalid",
+  "analysisReadSetId":"rs-1",
+  "computedBasisId":"basis-1",
+  "workspaceEpoch":7,
+  "closureStatus":"closed",
+  "negativeObservations":[],
+  "membershipObservations":[],
+  "dependencyFrontiers":[],
+  "requiredObservations":["membership"],
+  "measuredObservations":[]
+}

@@ -1,0 +1,12 @@
+{
+  "schemaId": "https://codeflow.local/schemas/rflsc.impact-frontier.v1.schema.json",
+  "schemaVersion": 1,
+  "frontierId": "frontier-invalid",
+  "boundaryType": "unknown_boundary",
+  "target": "WebRoute.postOrder",
+  "depth": 3,
+  "reason": "unsupported boundary",
+  "path": [],
+  "evidenceRefs": [],
+  "expandable": false
+}

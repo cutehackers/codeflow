@@ -1,0 +1,31 @@
+{
+  "schemaId": "https://codeflow.local/schemas/rflsc.representative-flow-catalog.v2.schema.json",
+  "schemaVersion": 2,
+  "catalogId": "catalog-domain-billing",
+  "domainId": "domain-billing",
+  "computedBasisId": "basis-vs07",
+  "generationId": "generation-vs07",
+  "validatedAgainstSnapshotId": "snapshot-vs07",
+  "freshness": "historical",
+  "flows": [{
+    "flowId": "flow-billing",
+    "title": "billing charge",
+    "entrySymbol": "services/billing/charge.rb#Billing#charge",
+    "complexityScore": 3,
+    "keyMutations": [],
+    "groundedMapId": "map-vs07",
+    "generationId": "generation-other",
+    "selectionReason": "ranking",
+    "rationale": "rationale",
+    "evidenceRefs": ["ev-billing"],
+    "entryEvidenceRefs": ["ev-billing"],
+    "resultEvidenceRefs": [],
+    "confidence": 1.2,
+    "epistemicState": "candidate",
+    "coverageBoundary": {"includedSourceRoots": ["services"], "excludedReasons": []},
+    "redactionStatus": "clean"
+  }],
+  "unmappedModules": [], "unknowns": [],
+  "coverageBoundary": {"includedSourceRoots": ["services"], "excludedReasons": []},
+  "recoveryGuidance": [], "redactionStatus": "clean"
+}

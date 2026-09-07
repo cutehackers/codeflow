@@ -1,0 +1,48 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://codeflow.local/schemas/rflsc.observation-closure.v2.schema.json",
+  "title": "CodeFlow R2 Observation Closure",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaId", "schemaVersion", "closureId", "analysisReadSetId", "computedBasisId", "workspaceEpoch", "closureStatus", "negativeObservations", "membershipObservations", "dependencyFrontiers"],
+  "properties": {
+    "schemaId": { "const": "https://codeflow.local/schemas/rflsc.observation-closure.v2.schema.json" },
+    "schemaVersion": { "const": 2 },
+    "closureId": { "type": "string", "minLength": 1, "maxLength": 256 },
+    "analysisReadSetId": { "type": "string", "minLength": 1, "maxLength": 256 },
+    "computedBasisId": { "type": "string", "minLength": 1, "maxLength": 256 },
+    "workspaceEpoch": { "type": "integer", "minimum": 0 },
+    "closureStatus": { "type": "string", "enum": ["closed", "open"] },
+    "negativeObservations": { "type": "array", "maxItems": 1024, "items": { "$ref": "#/$defs/observation" } },
+    "membershipObservations": { "type": "array", "maxItems": 1024, "items": { "$ref": "#/$defs/observation" } },
+    "dependencyFrontiers": { "type": "array", "maxItems": 1024, "items": { "$ref": "#/$defs/observation" } },
+    "requiredObservations": { "type": "array", "maxItems": 64, "items": { "type": "string", "maxLength": 128 } },
+    "measuredObservations": { "type": "array", "maxItems": 64, "items": { "type": "string", "maxLength": 128 } },
+    "incompleteReasons": { "type": "array", "maxItems": 64, "items": { "type": "string", "maxLength": 512 } },
+    "closureDigest": { "type": "string", "maxLength": 256 }
+  },
+  "$defs": {
+    "observation": {
+      "type": "object", "additionalProperties": false,
+      "required": ["kind", "path", "measured"],
+      "properties": {
+        "kind": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "path": { "type": "string", "minLength": 1, "maxLength": 1024 },
+        "valueHash": { "type": "string", "maxLength": 256 },
+        "detail": { "type": "string", "maxLength": 512 },
+        "measured": { "type": "boolean" }
+      }
+    }
+  },
+  "allOf": [
+    {
+      "if": { "properties": { "closureStatus": { "const": "closed" } } },
+      "then": {
+        "required": ["requiredObservations", "measuredObservations"],
+        "properties": {
+          "measuredObservations": { "minItems": 1 }
+        }
+      }
+    }
+  ]
+}

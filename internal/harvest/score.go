@@ -163,6 +163,46 @@ func loadSourceIndex(repoRoot, libSubdir string) (*sourceIndex, error) {
 	return idx, nil
 }
 
+// loadSourceIndexFromSnapshot builds the scoring index from immutable
+// snapshot content. It deliberately has no repository-root fallback. When a
+// snapshot does not contain the requested lib subtree, the complete captured
+// file set is indexed so scoring remains deterministic for repositories whose
+// source root is not named lib.
+func loadSourceIndexFromSnapshot(files map[string]string, libSubdir string) (*sourceIndex, error) {
+	prefix := filepath.ToSlash(strings.Trim(strings.TrimSpace(libSubdir), "/"))
+	if prefix == "." {
+		prefix = ""
+	}
+	if prefix != "" {
+		prefix += "/"
+	}
+	usePrefix := false
+	for rel := range files {
+		if prefix == "" || strings.HasPrefix(filepath.ToSlash(rel), prefix) {
+			usePrefix = true
+			break
+		}
+	}
+	idx := &sourceIndex{byRel: map[string]string{}, libRoot: prefix}
+	for rawRel, content := range files {
+		rel := filepath.ToSlash(filepath.Clean(rawRel))
+		if rel == "." || filepath.IsAbs(rel) || strings.HasPrefix(rel, "../") || strings.Contains(rel, "/../") {
+			continue
+		}
+		if usePrefix && prefix != "" && !strings.HasPrefix(rel, prefix) {
+			continue
+		}
+		ext := strings.ToLower(filepath.Ext(rel))
+		if !defaultIndexedExtensions[ext] || isGeneratedFile(rel) {
+			continue
+		}
+		idx.files = append(idx.files, sourceFile{rel: rel, content: content})
+		idx.byRel[rel] = content
+	}
+	sort.Slice(idx.files, func(i, j int) bool { return idx.files[i].rel < idx.files[j].rel })
+	return idx, nil
+}
+
 func isGeneratedFile(relSlash string) bool {
 	lower := strings.ToLower(relSlash)
 	return strings.HasSuffix(lower, ".g.dart") ||

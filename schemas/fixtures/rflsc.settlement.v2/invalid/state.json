@@ -1,0 +1,15 @@
+{
+  "schemaId": "https://codeflow.local/schemas/rflsc.settlement.v2.schema.json",
+  "schemaVersion": 2,
+  "generationId": "generation-001",
+  "computedBasisId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "validatedAgainstSnapshotId": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+  "workspaceEpoch": 7,
+  "qualityStage": "Q2",
+  "gate": "unknown",
+  "obligations": [
+    { "obligationId": "entry", "kind": "entry", "required": true, "status": "unknown" }
+  ],
+  "blockingObligationRefs": [],
+  "evaluatedAt": null
+}

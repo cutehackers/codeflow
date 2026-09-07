@@ -1,0 +1,136 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://codeflow.local/schemas/rflsc.analyzer-request.v2.schema.json",
+  "title": "CodeFlow R2 Analyzer Request",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaId", "schemaVersion", "requestId", "operation", "snapshot", "maxMessageBytes"],
+  "properties": {
+    "schemaId": { "const": "https://codeflow.local/schemas/rflsc.analyzer-request.v2.schema.json" },
+    "schemaVersion": { "const": 2 },
+    "requestId": { "type": "string", "minLength": 1, "maxLength": 256 },
+    "operation": { "type": "string", "enum": ["detect", "harvest_candidates", "slice"] },
+    "snapshot": { "$ref": "#/$defs/snapshot" },
+    "payload": { "$ref": "#/$defs/operationPayload" },
+    "taskScope": { "type": "array", "maxItems": 1024, "items": { "type": "string", "minLength": 1, "maxLength": 1024 } },
+    "requiredObservations": { "type": "array", "maxItems": 64, "items": { "type": "string", "minLength": 1, "maxLength": 128 } },
+    "capabilityRequest": { "type": "array", "maxItems": 128, "items": { "type": "string", "minLength": 1, "maxLength": 128 } },
+    "maxMessageBytes": { "type": "integer", "minimum": 1024, "maximum": 16777216 }
+  },
+  "$defs": {
+    "operationPayload": {
+      "type": "object",
+      "maxProperties": 128,
+      "additionalProperties": false,
+      "properties": {
+        "repoRoot": { "type": "string", "maxLength": 4096 },
+        "candidateId": { "type": "string", "maxLength": 256 },
+        "entrySymbolPath": { "type": "string", "maxLength": 4096 },
+        "libSubdir": { "type": "string", "maxLength": 1024 },
+        "opts": { "type": "object", "maxProperties": 64 },
+        "delayMs": { "type": "integer", "minimum": 0, "maximum": 600000 },
+        "hang": { "type": "boolean" },
+        "batchId": { "type": "string", "maxLength": 256 }
+      }
+    },
+    "snapshot": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schemaId", "schemaVersion", "snapshotId", "workspaceEpoch", "computedBasisId", "rootTreeId", "dependencyFingerprint", "documents", "files", "repositoryPathWriteAudit"],
+      "properties": {
+        "schemaId": { "const": "https://codeflow.local/schemas/rflsc.analyzer-request.v2.schema.json" },
+        "schemaVersion": { "const": 2 },
+        "snapshotId": { "type": "string", "minLength": 1, "maxLength": 256 },
+        "workspaceEpoch": { "type": "integer", "minimum": 0 },
+        "computedBasisId": { "type": "string", "minLength": 1, "maxLength": 256 },
+        "rootTreeId": { "type": "string", "minLength": 1, "maxLength": 256 },
+        "configurationFingerprint": { "type": "string", "maxLength": 256 },
+        "dependencyFingerprint": { "type": "string", "minLength": 1, "maxLength": 256 },
+        "documents": { "type": "array", "maxItems": 4096, "items": { "$ref": "#/$defs/document" } },
+        "files": { "type": "object", "maxProperties": 4096, "additionalProperties": { "type": "string" } },
+        "repositoryPathWriteAudit": { "$ref": "#/$defs/writeAudit" }
+      }
+    },
+    "document": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "documentRevisionId", "contentId", "documentVersion", "contentHash", "byteLength"],
+      "properties": {
+        "path": { "type": "string", "minLength": 1, "pattern": "^[^/].*", "not": { "pattern": "(^|/)\\.\\.(/|$)" } },
+        "documentRevisionId": { "type": "string", "minLength": 1, "maxLength": 256 },
+        "contentId": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+        "documentVersion": { "type": "integer", "minimum": 1 },
+        "contentHash": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+        "byteLength": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "writeAudit": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["codeflowWriteCount", "sourceIntegrityViolation", "capturedSnapshotTreeDigest"],
+      "properties": {
+        "codeflowWriteCount": { "type": "integer", "minimum": 0 },
+        "repositoryPathWrites": { "type": "array", "maxItems": 256, "items": { "type": "string", "maxLength": 1024 } },
+        "sourceIntegrityViolation": { "type": "boolean" },
+        "capturedSnapshotTreeDigest": { "type": "string", "minLength": 1, "maxLength": 256 }
+      }
+    }
+  },
+  "allOf": [
+    {
+      "if": { "properties": { "operation": { "const": "detect" } }, "required": ["operation"] },
+      "then": {
+        "properties": {
+          "payload": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "delayMs": { "type": "integer", "minimum": 0, "maximum": 600000 },
+              "hang": { "type": "boolean" },
+              "batchId": { "type": "string", "maxLength": 256 },
+              "opts": { "type": "object", "maxProperties": 64 }
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": { "properties": { "operation": { "const": "harvest_candidates" } }, "required": ["operation"] },
+      "then": {
+        "properties": {
+          "payload": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "delayMs": { "type": "integer", "minimum": 0, "maximum": 600000 },
+              "hang": { "type": "boolean" },
+              "batchId": { "type": "string", "maxLength": 256 },
+              "libSubdir": { "type": "string", "maxLength": 1024 },
+              "opts": { "type": "object", "maxProperties": 64 }
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": { "properties": { "operation": { "const": "slice" } }, "required": ["operation"] },
+      "then": {
+        "properties": {
+          "payload": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["candidateId", "entrySymbolPath"],
+            "properties": {
+              "candidateId": { "type": "string", "pattern": "^cand-[a-z0-9]{8,32}$" },
+              "entrySymbolPath": { "type": "string", "minLength": 1, "maxLength": 4096 },
+              "delayMs": { "type": "integer", "minimum": 0, "maximum": 600000 },
+              "hang": { "type": "boolean" },
+              "batchId": { "type": "string", "maxLength": 256 },
+              "opts": { "type": "object", "maxProperties": 64 }
+            }
+          }
+        }
+      }
+    }
+  ]
+}

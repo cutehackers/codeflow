@@ -59,6 +59,21 @@ func LoadManifest(repoRoot string) (*Manifest, error) {
 	return m, nil
 }
 
+// LoadManifestFromSnapshot parses the captured manifest bytes. A missing
+// snapshot entry means there are no overrides. This is the analysis-path
+// counterpart of LoadManifest and never consults live repository state.
+func LoadManifestFromSnapshot(files map[string]string) (*Manifest, error) {
+	content, ok := files[ManifestFileName]
+	if !ok {
+		return &Manifest{}, nil
+	}
+	m, err := ParseManifest(content)
+	if err != nil {
+		return nil, fmt.Errorf("load %s from snapshot: %w", ManifestFileName, err)
+	}
+	return m, nil
+}
+
 // entryShapeRe mirrors identity.schema.json $defs.canonicalEntrySymbolPath:
 // '<repoRelativeFile>.<ext>#<TopLevelSymbol>(.<Member>)*'.
 var entryShapeRe = regexp.MustCompile(

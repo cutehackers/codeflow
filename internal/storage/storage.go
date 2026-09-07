@@ -30,6 +30,7 @@ type Pointer struct {
 	PublishedAt      time.Time `json:"publishedAt"`
 	BasisFingerprint string    `json:"basisFingerprint"`
 	FlowCount        int       `json:"flowCount"`
+	WorkspaceEpoch   int64     `json:"workspaceEpoch,omitempty"`
 }
 
 // FlowSummary is a lightweight entry in the generation index.
@@ -74,6 +75,7 @@ func (s *Storage) InitLayout() error {
 		filepath.Join(s.baseDir, "ir"),
 		filepath.Join(s.baseDir, "generations"),
 		filepath.Join(s.baseDir, "cas"),
+		filepath.Join(s.baseDir, "historical", "incompatible"),
 	}
 	for _, d := range dirs {
 		if err := os.MkdirAll(d, 0o755); err != nil {
@@ -116,6 +118,22 @@ func (s *Storage) ReadPointer() (*Pointer, error) {
 		}
 		return nil, fmt.Errorf("read pointer: %w", err)
 	}
+	var raw struct {
+		WorkspaceEpoch json.RawMessage `json:"workspaceEpoch"`
+	}
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return nil, fmt.Errorf("unmarshal pointer: %w", err)
+	}
+	if len(raw.WorkspaceEpoch) > 0 && raw.WorkspaceEpoch[0] == '"' {
+		ref, archiveErr := s.archiveIncompatible("pointer.json", data)
+		if archiveErr != nil {
+			return nil, archiveErr
+		}
+		if removeErr := os.Remove(path); removeErr != nil && !errors.Is(removeErr, fs.ErrNotExist) {
+			return nil, fmt.Errorf("quarantine incompatible pointer: %w", removeErr)
+		}
+		return nil, &IncompatibleEpochError{ArtifactPath: path, HistoricalRef: ref}
+	}
 	var p Pointer
 	if err := json.Unmarshal(data, &p); err != nil {
 		return nil, fmt.Errorf("unmarshal pointer: %w", err)
@@ -140,6 +158,33 @@ func (s *Storage) ReadLatestIndex() (*GenerationIndex, error) {
 	var idx GenerationIndex
 	if err := json.Unmarshal(data, &idx); err != nil {
 		return nil, fmt.Errorf("unmarshal generation index: %w", err)
+	}
+	return &idx, nil
+}
+
+// ReadGenerationIndex loads the index for the explicitly requested
+// generation. A missing historical generation is represented by (nil, nil)
+// so callers can expose partial coverage instead of silently substituting the
+// active generation.
+func (s *Storage) ReadGenerationIndex(generationID string) (*GenerationIndex, error) {
+	generationID = strings.TrimSpace(generationID)
+	if generationID == "" || generationID == "." || generationID == ".." || filepath.Base(generationID) != generationID || strings.ContainsAny(generationID, `/\\`) {
+		return nil, fmt.Errorf("invalid generation id %q", generationID)
+	}
+	indexPath := filepath.Join(s.baseDir, "generations", generationID, "index.json")
+	data, err := os.ReadFile(indexPath)
+	if err != nil {
+		if errors.Is(err, fs.ErrNotExist) {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("read generation index %s: %w", indexPath, err)
+	}
+	var idx GenerationIndex
+	if err := json.Unmarshal(data, &idx); err != nil {
+		return nil, fmt.Errorf("unmarshal generation index %s: %w", indexPath, err)
+	}
+	if idx.GenerationID != generationID {
+		return nil, fmt.Errorf("generation index identity %q does not match requested generation %q", idx.GenerationID, generationID)
 	}
 	return &idx, nil
 }

@@ -80,7 +80,7 @@ graph TD
 
 ### 3.3. Deterministic Static Engine (Polyglot Language Adapters)
 * **역할:** 언어별 어댑터(`adapters/dart`, `adapters/typescript` 등)를 통해 컴파일러 수준의 결정론적 사실(Plane B)을 추출.
-* **Track A 원칙 준수 ([`docs/ARCHITECTURE.md:32`](docs/ARCHITECTURE.md)):**
+* **Track A 원칙 준수 ([`docs/architecture/architecture.md:32`](../../architecture/architecture.md#L32)):**
   * 어댑터는 순수 AST 사실(`guard`, `mutation`, `call`, `effect`, `branch`, `signature`, `callees`, `dependencies`)만 추출.
   * 레이어 분류는 `codeflow.layers.yaml` 규칙에 따라 표준 7-Lane 소문자 명칭으로 정규화:
     $$\text{presentation} \longrightarrow \text{controller} \longrightarrow \text{usecase} \longrightarrow \text{domain} \longrightarrow \text{data} \longrightarrow \text{infra} \longrightarrow \text{external}$$

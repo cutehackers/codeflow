@@ -1,0 +1,16 @@
+{
+  "schemaId": "https://codeflow.local/schemas/rflsc.domain-overview.v2.schema.json",
+  "schemaVersion": 2,
+  "repositoryId": "repo-vs07",
+  "computedBasisId": "basis-vs07",
+  "generationId": "generation-vs07",
+  "validatedAgainstSnapshotId": "snapshot-vs07",
+  "freshness": "historical",
+  "domains": [],
+  "unmappedModules": ["plugins"],
+  "unknowns": [{"subject": "plugins", "reason": "unmapped", "recoveryGuidance": ["rerun analysis"]}],
+  "coverageBoundary": {"includedSourceRoots": ["services"], "excludedReasons": ["plugins unmapped"]},
+  "recoveryGuidance": ["supply a candidate"],
+  "summary": {"totalDomains": 0, "totalFlows": 0, "coverageRatio": 0},
+  "redactionStatus": "clean"
+}

@@ -1,0 +1,17 @@
+{
+  "schemaId": "https://codeflow.local/schemas/rflsc.onboarding-flow-drilldown.v2.schema.json",
+  "schemaVersion": 2,
+  "flowId": "flow-vs07-drilldown",
+  "domainId": "domain-media",
+  "canonicalMapId": "map-vs07",
+  "computedBasisId": "basis-vs07",
+  "generationId": "generation-vs07",
+  "validatedAgainstSnapshotId": "snapshot-vs07",
+  "freshness": "historical",
+  "stepRefs": ["step-a"],
+  "evidenceRefs": [],
+  "coverageBoundary": {"includedSourceRoots": ["src"], "excludedReasons": []},
+  "unknowns": [],
+  "recoveryGuidance": [],
+  "redactionStatus": "clean"
+}

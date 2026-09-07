@@ -1,0 +1,46 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://codeflow.local/schemas/rflsc.onboarding-flow-drilldown.v2.schema.json",
+  "title": "RFL-SC Onboarding Flow Drilldown v2",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaId", "schemaVersion", "flowId", "domainId", "canonicalMapId", "computedBasisId", "generationId", "validatedAgainstSnapshotId", "freshness", "stepRefs", "evidenceRefs", "coverageBoundary", "unknowns", "recoveryGuidance", "redactionStatus"],
+  "properties": {
+    "schemaId": { "const": "https://codeflow.local/schemas/rflsc.onboarding-flow-drilldown.v2.schema.json" },
+    "schemaVersion": { "const": 2 },
+    "flowId": { "type": "string", "minLength": 1 },
+    "domainId": { "type": "string", "minLength": 1 },
+    "canonicalMapId": { "type": "string", "minLength": 1 },
+    "computedBasisId": { "type": "string", "minLength": 1 },
+    "generationId": { "type": "string", "minLength": 1 },
+    "validatedAgainstSnapshotId": { "type": "string", "minLength": 1 },
+    "freshness": { "enum": ["current", "historical"] },
+    "stepRefs": { "type": "array", "minItems": 1, "items": { "type": "string", "minLength": 1 } },
+    "evidenceRefs": { "type": "array", "minItems": 1, "items": { "type": "string", "minLength": 1 } },
+    "coverageBoundary": { "$ref": "#/$defs/coverageBoundary" },
+    "unknowns": { "type": "array", "items": { "$ref": "#/$defs/unknown" } },
+    "recoveryGuidance": { "type": "array", "items": { "type": "string", "minLength": 1 } },
+    "redactionStatus": { "enum": ["clean", "redacted"] }
+  },
+  "$defs": {
+    "coverageBoundary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["includedSourceRoots", "excludedReasons"],
+      "properties": {
+        "includedSourceRoots": { "type": "array", "items": { "type": "string", "minLength": 1 } },
+        "excludedReasons": { "type": "array", "items": { "type": "string", "minLength": 1 } }
+      }
+    },
+    "unknown": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["subject", "reason", "recoveryGuidance"],
+      "properties": {
+        "subject": { "type": "string", "minLength": 1 },
+        "reason": { "type": "string", "minLength": 1 },
+        "recoveryGuidance": { "type": "array", "items": { "type": "string", "minLength": 1 } }
+      }
+    }
+  }
+}

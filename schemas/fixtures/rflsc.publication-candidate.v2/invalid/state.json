@@ -1,0 +1,28 @@
+{
+  "schemaId": "https://codeflow.local/schemas/rflsc.publication-candidate.v2.schema.json",
+  "schemaVersion": 2,
+  "candidateId": "candidate-generation-001",
+  "generationId": "generation-001",
+  "computedBasisId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "validatedAgainstSnapshotId": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+  "workspaceEpoch": 7,
+  "taskIntentRevision": 3,
+  "normalizedQueryHash": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+  "authority": "candidate",
+  "freshness": "candidate",
+  "publicationKind": "checkpoint",
+  "status": "unknown",
+  "mapRef": "map-001",
+  "closureRef": "closure-001",
+  "currentPublication": {
+    "eligibility": "passed",
+    "snapshotGate": "failed",
+    "closureGate": "passed",
+    "evidenceGate": "passed",
+    "semanticAtomicityGate": "passed",
+    "taskRelevanceGate": "passed",
+    "comprehensionGate": "passed"
+  },
+  "settlement": "pending",
+  "createdAt": "2026-09-04T00:00:00Z"
+}

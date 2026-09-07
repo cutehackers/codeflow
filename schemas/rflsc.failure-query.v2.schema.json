@@ -1,0 +1,99 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://codeflow.local/schemas/rflsc.failure-query.v2.schema.json",
+  "title": "RFL-SC Evidence-Bounded Failure Query v2",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaId",
+    "schemaVersion",
+    "mode",
+    "computedBasisId",
+    "generationId",
+    "validatedAgainstSnapshotId",
+    "freshness"
+  ],
+  "properties": {
+    "schemaId": { "const": "https://codeflow.local/schemas/rflsc.failure-query.v2.schema.json" },
+    "schemaVersion": { "const": 2 },
+    "mode": { "enum": ["debug", "incident"] },
+    "computedBasisId": { "type": "string", "minLength": 1, "maxLength": 256 },
+    "generationId": { "type": "string", "minLength": 1, "maxLength": 256 },
+    "validatedAgainstSnapshotId": { "type": "string", "minLength": 1, "maxLength": 256 },
+    "freshness": { "enum": ["current", "historical"] },
+    "common": { "$ref": "#/$defs/common" },
+    "debug": { "$ref": "#/$defs/debug" },
+    "incident": { "$ref": "#/$defs/incident" }
+  },
+  "oneOf": [
+    {
+      "properties": { "mode": { "const": "debug" } },
+      "required": ["debug"],
+      "not": { "required": ["incident"] }
+    },
+    {
+      "properties": { "mode": { "const": "incident" } },
+      "required": ["incident"],
+      "not": { "required": ["debug"] }
+    }
+  ],
+  "$defs": {
+    "common": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "taskId": { "type": "string", "minLength": 1, "maxLength": 256 },
+        "intentRevision": { "type": "integer", "minimum": 1 }
+      }
+    },
+    "debug": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "error": { "type": "string", "minLength": 1, "maxLength": 4096 },
+        "symptom": { "type": "string", "minLength": 1, "maxLength": 4096 },
+        "failureEvidenceId": { "type": "string", "minLength": 1, "maxLength": 256 },
+        "evidenceRefs": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": { "type": "string", "minLength": 1, "maxLength": 256 }
+        }
+      },
+      "anyOf": [
+        { "required": ["error"] },
+        { "required": ["symptom"] },
+        { "required": ["failureEvidenceId"] },
+        { "required": ["evidenceRefs"] }
+      ]
+    },
+    "incident": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["scenario", "environment", "dependencyFingerprint", "timeWindow"],
+      "properties": {
+        "traceId": { "type": "string", "minLength": 1, "maxLength": 256 },
+        "incidentEvidenceId": { "type": "string", "minLength": 1, "maxLength": 256 },
+        "runtimeObservationId": { "type": "string", "minLength": 1, "maxLength": 256 },
+        "scenario": { "type": "string", "minLength": 1, "maxLength": 512 },
+        "environment": { "type": "string", "minLength": 1, "maxLength": 512 },
+        "dependencyFingerprint": { "type": "string", "minLength": 1, "maxLength": 256 },
+        "timeWindow": { "$ref": "#/$defs/timeWindow" }
+      },
+      "anyOf": [
+        { "required": ["traceId"] },
+        { "required": ["incidentEvidenceId"] },
+        { "required": ["runtimeObservationId"] }
+      ]
+    },
+    "timeWindow": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["from", "to"],
+      "properties": {
+        "from": { "type": "string", "format": "date-time" },
+        "to": { "type": "string", "format": "date-time" }
+      }
+    }
+  }
+}

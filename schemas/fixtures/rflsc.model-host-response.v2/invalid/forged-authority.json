@@ -1,0 +1,31 @@
+{
+  "schemaId": "https://codeflow.local/schemas/rflsc.model-host-response.v2.schema.json",
+  "schemaVersion": 2,
+  "requestId": "request-a1",
+  "status": "accepted",
+  "proposal": {
+    "schemaId": "https://codeflow.local/schemas/rflsc.semantic-proposal.v2.schema.json",
+    "schemaVersion": 2,
+    "proposalId": "proposal-a1",
+    "computedBasisId": "basis-a1",
+    "generationId": "generation-a1",
+    "snapshotId": "snapshot-a1",
+    "targetStepId": "step-submit",
+    "targetSymbolPath": "Submit",
+    "proposedTitle": "Submit",
+    "proposedCategory": "entry",
+    "epistemicStatus": "inferred",
+    "authority": "verified",
+    "claimScope": "display_only",
+    "modelId": "local-slm",
+    "modelRevision": "rev-a1",
+    "promptRevision": "prompt-a1",
+    "schemaProfile": "rflsc.semantic-proposal.v2",
+    "packDigest": "0000000000000000000000000000000000000000000000000000000000000000",
+    "evidenceRefs": ["e-submit"],
+    "factDigest": "0000000000000000000000000000000000000000000000000000000000000000",
+    "obligationDigest": "0000000000000000000000000000000000000000000000000000000000000000",
+    "alignmentDigest": "0000000000000000000000000000000000000000000000000000000000000000",
+    "settlementDigest": "0000000000000000000000000000000000000000000000000000000000000000"
+  }
+}

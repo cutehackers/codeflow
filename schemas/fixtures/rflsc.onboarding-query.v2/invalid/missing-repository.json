@@ -1,0 +1,9 @@
+{
+  "schemaId": "https://codeflow.local/schemas/rflsc.onboarding-query.v2.schema.json",
+  "schemaVersion": 2,
+  "computedBasisId": "basis-vs07",
+  "generationId": "generation-vs07",
+  "validatedAgainstSnapshotId": "snapshot-vs07",
+  "freshness": "historical",
+  "level": 1
+}

@@ -1,0 +1,26 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://codeflow.local/schemas/rflsc.execution-report.v2.schema.json",
+  "title": "Immutable executed release evidence report",
+  "type": "object", "additionalProperties": false,
+  "required": ["schemaId", "schemaVersion", "reportId", "artifactRef", "profileId", "profileRef", "corpusId", "corpusVersion", "corpusRef", "command", "executedAt", "toolchainIds", "scenarioResults", "metricSeries", "invariantChecks"],
+  "properties": {
+    "schemaId": {"const": "https://codeflow.local/schemas/rflsc.execution-report.v2.schema.json"}, "schemaVersion": {"const": 2},
+    "reportId": {"type": "string", "minLength": 1}, "artifactRef": {"$ref": "#/$defs/immutableRef"}, "profileId": {"type": "string", "minLength": 1}, "profileRef": {"$ref": "#/$defs/immutableRef"}, "corpusId": {"type": "string", "minLength": 1}, "corpusVersion": {"type": "string", "minLength": 1}, "corpusRef": {"$ref": "#/$defs/immutableRef"}, "command": {"type": "string", "minLength": 1}, "executedAt": {"type": "string", "format": "date-time"},
+    "toolchainIds": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"type": "string", "minLength": 1}},
+    "scenarioResults": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/scenarioResult"}},
+    "metricSeries": {"type": "array", "minItems": 9, "items": {"$ref": "#/$defs/metricSeries"}},
+    "invariantChecks": {"type": "array", "minItems": 10, "items": {"$ref": "#/$defs/invariantCheck"}}
+  },
+  "$defs": {
+    "immutableRef": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
+    "scenarioResult": {"type": "object", "additionalProperties": false, "required": ["scenarioId", "traceId", "traceRef", "toolchainId", "capabilityIds", "passed"], "properties": {
+      "scenarioId": {"type": "string", "minLength": 1}, "traceId": {"type": "string", "minLength": 1}, "traceRef": {"$ref": "#/$defs/immutableRef"}, "toolchainId": {"type": "string", "minLength": 1}, "capabilityIds": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"type": "string", "minLength": 1}}, "passed": {"type": "boolean"}, "failureReason": {"type": "string", "minLength": 1}, "recovery": {"type": "string", "minLength": 1}
+    }, "allOf": [{"if": {"properties": {"passed": {"const": false}}, "required": ["passed"]}, "then": {"required": ["failureReason", "recovery"]}}, {"if": {"properties": {"passed": {"const": true}}, "required": ["passed"]}, "then": {"not": {"anyOf": [{"required": ["failureReason"]}, {"required": ["recovery"]}]}}}]},
+    "metricSeries": {"type": "object", "additionalProperties": false, "required": ["metric", "capabilityId", "category", "unit", "samples"], "properties": {
+      "metric": {"enum": ["activity_latency_ms", "current_or_gap_latency_ms", "precision", "recall", "semantic_delta", "alignment_validity", "unknown_coverage", "comprehension", "peak_memory_bytes"]}, "capabilityId": {"type": "string", "minLength": 1}, "category": {"enum": ["latency", "quality", "resource"]}, "unit": {"type": "string", "minLength": 1}, "samples": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/observation"}}
+    }},
+    "observation": {"type": "object", "additionalProperties": false, "required": ["scenarioId", "traceId", "traceRef", "toolchainId", "profileId", "evidenceRef", "value"], "properties": {"scenarioId": {"type": "string", "minLength": 1}, "traceId": {"type": "string", "minLength": 1}, "traceRef": {"$ref": "#/$defs/immutableRef"}, "toolchainId": {"type": "string", "minLength": 1}, "profileId": {"type": "string", "minLength": 1}, "evidenceRef": {"$ref": "#/$defs/immutableRef"}, "value": {"type": "number"}}},
+    "invariantCheck": {"type": "object", "additionalProperties": false, "required": ["kind", "capabilityId", "scenarioId", "traceId", "evidenceRef", "result"], "properties": {"kind": {"enum": ["proof_less_current", "false_settlement", "cross_generation_mix", "fabricated_evidence", "fabricated_runtime", "unsafe_approval", "secret_leak", "path_leak", "race", "unrecovered_event_gap"]}, "capabilityId": {"type": "string", "minLength": 1}, "scenarioId": {"type": "string", "minLength": 1}, "traceId": {"type": "string", "minLength": 1}, "evidenceRef": {"$ref": "#/$defs/immutableRef"}, "result": {"enum": ["pass", "fail"]}, "failureReason": {"type": "string", "minLength": 1}, "recoveryCondition": {"type": "string", "minLength": 1}}, "allOf": [{"if": {"properties": {"result": {"const": "fail"}}, "required": ["result"]}, "then": {"required": ["failureReason", "recoveryCondition"]}}]}
+  }
+}

@@ -1,0 +1,45 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://codeflow.local/schemas/rflsc.analysis-read-set.v2.schema.json",
+  "title": "CodeFlow R2 Analysis Read Set",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaId", "schemaVersion", "readSetId", "computedBasisId", "workspaceEpoch", "documents", "negativeObservations", "membershipObservations", "dependencyFrontiers"],
+  "properties": {
+    "schemaId": { "const": "https://codeflow.local/schemas/rflsc.analysis-read-set.v2.schema.json" },
+    "schemaVersion": { "const": 2 },
+    "readSetId": { "type": "string", "minLength": 1, "maxLength": 256 },
+    "computedBasisId": { "type": "string", "minLength": 1, "maxLength": 256 },
+    "workspaceEpoch": { "type": "integer", "minimum": 0 },
+    "documents": { "type": "array", "maxItems": 4096, "items": { "$ref": "#/$defs/document" } },
+    "negativeObservations": { "type": "array", "maxItems": 1024, "items": { "$ref": "#/$defs/observation" } },
+    "membershipObservations": { "type": "array", "maxItems": 1024, "items": { "$ref": "#/$defs/observation" } },
+    "dependencyFrontiers": { "type": "array", "maxItems": 1024, "items": { "$ref": "#/$defs/observation" } },
+    "readSetDigest": { "type": "string", "maxLength": 256 }
+  },
+  "$defs": {
+    "document": {
+      "type": "object", "additionalProperties": false,
+      "required": ["path", "contentHash", "byteLength"],
+      "properties": {
+        "path": { "type": "string", "minLength": 1, "pattern": "^[^/].*", "not": { "pattern": "(^|/)\\.\\.(/|$)" } },
+        "documentRevisionId": { "type": "string", "maxLength": 256 },
+        "contentId": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+        "contentHash": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+        "documentVersion": { "type": "integer", "minimum": 1 },
+        "byteLength": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "observation": {
+      "type": "object", "additionalProperties": false,
+      "required": ["kind", "path", "measured"],
+      "properties": {
+        "kind": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "path": { "type": "string", "minLength": 1, "maxLength": 1024 },
+        "valueHash": { "type": "string", "maxLength": 256 },
+        "detail": { "type": "string", "maxLength": 512 },
+        "measured": { "type": "boolean" }
+      }
+    }
+  }
+}

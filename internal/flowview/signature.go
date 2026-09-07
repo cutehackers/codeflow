@@ -43,7 +43,15 @@ func extractSignature(repoRoot, relPath string, byteOffset int, lineHint int, sy
 	if err != nil {
 		return signatureResult{}
 	}
+	return extractSignatureFromBytes(data, byteOffset, lineHint, symbolHint)
+}
 
+// extractSignatureFromBytes derives the same bounded declaration excerpt from
+// already-captured source bytes. It has no filesystem fallback.
+func extractSignatureFromBytes(data []byte, byteOffset int, lineHint int, symbolHint string) signatureResult {
+	if len(data) == 0 || len(data) > signatureMaxFileSize {
+		return signatureResult{}
+	}
 	startLine := lineHint
 	if byteOffset > 0 && byteOffset < len(data) {
 		startLine = 1 + strings.Count(string(data[:byteOffset]), "\n")

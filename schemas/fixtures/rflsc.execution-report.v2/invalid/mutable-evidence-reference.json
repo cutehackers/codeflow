@@ -1,0 +1,28 @@
+{
+  "schemaId": "https://codeflow.local/schemas/rflsc.execution-report.v2.schema.json",
+  "schemaVersion": 2,
+  "reportId": "r",
+  "artifactRef": "latest/report.json",
+  "profileId": "p",
+  "corpusId": "c",
+  "corpusVersion": "1",
+  "command": "test",
+  "executedAt": "2026-09-07T00:00:00Z",
+  "toolchainIds": [
+    "go"
+  ],
+  "scenarioResults": [
+    {
+      "scenarioId": "s",
+      "traceId": "t",
+      "traceRef": "sha256:2000000000000000000000000000000000000000000000000000000000000002",
+      "toolchainId": "go",
+      "capabilityIds": [
+        "cap"
+      ],
+      "passed": true
+    }
+  ],
+  "metricSeries": [],
+  "invariantChecks": []
+}

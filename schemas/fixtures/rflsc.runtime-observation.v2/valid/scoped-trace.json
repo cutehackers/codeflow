@@ -1,0 +1,46 @@
+{
+  "schemaId": "https://codeflow.local/schemas/rflsc.runtime-observation.v2.schema.json",
+  "schemaVersion": 2,
+  "observationId": "observation-vs06",
+  "traceId": "trace-vs06",
+  "incidentEvidenceId": "ev-incident",
+  "scenario": "checkout-payment-declined",
+  "input": "payment fixture",
+  "environment": "staging",
+  "dependencyFingerprint": "deps-vs06",
+  "computedBasisId": "basis-vs06",
+  "generationId": "generation-vs06",
+  "validatedAgainstSnapshotId": "snapshot-vs06",
+  "freshness": "historical",
+  "observedAt": "2026-09-05T00:02:00Z",
+  "isolationLevel": "no_egress_sandbox",
+  "timeWindow": {
+    "from": "2026-09-05T00:00:00Z",
+    "to": "2026-09-05T00:05:00Z"
+  },
+  "traceCoverage": { "spansCovered": 1, "totalSpans": 1, "ratio": 1 },
+  "events": [{
+    "eventId": "event-failure",
+    "timestamp": "2026-09-05T00:02:01Z",
+    "kind": "failure_emission",
+    "target": "PaymentGateway.charge",
+    "symbolPath": "PaymentGateway.charge",
+    "status": "observed",
+    "evidenceRef": "ev-runtime"
+  }],
+  "evidence": [{
+    "evidenceId": "ev-runtime",
+    "observationId": "observation-vs06",
+    "traceId": "trace-vs06",
+    "generationId": "generation-vs06",
+    "computedBasisId": "basis-vs06",
+    "snapshotId": "snapshot-vs06",
+    "validatedAgainstSnapshotId": "snapshot-vs06",
+    "scenario": "checkout-payment-declined",
+    "environment": "staging",
+    "dependencyFingerprint": "deps-vs06",
+    "timestamp": "2026-09-05T00:02:01Z",
+    "validationStatus": "verified",
+    "redactionStatus": "redacted"
+  }]
+}

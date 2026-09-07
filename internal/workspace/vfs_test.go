@@ -29,7 +29,7 @@ func TestVS03A5_SnapshotVFSConformance(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	engine, err := NewSnapshotEngine(tempDir, "epoch-vfs-01")
+	engine, err := NewSnapshotEngine(tempDir, 1)
 	if err != nil {
 		t.Fatalf("NewSnapshotEngine failed: %v", err)
 	}

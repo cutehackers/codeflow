@@ -1,0 +1,36 @@
+{
+  "schemaId": "https://codeflow.local/schemas/rflsc.execution-report.v2.schema.json",
+  "schemaVersion": 2,
+  "reportId": "r",
+  "artifactRef": "sha256:2000000000000000000000000000000000000000000000000000000000000001",
+  "profileId": "p",
+  "corpusId": "c",
+  "corpusVersion": "1",
+  "command": "test",
+  "executedAt": "2026-09-07T00:00:00Z",
+  "toolchainIds": [
+    "go"
+  ],
+  "scenarioResults": [
+    {
+      "scenarioId": "s",
+      "traceId": "t",
+      "traceRef": "sha256:2000000000000000000000000000000000000000000000000000000000000002",
+      "toolchainId": "go",
+      "capabilityIds": [
+        "cap"
+      ],
+      "passed": true
+    }
+  ],
+  "metricSeries": [
+    {
+      "metric": "activity_latency_ms",
+      "capabilityId": "cap",
+      "category": "latency",
+      "unit": "ms",
+      "samples": []
+    }
+  ],
+  "invariantChecks": []
+}

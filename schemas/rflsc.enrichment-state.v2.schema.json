@@ -1,0 +1,253 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://codeflow.local/schemas/rflsc.enrichment-state.v2.schema.json",
+  "title": "RFL-SC Enrichment State v2",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaId", "schemaVersion", "status", "capability", "updatedAt"],
+  "properties": {
+    "schemaId": { "const": "https://codeflow.local/schemas/rflsc.enrichment-state.v2.schema.json" },
+    "schemaVersion": { "const": 2 },
+    "status": { "enum": ["not_requested", "pending", "available", "timed_out", "unavailable"] },
+    "reason": { "type": "string", "maxLength": 4096 },
+    "packDigest": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "proposalId": { "type": "string", "minLength": 1, "maxLength": 256 },
+    "fallback": { "$ref": "#/$defs/fallback" },
+    "capability": { "$ref": "#/$defs/capability" },
+    "isolation": { "$ref": "#/$defs/isolation" },
+    "updatedAt": { "type": "string", "format": "date-time" }
+  },
+  "allOf": [
+    {
+      "if": {
+        "required": ["status"],
+        "properties": { "status": { "const": "available" } }
+      },
+      "then": {
+        "required": ["packDigest", "proposalId", "capability", "isolation"],
+        "properties": {
+          "packDigest": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+          "proposalId": { "type": "string", "minLength": 1, "maxLength": 256 },
+          "capability": {
+            "required": [
+              "status", "modelId", "revision", "license", "checksum", "runtime", "dataBoundary",
+              "schemaConstrained", "cancellation", "measured", "maxRequestBytes", "maxResponseBytes",
+              "isolationBackend", "isolationEnforced", "isolationProbe", "networkPolicy", "policyDigest", "runtimePolicyBinding", "runtimePolicySharedBaseDigest", "probeScope", "probePolicyDigest", "probeSharedBaseDigest", "resourceLimits"
+            ],
+            "properties": {
+              "status": { "const": "measured" },
+              "modelId": { "type": "string", "minLength": 1, "maxLength": 256 },
+              "revision": { "type": "string", "minLength": 1, "maxLength": 256 },
+              "license": { "type": "string", "minLength": 1, "maxLength": 256 },
+              "checksum": { "type": "string", "minLength": 1, "maxLength": 256 },
+              "runtime": { "type": "string", "minLength": 1, "maxLength": 256 },
+              "dataBoundary": { "type": "string", "minLength": 1, "maxLength": 256 },
+              "schemaConstrained": { "const": true },
+              "cancellation": { "const": true },
+              "measured": { "const": true },
+              "maxRequestBytes": { "type": "integer", "minimum": 1 },
+              "maxResponseBytes": { "type": "integer", "minimum": 1 },
+              "isolationBackend": { "type": "string", "minLength": 1, "maxLength": 128 },
+              "isolationEnforced": { "const": true },
+              "isolationProbe": {
+                "required": [
+                  "repositoryReadAttempt", "repositoryWriteAttempt", "disposableWriteAttempt",
+                  "sentinelBeforeDigest", "sentinelAfterDigest", "sentinelUnchanged", "networkAttempt"
+                ],
+                "properties": {
+                  "repositoryReadAttempt": { "const": "blocked" },
+                  "repositoryWriteAttempt": { "const": "blocked" },
+                  "disposableWriteAttempt": { "const": "blocked" },
+                  "sentinelUnchanged": { "const": true },
+                  "networkAttempt": { "const": "blocked" }
+                }
+              },
+              "networkPolicy": { "const": "deny_all" },
+              "policyDigest": { "description": "Exact Core-created runtime sandbox profile digest bound to the runtime profile path and executable arguments.", "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
+              "runtimePolicyBinding": { "const": "exact_profile_bytes_and_exec_args" },
+              "runtimePolicySharedBaseDigest": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
+              "probeScope": { "description": "The trusted probe covers only properties shared with the runtime profile deny base.", "const": "shared_deny_base" },
+              "probePolicyDigest": { "description": "Exact digest of the separate Core trusted-probe profile.", "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
+              "probeSharedBaseDigest": { "description": "Digest of only the deny-base clauses shared with the runtime profile.", "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
+              "resourceLimits": { "$ref": "#/$defs/resourceLimitEvidence" }
+            }
+          },
+          "isolation": {
+            "required": [
+              "sourceDelivery", "sourceMount", "workingDirectoryMode", "workingDirectoryPermission",
+              "disposable", "repositoryPathExposed", "repositoryWriteCapability", "repositoryWriteAttempts", "repositoryWriteAuditStatus",
+              "packDigest", "receivedRequestId", "receivedPackDigest", "capabilityStatus", "terminalStatus", "cleanupVerified", "isolationBackend",
+              "enforcementStatus", "repositoryReadAttempt", "repositoryWriteAttempt", "disposableWriteAttempt", "sentinelBeforeDigest",
+              "sentinelAfterDigest", "sentinelUnchanged", "networkAttempt", "networkPolicy", "policyDigest", "runtimePolicyBinding", "runtimePolicySharedBaseDigest", "probeScope", "probePolicyDigest", "probeSharedBaseDigest", "resourceLimits",
+              "coreTrustedProbe"
+            ],
+            "properties": {
+              "sourceDelivery": { "const": "bounded_evidence_pack" },
+              "sourceMount": { "const": "not_mounted" },
+              "workingDirectoryMode": { "const": "process_private_disposable" },
+              "workingDirectoryPermission": { "const": "0700" },
+              "disposable": { "const": true },
+              "repositoryPathExposed": { "const": false },
+              "repositoryWriteCapability": { "const": false },
+              "repositoryWriteAttempts": { "type": "array", "maxItems": 0 },
+              "repositoryWriteAuditStatus": {
+                "description": "An available state requires Core trusted sandbox capability enforcement. This does not mean runtime syscall absence was observed.",
+                "const": "capability_enforced"
+              },
+              "packDigest": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+              "receivedRequestId": { "type": "string", "minLength": 1, "maxLength": 256 },
+              "receivedPackDigest": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+              "capabilityStatus": { "const": "measured" },
+              "terminalStatus": { "const": "success" },
+              "cleanupVerified": { "const": true },
+              "isolationBackend": { "type": "string", "minLength": 1, "maxLength": 128 },
+              "enforcementStatus": { "const": "enforced" },
+              "repositoryReadAttempt": { "const": "blocked" },
+              "repositoryWriteAttempt": { "const": "blocked" },
+              "disposableWriteAttempt": { "const": "blocked" },
+              "sentinelUnchanged": { "const": true },
+              "networkAttempt": { "const": "blocked" },
+              "networkPolicy": { "const": "deny_all" },
+              "policyDigest": { "description": "Exact Core-created runtime sandbox profile digest bound to the runtime profile path and executable arguments.", "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
+              "runtimePolicyBinding": { "const": "exact_profile_bytes_and_exec_args" },
+              "runtimePolicySharedBaseDigest": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
+              "probeScope": { "description": "The trusted probe covers only properties shared with the runtime profile deny base.", "const": "shared_deny_base" },
+              "probePolicyDigest": { "description": "Exact digest of the separate Core trusted-probe profile.", "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
+              "probeSharedBaseDigest": { "description": "Digest of only the deny-base clauses shared with the runtime profile.", "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
+              "resourceLimits": { "$ref": "#/$defs/resourceLimitEvidence" },
+              "coreTrustedProbe": { "description": "Core ran the separate trusted probe. This does not claim exact runtime-profile verification.", "const": true }
+            }
+          }
+        }
+      }
+    }
+  ],
+  "$defs": {
+    "fallback": {
+      "type": "object", "additionalProperties": false,
+      "required": ["schemaId", "schemaVersion", "fallbackId", "targetStepId", "targetSymbolPath", "title", "category", "authority", "epistemicStatus", "reason"],
+      "properties": {
+        "schemaId": { "const": "https://codeflow.local/schemas/rflsc.semantic-proposal.v2.schema.json" },
+        "schemaVersion": { "const": 2 },
+        "fallbackId": { "type": "string", "minLength": 1 },
+        "targetStepId": { "type": "string", "minLength": 1 },
+        "targetSymbolPath": { "type": "string", "minLength": 1 },
+        "title": { "type": "string", "minLength": 1 },
+        "category": { "enum": ["entry", "business_rule", "orchestration", "mutation", "infrastructure", "exit"] },
+        "authority": { "const": "deterministic" },
+        "epistemicStatus": { "const": "deterministic" },
+        "evidenceRefs": { "type": "array", "uniqueItems": true, "items": { "type": "string", "minLength": 1 } },
+        "reason": { "type": "string", "minLength": 1 }
+      }
+    },
+    "capability": {
+      "type": "object", "additionalProperties": false,
+      "required": ["status"],
+      "properties": {
+        "status": { "enum": ["measured", "unsupported", "unavailable"] },
+        "modelId": { "type": "string", "maxLength": 256 },
+        "revision": { "type": "string", "maxLength": 256 },
+        "license": { "type": "string", "maxLength": 256 },
+        "checksum": { "type": "string", "maxLength": 256 },
+        "runtime": { "type": "string", "maxLength": 256 },
+        "dataBoundary": { "type": "string", "maxLength": 256 },
+        "capabilities": { "type": "array", "uniqueItems": true, "items": { "type": "string", "minLength": 1 } },
+        "schemaConstrained": { "type": "boolean" },
+        "cancellation": { "type": "boolean" },
+        "measured": { "type": "boolean" },
+        "maxRequestBytes": { "type": "integer", "minimum": 0 },
+        "maxResponseBytes": { "type": "integer", "minimum": 0 },
+        "isolationBackend": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "isolationEnforced": { "type": "boolean" },
+        "isolationProbe": {
+          "type": "object", "additionalProperties": false,
+          "required": ["repositoryReadAttempt", "repositoryWriteAttempt", "sentinelBeforeDigest", "sentinelAfterDigest", "sentinelUnchanged", "networkAttempt"],
+          "properties": {
+            "repositoryReadAttempt": { "enum": ["blocked", "allowed"] },
+            "repositoryWriteAttempt": { "enum": ["blocked", "allowed"] },
+            "disposableWriteAttempt": { "enum": ["blocked", "allowed"] },
+            "sentinelBeforeDigest": { "type": "string", "minLength": 1, "maxLength": 128 },
+            "sentinelAfterDigest": { "type": "string", "minLength": 1, "maxLength": 128 },
+            "sentinelUnchanged": { "type": "boolean" },
+            "networkAttempt": { "enum": ["blocked", "allowed"] }
+          }
+        },
+        "networkPolicy": { "const": "deny_all" },
+        "policyDigest": { "description": "Exact Core-created runtime sandbox profile digest.", "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
+        "runtimePolicyBinding": { "type": "string", "maxLength": 128 },
+        "runtimePolicySharedBaseDigest": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
+        "probeScope": { "description": "Scope of the independent trusted probe, not an exact runtime-policy claim.", "type": "string", "maxLength": 128 },
+        "probePolicyDigest": { "description": "Exact digest of the separate Core trusted-probe profile.", "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
+        "probeSharedBaseDigest": { "description": "Digest of only the deny-base clauses shared with the runtime profile.", "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
+        "resourceLimits": { "$ref": "#/$defs/resourceLimitEvidence" }
+      }
+    },
+    "isolation": {
+      "type": "object", "additionalProperties": false,
+      "properties": {
+        "sourceDelivery": { "type": "string", "maxLength": 256 },
+        "sourceMount": { "type": "string", "maxLength": 256 },
+        "workingDirectoryMode": { "type": "string", "maxLength": 256 },
+        "workingDirectoryPermission": { "type": "string", "maxLength": 32 },
+        "disposable": { "type": "boolean" },
+        "repositoryPathExposed": { "const": false },
+        "repositoryWriteCapability": { "const": false },
+        "repositoryWriteAttempts": { "type": "array", "maxItems": 0, "items": { "type": "string" } },
+        "repositoryWriteAuditStatus": {
+          "description": "Core trusted sandbox capability proof, conservative runtime attribution, or indeterminate audit state. capability_enforced does not mean runtime syscall absence was observed.",
+          "enum": ["capability_enforced", "attributed_attempt", "indeterminate"]
+        },
+        "packDigest": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+        "receivedRequestId": { "type": "string", "minLength": 1, "maxLength": 256 },
+        "receivedPackDigest": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+        "capabilityStatus": { "type": "string", "maxLength": 64 },
+        "terminalStatus": { "type": "string", "maxLength": 64 },
+        "cleanupVerified": { "type": "boolean" },
+        "isolationBackend": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "enforcementStatus": { "const": "enforced" },
+        "repositoryReadAttempt": { "enum": ["blocked", "allowed"] },
+        "repositoryWriteAttempt": { "enum": ["blocked", "allowed"] },
+        "disposableWriteAttempt": { "enum": ["blocked", "allowed"] },
+        "sentinelBeforeDigest": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "sentinelAfterDigest": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "sentinelUnchanged": { "type": "boolean" },
+        "networkAttempt": { "enum": ["blocked", "allowed"] },
+        "networkPolicy": { "const": "deny_all" },
+        "policyDigest": { "description": "Exact Core-created runtime sandbox profile digest.", "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
+        "runtimePolicyBinding": { "type": "string", "maxLength": 128 },
+        "runtimePolicySharedBaseDigest": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
+        "probeScope": { "description": "Scope of the independent trusted probe, not an exact runtime-policy claim.", "type": "string", "maxLength": 128 },
+        "probePolicyDigest": { "description": "Exact digest of the separate Core trusted-probe profile.", "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
+        "probeSharedBaseDigest": { "description": "Digest of only the deny-base clauses shared with the runtime profile.", "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
+        "resourceLimits": { "$ref": "#/$defs/resourceLimitEvidence" },
+        "coreTrustedProbe": { "const": true }
+      }
+    },
+    "resourceLimits": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["version", "cpuTimeSeconds", "memoryBytes", "processCount"],
+      "properties": {
+        "version": { "const": 1 },
+        "cpuTimeSeconds": { "type": "integer", "minimum": 1, "maximum": 86400 },
+        "memoryBytes": { "type": "integer", "minimum": 1, "maximum": 17179869184 },
+        "processCount": { "type": "integer", "minimum": 1, "maximum": 4096 }
+      }
+    },
+    "resourceLimitEvidence": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["version", "declared", "applied", "enforcementStatus", "backend"],
+      "properties": {
+        "version": { "const": 1 },
+        "declared": { "$ref": "#/$defs/resourceLimits", "description": "Core-requested limits, including the per-UID RLIMIT_NPROC defense request." },
+        "applied": { "$ref": "#/$defs/resourceLimits", "description": "Core-applied request-scoped host-tree limits. Process count is one because the sandbox denies process-fork." },
+        "enforcementStatus": { "const": "enforced" },
+        "backend": { "const": "darwin.rlimit_cpu_rss.no_fork" }
+      },
+      "allOf": [
+        { "properties": { "applied": { "properties": { "processCount": { "const": 1 } } } } }
+      ]
+    }
+  }
+}

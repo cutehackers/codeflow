@@ -1,0 +1,17 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://codeflow.local/schemas/rflsc.scenario-manifest.v2.schema.json",
+  "title": "Versioned release scenario manifest",
+  "type": "object", "additionalProperties": false,
+  "required": ["schemaId", "schemaVersion", "corpusId", "corpusVersion", "artifactRef", "profileId", "profileRef", "scenarios"],
+  "properties": {
+    "schemaId": {"const": "https://codeflow.local/schemas/rflsc.scenario-manifest.v2.schema.json"}, "schemaVersion": {"const": 2},
+    "corpusId": {"type": "string", "minLength": 1}, "corpusVersion": {"type": "string", "minLength": 1}, "artifactRef": {"$ref": "#/$defs/immutableRef"}, "profileId": {"type": "string", "minLength": 1}, "profileRef": {"$ref": "#/$defs/immutableRef"},
+    "scenarios": {"type": "array", "minItems": 1, "items": {"type": "object", "additionalProperties": false, "required": ["scenarioId", "kind", "capabilityIds", "fixtureRef"], "properties": {
+      "scenarioId": {"type": "string", "minLength": 1},
+      "kind": {"enum": ["rapid_edit", "multi_file", "rename_delete", "syntax_error", "branch_switch", "watcher_gap", "open_closure", "late_result", "cas_conflict", "adapter_crash", "model_crash", "reconnect"]},
+      "capabilityIds": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"type": "string", "minLength": 1}}, "fixtureRef": {"$ref": "#/$defs/immutableRef"}
+    }}}
+  },
+  "$defs": {"immutableRef": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"}}
+}

@@ -1,10 +1,14 @@
-package workspace
+package workspace_test
 
 import (
 	"context"
+	"encoding/json"
 	"os"
 	"testing"
 	"time"
+
+	"codeflow/internal/contractharness"
+	"codeflow/internal/workspace"
 )
 
 func TestVS03A6_ActivityAcknowledgement(t *testing.T) {
@@ -14,7 +18,7 @@ func TestVS03A6_ActivityAcknowledgement(t *testing.T) {
 	}
 	defer os.RemoveAll(tempDir)
 
-	engine, err := NewSnapshotEngine(tempDir, "epoch-act-01")
+	engine, err := workspace.NewSnapshotEngine(tempDir, 1)
 	if err != nil {
 		t.Fatalf("NewSnapshotEngine failed: %v", err)
 	}
@@ -27,11 +31,11 @@ func TestVS03A6_ActivityAcknowledgement(t *testing.T) {
 
 	// 2. Measure acknowledgement latency of applying edit
 	start := time.Now()
-	_, snap, err := engine.ApplyVersionedEdit(context.Background(), EditRequest{
+	_, snap, err := engine.ApplyVersionedEdit(context.Background(), workspace.EditRequest{
 		Path:            "src/index.ts",
 		Content:         []byte("console.log('hello');"),
 		DocumentVersion: 1,
-		Source:          "agent_transaction",
+		Source:          workspace.SourceAgentTransaction,
 	})
 	if err != nil {
 		t.Fatalf("ApplyVersionedEdit failed: %v", err)
@@ -61,4 +65,33 @@ func TestVS03A6_ActivityAcknowledgement(t *testing.T) {
 	if analyzingAct.Activity != "analyzing" {
 		t.Errorf("expected activity analyzing, got %s", analyzingAct.Activity)
 	}
+}
+
+func TestActivityStateV2EnvelopeValidatesAcrossLifecycle(t *testing.T) {
+	engine, err := workspace.NewSnapshotEngine(t.TempDir(), 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	validate := func(label string) {
+		t.Helper()
+		data, err := json.Marshal(engine.CurrentActivity())
+		if err != nil {
+			t.Fatalf("%s marshal: %v", label, err)
+		}
+		if err := contractharness.ValidateActivityStateV2(data); err != nil {
+			t.Fatalf("%s activity contract: %v (%s)", label, err, data)
+		}
+	}
+	validate("initial idle")
+	_, snap, err := engine.ApplyVersionedEdit(context.Background(), workspace.EditRequest{Path: "main.ts", Content: []byte("export const value = 1;"), DocumentVersion: 1, Source: workspace.SourceAgentTransaction})
+	if err != nil {
+		t.Fatal(err)
+	}
+	validate("editing")
+	engine.AcknowledgeEdit(snap.SnapshotID)
+	validate("acknowledged")
+	engine.BeginAnalysis(snap.SnapshotID, engine.CurrentActivity().TraceID)
+	validate("analyzing")
+	engine.EndAnalysis(snap.SnapshotID, true)
+	validate("terminal idle")
 }

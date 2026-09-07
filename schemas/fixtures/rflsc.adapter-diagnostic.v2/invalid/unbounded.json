@@ -1,0 +1,4 @@
+{
+  "schemaId":"https://codeflow.local/schemas/rflsc.adapter-diagnostic.v2.schema.json",
+  "schemaVersion":2,"code":"message_too_large","severity":"error","message":""
+}

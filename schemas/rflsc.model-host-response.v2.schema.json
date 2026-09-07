@@ -1,0 +1,98 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://codeflow.local/schemas/rflsc.model-host-response.v2.schema.json",
+  "title": "RFL-SC Model Host Response v2",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaId", "schemaVersion", "requestId", "status"],
+  "properties": {
+    "schemaId": { "const": "https://codeflow.local/schemas/rflsc.model-host-response.v2.schema.json" },
+    "schemaVersion": { "const": 2 },
+    "requestId": { "type": "string", "minLength": 1, "maxLength": 256 },
+    "status": { "enum": ["ok", "accepted", "rejected", "unavailable"] },
+    "proposal": { "$ref": "https://codeflow.local/schemas/rflsc.semantic-proposal.v2.schema.json" },
+    "error": { "type": "string", "maxLength": 1024 },
+    "capability": { "$ref": "#/$defs/capability" }
+  },
+  "allOf": [
+    {
+      "if": { "properties": { "status": { "const": "accepted" } } },
+      "then": { "required": ["proposal"] }
+    },
+    {
+      "if": { "properties": { "status": { "const": "ok" } } },
+      "then": { "required": ["capability"] }
+    }
+  ],
+  "$defs": {
+    "capability": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status", "modelId", "revision", "license", "checksum", "runtime", "dataBoundary", "schemaConstrained", "cancellation", "measured", "maxRequestBytes", "maxResponseBytes"],
+      "properties": {
+        "status": { "enum": ["measured", "unsupported", "unavailable"] },
+        "modelId": { "type": "string", "minLength": 1, "maxLength": 256 },
+        "revision": { "type": "string", "minLength": 1, "maxLength": 256 },
+        "license": { "type": "string", "minLength": 1, "maxLength": 256 },
+        "checksum": { "type": "string", "minLength": 1, "maxLength": 256 },
+        "runtime": { "type": "string", "minLength": 1, "maxLength": 256 },
+        "dataBoundary": { "type": "string", "minLength": 1, "maxLength": 256 },
+        "capabilities": { "type": "array", "maxItems": 128, "uniqueItems": true, "items": { "type": "string", "minLength": 1, "maxLength": 128 } },
+        "schemaConstrained": { "type": "boolean" },
+        "cancellation": { "type": "boolean" },
+        "measured": { "type": "boolean" },
+        "maxRequestBytes": { "type": "integer", "minimum": 1, "maximum": 10485760 },
+        "maxResponseBytes": { "type": "integer", "minimum": 1, "maximum": 10485760 },
+        "isolationBackend": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "isolationEnforced": { "type": "boolean" },
+        "isolationProbe": { "$ref": "#/$defs/isolationProbe" },
+        "networkPolicy": { "const": "deny_all" },
+        "policyDigest": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
+        "resourceLimits": { "$ref": "#/$defs/resourceLimitEvidence" }
+      },
+      "allOf": [
+        { "if": { "properties": { "status": { "const": "unsupported" } } }, "then": { "properties": { "measured": { "const": false }, "schemaConstrained": { "const": false }, "cancellation": { "const": false } } } }
+      ]
+    },
+    "isolationProbe": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["repositoryReadAttempt", "repositoryWriteAttempt", "sentinelBeforeDigest", "sentinelAfterDigest", "sentinelUnchanged", "networkAttempt"],
+      "properties": {
+        "repositoryReadAttempt": { "enum": ["blocked", "allowed"] },
+        "repositoryWriteAttempt": { "enum": ["blocked", "allowed"] },
+        "disposableWriteAttempt": { "enum": ["blocked", "allowed"] },
+        "sentinelBeforeDigest": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "sentinelAfterDigest": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "sentinelUnchanged": { "type": "boolean" },
+        "networkAttempt": { "enum": ["blocked", "allowed"] }
+      }
+    },
+    "resourceLimits": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["version", "cpuTimeSeconds", "memoryBytes", "processCount"],
+      "properties": {
+        "version": { "const": 1 },
+        "cpuTimeSeconds": { "type": "integer", "minimum": 1, "maximum": 86400 },
+        "memoryBytes": { "type": "integer", "minimum": 1, "maximum": 17179869184 },
+        "processCount": { "type": "integer", "minimum": 1, "maximum": 4096 }
+      }
+    },
+    "resourceLimitEvidence": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["version", "declared", "applied", "enforcementStatus", "backend"],
+      "properties": {
+        "version": { "const": 1 },
+        "declared": { "$ref": "#/$defs/resourceLimits", "description": "Core-requested limits, including the per-UID RLIMIT_NPROC defense request." },
+        "applied": { "$ref": "#/$defs/resourceLimits", "description": "Core-applied request-scoped host-tree limits. Process count is one because the sandbox denies process-fork." },
+        "enforcementStatus": { "enum": ["enforced", "unsupported", "unavailable"] },
+        "backend": { "type": "string", "minLength": 1, "maxLength": 128 }
+      },
+      "allOf": [
+        { "properties": { "applied": { "properties": { "processCount": { "const": 1 } } } } }
+      ]
+    }
+  }
+}

@@ -1,0 +1,7 @@
+{
+  "schemaId": "https://codeflow.local/schemas/rflsc.analyzer-request.v2.schema.json",
+  "schemaVersion": 2,
+  "requestId": "req-invalid",
+  "operation": "slice",
+  "maxMessageBytes": 1048576
+}

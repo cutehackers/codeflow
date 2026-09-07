@@ -1,0 +1,20 @@
+{
+  "schemaId": "https://codeflow.local/schemas/rflsc.approval-aggregate.v2.schema.json",
+  "schemaVersion": 2,
+  "aggregateId": "aggregate-1",
+  "workspaceId": "workspace-1",
+  "proposalId": "",
+  "evidencePackId": "pack-1",
+  "computedBasisId": "basis-1",
+  "generationId": "generation-1",
+  "intentRevision": 1,
+  "version": 1,
+  "state": "active",
+  "lastEventId": "event-1",
+  "lastDecision": "approve",
+  "activeApprovalId": "approval-1",
+  "history": [
+    {"version": 0, "state": "none", "eventId": "event-genesis", "decision": "none"},
+    {"version": 1, "state": "active", "eventId": "event-1", "approvalId": "approval-1", "decision": "approve"}
+  ]
+}

@@ -5,6 +5,7 @@ const fs = require('fs');
 const path = require('path');
 const os = require('os');
 const { redactSecrets } = require('../lib/secret');
+const { rpcError } = require('../lib/protocol');
 const { sliceFlow } = require('../lib/slice');
 
 function run() {
@@ -29,6 +30,20 @@ function run() {
   const s3 = 'const client = new Client({ API_KEY: "ABC_123", Secret: "XYZ_789" });';
   const r3 = redactSecrets(s3);
   assert.strictEqual(r3.count, 2);
+
+  // TS-SEC-04: malformed JSON and structured RPC details are redacted before
+  // the 512-byte diagnostic bound, including keys with prefixes/suffixes.
+  const longSecret = 'ts-adapter-secret-'.repeat(200);
+  const malformed = `{"databasePassword":"${longSecret}`;
+  const r4 = redactSecrets(malformed);
+  assert(r4.count > 0);
+  assert(!r4.text.includes(longSecret.slice(0, 32)));
+  const rpc = rpcError('diag-1', 'E_ADAPTER_INTERNAL', malformed, false, {
+    outer: [{ clientSecret: longSecret }, { safe: 'visible diagnostic' }],
+  });
+  const rpcText = JSON.stringify(rpc);
+  assert(!rpcText.includes(longSecret.slice(0, 32)), 'RPC diagnostic leaked a secret');
+  assert(rpcText.includes('***REDACTED***'), 'RPC diagnostic lacks redaction marker');
 
   // Negative Tests: Safe domain identifiers must NEVER be redacted
   // TS-SEC-05: tokenCount, isPasswordValid

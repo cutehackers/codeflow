@@ -1,134 +1,192 @@
 package semantic
 
 import (
-	"fmt"
+	"sort"
 	"strings"
 )
 
-// AlignmentOptions parameterizes requirement alignment computation.
+// AlignmentOptions parameterizes requirement alignment computation. Agent and
+// model text is deliberately retained as context only. It never contributes
+// implementation evidence.
 type AlignmentOptions struct {
-	AgentDeclarations []string // Agent completion claims or text (must be treated as hints, not facts: Raw D14)
-	ModelProposals    []string // Model proposals (must not promote to confirmed: Raw D15)
+	AgentDeclarations []string
+	ModelProposals    []string
 }
 
-// ComputeRequirementAlignment computes RequirementAlignment records for the given
-// acceptance criteria against the current SemanticMapIR (Raw §9.10, §10.13, VS05-A5, A6, A7, A9).
+// ComputeRequirementAlignment computes authority-aware requirement alignment.
+// Matching a rule to a step is only candidate coverage. Promotion additionally
+// requires an existing, basis-bound, verified Evidence item from an allowed
+// source authority, and an explicit current proof.
 func ComputeRequirementAlignment(criteria []AcceptanceCriterion, currentMap *SemanticMapIR, opts AlignmentOptions) []RequirementAlignment {
+	_ = opts // Agent/model text is context only in VS-04.
 	if currentMap == nil || len(criteria) == 0 {
 		return nil
 	}
 
-	results := make([]RequirementAlignment, 0, len(criteria))
-
-	// Build evidence lookup from currentMap
-	evidenceStatus := make(map[string]string) // evidenceId -> validationStatus (verified, stale, orphaned, invalid)
+	evidenceByID := make(map[string]SemanticEvidence, len(currentMap.Evidence))
 	for _, ev := range currentMap.Evidence {
-		evidenceStatus[ev.EvidenceID] = ev.ValidationStatus
+		if ev.EvidenceID != "" {
+			evidenceByID[ev.EvidenceID] = ev
+		}
 	}
 
-	for _, ac := range criteria {
-		align := RequirementAlignment{
-			SchemaID:        "codeflow.requirement-alignment",
-			SchemaVersion:   1,
-			CriterionID:     ac.ID,
-			Description:     ac.Text,
-			CoveredStepRefs: make([]string, 0),
-			EvidenceRefs:    make([]string, 0),
-			MissingEvidence: make([]string, 0),
+	results := make([]RequirementAlignment, 0, len(criteria))
+	for _, criterion := range criteria {
+		alignment := RequirementAlignment{
+			SchemaID:        RequirementAlignmentSchemaID,
+			SchemaVersion:   SemanticSchemaVersion,
+			CriterionID:     criterion.ID,
+			Description:     criterion.Text,
+			CoveredStepRefs: []string{},
+			EvidenceRefs:    []string{},
+			MissingEvidence: []string{},
 			ComputedBasisID: currentMap.ComputedBasisID,
+			Authority:       "candidate",
 		}
 
-		// Find covered steps
-		critToken := strings.ToLower(ac.ID)
-		critTextTokens := strings.Fields(strings.ToLower(ac.Text))
-
-		var hasConflict bool
-		var hasStaleEvidence bool
-
-		for _, st := range currentMap.Steps {
-			matches := false
-
-			// Match rule references or ID
-			for _, r := range st.Rules {
-				if strings.EqualFold(r, ac.ID) || strings.Contains(strings.ToLower(r), critToken) {
-					matches = true
-					break
-				}
+		for _, step := range currentMap.Steps {
+			if !criterionMatchesStep(criterion, step) {
+				continue
 			}
-
-			// Match text tokens in name or technicalName
-			if !matches && len(critTextTokens) > 0 {
-				stepDesc := strings.ToLower(st.Name + " " + st.TechnicalName)
-				matchCount := 0
-				for _, tok := range critTextTokens {
-					if len(tok) > 2 && strings.Contains(stepDesc, tok) {
-						matchCount++
-					}
-				}
-				if matchCount >= 2 || (len(critTextTokens) == 1 && matchCount == 1) {
-					matches = true
-				}
+			if step.StepID != "" {
+				alignment.CoveredStepRefs = append(alignment.CoveredStepRefs, step.StepID)
 			}
-
-			if matches {
-				align.CoveredStepRefs = append(align.CoveredStepRefs, st.StepID)
-				for _, evID := range st.EvidenceRefs {
-					align.EvidenceRefs = append(align.EvidenceRefs, evID)
-					status := evidenceStatus[evID]
-					if status == "stale" || status == "orphaned" {
-						hasStaleEvidence = true
-					}
-					if status == "conflicting" || status == "invalid" {
-						hasConflict = true
-					}
+			for _, evidenceID := range step.EvidenceRefs {
+				if evidenceID == "" || contains(alignment.EvidenceRefs, evidenceID) {
+					continue
 				}
+				alignment.EvidenceRefs = append(alignment.EvidenceRefs, evidenceID)
 			}
 		}
+		sort.Strings(alignment.CoveredStepRefs)
+		sort.Strings(alignment.EvidenceRefs)
 
-		// Status determination (VS05-A5, A6, A7, Raw D14, D15)
-		if hasConflict {
-			align.Status = "conflicting"
-			align.Notes = "모순되거나 충돌하는 근거가 발견됨"
-		} else if len(align.CoveredStepRefs) == 0 {
+		if len(alignment.CoveredStepRefs) == 0 {
 			if currentMap.Coverage != nil && len(currentMap.Coverage.IncludedSourceRoots) > 0 {
-				align.Status = "not_observed"
-				align.Notes = "분석 범위 내에서 구현이 관찰되지 않음"
+				alignment.Status = "not_observed"
+				alignment.Notes = "분석 범위 안에서 해당 기준의 구조적 구현이 관찰되지 않음"
 			} else {
-				align.Status = "unknown"
-				align.Notes = "근거 부재 및 분석 범위 미관찰"
+				alignment.Status = "unknown"
+				alignment.Notes = "분석 범위와 구현 근거가 없음"
 			}
-		} else if len(align.EvidenceRefs) == 0 {
-			// Steps exist but have NO ground evidence attached
-			// Raw D15 / VS05-A6: Agent declaration or model proposal alone NEVER promotes to confirmed!
-			align.Status = "unknown"
-			align.MissingEvidence = append(align.MissingEvidence, "코드 실행 또는 검증 근거(Evidence) 부재")
-			align.Notes = "행동은 매핑되었으나 검증된 코드/테스트 Evidence 없음"
-		} else if hasStaleEvidence {
-			// VS05-A7: Anchor/code changed, evidence is stale or orphaned
-			align.Status = "partial"
-			align.MissingEvidence = append(align.MissingEvidence, "기존 anchor 변경으로 인한 stale/orphaned 근거 갱신 필요")
-			align.Notes = "일부 근거가 최신 코드와 불일치(stale)"
-		} else {
-			// Check if any critical obligation or tests are missing
-			// If all covered steps have verified evidence
-			var missingTests bool
-			for _, evID := range align.EvidenceRefs {
-				if !strings.Contains(strings.ToLower(evID), "test") {
-					// heuristic for demonstration, or check actual test evidence
-				}
-			}
-			if missingTests {
-				align.Status = "partial"
-				align.MissingEvidence = append(align.MissingEvidence, "경계 테스트(boundary test) 근거 누락")
-				align.Notes = "기본 동작은 확인되었으나 테스트 증거 불완전"
-			} else {
-				align.Status = "confirmed"
-				align.Notes = fmt.Sprintf("현재 basis(%s)에서 핵심 step과 Evidence가 모두 검증됨", currentMap.ComputedBasisID)
-			}
+			alignment.MissingEvidence = append(alignment.MissingEvidence, "implementation_step")
+			alignment.MissingRuntime = append(alignment.MissingRuntime, "current_runtime_proof")
+			results = append(results, alignment)
+			continue
 		}
 
-		results = append(results, align)
-	}
+		if len(alignment.EvidenceRefs) == 0 {
+			alignment.Status = "unknown"
+			alignment.MissingEvidence = append(alignment.MissingEvidence, "verified_evidence")
+			alignment.MissingTests = append(alignment.MissingTests, "test_evidence")
+			alignment.MissingContracts = append(alignment.MissingContracts, "contract_evidence")
+			alignment.MissingRuntime = append(alignment.MissingRuntime, "current_runtime_proof")
+			alignment.Notes = "구조적 후보는 있으나 Evidence 참조가 없음"
+			results = append(results, alignment)
+			continue
+		}
 
+		invalid, stale, missingKinds := validateAlignmentEvidence(criterion, alignment.EvidenceRefs, evidenceByID, currentMap.ComputedBasisID)
+		if invalid {
+			alignment.Status = "conflicting"
+			alignment.Notes = "근거의 authority 또는 basis identity가 충돌함"
+		} else if stale {
+			alignment.Status = "partial"
+			alignment.MissingEvidence = append(alignment.MissingEvidence, "fresh_basis_evidence")
+			alignment.Notes = "일부 Evidence가 stale, orphaned 또는 현재 basis와 불일치함"
+		} else if len(missingKinds) > 0 {
+			alignment.Status = "partial"
+			alignment.MissingEvidence = append(alignment.MissingEvidence, missingKinds...)
+			alignment.Notes = "필수 Evidence 종류가 아직 모두 관찰되지 않음"
+		} else {
+			alignment.Status = "partial"
+			alignment.Reason = "awaiting_current_proof"
+			alignment.MissingRuntime = append(alignment.MissingRuntime, "current_runtime_proof")
+			alignment.Notes = "snapshot basis Evidence는 검증되었으나 VS-03 current proof 대기 중"
+		}
+		results = append(results, alignment)
+	}
 	return results
+}
+
+func criterionMatchesStep(criterion AcceptanceCriterion, step SemanticStep) bool {
+	for _, rule := range step.Rules {
+		if strings.EqualFold(strings.TrimSpace(rule), strings.TrimSpace(criterion.ID)) {
+			return true
+		}
+	}
+	// Text matching is a candidate hint only. Evidence validation below still
+	// has to succeed before any non-unknown status can be returned.
+	criterionTokens := significantTokens(criterion.Text)
+	if len(criterionTokens) == 0 {
+		return false
+	}
+	description := strings.ToLower(step.Name + " " + step.TechnicalName)
+	matches := 0
+	for _, token := range criterionTokens {
+		if strings.Contains(description, token) {
+			matches++
+		}
+	}
+	return matches >= 2 || (len(criterionTokens) == 1 && matches == 1)
+}
+
+func significantTokens(text string) []string {
+	var result []string
+	for _, token := range strings.Fields(strings.ToLower(text)) {
+		if len([]rune(token)) > 2 && !strings.HasPrefix(token, "ac-") {
+			result = append(result, token)
+		}
+	}
+	return result
+}
+
+func validateAlignmentEvidence(criterion AcceptanceCriterion, refs []string, evidenceByID map[string]SemanticEvidence, basis string) (invalid, stale bool, missingKinds []string) {
+	seenKinds := make(map[string]bool)
+	for _, ref := range refs {
+		ev, ok := evidenceByID[ref]
+		if !ok {
+			stale = true
+			continue
+		}
+		if !allowedEvidenceAuthority(ev.SourceAuthority) {
+			invalid = true
+		}
+		if ev.ComputedBasisID != basis {
+			stale = true
+		}
+		switch ev.ValidationStatus {
+		case "verified":
+			seenKinds[ev.Kind] = true
+		case "conflicting", "invalid":
+			invalid = true
+		default:
+			stale = true
+		}
+	}
+	for _, required := range criterion.RequiredEvidenceKinds {
+		if !seenKinds[required] {
+			missingKinds = append(missingKinds, "evidence_kind:"+required)
+		}
+	}
+	sort.Strings(missingKinds)
+	return invalid, stale, missingKinds
+}
+
+func allowedEvidenceAuthority(authority string) bool {
+	switch authority {
+	case "code", "test", "contract", "runtime":
+		return true
+	default:
+		return false
+	}
+}
+
+func contains(values []string, want string) bool {
+	for _, value := range values {
+		if value == want {
+			return true
+		}
+	}
+	return false
 }

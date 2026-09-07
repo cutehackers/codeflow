@@ -10,24 +10,24 @@ import (
 )
 
 const (
-	ErrCodeMissingPrecondition    = "missing_precondition"
-	ErrCodeAmbiguousTarget        = "ambiguous_target"
-	ErrCodeIncomparableBasis      = "incomparable_basis"
-	ErrCodeUnsupportedCapability  = "unsupported_capability"
+	ErrCodeMissingPrecondition   = "missing_precondition"
+	ErrCodeAmbiguousTarget       = "ambiguous_target"
+	ErrCodeIncomparableBasis     = "incomparable_basis"
+	ErrCodeUnsupportedCapability = "unsupported_capability"
 )
 
 // TaskViewQuery mirrors schemas/task-view-query.schema.json.
 type TaskViewQuery struct {
-	SchemaID      string              `json:"schemaId"`
-	SchemaVersion int                 `json:"schemaVersion"`
-	Mode          string                  `json:"mode"`
-	Common        *CommonQueryParams      `json:"common,omitempty"`
-	Feature       *FeatureQueryParams     `json:"feature,omitempty"`
-	Review        *ReviewQueryParams      `json:"review,omitempty"`
-	Impact        *ImpactQueryParams      `json:"impact,omitempty"`
-	Debug         *DebugQueryParams       `json:"debug,omitempty"`
-	Incident      *IncidentQueryParams    `json:"incident,omitempty"`
-	Onboarding    *OnboardingQueryParams  `json:"onboarding,omitempty"`
+	SchemaID      string                 `json:"schemaId"`
+	SchemaVersion int                    `json:"schemaVersion"`
+	Mode          string                 `json:"mode"`
+	Common        *CommonQueryParams     `json:"common,omitempty"`
+	Feature       *FeatureQueryParams    `json:"feature,omitempty"`
+	Review        *ReviewQueryParams     `json:"review,omitempty"`
+	Impact        *ImpactQueryParams     `json:"impact,omitempty"`
+	Debug         *DebugQueryParams      `json:"debug,omitempty"`
+	Incident      *IncidentQueryParams   `json:"incident,omitempty"`
+	Onboarding    *OnboardingQueryParams `json:"onboarding,omitempty"`
 }
 
 type CommonQueryParams struct {
@@ -61,8 +61,14 @@ type ReviewQueryParams struct {
 }
 
 type ImpactQueryParams struct {
-	SymbolID      string `json:"symbolId,omitempty"`
-	ChangeBatchID string `json:"changeBatchId,omitempty"`
+	SymbolID        string   `json:"symbolId,omitempty"`
+	ChangeBatchID   string   `json:"changeBatchId,omitempty"`
+	ComputedBasisID string   `json:"computedBasisId"`
+	GenerationID    string   `json:"generationId"`
+	Freshness       string   `json:"freshness"`
+	MaxDepth        int      `json:"maxDepth"`
+	MaxNodes        int      `json:"maxNodes"`
+	RelationKinds   []string `json:"relationKinds"`
 }
 
 type DebugQueryParams struct {

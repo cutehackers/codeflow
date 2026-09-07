@@ -29,7 +29,7 @@ func runStatus(args []string) {
 		os.Exit(1)
 	}
 
-	engine, err := workspace.NewSnapshotEngine(absTarget, "")
+	engine, err := workspace.NewSnapshotEngine(absTarget, 0)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "snapshot engine: %v\n", err)
 		os.Exit(1)
@@ -43,7 +43,7 @@ func runStatus(args []string) {
 	}
 
 	fmt.Printf("\n=== CodeFlow Workspace Status ===\n")
-	fmt.Printf("Workspace Epoch:     %s\n", act.WorkspaceEpoch)
+	fmt.Printf("Workspace Epoch:     %d\n", act.WorkspaceEpoch)
 	fmt.Printf("Activity:            %s\n", act.Activity)
 	if act.CurrentSnapshotID != "" {
 		fmt.Printf("Current Snapshot:    %s\n", act.CurrentSnapshotID)

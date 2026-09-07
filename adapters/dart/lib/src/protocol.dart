@@ -10,9 +10,13 @@ library;
 import 'dart:convert';
 import 'dart:io';
 
+import 'analysis_tracker.dart';
 import 'harvest.dart';
-import 'sha256.dart';
+import 'secret.dart';
 import 'slice.dart';
+
+export 'secret.dart'
+    show DiagnosticRedaction, redactDiagnostic, redactValue, redactionMarker;
 
 /// Protocol major version this adapter speaks.
 const int protocolVersion = 1;
@@ -20,14 +24,14 @@ const String jsonRpcVersion = '2.0';
 const String analyzerVersion = 'dart-structural/0.1.0';
 const String analysisSchemaId =
     'https://codeflow.local/schemas/adapter-analysis.schema.json';
-const String _readSetSchemaId =
-    'https://codeflow.local/schemas/analysis-read-set.schema.json';
-const String _closureSchemaId =
-    'https://codeflow.local/schemas/causal-observation-closure.schema.json';
-final RegExp _secretPattern = RegExp(
-    r'''\b(?:api[_-]?key|secret|token|password)\s*[:=]\s*['"]?[^\s;'"}]+['"]?''',
-    caseSensitive: false);
-
+const String analyzerRequestSchemaId =
+    'https://codeflow.local/schemas/rflsc.analyzer-request.v2.schema.json';
+const String analyzerResultSchemaId =
+    'https://codeflow.local/schemas/rflsc.analyzer-result.v2.schema.json';
+const String _readSetV2SchemaId =
+    'https://codeflow.local/schemas/rflsc.analysis-read-set.v2.schema.json';
+const String _closureV2SchemaId =
+    'https://codeflow.local/schemas/rflsc.observation-closure.v2.schema.json';
 const Map<String, Object?> capabilities = {
   'cancellation': true,
   'progress': true,
@@ -37,6 +41,50 @@ const Map<String, Object?> capabilities = {
   'maxMessageBytes': 1048576,
   'maxInFlight': 64,
 };
+
+/// Encodes one outbound response and enforces the common negotiated body
+/// bound before a Content-Length frame is written. An oversized value is
+/// replaced by one small typed error without recursively invoking the writer.
+List<int>? encodeBoundedResponse(Object? value, {int maxBytes = 1 << 20}) {
+  final limit = maxBytes > 0 ? maxBytes : 1 << 20;
+  List<int>? body;
+  try {
+    body = utf8.encode(jsonEncode(value));
+  } catch (_) {
+    body = null;
+  }
+  if (body != null && body.length <= limit) return body;
+
+  final id = value is Map && value['id'] is String ? value['id'] as String : '';
+  final fallback = <String, Object?>{
+    'jsonrpc': jsonRpcVersion,
+    'id': id,
+    'error': <String, Object?>{
+      'code': -32000,
+      'message': 'adapter response exceeds maxMessageBytes',
+      'data': <String, Object?>{
+        'code': 'E_ADAPTER_INTERNAL',
+        'retryable': false,
+      },
+    },
+  };
+  try {
+    body = utf8.encode(jsonEncode(fallback));
+  } catch (_) {
+    return null;
+  }
+  if (body.length > limit) {
+    // An untrusted id can consume the remaining bound. Drop it and retry the
+    // fixed-size typed error before declaring the bound too small.
+    fallback['id'] = '';
+    try {
+      body = utf8.encode(jsonEncode(fallback));
+    } catch (_) {
+      return null;
+    }
+  }
+  return body.length <= limit ? body : null;
+}
 
 class AdapterServer {
   AdapterServer({
@@ -134,6 +182,7 @@ class AdapterServer {
     if (rawParams is! Map) {
       return _rpcError(id, 'E_BAD_REQUEST', 'params must be a JSON object');
     }
+    final params = rawParams.cast<Object?, Object?>();
     final op = method == 'ping' ? 'ping' : method;
     if (!{
       'initialize',
@@ -161,49 +210,107 @@ class AdapterServer {
       };
     }
 
-    final legacy = jsonDecode(handleLine(jsonEncode({
-      'v': protocolVersion,
-      'id': id,
-      'op': op,
-      'params': rawParams,
-    }))!);
-    if (op == 'detect' && rawParams['repoRoot'] is String) {
+    if ({'detect', 'harvest_candidates', 'slice'}.contains(method)) {
+      final requestError = _validateAnalyzerRequestV2(id, method, params);
+      if (requestError != null) {
+        return _rpcError(id, 'E_BAD_REQUEST', requestError);
+      }
+    }
+
+    final snapshotOverlay = _overlayFromParams(params);
+    if ({'detect', 'harvest_candidates', 'slice'}.contains(method) &&
+        snapshotOverlay == null) {
+      return _rpcError(id, 'E_BAD_REQUEST',
+          'snapshot.files (immutable protocol content) is required');
+    }
+
+    // The line helper remains compatible with direct package tests that pass
+    // repoRoot. Production RPC requests use a disposable root only for
+    // relative-name parsing, while every source read is forced through the
+    // snapshot overlay.
+    final operationPayload = params['payload'] is Map
+        ? (params['payload'] as Map).cast<Object?, Object?>()
+        : const <Object?, Object?>{};
+    final internalParams = <Object?, Object?>{...params, ...operationPayload};
+    if (operationPayload['repoRoot'] is String &&
+        (operationPayload['repoRoot'] as String).isNotEmpty) {
+      internalParams['repoRoot'] = operationPayload['repoRoot'];
+    } else {
+      internalParams['repoRoot'] = Directory.current.path;
+    }
+    final trackerParams = <Object?, Object?>{
+      ...params,
+      'repoRoot': internalParams['repoRoot'],
+    };
+    final tracker = AnalysisObservationTracker(trackerParams, op);
+    internalParams['_analysisTracker'] = tracker;
+
+    if (op == 'detect') {
       final detected = detectRepo(
-        repoRoot: rawParams['repoRoot'] as String,
-        contentOverlay: _overlayFromParams(rawParams.cast<Object?, Object?>()),
+        repoRoot: internalParams['repoRoot'] as String,
+        contentOverlay: snapshotOverlay,
+        tracker: tracker,
       );
       final result = <String, Object?>{
         ...detected,
-        ..._analysisMetadata(rawParams.cast<Object?, Object?>(), op, const []),
       };
-      return {'jsonrpc': jsonRpcVersion, 'id': id, 'result': result};
+      final metadata = _analysisMetadata(
+          {...internalParams, ...params}, op, const [], tracker);
+      return {
+        'jsonrpc': jsonRpcVersion,
+        'id': id,
+        'result': _analyzerResultV2(id, op, params, result, metadata),
+      };
     }
-    if (legacy is! Map || legacy['ok'] != true) {
-      final error = legacy is Map && legacy['err'] is Map
-          ? legacy['err'] as Map
-          : const <Object?, Object?>{};
-      return _rpcError(
-        id,
-        error['code'] is String
-            ? error['code'] as String
-            : 'E_ADAPTER_INTERNAL',
-        error['message'] is String
-            ? error['message'] as String
-            : 'adapter request failed',
-        retryable: error['retryable'] == true,
-      );
-    }
-    var result = (legacy['result'] as Map?)?.cast<String, Object?>() ??
-        <String, Object?>{};
-    if (op == 'detect' || op == 'harvest_candidates' || op == 'slice') {
+    try {
+      Map<String, Object?> result;
+      if (op == 'harvest_candidates') {
+        // Keep the complete overlay on the private call. The legacy line
+        // dispatcher intentionally cannot be used here because it would
+        // invoke a live-disk default detector/slicer before metadata is
+        // attached.
+        result = _harvest(internalParams);
+      } else if (op == 'slice') {
+        final candidateId = internalParams['candidateId'];
+        if (candidateId is! String || candidateId.isEmpty) {
+          return _rpcError(id, 'E_BAD_REQUEST',
+              'params.candidateId (non-empty string) is required');
+        }
+        final entrySymbolPath = internalParams['entrySymbolPath'];
+        if (entrySymbolPath is! String || entrySymbolPath.isEmpty) {
+          return _rpcError(id, 'E_BAD_REQUEST',
+              'params.entrySymbolPath (non-empty string) is required');
+        }
+        result = _slice({
+          ...internalParams,
+          'repoRoot': internalParams['repoRoot'],
+          'candidateId': candidateId,
+          'entrySymbolPath': entrySymbolPath,
+          'opts': internalParams['opts'] is Map
+              ? (internalParams['opts'] as Map).cast<String, Object?>()
+              : <String, Object?>{},
+          'contentOverlay': snapshotOverlay,
+        });
+      } else {
+        return _rpcError(id, 'E_BAD_REQUEST', 'unknown method: $method');
+      }
       final explicitPaths = <String>[];
       if (rawParams['entrySymbolPath'] is String) {
         explicitPaths
             .add((rawParams['entrySymbolPath'] as String).split('#').first);
       }
-      result = {...result, ..._analysisMetadata(rawParams, op, explicitPaths)};
+      final metadata = _analysisMetadata(
+          {...internalParams, ...params}, op, explicitPaths, tracker);
+      return {
+        'jsonrpc': jsonRpcVersion,
+        'id': id,
+        'result': _analyzerResultV2(id, op, params, result, metadata),
+      };
+    } on ArgumentError catch (e) {
+      return _rpcError(id, 'E_BAD_REQUEST', '${e.message ?? e}');
+    } catch (e) {
+      return _rpcError(id, 'E_ADAPTER_INTERNAL', '$e');
     }
-    return {'jsonrpc': jsonRpcVersion, 'id': id, 'result': result};
   }
 
   String? _dispatch(String id, Map decoded) {
@@ -262,17 +369,25 @@ class AdapterServer {
     }
   }
 
-  static Map<String, Object?> _defaultHarvest(Map<Object?, Object?> params) =>
-      harvestCandidates(params);
+  static Map<String, Object?> _defaultHarvest(Map<Object?, Object?> params) {
+    final tracker = params['_analysisTracker'];
+    return harvestCandidates(
+      params,
+      tracker: tracker is AnalysisObservationTracker ? tracker : null,
+    );
+  }
 
-  static Map<String, Object?> _defaultSlice(Map<Object?, Object?> params) =>
-      sliceCandidate(
-        repoRoot: params['repoRoot'] as String,
-        candidateId: params['candidateId'] as String,
-        entrySymbolPath: params['entrySymbolPath'] as String,
-        opts: (params['opts'] as Map?)?.cast<String, Object?>() ?? const {},
-        contentOverlay: _overlayFromParams(params),
-      );
+  static Map<String, Object?> _defaultSlice(Map<Object?, Object?> params) {
+    final tracker = params['_analysisTracker'];
+    return sliceCandidate(
+      repoRoot: params['repoRoot'] as String,
+      candidateId: params['candidateId'] as String,
+      entrySymbolPath: params['entrySymbolPath'] as String,
+      opts: (params['opts'] as Map?)?.cast<String, Object?>() ?? const {},
+      contentOverlay: _overlayFromParams(params),
+      tracker: tracker is AnalysisObservationTracker ? tracker : null,
+    );
+  }
 
   String _requireRepoRoot(Map<Object?, Object?> params) {
     final repoRoot = params['repoRoot'];
@@ -290,7 +405,11 @@ class AdapterServer {
     return jsonEncode({
       'id': id,
       'ok': false,
-      'err': {'code': code, 'message': message, 'retryable': retryable},
+      'err': {
+        'code': code,
+        'message': redactDiagnostic(message),
+        'retryable': retryable
+      },
     });
   }
 
@@ -304,158 +423,148 @@ class AdapterServer {
       'id': id,
       'error': {
         'code': rpcCode,
-        'message': _redactDiagnostic(message),
+        'message': redactDiagnostic(message),
         'data': {
           'code': code,
           'retryable': retryable,
-          'detail': _redactDiagnostic(message),
+          'detail': redactDiagnostic(message),
         },
       },
     };
   }
 
-  static String _redactDiagnostic(String input) {
-    final redacted =
-        input.replaceAllMapped(_secretPattern, (_) => '***REDACTED***');
-    return redacted.length > 512 ? redacted.substring(0, 512) : redacted;
+  static String? _validateAnalyzerRequestV2(
+      String id, String operation, Map<Object?, Object?> params) {
+    if (params['schemaId'] != analyzerRequestSchemaId ||
+        params['schemaVersion'] != 2) {
+      return 'analysis request must use rflsc.analyzer-request.v2';
+    }
+    if (params['requestId'] != id) {
+      return 'analysis requestId must match JSON-RPC id';
+    }
+    if (params['operation'] != operation) {
+      return 'analysis operation does not match JSON-RPC method';
+    }
+    final snapshot = params['snapshot'];
+    if (snapshot is! Map) return 'analysis snapshot is required';
+    for (final field in const [
+      'snapshotId',
+      'workspaceEpoch',
+      'computedBasisId',
+      'rootTreeId',
+      'dependencyFingerprint',
+      'documents',
+      'files',
+      'repositoryPathWriteAudit'
+    ]) {
+      if (!snapshot.containsKey(field)) {
+        return 'analysis snapshot is missing $field';
+      }
+    }
+    return null;
   }
 
-  static Map<String, Object?> _analysisMetadata(Map<Object?, Object?> params,
-      String operation, List<String> explicitPaths) {
+  static Map<String, Object?> _analyzerResultV2(
+      String id,
+      String operation,
+      Map<Object?, Object?> params,
+      Map<String, Object?> payload,
+      Map<String, Object?> metadata) {
     final snapshot = params['snapshot'] is Map
         ? (params['snapshot'] as Map).cast<Object?, Object?>()
         : const <Object?, Object?>{};
-    final overlayRaw = params['contentOverlay'] ??
-        snapshot['contentOverlay'] ??
-        snapshot['files'];
-    final documents = <Map<String, Object?>>[];
-    if (overlayRaw is Map) {
-      final keys = overlayRaw.keys.whereType<String>().toList()..sort();
-      for (final key in keys.take(4096)) {
-        final value = overlayRaw[key];
-        final content = value is String
-            ? value
-            : value is Map && value['content'] is String
-                ? value['content'] as String
-                : null;
-        if (content == null ||
-            key.isEmpty ||
-            key.startsWith('/') ||
-            key.contains('..')) continue;
-        documents.add({
-          'path': key.replaceAll('\\', '/'),
-          'contentHash': sha256Hex(content),
-          'byteLength': utf8.encode(content).length,
-        });
-      }
-    } else {
-      final root =
-          params['repoRoot'] is String ? params['repoRoot'] as String : '';
-      final paths = <String>[...explicitPaths];
-      if (operation == 'detect') paths.add('pubspec.yaml');
-      for (final rel in paths.toSet()) {
-        final file = File('$root/$rel');
-        try {
-          if (!file.existsSync()) continue;
-          final content = file.readAsStringSync();
-          documents.add({
-            'path': rel,
-            'contentHash': sha256Hex(content),
-            'byteLength': utf8.encode(content).length,
-          });
-        } catch (_) {}
-      }
-    }
-    documents
-        .sort((a, b) => (a['path']! as String).compareTo(b['path']! as String));
-    var basis = params['computedBasisId'] is String
-        ? params['computedBasisId'] as String
-        : snapshot['computedBasisId'] is String
-            ? snapshot['computedBasisId'] as String
-            : '';
-    if (basis.isEmpty) {
-      basis = sha256Hex(
-          documents.map((d) => '${d['path']}:${d['contentHash']}\n').join());
-    }
-    final epoch = params['workspaceEpoch'] is int
-        ? params['workspaceEpoch'] as int
-        : snapshot['workspaceEpoch'] is int
-            ? snapshot['workspaceEpoch'] as int
-            : 0;
-    final readSetId =
-        'readset-${sha256Hex('$basis:$epoch:$operation').substring(0, 24)}';
-    final closureId =
-        'closure-${sha256Hex('$readSetId:$operation').substring(0, 24)}';
-    final profile = <String, Object?>{
-      'adapter': 'dart',
-      'features': [
-        'symbols',
-        'calls',
-        'snapshot_overlay',
-        'negative_lookup',
-        'membership',
-        'dependency_frontier'
-      ],
-      'protocolVersions': [protocolVersion],
-      'coverageBoundary': {
-        'includedSourceRoots': ['.'],
-        'excludedReasons': []
-      },
-    };
+    final oldRead = metadata['analysisReadSet'] is Map
+        ? (metadata['analysisReadSet'] as Map).cast<Object?, Object?>()
+        : const <Object?, Object?>{};
+    final oldClosure = metadata['causalObservationClosure'] is Map
+        ? (metadata['causalObservationClosure'] as Map).cast<Object?, Object?>()
+        : const <Object?, Object?>{};
+    final oldCapability = metadata['capabilityProfile'] is Map
+        ? (metadata['capabilityProfile'] as Map).cast<Object?, Object?>()
+        : const <Object?, Object?>{};
+    final coverage = oldClosure['coverageBoundary'] is Map
+        ? (oldClosure['coverageBoundary'] as Map).cast<String, Object?>()
+        : oldCapability['coverageBoundary'] is Map
+            ? (oldCapability['coverageBoundary'] as Map).cast<String, Object?>()
+            : <String, Object?>{
+                'includedSourceRoots': ['.'],
+                'measured': true,
+              };
+    List<Object?> listValue(Object? value) =>
+        value is List ? value.toList() : <Object?>[];
+    final readSetId = oldRead['readSetId'] is String
+        ? oldRead['readSetId'] as String
+        : 'readset-$id';
     final readSet = <String, Object?>{
-      'schemaId': _readSetSchemaId,
-      'schemaVersion': 1,
+      'schemaId': _readSetV2SchemaId,
+      'schemaVersion': 2,
       'readSetId': readSetId,
-      'computedBasisId': basis,
-      'workspaceEpoch': epoch,
-      'documents': documents,
-      'indexes': [],
-      'negativeObservations': [],
-      'membershipObservations': [
-        {
-          'kind': 'source_membership',
-          'path': '.',
-          'valueHash': sha256Hex(documents.map((d) => d['path']).join('\n'))
-        }
-      ],
-      'dependencyFrontiers': [
-        {
-          'kind': 'dependency_frontier',
-          'path': operation,
-          'detail': 'frontier bounded at adapter boundary'
-        }
-      ],
-      'adapterVersions': {'dart': adapterVersion},
+      'computedBasisId': snapshot['computedBasisId'],
+      'workspaceEpoch': snapshot['workspaceEpoch'],
+      'documents': listValue(oldRead['documents']),
+      'negativeObservations': listValue(oldRead['negativeObservations']),
+      'membershipObservations': listValue(oldRead['membershipObservations']),
+      'dependencyFrontiers': listValue(oldRead['dependencyFrontiers']),
     };
     final closure = <String, Object?>{
-      'schemaId': _closureSchemaId,
-      'schemaVersion': 1,
-      'closureId': closureId,
+      'schemaId': _closureV2SchemaId,
+      'schemaVersion': 2,
+      'closureId': oldClosure['closureId'] is String
+          ? oldClosure['closureId']
+          : 'closure-$id',
       'analysisReadSetId': readSetId,
-      'computedBasisId': basis,
-      'workspaceEpoch': epoch,
-      'closureStatus': 'closed',
-      'negativeObservations': [],
+      'computedBasisId': snapshot['computedBasisId'],
+      'workspaceEpoch': snapshot['workspaceEpoch'],
+      'closureStatus':
+          oldClosure['closureStatus'] == 'open' ? 'open' : 'closed',
+      'negativeObservations': readSet['negativeObservations'],
       'membershipObservations': readSet['membershipObservations'],
       'dependencyFrontiers': readSet['dependencyFrontiers'],
-      'capabilityProfile': profile,
-      'coverageBoundary': profile['coverageBoundary'],
-      'incompleteReasons': [],
-      'closureDigest':
-          sha256Hex(jsonEncode({'readSet': readSet, 'profile': profile})),
+      'requiredObservations': listValue(oldClosure['requiredObservations']),
+      'measuredObservations': listValue(oldClosure['measuredObservations']),
+      'incompleteReasons': listValue(oldClosure['incompleteReasons']),
     };
+    final features = oldCapability['features'] is List &&
+            (oldCapability['features'] as List).isNotEmpty
+        ? listValue(oldCapability['features'])
+        : <Object?>['snapshot_bytes'];
     return {
-      'schemaId': analysisSchemaId,
-      'schemaVersion': 1,
+      'schemaId': analyzerResultSchemaId,
+      'schemaVersion': 2,
+      'requestId': id,
       'operation': operation,
-      'computedBasisId': basis,
-      'workspaceEpoch': epoch,
+      'adapterVersion': adapterVersion,
+      'analyzerRevision': analyzerVersion,
+      'workspaceEpoch': snapshot['workspaceEpoch'],
+      'computedBasisId': snapshot['computedBasisId'],
+      'snapshotId': snapshot['snapshotId'],
+      'snapshotTreeDigest': snapshot['rootTreeId'],
+      'dependencyFingerprint': snapshot['dependencyFingerprint'],
       'analysisReadSet': readSet,
       'causalObservationClosure': closure,
-      'capabilityProfile': profile,
-      'analyzerVersion': analyzerVersion,
-      'diagnostics': [],
+      'capabilityProfile': {
+        'adapter': 'dart',
+        'adapterVersion': adapterVersion,
+        'analyzerRevision': analyzerVersion,
+        'features': features,
+        'unsupported': listValue(oldCapability['unsupported']),
+      },
+      'coverage': coverage,
+      'diagnostics': listValue(metadata['diagnostics']),
+      'payload': payload,
     };
+  }
+
+  static Map<String, Object?> _analysisMetadata(Map<Object?, Object?> params,
+      String operation, List<String> explicitPaths,
+      [AnalysisObservationTracker? tracker]) {
+    final active = tracker ?? AnalysisObservationTracker(params, operation);
+    if (tracker == null) {
+      for (final path in explicitPaths) {
+        active.read(path);
+      }
+    }
+    return active.metadata();
   }
 }
 

@@ -1,0 +1,49 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://codeflow.local/schemas/rflsc.activity-state.v2.schema.json",
+  "title": "RFL-SC Activity State v2",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaId", "schemaVersion", "activity", "analysisLagMs", "pendingRevisions",
+    "currentSnapshotId", "workspaceEpoch", "timestamp"
+  ],
+  "properties": {
+    "schemaId": { "const": "https://codeflow.local/schemas/rflsc.activity-state.v2.schema.json" },
+    "schemaVersion": { "const": 2 },
+    "activity": { "enum": ["idle", "editing", "analyzing", "publishing", "reconciling"] },
+    "analysisLagMs": { "type": "integer", "minimum": 0 },
+    "pendingRevisions": { "type": "integer", "minimum": 0 },
+    "currentSnapshotId": { "type": "string" },
+    "workspaceEpoch": { "type": "integer", "minimum": 0 },
+    "timestamp": { "type": "string", "format": "date-time" },
+    "traceId": { "type": "string" },
+    "scope": { "type": "array", "items": { "type": "string", "minLength": 1 }, "uniqueItems": true },
+    "ackLatencyMs": { "type": "number", "minimum": 0 },
+    "revisionIds": { "type": "array", "items": { "type": "string", "minLength": 1 }, "uniqueItems": true },
+    "capturedAt": { "type": "string", "format": "date-time" },
+    "acknowledgedAt": { "type": "string", "format": "date-time" },
+    "analysisStartedAt": { "type": "string", "format": "date-time" },
+    "currentOrGapAt": { "type": "string", "format": "date-time" },
+    "activityLatencyMs": { "type": "integer", "minimum": -1 },
+    "currentOrGapLatencyMs": { "type": "integer", "minimum": -1 },
+    "metricsMeasured": { "type": "boolean" }
+  },
+  "allOf": [
+    {
+      "if": {
+        "anyOf": [
+          { "properties": { "activity": { "not": { "const": "idle" } } } },
+          { "properties": { "pendingRevisions": { "minimum": 1 } } }
+        ]
+      },
+      "then": {
+        "required": ["traceId"],
+        "properties": {
+          "traceId": { "type": "string", "minLength": 1 },
+          "currentSnapshotId": { "type": "string", "minLength": 1 }
+        }
+      }
+    }
+  ]
+}

@@ -1,0 +1,14 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://codeflow.local/schemas/rflsc.review-query.v2.schema.json",
+  "title": "RFL-SC Review Query v2",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaId", "schemaVersion", "mode", "review"],
+  "properties": {
+    "schemaId": {"const": "https://codeflow.local/schemas/rflsc.review-query.v2.schema.json"},
+    "schemaVersion": {"const": 2},
+    "mode": {"const": "review"},
+    "review": {"type": "object", "additionalProperties": false, "required": ["baseline", "current"], "properties": {"baseline": {"type": "string", "minLength": 1}, "current": {"type": "string", "minLength": 1}, "taskId": {"type": "string", "minLength": 1}}}
+  }
+}

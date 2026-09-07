@@ -1,0 +1,38 @@
+{
+  "schemaId": "https://codeflow.local/schemas/rflsc.approval-idempotency-result.v1.schema.json",
+  "schemaVersion": 1,
+  "idempotencyKey": "idem-1",
+  "commandId": "command-1",
+  "actorId": "actor-1",
+  "sessionId": "session-1",
+  "workspaceId": "workspace-1",
+  "proposalId": "proposal-1",
+  "evidencePackId": "pack-1",
+  "computedBasisId": "basis-1",
+  "generationId": "generation-1",
+  "requestDigest": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+  "outcome": "committed",
+  "approvalId": "approval-1",
+  "eventId": "event-1",
+  "aggregateId": "aggregate-1",
+  "aggregateVersion": 1,
+  "state": "active",
+  "committedAt": "2026-09-06T00:00:00Z",
+  "originalCommand": {
+    "commandId": "command-1",
+    "idempotencyKey": "idem-1",
+    "actorId": "actor-1",
+    "workspaceId": "workspace-1",
+    "proposalId": "",
+    "decision": "approve",
+    "expectedApprovalVersion": 0
+  },
+  "originalResult": {
+    "outcome": "committed",
+    "approvalId": "approval-1",
+    "eventId": "event-1",
+    "aggregateId": "aggregate-1",
+    "aggregateVersion": 1,
+    "state": "active"
+  }
+}

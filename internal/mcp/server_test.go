@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"reflect"
 	"runtime"
 	"strings"
 	"testing"
@@ -96,8 +97,8 @@ func TestMCPServerToolsAndExecution(t *testing.T) {
 	if err := json.Unmarshal([]byte(lines[1]), &respList); err != nil {
 		t.Fatalf("unmarshal tools/list response: %v", err)
 	}
-	if len(respList.Result.Tools) != 22 {
-		t.Errorf("expected 22 MCP tools, got %d", len(respList.Result.Tools))
+	if len(respList.Result.Tools) != 24 {
+		t.Errorf("expected 24 MCP tools, got %d", len(respList.Result.Tools))
 	}
 	for _, tool := range respList.Result.Tools {
 		if _, ok := tool.InputSchema.Properties["target"]; !ok {
@@ -120,6 +121,246 @@ func TestMCPServerToolsAndExecution(t *testing.T) {
 	_ = json.Unmarshal(outBuf2.Bytes(), &respSubmit)
 	if !respSubmit.Result.IsError {
 		t.Errorf("expected isError true for missing auth token")
+	}
+}
+
+func TestMCPToolsListSemanticApprovalRequiresProposalAndEvidencePackID(t *testing.T) {
+	srv, err := mcp.NewServer(mcp.Config{RepoRoot: t.TempDir()})
+	if err != nil {
+		t.Fatalf("NewServer failed: %v", err)
+	}
+	defer srv.Close()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	var in, out bytes.Buffer
+	in.WriteString(`{"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}}` + "\n")
+	if err := srv.Serve(ctx, &in, &out); err != nil {
+		t.Fatalf("Serve tools/list: %v", err)
+	}
+
+	var response struct {
+		Result struct {
+			Tools []struct {
+				Name        string `json:"name"`
+				InputSchema struct {
+					Type       string `json:"type"`
+					Properties map[string]struct {
+						Type string   `json:"type"`
+						Enum []string `json:"enum"`
+					} `json:"properties"`
+					Required []string `json:"required"`
+				} `json:"inputSchema"`
+			} `json:"tools"`
+		} `json:"result"`
+	}
+	if err := json.Unmarshal(out.Bytes(), &response); err != nil {
+		t.Fatalf("unmarshal tools/list response: %v", err)
+	}
+
+	var approvalTool *struct {
+		Name        string `json:"name"`
+		InputSchema struct {
+			Type       string `json:"type"`
+			Properties map[string]struct {
+				Type string   `json:"type"`
+				Enum []string `json:"enum"`
+			} `json:"properties"`
+			Required []string `json:"required"`
+		} `json:"inputSchema"`
+	}
+	for i := range response.Result.Tools {
+		tool := &response.Result.Tools[i]
+		if tool.Name == "submit_semantic_approval" {
+			approvalTool = (*struct {
+				Name        string `json:"name"`
+				InputSchema struct {
+					Type       string `json:"type"`
+					Properties map[string]struct {
+						Type string   `json:"type"`
+						Enum []string `json:"enum"`
+					} `json:"properties"`
+					Required []string `json:"required"`
+				} `json:"inputSchema"`
+			})(tool)
+			break
+		}
+	}
+	if approvalTool == nil {
+		t.Fatal("tools/list did not expose submit_semantic_approval")
+	}
+	if got := approvalTool.InputSchema.Type; got != "object" {
+		t.Fatalf("submit_semantic_approval inputSchema.type = %q, want object", got)
+	}
+	requiredFields := []string{
+		"commandId", "proposalId", "evidencePackId", "computedBasisId", "generationId",
+		"intentRevision", "decision", "idempotencyKey", "expectedApprovalVersion", "expectedState",
+	}
+	wantTypes := map[string]string{
+		"commandId": "string", "proposalId": "string", "evidencePackId": "string",
+		"computedBasisId": "string", "generationId": "string", "intentRevision": "integer",
+		"decision": "string", "editedText": "string", "idempotencyKey": "string",
+		"expectedApprovalVersion": "integer", "expectedState": "string", "predecessorApprovalId": "string",
+	}
+	for name, wantType := range wantTypes {
+		property, ok := approvalTool.InputSchema.Properties[name]
+		if !ok || property.Type != wantType {
+			t.Fatalf("submit_semantic_approval property %q = %#v, want %s", name, property, wantType)
+		}
+	}
+	for _, forbidden := range []string{"approver", "actorId", "sessionId", "workspaceId", "modifiedValues"} {
+		if _, ok := approvalTool.InputSchema.Properties[forbidden]; ok {
+			t.Fatalf("submit_semantic_approval exposed forbidden caller field %q", forbidden)
+		}
+	}
+	counts := make(map[string]int, len(approvalTool.InputSchema.Required))
+	for _, name := range approvalTool.InputSchema.Required {
+		counts[name]++
+	}
+	if len(approvalTool.InputSchema.Required) != len(requiredFields) {
+		t.Fatalf("submit_semantic_approval required = %#v, want complete v2 draft fields", approvalTool.InputSchema.Required)
+	}
+	for _, name := range requiredFields {
+		if counts[name] != 1 {
+			t.Fatalf("submit_semantic_approval required %q count = %d, want exactly once", name, counts[name])
+		}
+	}
+	wantDecisions := []string{"approve", "edit_then_approve", "reject", "revoke", "supersede"}
+	if !reflect.DeepEqual(approvalTool.InputSchema.Properties["decision"].Enum, wantDecisions) {
+		t.Fatalf("submit_semantic_approval decision enum = %#v, want %#v", approvalTool.InputSchema.Properties["decision"].Enum, wantDecisions)
+	}
+}
+
+func TestMCPServeToolsListSemanticApprovalSchemaConstraints(t *testing.T) {
+	srv, err := mcp.NewServer(mcp.Config{RepoRoot: t.TempDir()})
+	if err != nil {
+		t.Fatalf("NewServer failed: %v", err)
+	}
+	defer srv.Close()
+
+	var in, out bytes.Buffer
+	in.WriteString(`{"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}}` + "\n")
+	if err := srv.Serve(context.Background(), &in, &out); err != nil {
+		t.Fatalf("Serve tools/list: %v", err)
+	}
+	var response map[string]any
+	if err := json.Unmarshal(out.Bytes(), &response); err != nil {
+		t.Fatalf("decode tools/list response: %v", err)
+	}
+	result, ok := response["result"].(map[string]any)
+	if !ok {
+		t.Fatalf("tools/list result = %#v", response["result"])
+	}
+	tools, ok := result["tools"].([]any)
+	if !ok {
+		t.Fatalf("tools/list tools = %#v", result["tools"])
+	}
+	var approval map[string]any
+	for _, rawTool := range tools {
+		tool, ok := rawTool.(map[string]any)
+		if ok && tool["name"] == "submit_semantic_approval" {
+			approval = tool
+			break
+		}
+	}
+	if approval == nil {
+		t.Fatal("tools/list did not expose submit_semantic_approval")
+	}
+	schema, ok := approval["inputSchema"].(map[string]any)
+	if !ok {
+		t.Fatalf("approval inputSchema = %#v", approval["inputSchema"])
+	}
+	if schema["type"] != "object" {
+		t.Fatalf("approval inputSchema.type = %#v, want object", schema["type"])
+	}
+	if additional, ok := schema["additionalProperties"].(bool); !ok || additional {
+		t.Fatalf("approval inputSchema.additionalProperties = %#v, want false", schema["additionalProperties"])
+	}
+	wantRequired := []any{
+		"commandId", "proposalId", "evidencePackId", "computedBasisId", "generationId",
+		"intentRevision", "decision", "idempotencyKey", "expectedApprovalVersion", "expectedState",
+	}
+	if !reflect.DeepEqual(schema["required"], wantRequired) {
+		t.Fatalf("approval required = %#v, want %#v", schema["required"], wantRequired)
+	}
+	properties, ok := schema["properties"].(map[string]any)
+	if !ok {
+		t.Fatalf("approval properties = %#v", schema["properties"])
+	}
+	wantProperties := map[string]struct{}{
+		"commandId": {}, "proposalId": {}, "evidencePackId": {}, "computedBasisId": {}, "generationId": {},
+		"intentRevision": {}, "decision": {}, "editedText": {}, "idempotencyKey": {},
+		"expectedApprovalVersion": {}, "expectedState": {}, "predecessorApprovalId": {},
+		"target": {}, "token": {},
+	}
+	if len(properties) != len(wantProperties) {
+		t.Fatalf("approval property count = %d, want %d: %#v", len(properties), len(wantProperties), properties)
+	}
+	for name := range properties {
+		if _, ok := wantProperties[name]; !ok {
+			t.Fatalf("approval exposed unknown property %q", name)
+		}
+	}
+	for _, forbidden := range []string{"actorId", "sessionId", "workspaceId", "approver", "modifiedValues"} {
+		if _, ok := properties[forbidden]; ok {
+			t.Fatalf("approval exposed forbidden authority property %q", forbidden)
+		}
+	}
+	property := func(name string) map[string]any {
+		t.Helper()
+		raw, ok := properties[name]
+		if !ok {
+			t.Fatalf("approval property %q is missing", name)
+		}
+		value, ok := raw.(map[string]any)
+		if !ok {
+			t.Fatalf("approval property %q = %#v, want object", name, raw)
+		}
+		return value
+	}
+	assertStringBounds := func(name string, min, max float64, wantMin bool) {
+		t.Helper()
+		value := property(name)
+		if value["type"] != "string" {
+			t.Fatalf("approval property %q type = %#v, want string", name, value["type"])
+		}
+		gotMax, ok := value["maxLength"].(float64)
+		if !ok || gotMax != max {
+			t.Fatalf("approval property %q maxLength = %#v, want %v", name, value["maxLength"], max)
+		}
+		gotMin, hasMin := value["minLength"].(float64)
+		if wantMin {
+			if !hasMin || gotMin != min {
+				t.Fatalf("approval property %q minLength = %#v, want %v", name, value["minLength"], min)
+			}
+		} else if hasMin {
+			t.Fatalf("approval property %q unexpectedly has minLength=%v", name, gotMin)
+		}
+	}
+	assertStringBounds("commandId", 1, 256, true)
+	assertStringBounds("idempotencyKey", 1, 256, true)
+	for _, name := range []string{"proposalId", "evidencePackId", "computedBasisId", "generationId", "predecessorApprovalId"} {
+		assertStringBounds(name, 0, 256, false)
+	}
+	assertStringBounds("editedText", 0, 4096, false)
+	intent := property("intentRevision")
+	if intent["type"] != "integer" || intent["minimum"] != float64(1) || intent["maximum"] != float64(1000000) {
+		t.Fatalf("approval intentRevision constraints = %#v, want integer [1,1000000]", intent)
+	}
+	version := property("expectedApprovalVersion")
+	if version["type"] != "integer" || version["minimum"] != float64(0) || version["maximum"] != float64(1000000000) {
+		t.Fatalf("approval expectedApprovalVersion constraints = %#v, want integer [0,1000000000]", version)
+	}
+	if decision := property("decision")["enum"]; !reflect.DeepEqual(decision, []any{"approve", "edit_then_approve", "reject", "revoke", "supersede"}) {
+		t.Fatalf("approval decision enum = %#v, want exact v2 enum", decision)
+	}
+	if state := property("expectedState")["enum"]; !reflect.DeepEqual(state, []any{"none", "active", "rejected", "revoked", "superseded"}) {
+		t.Fatalf("approval expectedState enum = %#v, want exact lifecycle states", state)
+	}
+	for _, transport := range []string{"target", "token"} {
+		if property(transport)["type"] != "string" {
+			t.Fatalf("approval transport property %q = %#v, want string", transport, property(transport)["type"])
+		}
 	}
 }
 

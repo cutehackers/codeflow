@@ -1,0 +1,11 @@
+{
+  "schemaId":"https://codeflow.local/schemas/rflsc.analysis-read-set.v2.schema.json",
+  "schemaVersion":2,
+  "readSetId":"rs-invalid",
+  "computedBasisId":"basis-1",
+  "workspaceEpoch":7,
+  "documents":[],
+  "negativeObservations":[{"kind":"negative_lookup","path":"missing.go"}],
+  "membershipObservations":[],
+  "dependencyFrontiers":[]
+}

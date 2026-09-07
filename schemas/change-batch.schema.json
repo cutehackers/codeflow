@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://codeflow.local/schemas/change-batch.schema.json",
   "title": "CodeFlow Change Batch",
-  "$comment": "Raw §7.5 and VS-03 normative schema for ChangeBatch multi-file transactions and coalesced edit batches.",
+  "$comment": "RFL-SC R2 VS-01 canonical schema for a committed multi-file ChangeBatch.",
   "type": "object",
   "required": [
     "schemaId",
@@ -20,17 +20,18 @@
       "type": "string",
       "enum": [
         "https://codeflow.local/schemas/change-batch.schema.json",
-        "codeflow.change-batch"
+        "codeflow.change-batch",
+        "https://codeflow.local/schemas/rflsc.change-batch.v2.schema.json"
       ]
     },
-    "schemaVersion": { "const": 1 },
+    "schemaVersion": { "const": 2 },
     "batchId": { "type": "string", "minLength": 1, "maxLength": 128 },
     "transactionId": { "type": ["string", "null"] },
     "source": {
       "type": "string",
-      "enum": ["agent_transaction", "ide_versioned", "watcher_fallback"]
+      "enum": ["agent_transaction", "ide_versioned", "watcher_fallback", "repository_capture"]
     },
-    "workspaceEpoch": { "type": "string", "minLength": 1 },
+    "workspaceEpoch": { "type": "integer", "minimum": 0 },
     "revisions": {
       "type": "array",
       "minItems": 1,

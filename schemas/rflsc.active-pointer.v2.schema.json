@@ -1,0 +1,34 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://codeflow.local/schemas/rflsc.active-pointer.v2.schema.json",
+  "title": "RFL-SC Active Pointer v2",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaId", "schemaVersion", "generationId", "manifestObjectRef", "publishedAt",
+    "computedBasisId", "validatedAgainstSnapshotId", "expectedLiveHeadSnapshotId",
+    "expectedPreviousGenerationId", "workspaceEpoch", "taskIntentRevision",
+    "normalizedQueryHash", "flowCount"
+  ],
+  "properties": {
+    "schemaId": { "const": "https://codeflow.local/schemas/rflsc.active-pointer.v2.schema.json" },
+    "schemaVersion": { "const": 2 },
+    "generationId": { "type": "string", "minLength": 1 },
+    "manifestObjectRef": { "type": "string", "pattern": "^cas:sha256:[a-f0-9]{64}$" },
+    "publishedAt": { "type": "string", "format": "date-time" },
+    "computedBasisId": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+    "validatedAgainstSnapshotId": { "type": "string", "minLength": 1, "maxLength": 256 },
+    "expectedLiveHeadSnapshotId": { "type": "string", "minLength": 1, "maxLength": 256 },
+    "expectedPreviousGenerationId": { "type": ["string", "null"] },
+    "workspaceEpoch": { "type": "integer", "minimum": 0 },
+    "taskIntentRevision": { "type": "integer", "minimum": 1 },
+    "normalizedQueryHash": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+    "flowCount": { "type": "integer", "minimum": 0 },
+    "repositoryId": { "type": "string", "minLength": 1 },
+    "worktreeId": { "type": "string", "minLength": 1 },
+    "taskId": { "type": "string", "minLength": 1 },
+    "proofManifestRef": { "type": "string", "pattern": "^cas:sha256:[a-f0-9]{64}$" },
+    "authority": { "enum": ["current_proof", "historical"] },
+    "freshness": { "enum": ["current", "historical"] }
+  }
+}

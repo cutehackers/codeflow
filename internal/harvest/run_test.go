@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"codeflow/internal/contractharness"
+	"codeflow/internal/protocol"
 )
 
 // moduleRoot locates the repository root relative to this source file,
@@ -44,6 +45,17 @@ func adapterSpec(t *testing.T) string {
 		t.Skipf("dart adapter not usable: %v", err)
 	}
 	return spec
+}
+
+func buildMockAdapterBinary(t *testing.T) string {
+	t.Helper()
+	bin := filepath.Join(t.TempDir(), "mockadapter")
+	cmd := exec.Command("go", "build", "-o", bin, "./internal/mockadapter")
+	cmd.Dir = moduleRoot(t)
+	if output, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("build mock adapter: %v\n%s", err, output)
+	}
+	return bin
 }
 
 func newIntegrationRunner(t *testing.T) *Runner {
@@ -164,6 +176,40 @@ func TestResolveDartAdapterForms(t *testing.T) {
 			t.Fatalf("err = %v, want missing-entrypoint message", err)
 		}
 	})
+}
+
+func TestRunWithSnapshotUsesExplicitSnapshotPayload(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "live.dart"), []byte("class Live { void changed() {} }\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	snapshot, err := protocol.NewSnapshot(11, map[string]string{
+		"mock.dart": "class Mock { void run() {} }\n",
+	}, "harvest-f1-basis")
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Mutate the worktree after capture. RunWithSnapshot must continue to use
+	// the captured files map for adapter input and scoring/index work.
+	if err := os.WriteFile(filepath.Join(root, "live.dart"), []byte("class Live { void replaced() {} }\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	r := NewRunner(protocol.Config{BinPath: buildMockAdapterBinary(t)}, 1)
+	t.Cleanup(r.Close)
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	got, err := r.RunWithSnapshot(ctx, root, snapshot)
+	if err != nil {
+		t.Fatalf("RunWithSnapshot: %v", err)
+	}
+	if len(got) != 2 {
+		t.Fatalf("RunWithSnapshot returned %d candidates, want mock snapshot result", len(got))
+	}
+	for _, candidate := range got {
+		if strings.Contains(candidate.EntrySymbolPath, "live.dart") {
+			t.Fatalf("live worktree candidate leaked into snapshot-bound result: %+v", candidate)
+		}
+	}
 }
 
 func TestRunnerExampleAppEndToEnd(t *testing.T) {
@@ -428,4 +474,3 @@ func TestTypeScriptHarvestIntegration(t *testing.T) {
 		t.Errorf("handleSubmit not found in harvested candidates: %+v", candidates)
 	}
 }
-

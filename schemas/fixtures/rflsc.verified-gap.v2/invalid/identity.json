@@ -1,0 +1,15 @@
+{
+  "schemaId": "https://codeflow.local/schemas/rflsc.verified-gap.v2.schema.json",
+  "schemaVersion": 2,
+  "freshness": "last_verified",
+  "activity": "editing",
+  "lastVerifiedGenId": "generation-000",
+  "latestSnapshotId": "",
+  "workspaceEpoch": 7,
+  "affectedScope": ["service.go"],
+  "analysisLagMs": 27,
+  "pendingRevisions": 4,
+  "intersectedCauses": ["closure-open"],
+  "timestamp": "2026-09-04T00:00:00Z",
+  "traceId": "trace-gap-001"
+}

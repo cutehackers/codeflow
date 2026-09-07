@@ -1,0 +1,42 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://codeflow.local/schemas/rflsc.settlement.v2.schema.json",
+  "title": "RFL-SC Settlement Evaluation v2",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaId", "schemaVersion", "generationId", "computedBasisId",
+    "validatedAgainstSnapshotId", "workspaceEpoch", "qualityStage", "gate",
+    "obligations", "blockingObligationRefs"
+  ],
+  "properties": {
+    "schemaId": { "const": "https://codeflow.local/schemas/rflsc.settlement.v2.schema.json" },
+    "schemaVersion": { "const": 2 },
+    "generationId": { "type": "string", "minLength": 1 },
+    "computedBasisId": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+    "validatedAgainstSnapshotId": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+    "workspaceEpoch": { "type": "integer", "minimum": 0 },
+    "qualityStage": { "enum": ["Q1", "Q2", "Q3", "Q4"] },
+    "gate": { "enum": ["pending", "passed", "failed"] },
+    "obligations": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["obligationId", "kind", "required", "status"],
+        "properties": {
+          "obligationId": { "type": "string", "minLength": 1 },
+          "kind": { "type": "string", "minLength": 1 },
+          "required": { "type": "boolean" },
+          "status": { "enum": ["verified", "unknown", "conflict", "not_evaluated"] },
+          "evidenceRefs": { "type": "array", "items": { "type": "string", "minLength": 1 }, "uniqueItems": true }
+        }
+      }
+    },
+    "blockingObligationRefs": { "type": "array", "items": { "type": "string", "minLength": 1 }, "uniqueItems": true },
+    "evaluatedAt": { "type": ["string", "null"], "format": "date-time" },
+    "unresolvedCriticalCount": { "type": "integer", "minimum": 0 },
+    "conflictingCriticalCount": { "type": "integer", "minimum": 0 },
+    "settlementDigest": { "type": "string", "pattern": "^[a-f0-9]{64}$" }
+  }
+}

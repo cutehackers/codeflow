@@ -1,0 +1,31 @@
+{
+  "schemaId": "https://codeflow.local/schemas/rflsc.evidence-pack.v2.schema.json",
+  "schemaVersion": 2,
+  "evidencePackId": "pack-v2-a1",
+  "repositoryId": "repo-a1",
+  "worktreeId": "worktree-a1",
+  "snapshotId": "snapshot-a1",
+  "workspaceEpoch": 1,
+  "targetSymbolPath": "Submit",
+  "targetStepIds": ["step-submit"],
+  "scopePaths": ["internal"],
+  "computedBasisId": "basis-a1",
+  "generationId": "generation-a1",
+  "promptRevision": "prompt-a1",
+  "items": [
+    {
+      "evidenceId": "e-submit",
+      "kind": "source",
+      "source": "internal/checkout.go",
+      "content": "func Submit() {}",
+      "verified": true,
+      "snapshotId": "snapshot-a1",
+      "computedBasisId": "basis-a1",
+      "documentRevisionId": "revision-a1",
+      "contentDigest": "0000000000000000000000000000000000000000000000000000000000000000",
+      "byteRange": [0, 16]
+    }
+  ],
+  "redactionStatus": "clean",
+  "packDigest": "0000000000000000000000000000000000000000000000000000000000000000"
+}

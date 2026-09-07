@@ -1,0 +1,4 @@
+{
+  "schemaId":"https://codeflow.local/schemas/rflsc.evidence.v2.schema.json",
+  "schemaVersion":2,"evidenceId":"ev-invalid","snapshotId":"snap-1","computedBasisId":"basis-1","documentRevisionId":"rev-1","path":"../.env","byteRange":[0,1],"lineRange":[1,1],"snippet":"x","validationStatus":"verified","redactionStatus":"clean"
+}

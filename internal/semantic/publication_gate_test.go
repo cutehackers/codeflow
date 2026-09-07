@@ -51,16 +51,16 @@ func createTestMapIR(stage string, obligations []semantic.CriticalObligation, un
 	}
 }
 
-func TestCurrentPublicationGate_AllPass(t *testing.T) {
+func TestCurrentPublicationGate_LegacyBoundaryRejectsUnboundInput(t *testing.T) {
 	mapIR := createTestMapIR("Q2", nil, 0, 0)
 	snap := &workspace.WorkspaceSnapshot{
 		SnapshotID:      "snap-1",
 		ComputedBasisID: "basis-1",
 	}
 	closure := &semantic.CausalObservationClosure{
-		ClosureID:          "closure-1",
-		ComputedBasisID:    "basis-1",
-		ClosureStatus:      "closed",
+		ClosureID:       "closure-1",
+		ComputedBasisID: "basis-1",
+		ClosureStatus:   "closed",
 		PositiveDependencies: semantic.PositiveDependencies{
 			DocumentRevisionRefs: []string{"lib/entry.dart"},
 		},
@@ -73,14 +73,11 @@ func TestCurrentPublicationGate_AllPass(t *testing.T) {
 
 	gate := semantic.NewPublicationGate()
 	res, gap := gate.Evaluate(mapIR, closure, delta, snap, nil)
-	if res.Eligibility != "passed" {
-		t.Fatalf("expected eligibility passed, got %s", res.Eligibility)
+	if res.Eligibility == "passed" {
+		t.Fatalf("legacy Evaluate must not publish an unbound map")
 	}
-	if res.ClosureGate != "passed" || res.SnapshotGate != "passed" || res.EvidenceGate != "passed" {
-		t.Errorf("expected all subgates passed, got %+v", res)
-	}
-	if gap != nil {
-		t.Errorf("expected nil verified gap on pass, got %+v", gap)
+	if res.SnapshotGate != "failed" || gap == nil {
+		t.Errorf("expected strict identity rejection and gap, got result=%+v gap=%+v", res, gap)
 	}
 }
 

@@ -1,0 +1,61 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://codeflow.local/schemas/rflsc.workspace-snapshot.v2.schema.json",
+  "title": "RFL-SC VS-01 Workspace Snapshot v2",
+  "type": "object",
+  "required": ["schemaId", "schemaVersion", "snapshotId", "workspaceEpoch", "sequence", "liveHead", "computedBasisId", "rootTreeId", "createdAt", "configurationFingerprint", "entries", "changedEntries", "repositoryPathWriteAudit"],
+  "additionalProperties": false,
+  "properties": {
+    "schemaId": { "const": "https://codeflow.local/schemas/rflsc.workspace-snapshot.v2.schema.json" },
+    "schemaVersion": { "const": 2 },
+    "snapshotId": { "type": "string", "minLength": 1, "maxLength": 128 },
+    "parentSnapshotId": { "type": ["string", "null"] },
+    "workspaceEpoch": { "type": "integer", "minimum": 0 },
+    "sequence": { "type": "integer", "minimum": 1 },
+    "liveHead": { "type": "boolean" },
+    "computedBasisId": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+    "rootTreeId": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+    "createdAt": { "type": "string", "format": "date-time" },
+    "configurationFingerprint": { "type": "string", "minLength": 1 },
+    "dependencyFingerprint": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+    "repositoryId": { "type": "string", "minLength": 1 },
+    "worktreeId": { "type": "string", "minLength": 1 },
+    "entries": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "object",
+        "required": ["revisionId", "contentId", "documentVersion", "byteLength"],
+        "additionalProperties": false,
+        "properties": {
+          "revisionId": { "type": "string", "minLength": 1 },
+          "contentId": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+          "documentVersion": { "type": "integer", "minimum": 1 },
+          "byteLength": { "type": "integer", "minimum": 0 }
+        }
+      }
+    },
+    "changedEntries": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["path", "documentRevisionId"],
+        "additionalProperties": false,
+        "properties": {
+          "path": { "type": "string", "minLength": 1 },
+          "documentRevisionId": { "type": "string", "minLength": 1 }
+        }
+      }
+    },
+    "repositoryPathWriteAudit": {
+      "type": "object",
+      "required": ["codeflowWriteCount", "sourceIntegrityViolation", "capturedSnapshotTreeDigest"],
+      "additionalProperties": false,
+      "properties": {
+        "codeflowWriteCount": { "type": "integer", "minimum": 0 },
+        "repositoryPathWrites": { "type": "array", "items": { "type": "string", "minLength": 1 } },
+        "sourceIntegrityViolation": { "type": "boolean" },
+        "capturedSnapshotTreeDigest": { "type": "string", "pattern": "^[a-f0-9]{64}$" }
+      }
+    }
+  }
+}

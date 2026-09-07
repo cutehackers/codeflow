@@ -118,8 +118,8 @@ graph TD
 
 ## 4. Documentation Index
 
-* **Architecture & Internals**: [`docs/ARCHITECTURE.md`](ARCHITECTURE.md)
-* **LLM & Coding Agent Guide**: [`docs/llm-usage.md`](llm-usage.md)
-* **Local CLI Usage**: [`docs/local-usage.md`](local-usage.md)
-* **Multi-Language Adapter Protocol**: [`docs/spec/llm-language-adapter-protocol.md`](spec/llm-language-adapter-protocol.md)
+* **Architecture & Internals**: [`docs/architecture/architecture.md`](architecture/architecture.md)
+* **LLM & Coding Agent Guide**: [`docs/guides/llm-usage.md`](guides/llm-usage.md)
+* **Development and CLI Guide**: [`docs/guides/development.md`](guides/development.md)
+* **Multi-Language Adapter Protocol**: [`docs/design/specs/llm-language-adapter-protocol.md`](design/specs/llm-language-adapter-protocol.md)
 * **Korean Project Overview**: [`docs/PROJECT-ko.md`](PROJECT-ko.md)

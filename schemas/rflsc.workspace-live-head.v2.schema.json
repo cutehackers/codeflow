@@ -1,0 +1,16 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://codeflow.local/schemas/rflsc.workspace-live-head.v2.schema.json",
+  "title": "RFL-SC VS-01 Workspace Live Head v2",
+  "type": "object",
+  "required": ["schemaId", "schemaVersion", "snapshotId", "workspaceEpoch", "sequence"],
+  "additionalProperties": false,
+  "properties": {
+    "schemaId": { "const": "https://codeflow.local/schemas/rflsc.workspace-live-head.v2.schema.json" },
+    "schemaVersion": { "const": 2 },
+    "snapshotId": { "type": "string" },
+    "workspaceEpoch": { "type": "integer", "minimum": 0 },
+    "rootTreeId": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+    "sequence": { "type": "integer", "minimum": 0 }
+  }
+}

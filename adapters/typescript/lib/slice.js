@@ -6,7 +6,7 @@ const { sha256Hex, canonicalAstFingerprint, byteOffset } = require('./sha256');
 const { redactSecrets } = require('./secret');
 const { humanizeIdentifier } = require('./humanize');
 const { scanSource } = require('./scanner');
-const { overlayFor } = require('./analysis');
+const { overlayFor, createAnalysisTracker } = require('./analysis');
 
 const boundarySuffixes = [
   'Repository',
@@ -48,15 +48,21 @@ function sliceFlow(params) {
   const candidateId = params.candidateId;
   const entrySymbolPath = params.entrySymbolPath;
   const maxDepth = (params.opts && params.opts.maxDepth) || 5;
-  const overlay = overlayFor(params);
+  const tracker = params.__analysisTracker || createAnalysisTracker(params, 'slice');
+  const overlay = tracker.overlay || overlayFor(params);
 
   const [relPath, initialSymbol] = entrySymbolPath.split('#');
   const fileCache = new Map();
   const scanCache = new Map();
-  const tsConfig = loadTsConfig(repoRoot, overlay);
+  const tsConfig = loadTsConfig(repoRoot, overlay, params.__analysisTracker || tracker);
 
   function readFile(p) {
     if (fileCache.has(p)) return fileCache.get(p);
+    if (params.__analysisTracker || tracker) {
+      const content = tracker.read(p);
+      if (content !== null) fileCache.set(p, content);
+      return content;
+    }
     if (overlay) return overlay.has(p) ? overlay.get(p) : null;
     const full = path.join(repoRoot, p);
     if (!fs.existsSync(full)) return null;
@@ -397,20 +403,21 @@ function isBoundaryTarget(receiver, methodName) {
   return false;
 }
 
-function loadTsConfig(repoRoot, overlay = null) {
+function loadTsConfig(repoRoot, overlay = null, tracker = null) {
   const configFiles = ['tsconfig.json', 'jsconfig.json'];
   for (const file of configFiles) {
     const full = path.join(repoRoot, file);
-    const overlayContent = overlay && overlay.has(file) ? overlay.get(file) : null;
-    if (overlayContent !== null || (!overlay && fs.existsSync(full))) {
+    const overlayContent = tracker ? tracker.read(file) : (overlay && overlay.has(file) ? overlay.get(file) : null);
+    if (overlayContent !== null || (!overlay && !tracker && fs.existsSync(full))) {
       try {
-        let content = overlay ? overlayContent : fs.readFileSync(full, 'utf8');
+        let content = tracker || overlay ? overlayContent : fs.readFileSync(full, 'utf8');
         content = content
           .replace(/\/\/[^\n]*/g, '')
           .replace(/\/\*[\s\S]*?\*\//g, '')
           .replace(/,(\s*[\]}])/g, '$1');
         const parsed = JSON.parse(content);
         const compilerOptions = parsed.compilerOptions || {};
+        if (tracker) tracker.recordDependency(file);
         return {
           baseUrl: compilerOptions.baseUrl || '.',
           paths: compilerOptions.paths || {},

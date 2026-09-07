@@ -1,0 +1,80 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://codeflow.local/schemas/rflsc.runtime-consent.v1.schema.json",
+  "title": "CodeFlow Runtime Consent v1",
+  "description": "One-shot actor consent bound to one immutable snapshot and exact runtime boundary.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaId",
+    "schemaVersion",
+    "consentId",
+    "actorId",
+    "approved",
+    "issuedAt",
+    "expiresAt",
+    "command",
+    "args",
+    "accessScope",
+    "isolationScope",
+    "snapshotId",
+    "snapshotTreeDigest",
+    "nonce"
+  ],
+  "properties": {
+    "schemaId": { "const": "https://codeflow.local/schemas/rflsc.runtime-consent.v1.schema.json" },
+    "schemaVersion": { "const": 1 },
+    "consentId": { "type": "string", "minLength": 1, "maxLength": 256 },
+    "actorId": { "type": "string", "minLength": 1, "maxLength": 256 },
+    "approvedBy": { "type": "string", "minLength": 1, "maxLength": 256 },
+    "approved": { "const": true },
+    "issuedAt": { "type": "string", "format": "date-time" },
+    "expiresAt": { "type": "string", "format": "date-time" },
+    "command": { "type": "string", "minLength": 1, "maxLength": 4096 },
+    "args": {
+      "type": "array",
+      "maxItems": 256,
+      "items": { "type": "string", "maxLength": 4096 }
+    },
+    "commandDigest": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "accessScope": { "$ref": "#/$defs/accessScope" },
+    "isolationScope": { "$ref": "#/$defs/isolationScope" },
+    "snapshotId": { "type": "string", "minLength": 1, "maxLength": 256 },
+    "snapshotTreeDigest": { "type": "string", "minLength": 1, "maxLength": 256 },
+    "nonce": { "type": "string", "minLength": 16, "maxLength": 256 }
+  },
+  "$defs": {
+    "accessScope": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["source", "network", "credentials"],
+      "properties": {
+        "source": { "const": "immutable_snapshot" },
+        "network": { "type": "string", "minLength": 1, "maxLength": 256 },
+        "credentials": { "type": "string", "minLength": 1, "maxLength": 256 }
+      }
+    },
+    "isolationScope": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "level",
+        "sourceMount",
+        "sourcePermission",
+        "workingDirectory",
+        "writableLayer",
+        "repositoryPathExposed"
+      ],
+      "properties": {
+        "level": {
+          "enum": ["sandboxed", "containerized", "no_egress_sandbox", "read_only_container", "trusted_local"]
+        },
+        "sourceMount": { "type": "string", "minLength": 1, "maxLength": 256 },
+        "sourcePermission": { "type": "string", "minLength": 1, "maxLength": 256 },
+        "workingDirectory": { "type": "string", "minLength": 1, "maxLength": 256 },
+        "writableLayer": { "type": "string", "minLength": 1, "maxLength": 256 },
+        "repositoryPathExposed": { "const": false }
+      }
+    }
+  }
+}

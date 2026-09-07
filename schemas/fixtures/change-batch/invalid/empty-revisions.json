@@ -1,9 +1,9 @@
 {
   "schemaId": "https://codeflow.local/schemas/change-batch.schema.json",
-  "schemaVersion": 1,
+  "schemaVersion": 2,
   "batchId": "batch-tx-001",
   "source": "agent_transaction",
-  "workspaceEpoch": "epoch-20260903-main",
+  "workspaceEpoch": 12,
   "revisions": [],
   "status": "committed",
   "createdAt": "2026-09-03T05:00:00Z"

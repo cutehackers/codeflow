@@ -110,6 +110,38 @@ func ComputeStepID(flowID string, ordinal int, symbolPath string) string {
 	return "step-" + hexStr[:16]
 }
 
+// ComputeStructuralStepID derives a stable identity from the adapter's
+// structural target. Display order and the current AST/content fingerprint are
+// deliberately excluded so a behavior edit remains a changed step instead of
+// an add/remove. Duplicate structural targets are rejected by the compiler.
+func ComputeStructuralStepID(flowID string, anchor slicing.Anchor, symbolPath, kind string) (string, error) {
+	if strings.TrimSpace(flowID) == "" || strings.TrimSpace(anchor.RepoRelativePath) == "" {
+		return "", fmt.Errorf("structural step identity requires flow and repository-relative path")
+	}
+	if strings.TrimSpace(anchor.EnclosingSymbolPath) == "" && strings.TrimSpace(symbolPath) == "" {
+		return "", fmt.Errorf("structural step identity requires a source or target symbol")
+	}
+	raw := strings.Join([]string{flowID, anchor.RepoRelativePath, anchor.EnclosingSymbolPath, symbolPath, kind}, "\x00")
+	h := sha256.Sum256([]byte(raw))
+	return "step-" + hex.EncodeToString(h[:])[:16], nil
+}
+
+// ComputeDisambiguatedStructuralStepID adds the adapter's canonical AST
+// fingerprint only when a structural target occurs more than once. The source
+// target remains the primary identity, while the fingerprint prevents duplicate
+// statements from silently overwriting one another.
+func ComputeDisambiguatedStructuralStepID(flowID string, anchor slicing.Anchor, symbolPath, kind string) (string, error) {
+	if strings.TrimSpace(anchor.CanonicalAstFingerprint) == "" {
+		return "", fmt.Errorf("duplicate structural target requires canonical AST fingerprint")
+	}
+	base, err := ComputeStructuralStepID(flowID, anchor, symbolPath, kind)
+	if err != nil {
+		return "", err
+	}
+	h := sha256.Sum256([]byte(base + "\x00" + anchor.CanonicalAstFingerprint))
+	return "step-" + hex.EncodeToString(h[:])[:16], nil
+}
+
 // FuseOptions parameterizes the fusion process with optional overrides.
 type FuseOptions struct {
 	CustomTitle       string
@@ -117,7 +149,11 @@ type FuseOptions struct {
 	SessionDrafts     map[string]SessionDraftStep // keyed by enclosingSymbolPath or stepId
 	ApprovedLedger    map[string]ApprovedStep     // keyed by enclosingSymbolPath or stepId
 	RepoRoot          string
-	BasisSha          string
+	// SnapshotFiles is the immutable source basis captured by VS-01. When it
+	// is non-nil, freshness and CodeLens derivation use these bytes exclusively
+	// and RepoRoot is never read.
+	SnapshotFiles map[string][]byte
+	BasisSha      string
 }
 
 // SessionDraftStep represents an agent proposed step in E2.
@@ -198,14 +234,33 @@ func Fuse(sliced *slicing.SlicedPayload, opts FuseOptions) (*FlowSpec, error) {
 			confidence = 1.0
 		}
 
-		// 4. Verify freshness / relink against disk if repoRoot is provided
-		if opts.RepoRoot != "" {
+		// 4. Verify freshness / relink against the immutable snapshot when one
+		// is provided. The live repository is a compatibility path for callers
+		// outside an analysis request only.
+		if opts.SnapshotFiles != nil {
+			data, ok := opts.SnapshotFiles[s.Anchor.RepoRelativePath]
+			if !ok {
+				freshness = "orphaned"
+			} else {
+				freshness = checkFreshnessBytes(data, s.Anchor)
+			}
+		} else if opts.RepoRoot != "" {
 			freshness = checkFreshness(opts.RepoRoot, s.Anchor)
 		}
 
 		// Compute presentation CodeLens from byte range
 		var lens *CodeLens
-		if opts.RepoRoot != "" {
+		if opts.SnapshotFiles != nil {
+			if data, ok := opts.SnapshotFiles[s.Anchor.RepoRelativePath]; ok {
+				var err error
+				lens, err = DeriveCodeLensFromSnapshot(data, s.Anchor)
+				if err != nil {
+					return nil, fmt.Errorf("derive code lens for %s: %w", s.Anchor.RepoRelativePath, err)
+				}
+			} else {
+				return nil, fmt.Errorf("derive code lens for %s: snapshot document is missing", s.Anchor.RepoRelativePath)
+			}
+		} else if opts.RepoRoot != "" {
 			lens = deriveCodeLens(opts.RepoRoot, s.Anchor)
 		} else {
 			lens = &CodeLens{
@@ -349,6 +404,10 @@ func checkFreshness(repoRoot string, anchor slicing.Anchor) string {
 		}
 		return "stale"
 	}
+	return checkFreshnessBytes(data, anchor)
+}
+
+func checkFreshnessBytes(data []byte, anchor slicing.Anchor) string {
 	fileHash := sha256.Sum256(data)
 	if hex.EncodeToString(fileHash[:]) == anchor.FileHash {
 		return "fresh"
@@ -428,18 +487,27 @@ func deriveCodeLens(repoRoot string, anchor slicing.Anchor) *CodeLens {
 	fullPath := filepath.Join(repoRoot, anchor.RepoRelativePath)
 	data, err := os.ReadFile(fullPath)
 	if err != nil {
+		return deriveCodeLensBytes(nil, anchor)
+	}
+	return deriveCodeLensBytes(data, anchor)
+}
+
+func deriveCodeLensBytes(data []byte, anchor slicing.Anchor) *CodeLens {
+	if len(data) == 0 {
 		return &CodeLens{
 			Path:      anchor.RepoRelativePath,
 			StartLine: 1,
 			EndLine:   10,
 		}
 	}
-
 	startByte := clampOffset(anchor.ByteRange[0], len(data))
 	endByte := clampOffset(anchor.ByteRange[1], len(data))
 
 	focusStart := lineAtOffset(data, startByte)
-	focusEnd := lineAtOffset(data, endByte)
+	focusEnd := lineAtOffset(data, endByte-1)
+	if endByte <= startByte {
+		focusEnd = focusStart
+	}
 	if focusEnd < focusStart {
 		focusEnd = focusStart
 	}
@@ -459,7 +527,7 @@ func deriveCodeLens(repoRoot string, anchor slicing.Anchor) *CodeLens {
 		symEnd := clampOffset((*anchor.SymbolRange)[1], len(data))
 		if symEnd > symStart {
 			symStartLine := lineAtOffset(data, symStart)
-			symEndLine := lineAtOffset(data, symEnd)
+			symEndLine := lineAtOffset(data, symEnd-1)
 			viewStart = symStartLine
 			viewEnd = symEndLine
 			if viewEnd-viewStart+1 > maxViewLines {
@@ -502,6 +570,32 @@ func deriveCodeLens(repoRoot string, anchor slicing.Anchor) *CodeLens {
 		lens.ViewEndLine = viewEnd
 	}
 	return lens
+}
+
+// DeriveCodeLensFromSnapshot computes exact line ranges from immutable bytes.
+// It is the strict production entry point. Missing documents and invalid
+// ranges are errors, never a fabricated presentation range.
+func DeriveCodeLensFromSnapshot(data []byte, anchor slicing.Anchor) (*CodeLens, error) {
+	if data == nil {
+		return nil, fmt.Errorf("snapshot bytes are missing")
+	}
+	start, end := anchor.ByteRange[0], anchor.ByteRange[1]
+	if start < 0 || end < start || end > len(data) {
+		return nil, fmt.Errorf("anchor byte range [%d,%d) is outside %d snapshot bytes", start, end, len(data))
+	}
+	if anchor.FileHash != "" {
+		h := sha256.Sum256(data)
+		if hex.EncodeToString(h[:]) != anchor.FileHash {
+			return nil, fmt.Errorf("anchor file hash does not match snapshot bytes")
+		}
+	}
+	if anchor.SpanHash != "" {
+		h := sha256.Sum256(data[start:end])
+		if hex.EncodeToString(h[:]) != anchor.SpanHash {
+			return nil, fmt.Errorf("anchor span hash does not match snapshot bytes")
+		}
+	}
+	return deriveCodeLensBytes(data, anchor), nil
 }
 
 const (

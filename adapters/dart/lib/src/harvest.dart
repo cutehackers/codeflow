@@ -9,6 +9,7 @@ library;
 
 import 'dart:io';
 
+import 'analysis_tracker.dart';
 import 'humanize.dart';
 import 'profile.dart';
 import 'scanner.dart';
@@ -106,7 +107,19 @@ class _Marker {
 Map<String, Object?> detectRepo({
   required String repoRoot,
   Map<String, String>? contentOverlay,
+  AnalysisObservationTracker? tracker,
 }) {
+  if (tracker != null) {
+    final pubspec = tracker.read('pubspec.yaml');
+    final sourceFiles = tracker.enumerateDartSourceFiles();
+    final confident = pubspec != null &&
+        (RegExp(r'^\s*sdk\s*:', multiLine: true).hasMatch(pubspec) ||
+            RegExp(r'^\s*flutter\s*:', multiLine: true).hasMatch(pubspec));
+    return {
+      'language': 'dart',
+      'confident': confident || sourceFiles.isNotEmpty,
+    };
+  }
   final root = _toPosix(repoRoot);
   if (contentOverlay != null) {
     final pubspec = contentOverlay['pubspec.yaml'];
@@ -272,22 +285,35 @@ class _PackageNameResolver {
 ///
 /// [params] mirrors wire request params: `repoRoot` (required),
 /// `libSubdir` (default "lib"), `profiles` (optional array; see profile.dart).
-Map<String, Object?> harvestCandidates(Map<Object?, Object?> params) {
+Map<String, Object?> harvestCandidates(Map<Object?, Object?> params,
+    {AnalysisObservationTracker? tracker}) {
   final repoRootRaw = params['repoRoot'];
   if (repoRootRaw is! String || repoRootRaw.isEmpty) {
     throw ArgumentError('harvest_candidates requires params.repoRoot');
   }
   final repoRoot = _stripTrailingSlash(_toPosix(repoRootRaw));
-  final overlay = _overlayFromParams(params);
+  final activeTracker = tracker;
+  final overlay = activeTracker?.overlay ?? _overlayFromParams(params);
   final libSubdirRaw =
       params['libSubdir'] is String ? params['libSubdir'] as String : 'lib';
   final libSubdir = _stripTrailingSlash(_toPosix(libSubdirRaw));
   final profile = resolveProfiles(params['profiles']);
 
+  String? overlayPackageName;
+  if (activeTracker != null) {
+    final pubspec = activeTracker.read('pubspec.yaml');
+    if (pubspec != null) activeTracker.recordDependency('pubspec.yaml');
+    overlayPackageName =
+        pubspec == null ? null : _packageNameFromContent(pubspec);
+  }
+
   final libDirPosix = _join(repoRoot, libSubdir);
   List<String> relFiles;
   var isWorkspaceFallback = false;
-  if (overlay != null) {
+  if (activeTracker != null) {
+    relFiles = activeTracker.enumerateDartSourceFiles(libSubdir: libSubdir);
+    if (relFiles.isEmpty) return {'candidates': const <Object?>[]};
+  } else if (overlay != null) {
     final prefix = libSubdir == '.' || libSubdir.isEmpty ? '' : '$libSubdir/';
     relFiles = overlay.keys
         .where((key) => key.endsWith('.dart'))
@@ -312,30 +338,45 @@ Map<String, Object?> harvestCandidates(Map<Object?, Object?> params) {
   }
 
   final resolver = _PackageNameResolver(repoRoot);
-  final overlayPackageName =
+  overlayPackageName ??=
       overlay == null ? null : _packageNameFromOverlay(overlay);
   final candidates = <Map<String, Object?>>[];
   final subdirPrefix =
       libSubdir == '.' || libSubdir == '' ? '' : '${_toPosix(libSubdir)}/';
 
   for (final rel in relFiles) {
-    final absFile =
-        isWorkspaceFallback ? _join(repoRoot, rel) : _join(libDirPosix, rel);
+    final sourceRelPath = activeTracker != null
+        ? rel
+        : (isWorkspaceFallback
+            ? rel
+            : (libSubdir == '.' || libSubdir.isEmpty
+                ? rel
+                : '$libSubdir/$rel'));
+    final absFile = _join(repoRoot, sourceRelPath);
     ScanResult scanned;
     try {
-      final content = overlay == null
-          ? File(absFile).readAsStringSync()
-          : overlay[
-              libSubdir == '.' || libSubdir.isEmpty ? rel : '$libSubdir/$rel'];
+      final content = activeTracker != null
+          ? activeTracker.read(sourceRelPath)
+          : (overlay == null
+              ? File(absFile).readAsStringSync()
+              : overlay[libSubdir == '.' || libSubdir.isEmpty
+                  ? rel
+                  : '$libSubdir/$rel']);
       if (content == null) continue;
       scanned = scanSource(content);
     } catch (_) {
       continue; // unreadable file: skip deterministically, never crash
     }
-    final posixRel = isWorkspaceFallback ? rel : '$subdirPrefix$rel';
+    final posixRel = activeTracker != null
+        ? sourceRelPath
+        : (isWorkspaceFallback ? rel : '$subdirPrefix$rel');
     final fileStem = _stem(rel);
-    final packageName =
-        overlayPackageName ?? resolver.packageNameFor(_dirname(absFile));
+    // A protocol snapshot is complete but intentionally has no live root. If
+    // its pubspec is absent, keep the result explicitly unknown instead of
+    // consulting a same-named directory on the adapter host.
+    final packageName = overlay != null
+        ? (overlayPackageName ?? 'unknown')
+        : (overlayPackageName ?? resolver.packageNameFor(_dirname(absFile)));
 
     for (final cls in scanned.classes) {
       for (final method in cls.methods) {
@@ -414,6 +455,10 @@ Map<String, String>? _overlayFromParams(Map<Object?, Object?> params) {
 
 String? _packageNameFromOverlay(Map<String, String> overlay) {
   final content = overlay['pubspec.yaml'];
+  return _packageNameFromContent(content);
+}
+
+String? _packageNameFromContent(String? content) {
   if (content == null) return null;
   final match =
       RegExp(r'^name:\s*([^\s#]+)', multiLine: true).firstMatch(content);

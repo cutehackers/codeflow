@@ -98,6 +98,17 @@ func TestDetectFallsBackToUnknown(t *testing.T) {
 	}
 }
 
+func TestDetectSnapshotUsesCapturedMarkersOnly(t *testing.T) {
+	files := map[string]string{
+		"package.json": `{"name":"captured-app"}`,
+		"src/main.ts":  "export function run() {}\n",
+	}
+	det := DetectSnapshot(files)
+	if !det.Confident || det.Language != "typescript" || det.ProjectName != "captured-app" {
+		t.Fatalf("DetectSnapshot() = %+v, want captured TypeScript marker", det)
+	}
+}
+
 func TestParsePubspecNameHandlesCommentAndWhitespace(t *testing.T) {
 	tests := map[string]string{
 		"name: foo_bar   # trailing comment\n": "foo_bar",
@@ -146,15 +157,15 @@ func TestDetectKotlin(t *testing.T) {
 
 func TestDetectByExtension(t *testing.T) {
 	cases := map[string]string{
-		"src/index.ts":        "typescript",
-		"src/App.tsx":         "typescript",
-		"lib/main.dart":       "dart",
-		"app/src/Order.kt":    "kotlin",
-		"Sources/Main.swift":  "swift",
-		"main.py":             "python",
-		"cmd/server/main.go":  "go",
-		"src/lib.rs":          "rust",
-		"unknown.xyz":         "unknown",
+		"src/index.ts":       "typescript",
+		"src/App.tsx":        "typescript",
+		"lib/main.dart":      "dart",
+		"app/src/Order.kt":   "kotlin",
+		"Sources/Main.swift": "swift",
+		"main.py":            "python",
+		"cmd/server/main.go": "go",
+		"src/lib.rs":         "rust",
+		"unknown.xyz":        "unknown",
 	}
 	for file, want := range cases {
 		if got := DetectByExtension(file); got != want {

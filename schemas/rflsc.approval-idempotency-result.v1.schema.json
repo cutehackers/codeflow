@@ -1,0 +1,83 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://codeflow.local/schemas/rflsc.approval-idempotency-result.v1.schema.json",
+  "title": "RFL-SC Approval Idempotency Result v1",
+  "description": "The durable result bound to the original approval command and committed outcome.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaId",
+    "schemaVersion",
+    "idempotencyKey",
+    "commandId",
+    "actorId",
+    "sessionId",
+    "workspaceId",
+    "proposalId",
+    "evidencePackId",
+    "computedBasisId",
+    "generationId",
+    "requestDigest",
+    "outcome",
+    "approvalId",
+    "eventId",
+    "aggregateId",
+    "aggregateVersion",
+    "state",
+    "committedAt",
+    "originalCommand",
+    "originalResult"
+  ],
+  "properties": {
+    "schemaId": { "const": "https://codeflow.local/schemas/rflsc.approval-idempotency-result.v1.schema.json" },
+    "schemaVersion": { "const": 1 },
+    "idempotencyKey": { "type": "string", "minLength": 1, "maxLength": 256 },
+    "commandId": { "type": "string", "minLength": 1, "maxLength": 256 },
+    "actorId": { "type": "string", "maxLength": 256 },
+    "sessionId": { "type": "string", "maxLength": 256 },
+    "workspaceId": { "type": "string", "maxLength": 256 },
+    "proposalId": { "type": "string", "maxLength": 256 },
+    "evidencePackId": { "type": "string", "maxLength": 256 },
+    "computedBasisId": { "type": "string", "maxLength": 256 },
+    "generationId": { "type": "string", "maxLength": 256 },
+    "requestDigest": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
+    "outcome": { "enum": ["committed", "replayed", "rejected", "conflict"] },
+    "approvalId": { "type": "string", "maxLength": 256 },
+    "eventId": { "type": "string", "maxLength": 256 },
+    "aggregateId": { "type": "string", "maxLength": 256 },
+    "aggregateVersion": { "type": "integer", "minimum": 0, "maximum": 1000000000 },
+    "state": { "enum": ["none", "active", "rejected", "revoked", "superseded"] },
+    "committedAt": { "type": "string", "minLength": 1, "maxLength": 128 },
+    "originalCommand": { "$ref": "#/$defs/originalCommand" },
+    "originalResult": { "$ref": "#/$defs/originalResult" }
+  },
+  "$defs": {
+    "originalCommand": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["commandId", "idempotencyKey", "actorId", "workspaceId", "proposalId", "decision", "expectedApprovalVersion"],
+      "properties": {
+        "commandId": { "type": "string", "minLength": 1, "maxLength": 256 },
+        "idempotencyKey": { "type": "string", "minLength": 1, "maxLength": 256 },
+        "actorId": { "type": "string", "maxLength": 256 },
+        "workspaceId": { "type": "string", "maxLength": 256 },
+        "proposalId": { "type": "string", "maxLength": 256 },
+        "decision": { "enum": ["approve", "edit_then_approve", "reject", "revoke", "supersede"] },
+        "expectedApprovalVersion": { "type": "integer", "minimum": 0, "maximum": 1000000000 }
+      }
+    },
+    "originalResult": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["outcome", "approvalId", "eventId", "aggregateId", "aggregateVersion", "state"],
+      "properties": {
+        "outcome": { "enum": ["committed", "replayed", "rejected", "conflict"] },
+        "approvalId": { "type": "string", "maxLength": 256 },
+        "eventId": { "type": "string", "maxLength": 256 },
+        "aggregateId": { "type": "string", "maxLength": 256 },
+        "aggregateVersion": { "type": "integer", "minimum": 0, "maximum": 1000000000 },
+        "state": { "enum": ["none", "active", "rejected", "revoked", "superseded"] }
+      }
+    }
+  }
+}

@@ -1,0 +1,78 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://codeflow.local/schemas/rflsc.generation-proof-manifest.v2.schema.json",
+  "title": "RFL-SC Generation Proof Manifest v2",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaId", "schemaVersion", "proofId", "generationId", "computedBasisId", "computedSnapshotId",
+    "validatedAgainstSnapshotId", "taskIntentRevision", "normalizedQueryHash",
+    "analysisReadSetId", "causalObservationClosureId", "causalObservationClosureDigest", "capabilityProfileDigest",
+    "workspaceEpoch", "currentPublication", "settlementEvaluation", "artifactRefs",
+    "expectedLiveHeadSnapshotId", "publishedAt"
+  ],
+  "properties": {
+    "schemaId": { "const": "https://codeflow.local/schemas/rflsc.generation-proof-manifest.v2.schema.json" },
+    "schemaVersion": { "const": 2 },
+    "proofId": { "type": "string", "minLength": 1 },
+    "generationId": { "type": "string", "minLength": 1 },
+    "computedBasisId": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+    "computedSnapshotId": { "type": "string", "minLength": 1 },
+    "validatedAgainstSnapshotId": { "type": "string", "minLength": 1, "maxLength": 256 },
+    "validatedWorkspaceDeltaId": { "type": ["string", "null"] },
+    "taskIntentRevision": { "type": "integer", "minimum": 1 },
+    "normalizedQueryHash": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+    "analysisReadSetId": { "type": "string", "minLength": 1 },
+    "causalObservationClosureId": { "type": "string", "minLength": 1 },
+    "causalObservationClosureDigest": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+    "capabilityProfileDigest": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+    "workspaceEpoch": { "type": "integer", "minimum": 0 },
+    "currentPublication": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["eligibility", "snapshotGate", "closureGate", "evidenceGate", "semanticAtomicityGate", "taskRelevanceGate", "comprehensionGate"],
+      "properties": {
+        "eligibility": { "enum": ["passed", "rejected"] },
+        "snapshotGate": { "enum": ["passed", "failed"] },
+        "closureGate": { "enum": ["passed", "failed"] },
+        "evidenceGate": { "enum": ["passed", "failed"] },
+        "semanticAtomicityGate": { "enum": ["passed", "failed"] },
+        "taskRelevanceGate": { "enum": ["passed", "failed"] },
+        "comprehensionGate": { "enum": ["passed", "failed"] }
+      }
+    },
+    "settlementEvaluation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["gate", "blockingObligationRefs"],
+      "properties": {
+        "gate": { "enum": ["pending", "passed", "failed"] },
+        "evaluatedAt": { "type": ["string", "null"], "format": "date-time" },
+        "blockingObligationRefs": { "type": "array", "items": { "type": "string", "minLength": 1 }, "uniqueItems": true }
+      }
+    },
+    "artifactRefs": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["semanticMap", "projection", "analysisReadSet", "observationClosure", "analyzerResult"],
+      "properties": {
+        "semanticMap": { "$ref": "#/$defs/casRef" },
+        "semanticDelta": { "$ref": "#/$defs/casRef" },
+        "evidenceIndex": { "$ref": "#/$defs/casRef" },
+        "projection": { "$ref": "#/$defs/casRef" },
+        "analysisReadSet": { "$ref": "#/$defs/casRef" },
+        "observationClosure": { "$ref": "#/$defs/casRef" },
+        "analyzerResult": { "$ref": "#/$defs/casRef" }
+      }
+    },
+    "expectedLiveHeadSnapshotId": { "type": "string", "minLength": 1, "maxLength": 256 },
+    "expectedPreviousGenerationId": { "type": ["string", "null"] },
+    "publishedAt": { "type": "string", "format": "date-time" }
+  },
+  "$defs": {
+    "casRef": {
+      "type": "string",
+      "pattern": "^cas:sha256:[a-f0-9]{64}$"
+    }
+  }
+}

@@ -20,18 +20,24 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"codeflow/internal/secret"
 )
 
 const (
-	jsonRPCVersion   = "2.0"
-	protocolVersion  = 1
-	adapterVersion   = "0.1.0"
-	analyzerVersion  = "go-structural/0.1.0"
-	maxMessageBytes  = int64(1 << 20)
-	maxHeaderBytes   = 8 << 10
-	analysisSchemaID = "https://codeflow.local/schemas/adapter-analysis.schema.json"
-	readSetSchemaID  = "https://codeflow.local/schemas/analysis-read-set.schema.json"
-	closureSchemaID  = "https://codeflow.local/schemas/causal-observation-closure.schema.json"
+	jsonRPCVersion          = "2.0"
+	protocolVersion         = 1
+	adapterVersion          = "0.1.0"
+	analyzerVersion         = "go-structural/0.1.0"
+	maxMessageBytes         = int64(1 << 20)
+	maxHeaderBytes          = 8 << 10
+	analysisSchemaID        = "https://codeflow.local/schemas/adapter-analysis.schema.json"
+	readSetSchemaID         = "https://codeflow.local/schemas/analysis-read-set.schema.json"
+	closureSchemaID         = "https://codeflow.local/schemas/causal-observation-closure.schema.json"
+	analyzerRequestSchemaID = "https://codeflow.local/schemas/rflsc.analyzer-request.v2.schema.json"
+	analyzerResultSchemaID  = "https://codeflow.local/schemas/rflsc.analyzer-result.v2.schema.json"
+	readSetV2SchemaID       = "https://codeflow.local/schemas/rflsc.analysis-read-set.v2.schema.json"
+	closureV2SchemaID       = "https://codeflow.local/schemas/rflsc.observation-closure.v2.schema.json"
 )
 
 type request struct {
@@ -115,6 +121,12 @@ func (s *server) handle(ctx context.Context, req request) {
 		s.errorResponse(req.ID, "E_BAD_REQUEST", fmt.Sprintf("unknown method %q", req.Method), false)
 		return
 	}
+	if req.Method == "detect" || req.Method == "harvest_candidates" || req.Method == "slice" {
+		if err := validateAnalyzerRequestV2(req.ID, req.Method, req.Params); err != nil {
+			s.errorResponse(req.ID, "E_BAD_REQUEST", err.Error(), false)
+			return
+		}
+	}
 	if delay, ok := req.Params["delayMs"].(float64); ok && delay > 0 {
 		select {
 		case <-time.After(time.Duration(delay) * time.Millisecond):
@@ -131,13 +143,113 @@ func (s *server) handle(ctx context.Context, req request) {
 	if batchID, _ := req.Params["batchId"].(string); batchID != "" {
 		s.notification("codeflow/batchAck", map[string]any{"batchId": batchID, "acknowledged": true})
 	}
-	result, err := analyze(req.Method, req.Params)
+	analysisParams := flattenOperationParams(req.Params)
+	result, err := analyze(req.Method, analysisParams)
 	if err != nil {
 		s.errorResponse(req.ID, errorCode(err), err.Error(), false)
 		return
 	}
 	s.notification("$/progress", map[string]any{"id": req.ID, "stage": "complete"})
+	if req.Method == "detect" || req.Method == "harvest_candidates" || req.Method == "slice" {
+		result = analyzerResultV2(req.ID, req.Method, req.Params, result)
+	}
 	s.success(req.ID, result)
+}
+
+func validateAnalyzerRequestV2(id, operation string, params map[string]any) error {
+	if stringFromMap(params, "schemaId") != analyzerRequestSchemaID || int64FromAny(params["schemaVersion"]) != 2 {
+		return fmt.Errorf("analysis request must use rflsc.analyzer-request.v2")
+	}
+	if stringFromMap(params, "requestId") != id {
+		return fmt.Errorf("analysis requestId must match JSON-RPC id")
+	}
+	if stringFromMap(params, "operation") != operation {
+		return fmt.Errorf("analysis operation does not match JSON-RPC method")
+	}
+	snapshot, ok := params["snapshot"].(map[string]any)
+	if !ok {
+		return fmt.Errorf("analysis snapshot is required")
+	}
+	for _, field := range []string{"snapshotId", "workspaceEpoch", "computedBasisId", "rootTreeId", "dependencyFingerprint", "documents", "files", "repositoryPathWriteAudit"} {
+		if _, exists := snapshot[field]; !exists {
+			return fmt.Errorf("analysis snapshot is missing %s", field)
+		}
+	}
+	return nil
+}
+
+func flattenOperationParams(params map[string]any) map[string]any {
+	result := make(map[string]any, len(params))
+	for key, value := range params {
+		result[key] = value
+	}
+	if payload, ok := params["payload"].(map[string]any); ok {
+		for key, value := range payload {
+			result[key] = value
+		}
+	}
+	return result
+}
+
+func analyzerResultV2(requestID, operation string, params, legacy map[string]any) map[string]any {
+	snapshot, _ := params["snapshot"].(map[string]any)
+	readSet, _ := legacy["analysisReadSet"].(map[string]any)
+	closure, _ := legacy["causalObservationClosure"].(map[string]any)
+	capability, _ := legacy["capabilityProfile"].(map[string]any)
+	coverage, _ := closure["coverageBoundary"].(map[string]any)
+	if coverage == nil {
+		coverage, _ = capability["coverageBoundary"].(map[string]any)
+	}
+	if coverage == nil {
+		coverage = map[string]any{"includedSourceRoots": []string{"."}, "measured": true}
+	}
+	readSetV2 := map[string]any{
+		"schemaId": readSetV2SchemaID, "schemaVersion": 2,
+		"readSetId": readSet["readSetId"], "computedBasisId": snapshot["computedBasisId"],
+		"workspaceEpoch": snapshot["workspaceEpoch"], "documents": readSet["documents"],
+		"negativeObservations":   readSet["negativeObservations"],
+		"membershipObservations": readSet["membershipObservations"],
+		"dependencyFrontiers":    readSet["dependencyFrontiers"],
+	}
+	closureV2 := map[string]any{
+		"schemaId": closureV2SchemaID, "schemaVersion": 2,
+		"closureId": closure["closureId"], "analysisReadSetId": readSetV2["readSetId"],
+		"computedBasisId": snapshot["computedBasisId"], "workspaceEpoch": snapshot["workspaceEpoch"],
+		"closureStatus":          closure["closureStatus"],
+		"negativeObservations":   readSetV2["negativeObservations"],
+		"membershipObservations": readSetV2["membershipObservations"],
+		"dependencyFrontiers":    readSetV2["dependencyFrontiers"],
+		"requiredObservations":   closure["requiredObservations"],
+		"measuredObservations":   closure["measuredObservations"],
+		"incompleteReasons":      closure["incompleteReasons"],
+	}
+	payload := make(map[string]any, len(legacy))
+	for key, value := range legacy {
+		switch key {
+		case "schemaId", "schemaVersion", "operation", "computedBasisId", "workspaceEpoch", "analysisReadSet", "causalObservationClosure", "capabilityProfile", "analyzerVersion", "diagnostics", "snapshotId", "rootTreeId", "dependencyFingerprint", "configurationFingerprint":
+		default:
+			payload[key] = value
+		}
+	}
+	features, _ := capability["features"].([]string)
+	unsupported, _ := capability["unsupported"].([]string)
+	if features == nil {
+		features = []string{"snapshot_bytes"}
+	}
+	if unsupported == nil {
+		unsupported = []string{}
+	}
+	return map[string]any{
+		"schemaId": analyzerResultSchemaID, "schemaVersion": 2, "requestId": requestID,
+		"operation": operation, "adapterVersion": adapterVersion, "analyzerRevision": analyzerVersion,
+		"workspaceEpoch": snapshot["workspaceEpoch"], "computedBasisId": snapshot["computedBasisId"],
+		"snapshotId": snapshot["snapshotId"], "snapshotTreeDigest": snapshot["rootTreeId"],
+		"dependencyFingerprint": snapshot["dependencyFingerprint"], "analysisReadSet": readSetV2,
+		"causalObservationClosure": closureV2,
+		"capabilityProfile":        map[string]any{"adapter": "go", "adapterVersion": adapterVersion, "analyzerRevision": analyzerVersion, "features": features, "unsupported": unsupported},
+		"coverage":                 coverage,
+		"diagnostics":              []any{}, "payload": payload,
+	}
 }
 
 func capabilities() map[string]any {
@@ -145,12 +257,15 @@ func capabilities() map[string]any {
 }
 
 func analyze(operation string, params map[string]any) (map[string]any, error) {
-	root, _ := params["repoRoot"].(string)
-	if operation != "detect" && strings.TrimSpace(root) == "" {
-		return nil, fmt.Errorf("params.repoRoot (non-empty string) is required")
+	if _, ok := params["snapshot"].(map[string]any); ok {
+		return analyzeV2(operation, params)
 	}
+	root, _ := params["repoRoot"].(string)
 	root = filepath.Clean(root)
 	overlay := overlayFromParams(params)
+	if overlay == nil {
+		return nil, fmt.Errorf("snapshot.files (immutable protocol content) is required")
+	}
 	meta := metadata(params, operation, root, overlay)
 	switch operation {
 	case "detect":
@@ -214,11 +329,329 @@ func overlayFromParams(params map[string]any) map[string]string {
 
 type document struct {
 	Path, ContentHash string
+	RevisionID        string
+	ContentID         string
+	DocumentVersion   int
 	ByteLength        int
+}
+
+type trackedDocument struct {
+	Content  string
+	Identity documentIdentity
+}
+
+// analysisTracker records only source/configuration interactions performed by
+// the current v2 operation. Snapshot files are available to the adapter, but
+// availability is not evidence that the analyzer read them.
+type analysisTracker struct {
+	params     map[string]any
+	operation  string
+	root       string
+	overlay    map[string]string
+	identities map[string]documentIdentity
+	documents  map[string]trackedDocument
+	missing    map[string]map[string]any
+	membership []map[string]any
+	frontiers  []map[string]any
+	coverage   map[string]bool
+}
+
+func newAnalysisTracker(params map[string]any, operation, root string, overlay map[string]string) *analysisTracker {
+	return &analysisTracker{
+		params: params, operation: operation, root: root, overlay: overlay,
+		identities: snapshotDocumentIdentities(params), documents: map[string]trackedDocument{},
+		missing: map[string]map[string]any{}, membership: []map[string]any{}, frontiers: []map[string]any{},
+		coverage: map[string]bool{},
+	}
+}
+
+func (t *analysisTracker) read(rel string) (string, bool) {
+	rel = normalizeTrackerPath(rel)
+	if rel == "" {
+		return "", false
+	}
+	content, ok := t.overlay[rel]
+	if !ok {
+		t.recordMissing(rel)
+		return "", false
+	}
+	t.documents[rel] = trackedDocument{Content: content, Identity: t.identities[rel]}
+	t.coverage[trackerSourceRoot(rel)] = true
+	delete(t.missing, rel)
+	return content, true
+}
+
+func (t *analysisTracker) recordMissing(rel string) {
+	rel = normalizeTrackerPath(rel)
+	if rel == "" {
+		return
+	}
+	if _, read := t.documents[rel]; read {
+		return
+	}
+	if _, exists := t.missing[rel]; exists {
+		return
+	}
+	snapshotID := "captured source scope"
+	if snapshot, ok := t.params["snapshot"].(map[string]any); ok {
+		if value, ok := snapshot["snapshotId"].(string); ok && value != "" {
+			snapshotID = "immutable snapshot " + value
+		}
+	}
+	t.missing[rel] = map[string]any{
+		"kind": "negative_lookup", "path": rel,
+		"valueHash": digest([]byte(rel + ":absent")),
+		"detail":    fmt.Sprintf("%s absent from %s during %s", rel, snapshotID, t.operation), "measured": true,
+	}
+}
+
+func (t *analysisTracker) enumerateGoFiles() []string {
+	paths := make([]string, 0, len(t.overlay))
+	for rel := range t.overlay {
+		rel = normalizeTrackerPath(rel)
+		if rel != "" && strings.HasSuffix(rel, ".go") {
+			paths = append(paths, rel)
+		}
+	}
+	sort.Strings(paths)
+	t.membership = []map[string]any{{
+		"kind": "source_membership", "path": ".",
+		"valueHash": digest([]byte(strings.Join(paths, "\n"))),
+		"detail":    "membership measured from the source enumeration used by the operation", "measured": true,
+	}}
+	t.coverage["."] = true
+	return paths
+}
+
+func (t *analysisTracker) recordDependency(rel string) {
+	rel = normalizeTrackerPath(rel)
+	doc, ok := t.documents[rel]
+	if !ok {
+		return
+	}
+	t.frontiers = append(t.frontiers, map[string]any{
+		"kind": "dependency_frontier", "path": rel,
+		"valueHash": digest([]byte(doc.Content)),
+		"detail":    "dependency/configuration frontier established by the analyzer", "measured": true,
+	})
+}
+
+func (t *analysisTracker) metadata(params map[string]any) map[string]any {
+	paths := make([]string, 0, len(t.documents))
+	for path := range t.documents {
+		paths = append(paths, path)
+	}
+	sort.Strings(paths)
+	docs := make([]map[string]any, 0, len(paths))
+	for _, path := range paths {
+		doc := t.documents[path]
+		contentHash := digest([]byte(doc.Content))
+		item := map[string]any{"path": path, "contentHash": contentHash, "byteLength": len([]byte(doc.Content))}
+		if doc.Identity.RevisionID != "" {
+			item["documentRevisionId"] = doc.Identity.RevisionID
+		}
+		if doc.Identity.ContentID != "" {
+			item["contentId"] = doc.Identity.ContentID
+		}
+		if doc.Identity.DocumentVersion > 0 {
+			item["documentVersion"] = doc.Identity.DocumentVersion
+		}
+		docs = append(docs, item)
+	}
+	basis, _ := params["computedBasisId"].(string)
+	if basis == "" {
+		if snapshot, ok := params["snapshot"].(map[string]any); ok {
+			basis, _ = snapshot["computedBasisId"].(string)
+		}
+	}
+	epoch := int64Param(params, "workspaceEpoch")
+	if epoch == 0 {
+		if snapshot, ok := params["snapshot"].(map[string]any); ok {
+			epoch = int64FromAny(snapshot["workspaceEpoch"])
+		}
+	}
+	readSetID := "readset-" + digest([]byte(fmt.Sprintf("%s:%d:%s", basis, epoch, t.operation)))[:24]
+	closureID := "closure-" + digest([]byte(readSetID + ":" + t.operation))[:24]
+	negative := make([]map[string]any, 0, len(t.missing))
+	for _, item := range t.missing {
+		negative = append(negative, item)
+	}
+	sort.Slice(negative, func(i, j int) bool { return negative[i]["path"].(string) < negative[j]["path"].(string) })
+	measured := []string{}
+	if len(negative) > 0 {
+		measured = append(measured, "negative_lookup")
+	}
+	if len(t.membership) > 0 {
+		measured = append(measured, "membership")
+	}
+	if len(t.frontiers) > 0 {
+		measured = append(measured, "dependency_frontier")
+	}
+	required := stringParams(params, "requiredObservations")
+	if required == nil {
+		required = []string{}
+	}
+	unsupported := []string{"runtime_observation", "dynamic_resolution"}
+	incomplete := []string{}
+	for _, want := range required {
+		if !containsString(measured, want) {
+			if containsString(unsupported, want) {
+				incomplete = append(incomplete, want+" is unsupported and was not measured")
+			} else {
+				incomplete = append(incomplete, want+" is not measured for "+t.operation)
+			}
+		}
+	}
+	capability := map[string]any{
+		"adapter": "go", "adapterVersion": adapterVersion, "analyzerRevision": analyzerVersion,
+		"features":    []string{"symbols", "calls", "snapshot_overlay", "negative_lookup", "membership", "dependency_frontier"},
+		"unsupported": unsupported, "protocolVersions": []int{protocolVersion},
+		"coverageBoundary": map[string]any{"includedSourceRoots": []string{"."}, "excludedReasons": []any{}, "measured": true},
+	}
+	readSet := map[string]any{
+		"schemaId": readSetSchemaID, "schemaVersion": 1, "readSetId": readSetID,
+		"computedBasisId": basis, "workspaceEpoch": epoch, "documents": docs,
+		"indexes": []any{}, "negativeObservations": negative, "membershipObservations": t.membership,
+		"dependencyFrontiers": t.frontiers, "requiredObservations": required,
+		"adapterVersions": map[string]string{"go": adapterVersion},
+	}
+	includedRoots := make([]string, 0, len(t.coverage))
+	for root := range t.coverage {
+		includedRoots = append(includedRoots, root)
+	}
+	if len(includedRoots) == 0 {
+		includedRoots = append(includedRoots, ".")
+	}
+	sort.Strings(includedRoots)
+	coverageBoundary := map[string]any{"includedSourceRoots": includedRoots, "excludedReasons": []any{}, "measured": true}
+	capability["coverageBoundary"] = coverageBoundary
+	closure := map[string]any{
+		"schemaId": closureSchemaID, "schemaVersion": 1, "closureId": closureID,
+		"analysisReadSetId": readSetID, "computedBasisId": basis, "workspaceEpoch": epoch,
+		"closureStatus": func() string {
+			if len(incomplete) > 0 {
+				return "open"
+			}
+			return "closed"
+		}(),
+		"negativeObservations": negative, "membershipObservations": t.membership,
+		"dependencyFrontiers": t.frontiers, "requiredObservations": required,
+		"measuredObservations": measured, "capabilityProfile": capability,
+		"coverageBoundary": capability["coverageBoundary"], "incompleteReasons": incomplete,
+	}
+	return map[string]any{
+		"schemaId": analysisSchemaID, "schemaVersion": 1, "operation": t.operation,
+		"computedBasisId": basis, "workspaceEpoch": epoch, "analysisReadSet": readSet,
+		"causalObservationClosure": closure, "capabilityProfile": capability,
+		"analyzerVersion": analyzerVersion, "diagnostics": []any{},
+	}
+}
+
+func trackerSourceRoot(rel string) string {
+	if index := strings.IndexByte(rel, '/'); index > 0 {
+		return rel[:index]
+	}
+	return "."
+}
+
+func normalizeTrackerPath(rel string) string {
+	rel = filepath.ToSlash(filepath.Clean(rel))
+	if rel == "." || filepath.IsAbs(rel) || rel == ".." || strings.HasPrefix(rel, "../") || strings.Contains(rel, "/../") {
+		return ""
+	}
+	return rel
+}
+
+func containsString(values []string, want string) bool {
+	for _, value := range values {
+		if value == want {
+			return true
+		}
+	}
+	return false
+}
+
+func analyzeV2(operation string, params map[string]any) (map[string]any, error) {
+	root, _ := params["repoRoot"].(string)
+	root = filepath.Clean(root)
+	overlay := overlayFromParams(params)
+	if overlay == nil {
+		return nil, fmt.Errorf("snapshot.files (immutable protocol content) is required")
+	}
+	tracker := newAnalysisTracker(params, operation, root, overlay)
+	var result map[string]any
+	switch operation {
+	case "detect":
+		_, ok := tracker.read("go.mod")
+		if ok {
+			tracker.recordDependency("go.mod")
+		} else {
+			// A Go source-only snapshot is still a Go project. The source
+			// enumeration is the actual observation needed for that fallback,
+			// while the files remain unread unless a later operation parses them.
+			ok = len(tracker.enumerateGoFiles()) > 0
+		}
+		result = map[string]any{"matched": ok, "language": "go", "confident": ok}
+	case "harvest_candidates":
+		if _, ok := tracker.read("go.mod"); ok {
+			tracker.recordDependency("go.mod")
+		}
+		candidates := []map[string]any{}
+		for _, rel := range tracker.enumerateGoFiles() {
+			content, ok := tracker.read(rel)
+			if !ok {
+				continue
+			}
+			fileSet := token.NewFileSet()
+			file, err := parser.ParseFile(fileSet, rel, content, 0)
+			if err != nil {
+				continue
+			}
+			for _, decl := range file.Decls {
+				fn, ok := decl.(*ast.FuncDecl)
+				if !ok || fn.Recv != nil {
+					continue
+				}
+				trigger, marker := markerFor(fn.Name.Name)
+				if trigger != "" {
+					candidates = append(candidates, candidate(rel+"#"+fn.Name.Name, fn.Name.Name, trigger, marker))
+				}
+			}
+		}
+		sort.Slice(candidates, func(i, j int) bool {
+			return candidates[i]["entrySymbolPath"].(string) < candidates[j]["entrySymbolPath"].(string)
+		})
+		result = map[string]any{"candidates": candidates}
+	case "slice":
+		entry, _ := params["entrySymbolPath"].(string)
+		candidateID, _ := params["candidateId"].(string)
+		if _, ok := tracker.read("go.mod"); ok {
+			tracker.recordDependency("go.mod")
+		}
+		parts := strings.SplitN(entry, "#", 2)
+		if len(parts) != 2 {
+			return nil, fmt.Errorf("invalid entrySymbolPath")
+		}
+		content, ok := tracker.read(parts[0])
+		if !ok {
+			return nil, fmt.Errorf("entry source file not found: %s", parts[0])
+		}
+		hash := digest([]byte(content))
+		symbol := parts[1]
+		result = map[string]any{"candidateId": candidateID, "language": "go", "entrySymbolPath": entry,
+			"steps": []any{map[string]any{"ordinal": 1, "kind": "call", "description": symbol, "symbolPath": symbol,
+				"anchor": map[string]any{"repoRelativePath": parts[0], "byteRange": []int{0, len([]byte(content))}, "fileHash": hash, "spanHash": hash, "enclosingSymbolPath": symbol, "canonicalAstFingerprint": hash}}},
+			"edges": []any{}, "truncated": false, "visitedCycleDetected": false, "redactedCount": 0}
+	default:
+		return nil, fmt.Errorf("unsupported operation")
+	}
+	merge(result, tracker.metadata(params))
+	return result, nil
 }
 
 func metadata(params map[string]any, operation, root string, overlay map[string]string) map[string]any {
 	docs := []document{}
+	identities := snapshotDocumentIdentities(params)
 	if overlay != nil {
 		keys := make([]string, 0, len(overlay))
 		for key := range overlay {
@@ -227,34 +660,12 @@ func metadata(params map[string]any, operation, root string, overlay map[string]
 		sort.Strings(keys)
 		for _, key := range keys {
 			content := overlay[key]
-			docs = append(docs, document{key, digest([]byte(content)), len([]byte(content))})
+			identity := identities[key]
+			docs = append(docs, document{Path: key, ContentHash: digest([]byte(content)), RevisionID: identity.RevisionID, ContentID: identity.ContentID, DocumentVersion: identity.DocumentVersion, ByteLength: len([]byte(content))})
 			if len(docs) >= 4096 {
 				break
 			}
 		}
-	} else {
-		paths := []string{"go.mod"}
-		if operation == "slice" {
-			if entry, ok := params["entrySymbolPath"].(string); ok {
-				paths = append(paths, strings.Split(entry, "#")[0])
-			}
-		}
-		if operation == "harvest_candidates" {
-			paths = goFiles(root, nil)
-		}
-		seen := map[string]bool{}
-		for _, rel := range paths {
-			rel = filepath.ToSlash(rel)
-			if seen[rel] {
-				continue
-			}
-			seen[rel] = true
-			data, err := os.ReadFile(filepath.Join(root, filepath.FromSlash(rel)))
-			if err == nil {
-				docs = append(docs, document{rel, digest(data), len(data)})
-			}
-		}
-		sort.Slice(docs, func(i, j int) bool { return docs[i].Path < docs[j].Path })
 	}
 	basis, _ := params["computedBasisId"].(string)
 	if basis == "" {
@@ -279,12 +690,153 @@ func metadata(params map[string]any, operation, root string, overlay map[string]
 	closureID := "closure-" + digest([]byte(readSetID + ":" + operation))[:24]
 	docObjects := make([]map[string]any, 0, len(docs))
 	for _, doc := range docs {
-		docObjects = append(docObjects, map[string]any{"path": doc.Path, "contentHash": doc.ContentHash, "byteLength": doc.ByteLength})
+		object := map[string]any{"path": doc.Path, "contentHash": doc.ContentHash, "byteLength": doc.ByteLength}
+		if doc.RevisionID != "" {
+			object["documentRevisionId"] = doc.RevisionID
+		}
+		if doc.ContentID != "" {
+			object["contentId"] = doc.ContentID
+		}
+		if doc.DocumentVersion > 0 {
+			object["documentVersion"] = doc.DocumentVersion
+		}
+		docObjects = append(docObjects, object)
 	}
-	profile := map[string]any{"adapter": "go", "features": []string{"symbols", "calls", "snapshot_overlay", "negative_lookup", "membership", "dependency_frontier"}, "protocolVersions": []int{protocolVersion}, "coverageBoundary": map[string]any{"includedSourceRoots": []string{"."}, "excludedReasons": []any{}}}
-	readSet := map[string]any{"schemaId": readSetSchemaID, "schemaVersion": 1, "readSetId": readSetID, "computedBasisId": basis, "workspaceEpoch": epoch, "documents": docObjects, "indexes": []any{}, "negativeObservations": []any{}, "membershipObservations": []any{map[string]any{"kind": "source_membership", "path": "."}}, "dependencyFrontiers": []any{map[string]any{"kind": "dependency_frontier", "path": operation}}, "adapterVersions": map[string]string{"go": adapterVersion}}
-	closure := map[string]any{"schemaId": closureSchemaID, "schemaVersion": 1, "closureId": closureID, "analysisReadSetId": readSetID, "computedBasisId": basis, "workspaceEpoch": epoch, "closureStatus": "closed", "negativeObservations": []any{}, "membershipObservations": readSet["membershipObservations"], "dependencyFrontiers": readSet["dependencyFrontiers"], "capabilityProfile": profile, "coverageBoundary": profile["coverageBoundary"], "incompleteReasons": []any{}}
-	return map[string]any{"schemaId": analysisSchemaID, "schemaVersion": 1, "operation": operation, "computedBasisId": basis, "workspaceEpoch": epoch, "analysisReadSet": readSet, "causalObservationClosure": closure, "capabilityProfile": profile, "analyzerVersion": analyzerVersion, "diagnostics": []any{}}
+	required := stringParams(params, "requiredObservations")
+	if required == nil {
+		required = []string{}
+	}
+	membership := []any{map[string]any{"kind": "source_membership", "path": ".", "valueHash": digest([]byte(strings.Join(documentPaths(docs), "\n"))), "measured": true}}
+	dependencyPath := operation
+	if _, ok := overlay["go.mod"]; ok {
+		dependencyPath = "go.mod"
+	}
+	frontier := []any{map[string]any{"kind": "dependency_frontier", "path": dependencyPath, "valueHash": digest([]byte(dependencyPath + ":" + basis)), "measured": true}}
+	negative := []any{}
+	for _, candidate := range []string{"go.mod", "go.work"} {
+		if _, exists := overlay[candidate]; exists {
+			continue
+		}
+		negative = append(negative, map[string]any{
+			"kind": "negative_lookup", "path": candidate,
+			"valueHash": digest([]byte(candidate + ":absent")),
+			"detail":    "absence measured in complete snapshot content", "measured": true,
+		})
+		break
+	}
+	status, incomplete, measured := closureState(required, negative, membership, frontier)
+	profile := map[string]any{
+		"adapter": "go", "adapterVersion": adapterVersion, "analyzerRevision": analyzerVersion,
+		"features":    []string{"symbols", "calls", "snapshot_overlay", "negative_lookup", "membership", "dependency_frontier"},
+		"unsupported": []string{"runtime_observation", "dynamic_resolution"}, "protocolVersions": []int{protocolVersion},
+		"coverageBoundary": map[string]any{"includedSourceRoots": []string{"."}, "excludedReasons": []any{}, "measured": true},
+	}
+	readSet := map[string]any{"schemaId": readSetSchemaID, "schemaVersion": 1, "readSetId": readSetID, "computedBasisId": basis, "workspaceEpoch": epoch, "documents": docObjects, "indexes": []any{}, "negativeObservations": negative, "membershipObservations": membership, "dependencyFrontiers": frontier, "requiredObservations": required, "adapterVersions": map[string]string{"go": adapterVersion}}
+	closure := map[string]any{"schemaId": closureSchemaID, "schemaVersion": 1, "closureId": closureID, "analysisReadSetId": readSetID, "computedBasisId": basis, "workspaceEpoch": epoch, "closureStatus": status, "negativeObservations": negative, "membershipObservations": membership, "dependencyFrontiers": frontier, "requiredObservations": required, "measuredObservations": measured, "capabilityProfile": profile, "coverageBoundary": profile["coverageBoundary"], "incompleteReasons": incomplete}
+	result := map[string]any{"schemaId": analysisSchemaID, "schemaVersion": 1, "operation": operation, "computedBasisId": basis, "workspaceEpoch": epoch, "analysisReadSet": readSet, "causalObservationClosure": closure, "capabilityProfile": profile, "analyzerVersion": analyzerVersion, "diagnostics": []any{}}
+	if snapshot, ok := params["snapshot"].(map[string]any); ok {
+		for _, key := range []string{"snapshotId", "rootTreeId", "dependencyFingerprint", "configurationFingerprint"} {
+			if value, exists := snapshot[key]; exists {
+				result[key] = value
+			}
+		}
+	}
+	return result
+}
+
+type documentIdentity struct {
+	RevisionID      string
+	ContentID       string
+	DocumentVersion int
+}
+
+func snapshotDocumentIdentities(params map[string]any) map[string]documentIdentity {
+	out := map[string]documentIdentity{}
+	snapshot, ok := params["snapshot"].(map[string]any)
+	if !ok {
+		return out
+	}
+	documents, ok := snapshot["documents"].([]any)
+	if !ok {
+		return out
+	}
+	for _, raw := range documents {
+		object, ok := raw.(map[string]any)
+		if !ok {
+			continue
+		}
+		path, _ := object["path"].(string)
+		if path == "" {
+			continue
+		}
+		identity := documentIdentity{}
+		identity.RevisionID, _ = object["documentRevisionId"].(string)
+		identity.ContentID, _ = object["contentId"].(string)
+		identity.DocumentVersion = int(int64FromAny(object["documentVersion"]))
+		out[path] = identity
+	}
+	return out
+}
+
+func stringParams(params map[string]any, key string) []string {
+	raw, ok := params[key].([]any)
+	if !ok {
+		if typed, typedOK := params[key].([]string); typedOK {
+			return append([]string(nil), typed...)
+		}
+		return nil
+	}
+	out := make([]string, 0, len(raw))
+	for _, value := range raw {
+		if text, ok := value.(string); ok && text != "" {
+			out = append(out, text)
+		}
+	}
+	return out
+}
+
+func stringFromMap(params map[string]any, key string) string {
+	value, _ := params[key].(string)
+	return value
+}
+
+func documentPaths(documents []document) []string {
+	out := make([]string, 0, len(documents))
+	for _, doc := range documents {
+		out = append(out, doc.Path)
+	}
+	sort.Strings(out)
+	return out
+}
+
+func closureState(required []string, negative, membership, frontier []any) (string, []string, []string) {
+	measured := []string{}
+	if len(membership) > 0 {
+		measured = append(measured, "membership")
+	}
+	if len(frontier) > 0 {
+		measured = append(measured, "dependency_frontier")
+	}
+	if len(negative) > 0 {
+		measured = append(measured, "negative_lookup")
+	}
+	incomplete := []string{}
+	for _, want := range required {
+		found := false
+		for _, got := range measured {
+			if got == want {
+				found = true
+				break
+			}
+		}
+		if !found {
+			incomplete = append(incomplete, want+" is not measured")
+		}
+	}
+	if len(incomplete) > 0 {
+		return "open", incomplete, measured
+	}
+	return "closed", []string{}, measured
 }
 
 func int64Param(params map[string]any, key string) int64 { return int64FromAny(params[key]) }
@@ -316,8 +868,7 @@ func hasFile(root, rel string, overlay map[string]string) bool {
 		_, ok := overlay[filepath.ToSlash(rel)]
 		return ok
 	}
-	_, err := os.Stat(filepath.Join(root, rel))
-	return err == nil
+	return false
 }
 
 func goFiles(root string, overlay map[string]string) []string {
@@ -331,24 +882,7 @@ func goFiles(root string, overlay map[string]string) []string {
 		sort.Strings(out)
 		return out
 	}
-	var out []string
-	_ = filepath.WalkDir(root, func(path string, entry os.DirEntry, err error) error {
-		if err != nil || entry.IsDir() {
-			if entry != nil && entry.IsDir() && (entry.Name() == ".git" || entry.Name() == "vendor" || strings.HasPrefix(entry.Name(), ".")) {
-				return filepath.SkipDir
-			}
-			return nil
-		}
-		if strings.HasSuffix(entry.Name(), ".go") && !strings.HasSuffix(entry.Name(), "_test.go") {
-			rel, e := filepath.Rel(root, path)
-			if e == nil {
-				out = append(out, filepath.ToSlash(rel))
-			}
-		}
-		return nil
-	})
-	sort.Strings(out)
-	return out
+	return nil
 }
 
 func harvest(root string, overlay map[string]string) []map[string]any {
@@ -421,8 +955,7 @@ func readSource(root string, overlay map[string]string, rel string) (string, boo
 		value, ok := overlay[rel]
 		return value, ok
 	}
-	data, err := os.ReadFile(filepath.Join(root, filepath.FromSlash(rel)))
-	return string(data), err == nil
+	return "", false
 }
 
 func (s *server) cancelRequest(params map[string]any) {
@@ -438,14 +971,27 @@ func (s *server) success(id string, result map[string]any) {
 	s.write(map[string]any{"jsonrpc": jsonRPCVersion, "id": id, "result": result})
 }
 func (s *server) errorResponse(id, code, message string, retryable bool) {
-	s.write(map[string]any{"jsonrpc": jsonRPCVersion, "id": id, "error": map[string]any{"code": -32000, "message": message, "data": map[string]any{"code": code, "retryable": retryable}}})
+	safe := redactDiagnostic(message)
+	s.write(map[string]any{"jsonrpc": jsonRPCVersion, "id": id, "error": map[string]any{"code": -32000, "message": safe, "data": map[string]any{"code": code, "retryable": retryable, "detail": safe}}})
+}
+
+func redactDiagnostic(message string) string {
+	clean, _, err := secret.RedactJSON([]byte(message))
+	if err != nil {
+		clean = []byte(secret.Redact(message).Text)
+	}
+	safe := string(clean)
+	if len(safe) > 512 {
+		return safe[:512]
+	}
+	return safe
 }
 func (s *server) notification(method string, params map[string]any) {
 	s.write(map[string]any{"jsonrpc": jsonRPCVersion, "method": method, "params": params})
 }
 func (s *server) write(value map[string]any) {
-	body, err := json.Marshal(value)
-	if err != nil {
+	body := boundedResponseBody(value, maxMessageBytes)
+	if body == nil {
 		return
 	}
 	s.mu.Lock()
@@ -453,6 +999,46 @@ func (s *server) write(value map[string]any) {
 	_, _ = fmt.Fprintf(s.out, "Content-Length: %d\r\n\r\n", len(body))
 	_, _ = s.out.Write(body)
 	_ = s.out.Flush()
+}
+
+// boundedResponseBody serializes one response and enforces the common body
+// bound before it reaches the framed writer. An oversized response is
+// replaced by one small typed error. The fallback is built directly rather
+// than recursively passing through write, so a bound failure cannot produce
+// an unbounded error loop.
+func boundedResponseBody(value map[string]any, max int64) []byte {
+	if max <= 0 {
+		max = maxMessageBytes
+	}
+	body, err := json.Marshal(value)
+	if err == nil && int64(len(body)) <= max {
+		return body
+	}
+	id, _ := value["id"].(string)
+	fallback := map[string]any{
+		"jsonrpc": jsonRPCVersion,
+		"id":      id,
+		"error": map[string]any{
+			"code":    -32000,
+			"message": "adapter response exceeds maxMessageBytes",
+			"data": map[string]any{
+				"code":      "E_ADAPTER_INTERNAL",
+				"retryable": false,
+			},
+		},
+	}
+	body, err = json.Marshal(fallback)
+	if err == nil && int64(len(body)) <= max {
+		return body
+	}
+	// An untrusted id can consume the remaining bound. Drop it and retry the
+	// fixed-size typed error before declaring the negotiated bound too small.
+	fallback["id"] = ""
+	body, err = json.Marshal(fallback)
+	if err != nil || int64(len(body)) > max {
+		return nil
+	}
+	return body
 }
 
 func readFrame(br *bufio.Reader, max int64) ([]byte, error) {

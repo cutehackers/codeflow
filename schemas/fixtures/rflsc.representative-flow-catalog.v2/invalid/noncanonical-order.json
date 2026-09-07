@@ -1,0 +1,15 @@
+{
+  "schemaId": "https://codeflow.local/schemas/rflsc.representative-flow-catalog.v2.schema.json",
+  "schemaVersion": 2,
+  "catalogId": "catalog-domain-billing",
+  "domainId": "domain-billing",
+  "computedBasisId": "basis-vs07",
+  "generationId": "generation-vs07",
+  "validatedAgainstSnapshotId": "snapshot-vs07",
+  "freshness": "historical",
+  "flows": [
+    {"flowId": "flow-low", "title": "low", "entrySymbol": "services/low#entry", "complexityScore": 1, "keyMutations": [], "groundedMapId": "map-vs07", "generationId": "generation-vs07", "selectionReason": "ranking", "rationale": "low", "evidenceRefs": ["ev-low"], "entryEvidenceRefs": ["ev-low"], "resultEvidenceRefs": [], "confidence": 0.75, "epistemicState": "candidate", "coverageBoundary": {"includedSourceRoots": ["services"], "excludedReasons": []}, "redactionStatus": "clean"},
+    {"flowId": "flow-high", "title": "high", "entrySymbol": "services/high#entry", "complexityScore": 2, "keyMutations": [], "groundedMapId": "map-vs07", "generationId": "generation-vs07", "selectionReason": "ranking", "rationale": "high", "evidenceRefs": ["ev-high"], "entryEvidenceRefs": ["ev-high"], "resultEvidenceRefs": [], "confidence": 0.75, "epistemicState": "candidate", "coverageBoundary": {"includedSourceRoots": ["services"], "excludedReasons": []}, "redactionStatus": "clean"}
+  ],
+  "unmappedModules": [], "unknowns": [], "coverageBoundary": {"includedSourceRoots": ["services"], "excludedReasons": []}, "recoveryGuidance": [], "redactionStatus": "clean", "orderingProbe": true
+}

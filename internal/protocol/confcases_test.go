@@ -5,7 +5,10 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strconv"
+	"strings"
 	"sync"
+	"syscall"
 	"testing"
 	"time"
 )
@@ -30,7 +33,7 @@ func confRoundTrips(t *testing.T, bin string) {
 	defer c.Close()
 
 	var det detResult
-	if err := c.Call(context.Background(), OpDetect, map[string]any{}, &det); err != nil {
+	if err := c.Call(context.Background(), OpDetect, conformanceParams(nil), &det); err != nil {
 		t.Fatalf("detect: %v", err)
 	}
 	if det.Language == "" || !det.Confident {
@@ -39,7 +42,7 @@ func confRoundTrips(t *testing.T, bin string) {
 
 	var hv harvestResult
 	if err := c.Call(context.Background(), OpHarvestCandidates,
-		map[string]any{"repoRoot": "."}, &hv); err != nil {
+		conformanceParams(map[string]any{"repoRoot": "."}), &hv); err != nil {
 		t.Fatalf("harvest_candidates: %v", err)
 	}
 	if len(hv.Candidates) < 2 {
@@ -52,18 +55,15 @@ func confRoundTrips(t *testing.T, bin string) {
 	}
 
 	target := hv.Candidates[0]
-	sliceParams := map[string]any{
-		"repoRoot":        ".",
-		"candidateId":     target.ID,
-		"entrySymbolPath": "mock.dart#Mock#run",
-	}
+	sliceParams := conformanceParams(map[string]any{
+		"repoRoot": ".", "candidateId": target.ID, "entrySymbolPath": "mock.dart#Mock.run",
+	})
 	var sl sliceResult
 	if err := c.Call(context.Background(), OpSlice, sliceParams, &sl); err != nil {
 		t.Fatalf("slice: %v", err)
 	}
 	if sl.CandidateID != target.ID ||
-		sl.EntrySymbolPath != "mock.dart#Mock#run" ||
-		sl.RepoRoot != "." {
+		sl.EntrySymbolPath != "mock.dart#Mock.run" {
 		t.Fatalf("slice echo mismatch: sent %+v got %+v", sliceParams, sl)
 	}
 
@@ -95,7 +95,7 @@ func confTimeout(t *testing.T, bin string) {
 	defer c.Close()
 
 	start := time.Now()
-	err := c.Call(context.Background(), OpSlice, map[string]any{"candidateId": "x"}, nil)
+	err := c.Call(context.Background(), OpSlice, conformanceParams(map[string]any{"candidateId": "cand-timeout0001", "entrySymbolPath": "mock.dart#Mock.run"}), nil)
 	perr := wantCode(t, err, ETimeout)
 	if !IsRetryable(perr) {
 		t.Fatal("E_TIMEOUT should be retryable")
@@ -103,9 +103,7 @@ func confTimeout(t *testing.T, bin string) {
 	if el := time.Since(start); el > 3*time.Second {
 		t.Fatalf("timeout took %v; per-request deadline not enforced", el)
 	}
-	// Note: the mock serves requests sequentially, so the still-hung
-	// slice op legitimately blocks subsequent ops on this connection;
-	// per-request deadline + typed error is what's under test here.
+	assertConnTerminated(t, c)
 }
 
 func confCancel(t *testing.T, bin string) {
@@ -116,7 +114,7 @@ func confCancel(t *testing.T, bin string) {
 	start := time.Now()
 	done := make(chan error, 1)
 	go func() {
-		done <- c.Call(ctx, OpHarvestCandidates, map[string]any{"repoRoot": "."}, nil)
+		done <- c.Call(ctx, OpHarvestCandidates, conformanceParams(map[string]any{"repoRoot": "."}), nil)
 	}()
 	time.Sleep(100 * time.Millisecond)
 	cancel()
@@ -130,6 +128,26 @@ func confCancel(t *testing.T, bin string) {
 	if el := time.Since(start); el > 2*time.Second {
 		t.Fatalf("cancel took %v", el)
 	}
+	assertConnTerminated(t, c)
+}
+
+func assertConnTerminated(t *testing.T, c *Conn) {
+	t.Helper()
+	select {
+	case <-c.waitDone:
+	case <-time.After(3 * time.Second):
+		t.Fatal("adapter subprocess was not reaped after terminal call")
+	}
+	c.mu.Lock()
+	closed := c.closed
+	pending := len(c.pending)
+	c.mu.Unlock()
+	if !closed {
+		t.Fatal("terminal call left connection open")
+	}
+	if pending != 0 {
+		t.Fatalf("terminal call left %d pending requests", pending)
+	}
 }
 
 // confCrashRestartOnce: the adapter crashes without responding on its
@@ -137,17 +155,19 @@ func confCancel(t *testing.T, bin string) {
 // transparently restart once and the retried request must succeed.
 func confCrashRestartOnce(t *testing.T, bin string) {
 	stateFile := filepath.Join(t.TempDir(), "crash-state.json")
+	pidLog := filepath.Join(t.TempDir(), "adapter-pids.log")
 	pool := NewPool(Config{
 		BinPath: bin,
 		Env: faultEnv(map[string]string{
 			"MOCK_CRASH_AFTER_N_REQUESTS": "1",
 			"MOCK_CRASH_STATE_FILE":       stateFile,
+			"MOCK_PID_LOG":                pidLog,
 		}),
 	}, 1)
 	defer pool.Close()
 
 	var first detResult
-	if err := pool.Call(context.Background(), OpDetect, map[string]any{}, &first); err != nil {
+	if err := pool.Call(context.Background(), OpDetect, conformanceParams(nil), &first); err != nil {
 		t.Fatalf("restart-once recovery failed: %v", err)
 	}
 	if first.PID <= 0 {
@@ -155,7 +175,7 @@ func confCrashRestartOnce(t *testing.T, bin string) {
 	}
 
 	var second detResult
-	if err := pool.Call(context.Background(), OpDetect, map[string]any{}, &second); err != nil {
+	if err := pool.Call(context.Background(), OpDetect, conformanceParams(nil), &second); err != nil {
 		t.Fatalf("post-restart reuse failed: %v", err)
 	}
 	if second.PID != first.PID {
@@ -171,6 +191,42 @@ func confCrashRestartOnce(t *testing.T, bin string) {
 	if want := `{"count":3,"fired":true}`; string(raw) != want {
 		t.Fatalf("crash state %s, want %s", raw, want)
 	}
+	pidsRaw, err := os.ReadFile(pidLog)
+	if err != nil {
+		t.Fatalf("read adapter pid log: %v", err)
+	}
+	var pids []int
+	for _, line := range strings.Split(strings.TrimSpace(string(pidsRaw)), "\n") {
+		if line == "" {
+			continue
+		}
+		pid, err := strconv.Atoi(line)
+		if err != nil {
+			t.Fatalf("invalid adapter pid %q: %v", line, err)
+		}
+		pids = append(pids, pid)
+	}
+	if len(pids) < 2 {
+		t.Fatalf("restart did not start a second subprocess, pids=%v", pids)
+	}
+	if waitProcessExit(pids[0], 3*time.Second) {
+		t.Fatalf("crashed adapter process %d remained alive after retry", pids[0])
+	}
+}
+
+func waitProcessExit(pid int, timeout time.Duration) bool {
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		process, err := os.FindProcess(pid)
+		if err != nil {
+			return false
+		}
+		if err := process.Signal(syscall.Signal(0)); err != nil {
+			return false
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	return true
 }
 
 // confDoubleCrash: deterministic per-process crash on every counted
@@ -182,7 +238,7 @@ func confDoubleCrash(t *testing.T, bin string) {
 	}, 1)
 	defer pool.Close()
 
-	err := pool.Call(context.Background(), OpDetect, map[string]any{}, nil)
+	err := pool.Call(context.Background(), OpDetect, conformanceParams(nil), nil)
 	wantCode(t, err, ECrashed)
 }
 
@@ -193,11 +249,12 @@ func confFlood(t *testing.T, bin string) {
 	})
 	defer c.Close()
 
-	err := c.Call(context.Background(), OpSlice, map[string]any{"candidateId": "flooded"}, nil)
+	err := c.Call(context.Background(), OpSlice, conformanceParams(map[string]any{"candidateId": "cand-flooded01", "entrySymbolPath": "mock.dart#Mock.run"}), nil)
 	wantCode(t, err, ECrashed)
 	if c.Broken() == nil {
 		t.Fatal("connection must be marked broken after oversize line")
 	}
+	assertConnTerminated(t, c)
 }
 
 func confStartupCrash(t *testing.T, bin string) {
@@ -227,12 +284,12 @@ func confConcurrent(t *testing.T, bin string) {
 		wg.Add(1)
 		go func(i int) {
 			defer wg.Done()
-			ids[i] = "cand-concurrent-" + string(rune('a'+i))
-			params := map[string]any{
+			ids[i] = "cand-concurrent" + string(rune('a'+i))
+			params := conformanceParams(map[string]any{
 				"repoRoot":        ".",
 				"candidateId":     ids[i],
-				"entrySymbolPath": "mock.dart#Concurrent",
-			}
+				"entrySymbolPath": "mock.dart#Mock.run",
+			})
 			errs[i] = c.Call(context.Background(), OpSlice, params, &results[i])
 		}(i)
 	}
@@ -266,7 +323,7 @@ func confBackpressure(t *testing.T, bin string) {
 		go func() {
 			ctx, cancel := context.WithTimeout(context.Background(), 600*time.Millisecond)
 			defer cancel()
-			errs <- c.Call(ctx, OpSlice, map[string]any{"candidateId": "bp"}, nil)
+			errs <- c.Call(ctx, OpSlice, conformanceParams(map[string]any{"candidateId": "cand-backpress01", "entrySymbolPath": "mock.dart#Mock.run"}), nil)
 		}()
 	}
 

@@ -27,7 +27,7 @@
         "codeflow.active-pointer"
       ]
     },
-    "schemaVersion": { "const": 1 },
+    "schemaVersion": { "const": 2 },
     "generationId": { "type": "string", "minLength": 1 },
     "manifestObjectRef": { "type": "string", "minLength": 1 },
     "publishedAt": { "type": "string", "format": "date-time" },
@@ -35,7 +35,7 @@
     "validatedAgainstSnapshotId": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
     "expectedLiveHeadSnapshotId": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
     "expectedPreviousGenerationId": { "type": ["string", "null"] },
-    "workspaceEpoch": { "type": "string", "minLength": 1 },
+    "workspaceEpoch": { "type": "integer", "minimum": 0 },
     "taskIntentRevision": { "type": "integer", "minimum": 1 },
     "normalizedQueryHash": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
     "flowCount": { "type": "integer", "minimum": 0 }

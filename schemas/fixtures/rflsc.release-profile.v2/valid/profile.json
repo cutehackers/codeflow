@@ -1,0 +1,30 @@
+{
+  "schemaId": "https://codeflow.local/schemas/rflsc.release-profile.v2.schema.json",
+  "schemaVersion": 2,
+  "targetVersion": "v1.0.0",
+  "profileId": "profile-synthetic",
+  "artifactRef": "sha256:abe9551ff3a21b43eab4a0d3426486aa9e9e9dc16ebf6cbbe3d9a6c49c034ea9",
+  "os": "darwin",
+  "architecture": "arm64",
+  "hardware": {"cpu": "synthetic-cpu", "logicalCpus": 8, "memoryBytes": 17179869184},
+  "repository": {
+    "shape": "synthetic-polyglot",
+    "fileCount": 1000,
+    "bytes": 1048576,
+    "languages": ["go", "typescript", "dart"],
+    "fixtureRef": "sha256:0000000000000000000000000000000000000000000000000000000000000002"
+  },
+  "toolchains": [
+    {"toolchainId": "go-1.25", "name": "go", "version": "1.25", "artifactRef": "sha256:0000000000000000000000000000000000000000000000000000000000000003"}
+  ],
+  "activeScope": "repository",
+  "loadProfile": "single-user",
+  "browser": "chromium",
+  "capabilities": [
+    {
+      "capabilityId": "live-current-or-gap",
+      "requiredScenarios": ["rapid_edit", "multi_file", "rename_delete", "syntax_error", "branch_switch", "watcher_gap", "open_closure", "late_result", "cas_conflict", "adapter_crash", "model_crash", "reconnect"],
+      "childEvidenceIds": ["evidence-vs01"]
+    }
+  ]
+}

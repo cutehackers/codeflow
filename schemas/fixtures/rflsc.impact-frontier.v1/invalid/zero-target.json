@@ -1,0 +1,12 @@
+{
+  "schemaId": "https://codeflow.local/schemas/rflsc.impact-frontier.v1.schema.json",
+  "schemaVersion": 1,
+  "frontierId": "frontier-invalid",
+  "boundaryType": "coverage_boundary",
+  "target": "",
+  "depth": 0,
+  "reason": "coverage is incomplete",
+  "path": [],
+  "evidenceRefs": [],
+  "expandable": true
+}

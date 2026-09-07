@@ -1,0 +1,246 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://codeflow.local/schemas/rflsc.change-impact-graph.v2.schema.json",
+  "title": "RFL-SC Change Impact Graph v2",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaId",
+    "schemaVersion",
+    "impactGraphId",
+    "target",
+    "computedBasisId",
+    "generationId",
+    "validatedAgainstSnapshotId",
+    "freshness",
+    "directImpact",
+    "indirectImpact",
+    "frontiers",
+    "unresolvedBoundaries",
+    "additionalExplorationAvailable",
+    "unknownCount",
+    "coverageBoundary",
+    "evidence"
+  ],
+  "properties": {
+    "schemaId": { "const": "https://codeflow.local/schemas/rflsc.change-impact-graph.v2.schema.json" },
+    "schemaVersion": { "const": 2 },
+    "impactGraphId": { "type": "string", "minLength": 1 },
+    "target": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "symbolId": { "type": "string", "minLength": 1 },
+        "changeBatchId": { "type": "string", "minLength": 1 }
+      },
+      "oneOf": [
+        { "required": ["symbolId"], "not": { "required": ["changeBatchId"] } },
+        { "required": ["changeBatchId"], "not": { "required": ["symbolId"] } }
+      ]
+    },
+    "computedBasisId": { "type": "string", "minLength": 1 },
+    "generationId": { "type": "string", "minLength": 1 },
+    "validatedAgainstSnapshotId": { "type": "string", "minLength": 1 },
+    "freshness": { "enum": ["current", "historical"] },
+    "directImpact": { "$ref": "#/$defs/directImpact" },
+    "indirectImpact": { "$ref": "#/$defs/indirectImpact" },
+    "frontiers": {
+      "type": "array",
+      "items": { "$ref": "https://codeflow.local/schemas/rflsc.impact-frontier.v1.schema.json" }
+    },
+    "unresolvedBoundaries": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/unresolvedBoundary" }
+    },
+    "additionalExplorationAvailable": { "type": "boolean" },
+    "unknownCount": { "type": "integer", "minimum": 0 },
+    "coverageBoundary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["includedSourceRoots", "excludedReasons"],
+      "properties": {
+        "includedSourceRoots": {
+          "type": "array",
+          "items": { "type": "string", "minLength": 1 },
+          "uniqueItems": true
+        },
+        "excludedReasons": {
+          "type": "array",
+          "items": { "type": "string", "minLength": 1 },
+          "uniqueItems": true
+        }
+      }
+    },
+    "evidence": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/evidence" }
+    }
+  },
+  "$defs": {
+    "directImpact": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["callers", "stateMutations", "externalEffects", "relatedFlows", "tests"],
+      "properties": {
+        "callers": { "type": "array", "items": { "$ref": "#/$defs/caller" } },
+        "stateMutations": { "type": "array", "items": { "$ref": "#/$defs/stateMutation" } },
+        "externalEffects": { "type": "array", "items": { "$ref": "#/$defs/externalEffect" } },
+        "relatedFlows": { "type": "array", "items": { "$ref": "#/$defs/relatedFlow" } },
+        "tests": { "type": "array", "items": { "$ref": "#/$defs/testImpact" } }
+      }
+    },
+    "indirectImpact": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "callers",
+        "stateMutations",
+        "externalEffects",
+        "relatedFlows",
+        "tests",
+        "maxDepth",
+        "maxNodes",
+        "exploredDepth",
+        "totalNodeCount",
+        "bounded",
+        "completedWithinCoverage"
+      ],
+      "properties": {
+        "callers": { "type": "array", "items": { "$ref": "#/$defs/caller" } },
+        "stateMutations": { "type": "array", "items": { "$ref": "#/$defs/stateMutation" } },
+        "externalEffects": { "type": "array", "items": { "$ref": "#/$defs/externalEffect" } },
+        "relatedFlows": { "type": "array", "items": { "$ref": "#/$defs/relatedFlow" } },
+        "tests": { "type": "array", "items": { "$ref": "#/$defs/testImpact" } },
+        "maxDepth": { "type": "integer", "minimum": 1, "maximum": 5 },
+        "maxNodes": { "type": "integer", "minimum": 1, "maximum": 50 },
+        "exploredDepth": { "type": "integer", "minimum": 0, "maximum": 5 },
+        "totalNodeCount": { "type": "integer", "minimum": 0, "maximum": 50 },
+        "bounded": { "type": "boolean" },
+        "completedWithinCoverage": { "type": "boolean" }
+      }
+    },
+    "caller": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["symbolPath", "name", "relationKind", "filePath", "depth", "path", "evidenceRefs"],
+      "properties": {
+        "symbolPath": { "type": "string", "minLength": 1 },
+        "name": { "type": "string", "minLength": 1 },
+        "relationKind": { "enum": ["calls", "overrides", "instantiates"] },
+        "filePath": { "type": "string", "minLength": 1, "pattern": "^[^/]", "not": { "pattern": "(^|/)\\.\\.(/|$)" } },
+        "depth": { "type": "integer", "minimum": 1, "maximum": 5 },
+        "path": { "type": "array", "minItems": 2, "items": { "type": "string", "minLength": 1 } },
+        "evidenceRefs": { "type": "array", "minItems": 1, "uniqueItems": true, "items": { "type": "string", "minLength": 1 } }
+      }
+    },
+    "stateMutation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["targetState", "mutationKind", "terminalSymbolPath", "depth", "path", "evidenceRefs"],
+      "properties": {
+        "targetState": { "type": "string", "minLength": 1 },
+        "mutationKind": { "type": "string", "minLength": 1 },
+        "terminalSymbolPath": { "type": "string", "minLength": 1 },
+        "depth": { "type": "integer", "minimum": 0, "maximum": 5 },
+        "path": { "type": "array", "minItems": 1, "items": { "type": "string", "minLength": 1 } },
+        "evidenceRefs": { "type": "array", "minItems": 1, "uniqueItems": true, "items": { "type": "string", "minLength": 1 } }
+      }
+    },
+    "externalEffect": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["effectKind", "target", "terminalSymbolPath", "depth", "path", "evidenceRefs"],
+      "properties": {
+        "effectKind": { "enum": ["api", "database", "message_queue", "filesystem"] },
+        "target": { "type": "string", "minLength": 1 },
+        "terminalSymbolPath": { "type": "string", "minLength": 1 },
+        "depth": { "type": "integer", "minimum": 0, "maximum": 5 },
+        "path": { "type": "array", "minItems": 1, "items": { "type": "string", "minLength": 1 } },
+        "evidenceRefs": { "type": "array", "minItems": 1, "uniqueItems": true, "items": { "type": "string", "minLength": 1 } }
+      }
+    },
+    "relatedFlow": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["flowId", "title", "terminalSymbolPath", "depth", "path", "evidenceRefs"],
+      "properties": {
+        "flowId": { "type": "string", "minLength": 1 },
+        "title": { "type": "string", "minLength": 1 },
+        "terminalSymbolPath": { "type": "string", "minLength": 1 },
+        "depth": { "type": "integer", "minimum": 0, "maximum": 5 },
+        "path": { "type": "array", "minItems": 1, "items": { "type": "string", "minLength": 1 } },
+        "evidenceRefs": { "type": "array", "minItems": 1, "uniqueItems": true, "items": { "type": "string", "minLength": 1 } }
+      }
+    },
+    "testImpact": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["testSymbolPath", "testFile", "terminalSymbolPath", "depth", "path", "evidenceRefs"],
+      "properties": {
+        "testSymbolPath": { "type": "string", "minLength": 1 },
+        "testFile": { "type": "string", "minLength": 1, "pattern": "^[^/]", "not": { "pattern": "(^|/)\\.\\.(/|$)" } },
+        "terminalSymbolPath": { "type": "string", "minLength": 1 },
+        "depth": { "type": "integer", "minimum": 0, "maximum": 5 },
+        "path": { "type": "array", "minItems": 1, "items": { "type": "string", "minLength": 1 } },
+        "evidenceRefs": { "type": "array", "minItems": 1, "uniqueItems": true, "items": { "type": "string", "minLength": 1 } }
+      }
+    },
+    "unresolvedBoundary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["boundaryType", "target", "description"],
+      "properties": {
+        "boundaryType": { "enum": ["unresolved_dynamic_caller", "unsupported_capability", "budget_exhausted", "coverage_boundary", "invalid_evidence"] },
+        "target": { "type": "string", "minLength": 1 },
+        "description": { "type": "string", "minLength": 1 }
+      }
+    },
+    "evidence": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["evidenceId", "kind", "sourceAuthority", "computedBasisId", "snapshotId", "validationStatus", "anchor"],
+      "properties": {
+        "evidenceId": { "type": "string", "minLength": 1 },
+        "kind": { "type": "string", "minLength": 1 },
+        "sourceAuthority": { "enum": ["code", "test", "contract", "runtime"] },
+        "computedBasisId": { "type": "string", "minLength": 1 },
+        "documentRevisionId": { "type": "string", "minLength": 1 },
+        "anchor": { "$ref": "#/$defs/anchor" },
+        "producer": { "type": "object", "additionalProperties": false, "properties": { "name": { "type": "string" }, "version": { "type": "string" } } },
+        "validationStatus": { "enum": ["verified", "unknown", "invalid", "stale", "orphaned"] },
+        "redactionStatus": { "type": "string" },
+        "snapshotId": { "type": "string", "minLength": 1 },
+        "byteRange": { "$ref": "#/$defs/byteRange" },
+        "lineRange": { "$ref": "#/$defs/lineRange" }
+      }
+    },
+    "anchor": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["repoRelativePath", "byteRange", "enclosingSymbolPath"],
+      "properties": {
+        "repoRelativePath": { "type": "string", "minLength": 1, "pattern": "^[^/]", "not": { "pattern": "(^|/)\\.\\.(/|$)" } },
+        "byteRange": { "$ref": "#/$defs/byteRange" },
+        "fileHash": { "type": "string" },
+        "spanHash": { "type": "string" },
+        "enclosingSymbolPath": { "type": "string", "minLength": 1 },
+        "canonicalAstFingerprint": { "type": "string" },
+        "symbolRange": { "anyOf": [{ "$ref": "#/$defs/byteRange" }, { "type": "null" }] }
+      }
+    },
+    "byteRange": {
+      "type": "array",
+      "prefixItems": [{ "type": "integer", "minimum": 0 }, { "type": "integer", "minimum": 0 }],
+      "items": false,
+      "minItems": 2,
+      "maxItems": 2
+    },
+    "lineRange": {
+      "type": "array",
+      "prefixItems": [{ "type": "integer", "minimum": 1 }, { "type": "integer", "minimum": 1 }],
+      "items": false,
+      "minItems": 2,
+      "maxItems": 2
+    }
+  }
+}

@@ -1,0 +1,23 @@
+{
+  "schemaId": "https://codeflow.local/schemas/rflsc.flowview-view-state.v2.schema.json",
+  "schemaVersion": 2,
+  "viewId": "view-001",
+  "streamId": "stream-001",
+  "generationId": "generation-001",
+  "displayBasis": "current",
+  "activityStatus": "idle",
+  "qualityStage": "Q3",
+  "settlement": "passed",
+  "enrichmentStatus": "available",
+  "connectionStatus": "connected",
+  "selectedStepId": "step-result",
+  "selectedStructuralIdentity": "",
+  "logicalScrollAnchor": { "stepId": "step-result", "structuralIdentity": "service.go#Submit:result", "offsetPx": 12.5 },
+  "visibleStepRefs": ["step-result"],
+  "preservedStepRefs": [],
+  "corpusVersion": "flowview-selection-corpus-v1",
+  "identityLoss": true,
+  "preserved": true,
+  "currentProofVerified": false,
+  "proofManifestRef": "cas:sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+}

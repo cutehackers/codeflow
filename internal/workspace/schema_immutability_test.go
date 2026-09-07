@@ -1,4 +1,4 @@
-package workspace
+package workspace_test
 
 import (
 	"context"
@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"codeflow/internal/contractharness"
+	"codeflow/internal/workspace"
 )
 
 func TestVS03A8_SchemaIdentityAndImmutability(t *testing.T) {
@@ -28,7 +29,7 @@ func TestVS03A8_SchemaIdentityAndImmutability(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	engine, err := NewSnapshotEngine(tempDir, "epoch-immutability")
+	engine, err := workspace.NewSnapshotEngine(tempDir, 1)
 	if err != nil {
 		t.Fatalf("NewSnapshotEngine failed: %v", err)
 	}
@@ -42,7 +43,7 @@ func TestVS03A8_SchemaIdentityAndImmutability(t *testing.T) {
 	}
 
 	newContent := []byte("void main() { print('new virtual revision'); }")
-	err = tx.StageEdit(EditRequest{
+	err = tx.StageEdit(workspace.EditRequest{
 		Path:            "lib/app.dart",
 		Content:         newContent,
 		DocumentVersion: 1,

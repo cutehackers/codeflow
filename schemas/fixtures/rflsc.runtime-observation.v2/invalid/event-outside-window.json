@@ -1,0 +1,19 @@
+{
+  "schemaId": "https://codeflow.local/schemas/rflsc.runtime-observation.v2.schema.json",
+  "schemaVersion": 2,
+  "observationId": "observation-vs06",
+  "traceId": "trace-vs06",
+  "scenario": "checkout",
+  "environment": "staging",
+  "dependencyFingerprint": "deps-vs06",
+  "computedBasisId": "basis-vs06",
+  "generationId": "generation-vs06",
+  "validatedAgainstSnapshotId": "snapshot-vs06",
+  "freshness": "historical",
+  "observedAt": "2026-09-05T00:02:00Z",
+  "isolationLevel": "no_egress_sandbox",
+  "timeWindow": { "from": "2026-09-05T00:00:00Z", "to": "2026-09-05T00:05:00Z" },
+  "traceCoverage": { "spansCovered": 1, "totalSpans": 1, "ratio": 1 },
+  "events": [{ "timestamp": "2026-09-05T00:06:00Z", "kind": "timeout", "target": "PaymentGateway.charge", "status": "observed", "evidenceRef": "ev-runtime" }],
+  "evidence": [{ "evidenceId": "ev-runtime", "computedBasisId": "basis-vs06", "scenario": "checkout", "environment": "staging", "dependencyFingerprint": "deps-vs06", "timestamp": "2026-09-05T00:02:00Z", "validationStatus": "verified", "redactionStatus": "clean" }]
+}

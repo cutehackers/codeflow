@@ -8,13 +8,13 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
-	"os"
 	"path/filepath"
 	"sort"
 	"strings"
 
 	"codeflow/internal/contractharness"
 	"codeflow/internal/protocol"
+	"codeflow/internal/rflscvs02"
 	"codeflow/internal/secret"
 	"codeflow/internal/storage"
 )
@@ -74,11 +74,65 @@ type SlicedPayload struct {
 	Operation                string         `json:"operation,omitempty"`
 	ComputedBasisID          string         `json:"computedBasisId,omitempty"`
 	WorkspaceEpoch           int64          `json:"workspaceEpoch,omitempty"`
+	SnapshotID               string         `json:"snapshotId,omitempty"`
+	RootTreeID               string         `json:"rootTreeId,omitempty"`
+	DependencyFingerprint    string         `json:"dependencyFingerprint,omitempty"`
 	AnalysisReadSet          map[string]any `json:"analysisReadSet,omitempty"`
 	CausalObservationClosure map[string]any `json:"causalObservationClosure,omitempty"`
 	CapabilityProfile        map[string]any `json:"capabilityProfile,omitempty"`
 	AnalyzerVersion          string         `json:"analyzerVersion,omitempty"`
 	Diagnostics              []any          `json:"diagnostics,omitempty"`
+	// ValidatedResult is populated only by the protocol v2 analysis gate. It is
+	// deliberately excluded from the operation payload and cache JSON. The
+	// compiler re-validates this envelope against the immutable snapshot before
+	// promoting any semantic evidence.
+	ValidatedResult *rflscvs02.Result `json:"-"`
+	AdapterVersion  string            `json:"-"`
+}
+
+// BindValidatedResult retains the single v2 result envelope that was accepted
+// by the protocol semantic gate. Callers must not construct this marker for an
+// unvalidated payload. The compiler performs a second snapshot-bound check.
+func (p *SlicedPayload) BindValidatedResult(result rflscvs02.Result) error {
+	if p == nil {
+		return fmt.Errorf("sliced payload is nil")
+	}
+	if result.Operation != protocol.OpSlice || result.SchemaID != rflscvs02.AnalyzerResultSchemaID || result.SchemaVersion != rflscvs02.SchemaVersion {
+		return fmt.Errorf("validated result is not a v2 slice envelope")
+	}
+	var operation SlicedPayload
+	if err := json.Unmarshal(result.Payload, &operation); err != nil {
+		return fmt.Errorf("validated slice payload is invalid: %w", err)
+	}
+	if operation.CandidateID != p.CandidateID || operation.EntrySymbolPath != p.EntrySymbolPath || len(operation.Steps) != len(p.Steps) || len(operation.Edges) != len(p.Edges) {
+		return fmt.Errorf("validated slice payload does not match operation result")
+	}
+	p.AnalysisReadSet = mapFromJSON(result.ReadSet)
+	p.CausalObservationClosure = mapFromJSON(result.Closure)
+	p.CapabilityProfile = mapFromJSON(result.Capability)
+	p.AnalyzerVersion = result.AnalyzerRevision
+	p.AdapterVersion = result.AdapterVersion
+	p.ComputedBasisID = result.ComputedBasisID
+	p.WorkspaceEpoch = result.WorkspaceEpoch
+	p.SnapshotID = result.SnapshotID
+	p.RootTreeID = result.SnapshotTreeDigest
+	p.DependencyFingerprint = result.DependencyFingerprint
+	copyResult := result
+	copyResult.Payload = append([]byte(nil), result.Payload...)
+	p.ValidatedResult = &copyResult
+	return nil
+}
+
+func mapFromJSON(value any) map[string]any {
+	raw, err := json.Marshal(value)
+	if err != nil {
+		return nil
+	}
+	var out map[string]any
+	if err := json.Unmarshal(raw, &out); err != nil {
+		return nil
+	}
+	return out
 }
 
 // Runner orchestrates slicing requests across adapter processes.
@@ -110,19 +164,10 @@ func (r *Runner) Slice(ctx context.Context, repoRoot, candidateID, entrySymbolPa
 func (r *Runner) SliceWithSnapshot(ctx context.Context, repoRoot, candidateID, entrySymbolPath string, opts map[string]any, snapshot protocol.Snapshot) (*SlicedPayload, error) {
 	// Best-effort cache lookup before calling adapter.
 	if repoRoot != "" {
-		cacheKey := computeSliceCacheKey(repoRoot, candidateID, entrySymbolPath, opts, snapshot.ComputedBasisID)
+		cacheKey := computeSliceCacheKeyForSnapshot(snapshot, candidateID, entrySymbolPath, opts)
 		if data, ok := storage.New(repoRoot).ReadSliceCache(cacheKey); ok {
-			// Validate cached bytes still pass redaction + schema before returning.
-			sanitizedBytes, _, err := secret.RedactJSON(data)
-			if err == nil {
-				if err := contractharness.Validate(contractharness.BaseURL+"sliced-payload.schema.json", sanitizedBytes); err == nil {
-					if err := contractharness.ValidateAdapterAnalysis(sanitizedBytes, protocol.OpSlice, snapshot.ComputedBasisID, snapshot.WorkspaceEpoch); err == nil {
-						var payload SlicedPayload
-						if err := json.Unmarshal(sanitizedBytes, &payload); err == nil {
-							return &payload, nil
-						}
-					}
-				}
+			if payload, ok := cachedSlicePayload(snapshot, candidateID, entrySymbolPath, data); ok {
+				return payload, nil
 			}
 		}
 	}
@@ -134,20 +179,22 @@ func (r *Runner) SliceWithSnapshot(ctx context.Context, repoRoot, candidateID, e
 	defer r.pool.Put(proc)
 
 	params := snapshot.Params()
-	params["repoRoot"] = repoRoot
 	params["candidateId"] = candidateID
 	params["entrySymbolPath"] = entrySymbolPath
+	params["requiredObservations"] = []string{"negative_lookup", "membership", "dependency_frontier"}
 	if opts != nil {
 		params["opts"] = opts
 	}
 
-	var rawResult json.RawMessage
-	if err := proc.Call(ctx, "slice", params, &rawResult); err != nil {
+	var envelope rflscvs02.Result
+	if err := proc.Call(ctx, "slice", params, &envelope); err != nil {
 		return nil, fmt.Errorf("slice call failed for %s: %w", entrySymbolPath, err)
 	}
 
-	// Secret scanner gate
-	sanitizedBytes, _, err := secret.RedactJSON(rawResult)
+	// The protocol call has already schema- and semantically-validated the v2
+	// envelope. Redact once more before operation-payload persistence and bind
+	// the accepted metadata to the unwrapped payload returned to Core.
+	sanitizedBytes, _, err := secret.RedactJSON(envelope.Payload)
 	if err != nil {
 		return nil, fmt.Errorf("secret redaction: %w", err)
 	}
@@ -161,34 +208,95 @@ func (r *Runner) SliceWithSnapshot(ctx context.Context, repoRoot, candidateID, e
 	if err := json.Unmarshal(sanitizedBytes, &payload); err != nil {
 		return nil, fmt.Errorf("unmarshal sliced payload: %w", err)
 	}
+	if err := payload.BindValidatedResult(envelope); err != nil {
+		return nil, fmt.Errorf("bind validated slice result: %w", err)
+	}
 
 	// Best-effort cache write after successful validation.
 	if repoRoot != "" {
-		cacheKey := computeSliceCacheKey(repoRoot, candidateID, entrySymbolPath, opts, snapshot.ComputedBasisID)
-		_ = storage.New(repoRoot).WriteSliceCache(cacheKey, sanitizedBytes)
+		cacheKey := computeSliceCacheKeyForSnapshot(snapshot, candidateID, entrySymbolPath, opts)
+		if encoded, encodeErr := json.Marshal(envelope); encodeErr == nil {
+			if cached, _, redactErr := secret.RedactJSON(encoded); redactErr == nil {
+				_ = storage.New(repoRoot).WriteSliceCache(cacheKey, cached)
+			}
+		}
 	}
 
 	return &payload, nil
 }
 
-// computeSliceCacheKey builds the deterministic cache key for a slice request.
-// fileByteHash is sha256 of the entry file bytes (or empty if unreadable),
-// candidateID and entrySymbolPath identify the candidate, versionInfo is a
-// static version string for cache invalidation, optsHash is sha256 of opts JSON
-// (empty if opts is nil). The final key is storage.SliceCacheKey(...).
+// cachedSlicePayload accepts only a complete canonical v2 result envelope.
+// The request id is intentionally taken from the cache entry because it is a
+// per-call transport identity. All snapshot, read-set, closure, capability,
+// coverage, and payload identities are still checked against this snapshot.
+func cachedSlicePayload(snapshot protocol.Snapshot, candidateID, entrySymbolPath string, data []byte) (*SlicedPayload, bool) {
+	sanitized, _, err := secret.RedactJSON(data)
+	if err != nil {
+		return nil, false
+	}
+	if err := contractharness.Validate(rflscvs02.AnalyzerResultSchemaID, sanitized); err != nil {
+		return nil, false
+	}
+	var envelope rflscvs02.Result
+	if err := json.Unmarshal(sanitized, &envelope); err != nil || envelope.Operation != protocol.OpSlice || envelope.RequestID == "" {
+		return nil, false
+	}
+	input, err := snapshot.AnalyzerInput()
+	if err != nil {
+		return nil, false
+	}
+	request, err := rflscvs02.NewAnalyzerRequest(envelope.RequestID, protocol.OpSlice, input, nil, envelope.Closure.RequiredObservations)
+	if err != nil || rflscvs02.ValidateResult(request, envelope) != nil {
+		return nil, false
+	}
+	if err := contractharness.Validate(contractharness.BaseURL+"sliced-payload.schema.json", envelope.Payload); err != nil {
+		return nil, false
+	}
+	var payload SlicedPayload
+	if err := json.Unmarshal(envelope.Payload, &payload); err != nil || payload.CandidateID != candidateID || payload.EntrySymbolPath != entrySymbolPath {
+		return nil, false
+	}
+	if err := payload.BindValidatedResult(envelope); err != nil {
+		return nil, false
+	}
+	return &payload, true
+}
+
+// computeSliceCacheKey is retained for callers that only have a basis. It no
+// longer reads the live worktree. Analysis callers use
+// computeSliceCacheKeyForSnapshot so the entry hash comes from captured bytes.
 func computeSliceCacheKey(repoRoot, candidateID, entrySymbolPath string, opts map[string]any, basis ...string) string {
 	fileByteHash := ""
+	versionInfo := "v3"
+	if len(basis) > 0 && basis[0] != "" {
+		versionInfo += "|" + basis[0]
+	}
+	optsHash := ""
+	if opts != nil {
+		if b, err := json.Marshal(opts); err == nil {
+			h := sha256.Sum256(b)
+			optsHash = hex.EncodeToString(h[:])
+		}
+	}
+	return storage.SliceCacheKey(fileByteHash, candidateID, versionInfo, optsHash)
+}
+
+func computeSliceCacheKeyForSnapshot(snapshot protocol.Snapshot, candidateID, entrySymbolPath string, opts map[string]any) string {
+	fileByteHash := ""
 	if idx := strings.Index(entrySymbolPath, "#"); idx >= 0 {
-		relPath := entrySymbolPath[:idx]
-		fullPath := filepath.Join(repoRoot, relPath)
-		if data, err := os.ReadFile(fullPath); err == nil {
-			h := sha256.Sum256(data)
+		relPath := filepath.ToSlash(filepath.Clean(entrySymbolPath[:idx]))
+		files := snapshot.Files
+		if len(files) == 0 {
+			files = snapshot.ContentOverlay
+		}
+		if content, ok := files[relPath]; ok {
+			h := sha256.Sum256([]byte(content))
 			fileByteHash = hex.EncodeToString(h[:])
 		}
 	}
 	versionInfo := "v3"
-	if len(basis) > 0 && basis[0] != "" {
-		versionInfo += "|" + basis[0]
+	if snapshot.ComputedBasisID != "" {
+		versionInfo += "|" + snapshot.ComputedBasisID
 	}
 	optsHash := ""
 	if opts != nil {

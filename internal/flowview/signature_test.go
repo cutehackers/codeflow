@@ -114,6 +114,28 @@ func TestBuildArchitectureMapAggregates(t *testing.T) {
 	}
 }
 
+func TestBuildArchitectureMapFromSnapshotDoesNotReadLiveSource(t *testing.T) {
+	flow := []byte(`{"flowId":"flow-snapshot","title":"snapshot","steps":[{"ordinal":1,"anchor":{"repoRelativePath":"lib/main.dart","enclosingSymbolPath":"Screen.onPressed"},"codeLens":{"startLine":2,"endLine":2}}]}`)
+	snapshotFiles := map[string][]byte{
+		"lib/main.dart": []byte("class Screen {\n  void onPressed() { snapshot; }\n}\n"),
+	}
+	mapResult := buildArchitectureMapFromSnapshot(snapshotFiles, "gen-snapshot", [][]byte{flow}, nil, nil)
+	if len(mapResult.Components) != 1 {
+		t.Fatalf("components = %d, want 1", len(mapResult.Components))
+	}
+	if !strings.Contains(mapResult.Components[0].Signature, "onPressed") || strings.Contains(mapResult.Components[0].Signature, "live") {
+		t.Fatalf("snapshot signature = %q, want captured declaration", mapResult.Components[0].Signature)
+	}
+
+	// Mutating the source that originally produced the captured bytes cannot
+	// alter a later projection because the map consumes only snapshotFiles.
+	snapshotFiles["lib/main.dart"] = []byte("class Screen {\n  void onPressed() { live; }\n}\n")
+	mapResult = buildArchitectureMapFromSnapshot(snapshotFiles, "gen-snapshot-2", [][]byte{flow}, nil, nil)
+	if strings.Contains(mapResult.Components[0].Signature, "snapshot") {
+		t.Fatalf("projection reused stale mutable bytes: %q", mapResult.Components[0].Signature)
+	}
+}
+
 func TestExtractSignatureWalksUpToDeclaration(t *testing.T) {
 	// keeper.dart: 'void watch' body line is deep inside; the extractor must
 	// land on the method header, not a statement.

@@ -1,0 +1,55 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://codeflow.local/schemas/rflsc.domain-overview.v2.schema.json",
+  "title": "RFL-SC Domain Overview v2",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaId", "schemaVersion", "repositoryId", "computedBasisId", "generationId", "validatedAgainstSnapshotId", "freshness", "domains", "unmappedModules", "unknowns", "coverageBoundary", "recoveryGuidance", "summary", "redactionStatus"],
+  "properties": {
+    "schemaId": { "const": "https://codeflow.local/schemas/rflsc.domain-overview.v2.schema.json" },
+    "schemaVersion": { "const": 2 },
+    "repositoryId": { "type": "string", "minLength": 1 },
+    "computedBasisId": { "type": "string", "minLength": 1 },
+    "generationId": { "type": "string", "minLength": 1 },
+    "validatedAgainstSnapshotId": { "type": "string", "minLength": 1 },
+    "freshness": { "enum": ["current", "historical"] },
+    "domains": { "type": "array", "items": { "$ref": "rflsc.domain-candidate.v2.schema.json" } },
+    "unmappedModules": { "type": "array", "items": { "type": "string", "minLength": 1 } },
+    "unknowns": { "type": "array", "items": { "$ref": "#/$defs/unknown" } },
+    "coverageBoundary": { "$ref": "#/$defs/coverageBoundary" },
+    "recoveryGuidance": { "type": "array", "items": { "type": "string", "minLength": 1 } },
+    "summary": { "$ref": "#/$defs/summary" },
+    "redactionStatus": { "enum": ["clean", "redacted"] }
+  },
+  "$defs": {
+    "coverageBoundary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["includedSourceRoots", "excludedReasons"],
+      "properties": {
+        "includedSourceRoots": { "type": "array", "items": { "type": "string", "minLength": 1 } },
+        "excludedReasons": { "type": "array", "items": { "type": "string", "minLength": 1 } }
+      }
+    },
+    "unknown": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["subject", "reason", "recoveryGuidance"],
+      "properties": {
+        "subject": { "type": "string", "minLength": 1 },
+        "reason": { "type": "string", "minLength": 1 },
+        "recoveryGuidance": { "type": "array", "items": { "type": "string", "minLength": 1 } }
+      }
+    },
+    "summary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["totalDomains", "totalFlows", "coverageRatio"],
+      "properties": {
+        "totalDomains": { "type": "integer", "minimum": 0 },
+        "totalFlows": { "type": "integer", "minimum": 0 },
+        "coverageRatio": { "type": "number", "minimum": 0, "maximum": 1 }
+      }
+    }
+  }
+}

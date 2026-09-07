@@ -1,0 +1,31 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://codeflow.local/schemas/rflsc.model-activation-disclosure.v1.schema.json",
+  "title": "RFL-SC Model Activation Disclosure v1",
+  "description": "Explicit pre-installation disclosure for an optional model host.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaId", "schemaVersion", "disclosureId", "modelId", "revision", "license", "checksum", "runtime", "dataBoundary", "currentCapabilities", "proposedCapabilities", "capabilityChange", "choiceRequired", "approved"],
+  "properties": {
+    "schemaId": { "const": "https://codeflow.local/schemas/rflsc.model-activation-disclosure.v1.schema.json" },
+    "schemaVersion": { "const": 1 },
+    "disclosureId": { "type": "string", "minLength": 1, "maxLength": 256 },
+    "modelId": { "type": "string", "minLength": 1, "maxLength": 256 },
+    "revision": { "type": "string", "minLength": 1, "maxLength": 256 },
+    "license": { "type": "string", "minLength": 1, "maxLength": 256 },
+    "checksum": { "type": "string", "minLength": 1, "maxLength": 256 },
+    "runtime": { "type": "string", "minLength": 1, "maxLength": 256 },
+    "dataBoundary": { "type": "string", "minLength": 1, "maxLength": 1024 },
+    "currentCapabilities": { "type": "array", "uniqueItems": true, "items": { "type": "string", "minLength": 1, "maxLength": 128 } },
+    "proposedCapabilities": { "type": "array", "uniqueItems": true, "items": { "type": "string", "minLength": 1, "maxLength": 128 } },
+    "capabilityChange": { "type": "array", "uniqueItems": true, "items": { "type": "string", "minLength": 1, "maxLength": 256 } },
+    "choiceRequired": { "const": true },
+    "choice": { "enum": ["activate", "decline"] },
+    "approved": { "type": "boolean" }
+  },
+  "allOf": [
+    { "if": { "required": ["choice"], "properties": { "choice": { "const": "activate" } } }, "then": { "properties": { "approved": { "const": true } } } },
+    { "if": { "required": ["choice"], "properties": { "choice": { "const": "decline" } } }, "then": { "properties": { "approved": { "const": false } } } },
+    { "if": { "properties": { "approved": { "const": true } } }, "then": { "required": ["choice"] } }
+  ]
+}

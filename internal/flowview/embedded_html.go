@@ -248,7 +248,7 @@ const IndexHTML = `<!doctype html>
     </div>
   </header>
 
-  <!-- Task View Feature Query Bar & Current Answer Strip (VS-02) -->
+  <!-- Task View Feature Query Bar & Candidate Answer Strip (VS-04) -->
   <section class="semantic-query-section" data-region="semantic-query" aria-label="기능 흐름 자연어 질의">
     <form id="query-form" onsubmit="handleSemanticQuery(event)" style="display:flex;gap:8px;margin-top:14px">
       <input id="query-input" type="text" placeholder="자연어로 기능 흐름을 질문하세요 (예: 결제 처리, 회원가입, 장바구니)..." style="flex:1;padding:8px 12px;border:1px solid var(--ink);border-radius:6px;font-size:13px" />
@@ -260,24 +260,26 @@ const IndexHTML = `<!doctype html>
     </div>
   </section>
 
-  <!-- Current Answer Strip (VS-02 & VS-04) -->
+  <!-- Candidate Answer Strip. Current/confirmed authority is owned by VS-03. -->
   <section id="current-answer-strip" data-region="current-answer" style="display:none;margin-top:14px;padding:14px 16px;border:2px solid var(--ink);border-radius:8px;background:var(--paper)">
     <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px;flex-wrap:wrap;gap:8px">
-      <span style="font-size:11px;font-weight:800;letter-spacing:.08em;text-transform:uppercase;color:var(--muted)">Current Verified Answer</span>
+      <span style="font-size:11px;font-weight:800;letter-spacing:.08em;text-transform:uppercase;color:var(--muted)">Candidate Flow Result</span>
       <!-- Independent Status Axes (VS04-A8, D21) -->
       <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">
-        <span id="badge-freshness" class="badge">Current</span>
-        <span id="current-answer-stage" class="badge">Q2 Verified</span>
-        <span id="badge-quality" class="badge" style="display:none">Q2</span>
+        <span id="badge-freshness" class="badge">unknown</span>
+        <span id="current-answer-stage" class="badge">awaiting proof</span>
+        <span id="badge-quality" class="badge" style="display:none">unknown</span>
         <span id="badge-activity" class="badge" style="background:#f4f4f2">idle</span>
         <span id="badge-settlement" class="badge" style="background:#f4f4f2">Settlement: pending</span>
-        <span id="badge-enrichment" class="badge" style="background:#f4f4f2">Enrichment: none</span>
+        <span id="badge-enrichment" class="badge" style="background:#f4f4f2">Enrichment: unavailable</span>
         <span id="badge-connection" class="badge" style="background:#f4f4f2">SSE: connected</span>
         <span id="current-answer-basis" style="font-size:11px;color:var(--muted)"></span>
       </div>
     </div>
-    <div style="margin-bottom:4px;font-size:12px;color:var(--muted)"><b>요청 의도:</b> <span id="current-answer-requested">—</span></div>
-    <div style="font-size:15px;font-weight:700;line-height:1.4;color:var(--ink)" id="current-answer-statement">—</div>
+    <div style="margin-bottom:4px;font-size:12px;color:var(--muted)"><b>Raw User Request:</b> <span id="current-answer-requested">—</span></div>
+    <div style="margin-bottom:4px;font-size:12px;color:var(--muted)"><b>Normalized Intent Revision:</b> <span id="current-answer-intent">—</span></div>
+    <div style="margin-bottom:4px;font-size:12px;color:var(--muted)"><b>Agent-reported Status:</b> <span id="current-answer-agent-status">—</span></div>
+    <div style="font-size:15px;font-weight:700;line-height:1.4;color:var(--ink)" id="current-answer-statement">Evidence-backed Implementation Fact: —</div>
     <!-- Verified Gap Banner (VS04-A3, VS04-A11) -->
     <div id="verified-gap-banner" class="queue-banner" style="display:none;margin-top:10px;background:#fff4e6;border-left:4px solid #f08c00">
       <div>
@@ -306,7 +308,7 @@ const IndexHTML = `<!doctype html>
     <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
       <div style="display:flex;align-items:center;gap:8px">
         <span style="font-weight:800;font-size:13px;letter-spacing:.05em;text-transform:uppercase">Requirement Alignment</span>
-        <span id="intent-status-tag" class="badge" style="background:#e7f5ff;color:#1971c2">Intent: parsed</span>
+        <span id="intent-status-tag" class="badge" style="background:#f4f4f2;color:#495057">Intent: not loaded</span>
       </div>
     </div>
     <div style="overflow-x:auto">
@@ -368,16 +370,41 @@ const IndexHTML = `<!doctype html>
         <span style="font-weight:800;font-size:13px;letter-spacing:.05em;text-transform:uppercase">Failure & Incident Trace</span>
         <span id="failure-mode-tag" class="badge" style="background:#fff5f5;color:#c92a2a">Debug / Incident</span>
       </div>
-      <div style="display:flex;gap:6px">
-        <input id="failure-error-input" type="text" placeholder="Error (e.g. CardDeclined)" style="font-size:11px;padding:3px 6px;border:1px solid var(--line);border-radius:4px" />
+      <div style="display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end">
+        <input id="failure-error-input" type="text" placeholder="Error" style="font-size:11px;padding:3px 6px;border:1px solid var(--line);border-radius:4px" />
+        <input id="failure-symptom-input" type="text" placeholder="Symptom" style="font-size:11px;padding:3px 6px;border:1px solid var(--line);border-radius:4px" />
+        <input id="failure-evidence-input" type="text" placeholder="Failure Evidence ID" style="font-size:11px;padding:3px 6px;border:1px solid var(--line);border-radius:4px;width:120px" />
         <button id="btn-trigger-debug" class="btn" style="font-size:11px;padding:4px 8px" onclick="triggerFailureInvestigation('debug')">오류 역추적 (Debug)</button>
         <input id="failure-trace-input" type="text" placeholder="Trace ID" style="font-size:11px;padding:3px 6px;border:1px solid var(--line);border-radius:4px;width:90px" />
+        <input id="failure-observation-input" type="text" placeholder="Runtime Observation ID" style="font-size:11px;padding:3px 6px;border:1px solid var(--line);border-radius:4px;width:145px" />
         <button id="btn-trigger-incident" class="btn" style="font-size:11px;padding:4px 8px" onclick="triggerFailureInvestigation('incident')">인시던트 (Incident)</button>
       </div>
+    </div>
+    <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:6px;margin:6px 0">
+      <span style="font-size:10px;color:var(--muted)">basis: <strong id="failure-basis-id">unknown</strong></span>
+      <span style="font-size:10px;color:var(--muted)">generation: <strong id="failure-generation-id">unknown</strong></span>
+      <span style="font-size:10px;color:var(--muted)">validated snapshot: <strong id="failure-snapshot-id">unknown</strong></span>
+      <span style="font-size:10px;color:var(--muted)">freshness: <strong id="failure-freshness">unknown</strong></span>
+    </div>
+    <div style="display:grid;grid-template-columns:repeat(5,1fr);gap:6px;margin:6px 0">
+      <input id="failure-scenario-input" type="text" placeholder="Scenario" style="font-size:10px;padding:3px 5px;border:1px solid var(--line);border-radius:4px" />
+      <input id="failure-environment-input" type="text" placeholder="Environment" style="font-size:10px;padding:3px 5px;border:1px solid var(--line);border-radius:4px" />
+      <input id="failure-dependency-input" type="text" placeholder="Dependency fingerprint" style="font-size:10px;padding:3px 5px;border:1px solid var(--line);border-radius:4px" />
+      <input id="failure-window-from-input" type="text" placeholder="Window from (RFC3339)" style="font-size:10px;padding:3px 5px;border:1px solid var(--line);border-radius:4px" />
+      <input id="failure-window-to-input" type="text" placeholder="Window to (RFC3339)" style="font-size:10px;padding:3px 5px;border:1px solid var(--line);border-radius:4px" />
+    </div>
+    <div id="failure-runtime-disclosure" style="font-size:10px;color:var(--muted);display:flex;gap:12px;flex-wrap:wrap;margin:6px 0">
+      <span>command: <strong id="failure-command-state">not supplied</strong></span>
+      <span>access: <strong id="failure-access-state">not supplied</strong></span>
+      <span>isolation: <strong id="failure-isolation-state">not supplied</strong></span>
+      <span>promotion: <strong id="failure-promotion-state">not evaluated</strong></span>
+      <span>integrity: <strong id="failure-integrity-state">not evaluated</strong></span>
     </div>
     <div id="failure-summary-box" style="font-size:12px;color:var(--muted);margin-bottom:8px">
       <span id="failure-summary-desc">장애 발생 원인 및 타임라인을 조회할 수 있습니다.</span>
       <span id="failure-last-state" style="margin-left:8px;font-weight:bold;color:var(--text)"></span>
+      <span id="failure-unknown-state" style="margin-left:8px;color:#e67700"></span>
+      <span id="failure-conflict-state" style="margin-left:8px;color:#c92a2a"></span>
     </div>
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
       <div style="border:1px solid var(--line);border-radius:6px;padding:8px 10px;background:var(--soft)">
@@ -403,22 +430,64 @@ const IndexHTML = `<!doctype html>
         <span id="approval-status-badge" class="badge" style="background:#e7f5ff;color:#1864ab">Awaiting Human Approval</span>
       </div>
       <div style="display:flex;gap:6px">
-        <button id="btn-semantic-approve" class="btn" style="font-size:11px;padding:4px 10px;background:#1e602b;color:#fff" onclick="submitProposalApproval('approved')">의미 승인 (Approve)</button>
-        <button id="btn-semantic-reject" class="btn" style="font-size:11px;padding:4px 10px;background:#c92a2a;color:#fff" onclick="submitProposalApproval('rejected')">반려 (Reject)</button>
+        <button id="btn-semantic-approve" name="approve" aria-label="Approve semantic proposal" class="btn" style="font-size:11px;padding:4px 10px;background:#1e602b;color:#fff" onclick="submitProposalApproval('approve')">의미 승인 (Approve)</button>
+        <button id="btn-semantic-edit-then-approve" name="edit_then_approve" aria-label="Edit and approve semantic proposal" class="btn" style="font-size:11px;padding:4px 10px;background:#1864ab;color:#fff" onclick="submitProposalApproval('edit_then_approve')" disabled>수정 후 승인 (Edit then approve)</button>
+        <button id="btn-semantic-reject" name="reject" aria-label="Reject semantic proposal" class="btn" style="font-size:11px;padding:4px 10px;background:#c92a2a;color:#fff" onclick="submitProposalApproval('reject')">반려 (Reject)</button>
+        <button id="btn-semantic-revoke" name="revoke" aria-label="Revoke active semantic approval" class="btn" style="font-size:11px;padding:4px 10px;background:#862e9c;color:#fff" onclick="submitProposalApproval('revoke')" disabled>승인 철회 (Revoke)</button>
+        <button id="btn-semantic-supersede" name="supersede" aria-label="Supersede active semantic approval" class="btn" style="font-size:11px;padding:4px 10px;background:#495057;color:#fff" onclick="submitProposalApproval('supersede')" disabled>승인 대체 (Supersede)</button>
       </div>
     </div>
-    <div id="proposal-card" style="border:1px solid var(--line);border-radius:6px;padding:10px 12px;background:var(--soft);margin-bottom:8px">
+    <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">
+      <label for="approval-edited-text" style="font-size:11px;font-weight:700">Edited semantic proposal text</label>
+      <input id="approval-edited-text" name="editedText" aria-label="Edited semantic proposal text" type="text" maxlength="4096" disabled placeholder="Required for edit_then_approve" style="flex:1;font-size:11px;padding:4px 6px;border:1px solid var(--line);border-radius:4px" />
+    </div>
+    <div id="proposal-card" data-epistemic-status="unknown" style="border:1px solid var(--line);border-radius:6px;padding:10px 12px;background:var(--soft);margin-bottom:8px">
       <div style="display:flex;justify-content:space-between;font-size:12px">
-        <span><strong>제안 대상:</strong> <span id="proposal-target-symbol" style="font-family:monospace">HomePage.handleQuickCheckout</span></span>
-        <span><strong>분류:</strong> <span id="proposal-category" class="badge" style="background:#f1f3f5">business_rule</span></span>
+        <span><strong>제안 대상:</strong> <span id="proposal-target-symbol" style="font-family:monospace">unknown</span></span>
+        <span><strong>분류:</strong> <span id="proposal-category" class="badge" style="background:#f1f3f5">unknown</span></span>
       </div>
-      <div style="margin-top:6px;font-size:13px;font-weight:bold" id="proposal-title">빠른 결제 진행 및 주문 생성</div>
-      <div style="margin-top:4px;font-size:11px;color:var(--muted)" id="proposal-rationale">AST 호출 패턴 및 도메인 모델 검증을 바탕으로 제안된 비즈니스 단계입니다.</div>
+      <div style="margin-top:6px;font-size:13px;font-weight:bold" id="proposal-title">의미 제안을 확인할 수 없음</div>
+      <div style="margin-top:4px;font-size:11px;color:var(--muted)" id="proposal-rationale">현재 확인된 근거가 없는 의미 제안은 표시하지 않습니다.</div>
+      <div style="margin-top:6px;display:flex;gap:6px;align-items:center;font-size:10px;color:var(--muted)">
+        <span id="proposal-epistemic-status" class="badge" style="background:#fff9db">unknown</span>
+        <span id="proposal-authority">authority: unknown</span>
+      </div>
     </div>
+    <div id="enrichment-fallback" role="status" aria-live="polite" style="font-size:11px;color:#8a5a00;margin-bottom:8px">Unknown: 선택적 의미 보강을 사용할 수 없습니다. 결정적 흐름 결과를 유지합니다.</div>
+    <section id="model-activation-disclosure" aria-label="Model activation disclosure 모델 활성화 공개" hidden style="border:1px solid var(--line);border-radius:6px;padding:10px 12px;background:var(--warn);margin-bottom:8px">
+      <div style="font-weight:800;font-size:12px;margin-bottom:6px">Model Activation Disclosure</div>
+      <div style="display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:4px 12px;font-size:11px;color:var(--muted)">
+        <span>identity: <strong id="disclosure-identity">unknown</strong></span>
+        <span>revision: <strong id="disclosure-revision">unknown</strong></span>
+        <span>license: <strong id="disclosure-license">unknown</strong></span>
+        <span>checksum: <strong id="disclosure-checksum">unknown</strong></span>
+        <span>runtime: <strong id="disclosure-runtime">unknown</strong></span>
+        <span>data boundary: <strong id="disclosure-data-boundary">unknown</strong></span>
+      </div>
+      <div style="margin-top:6px;font-size:11px;color:var(--muted)">capability change: <strong id="disclosure-capability-change">unknown</strong></div>
+      <div style="margin-top:6px;display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+        <span id="disclosure-choice-status" role="status" aria-live="polite" style="font-size:11px;font-weight:700">Explicit choice required</span>
+        <button id="btn-model-activate" class="btn" style="font-size:11px;padding:4px 10px" onclick="chooseModelActivation('activate')">Activate</button>
+        <button id="btn-model-decline" class="btn" style="font-size:11px;padding:4px 10px" onclick="chooseModelActivation('decline')">Decline</button>
+      </div>
+    </section>
     <div id="evidence-grounding-summary" style="font-size:11px;color:var(--muted);display:flex;justify-content:space-between">
-      <span>근거 팩 (Evidence Pack): <span id="evidence-pack-id" style="font-family:monospace">pack-default</span> (<span id="evidence-redaction-tag">Clean / Redacted</span>)</span>
-      <span id="approval-result-msg" style="font-weight:bold;color:#2b8a3e"></span>
+      <span>근거 팩 (Evidence Pack): <span id="evidence-pack-id" style="font-family:monospace">unavailable</span> (<span id="evidence-redaction-tag">Clean / Redacted</span>)</span>
+      <span id="approval-result-msg" role="status" aria-live="polite" style="font-weight:bold;color:#1e602b"></span>
     </div>
+    <section id="approval-history-panel" aria-label="Durable approval history" style="margin-top:10px;border-top:1px solid var(--line);padding-top:10px">
+      <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap">
+        <span id="approval-history-summary" style="font-weight:800;font-size:12px">Durable approval history</span>
+        <span id="approval-history-status" role="status" aria-live="polite" class="badge" style="background:#f4f4f2">Not loaded</span>
+      </div>
+      <div id="approval-history-facts" style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-top:6px;font-size:11px;color:var(--muted)">
+        <span>state: <strong id="approval-history-state">none</strong></span>
+        <span>version: <strong id="approval-history-version">0</strong></span>
+        <span>freshness: <strong id="approval-history-freshness">unknown</strong></span>
+      </div>
+      <ol id="approval-history-events" aria-label="Ordered approval lifecycle events" style="margin:8px 0 0;padding-left:22px;font-size:11px;color:var(--muted)"></ol>
+      <div id="approval-history-error" role="alert" aria-live="assertive" hidden style="margin-top:6px;font-size:11px;color:#c92a2a">Approval history could not be loaded.</div>
+    </section>
   </section>
 
   <!-- Domain Architecture & Progressive Onboarding Section (VS-09, Raw §8.9) -->
@@ -433,13 +502,15 @@ const IndexHTML = `<!doctype html>
     <div id="domain-cards-grid" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:10px;margin-top:8px">
       <div style="border:1px solid var(--line);border-radius:6px;padding:10px;background:var(--soft)">
         <div style="font-weight:bold;font-size:12px">도메인 정보가 로드되지 않았습니다.</div>
-        <div style="font-size:11px;color:var(--muted);margin-top:4px">탐색 버튼을 눌러 프로젝트 도메인 구조를 조회하세요.</div>
+        <div style="font-size:11px;color:var(--muted);margin-top:4px">먼저 근거가 있는 task view를 조회한 뒤 프로젝트 도메인 구조를 조회하세요.</div>
       </div>
     </div>
     <div id="onboarding-catalog-container" style="margin-top:10px;display:none;border-top:1px solid var(--line);padding-top:10px">
       <div style="font-weight:bold;font-size:12px;margin-bottom:6px">대표 흐름 카탈로그 (Level 2: Representative Flows)</div>
       <ul id="representative-flows-list" style="list-style:none;padding:0;margin:0;font-size:12px;display:flex;flex-direction:column;gap:4px"></ul>
     </div>
+    <div id="onboarding-evidence-status" role="status" aria-live="polite" style="margin-top:8px;font-size:11px;color:var(--muted)">basis와 커버리지는 근거가 있는 조회 후 표시됩니다.</div>
+    <div id="onboarding-error" role="alert" aria-live="assertive" style="display:none;margin-top:6px;color:#c92a2a;font-size:11px"></div>
     <div id="onboarding-summary-bar" style="margin-top:8px;font-size:11px;color:var(--muted)">
       <span>전체 도메인: <span id="onboarding-total-domains" style="font-weight:bold">0</span>개</span> |
       <span>대표 흐름: <span id="onboarding-total-flows" style="font-weight:bold">0</span>개</span> |
@@ -447,40 +518,35 @@ const IndexHTML = `<!doctype html>
     </div>
   </section>
 
-  <!-- Release Capability & SLM Matrix Section (VS-10, Raw §16–§18) -->
+  <!-- Evidence-derived Release Capability Matrix (VS-10) -->
   <section id="release-capability-section" class="flow-tabs-section" aria-label="Release Capability 릴리즈 검증 및 역량 매트릭스" style="margin-top:14px;border:1px solid var(--line);border-radius:8px;padding:12px 16px;background:var(--paper)">
     <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
       <div style="display:flex;align-items:center;gap:8px">
-        <span style="font-weight:800;font-size:13px;letter-spacing:.05em;text-transform:uppercase">Release Capability & SLM Matrix</span>
-        <span id="release-ready-badge" class="badge" style="background:#ebfbee;color:#1e602b">Release Ready: PASSED</span>
+        <span style="font-weight:800;font-size:13px;letter-spacing:.05em;text-transform:uppercase">Evidence-derived Release Capability Matrix</span>
+        <span id="release-ready-badge" class="badge" style="background:#f4f4f2;color:#495057">Release Ready: NOT MEASURED</span>
       </div>
       <button id="btn-eval-release" class="btn" style="font-size:11px;padding:4px 10px" onclick="evaluateReleaseCapability()">릴리즈 역량 재평가 (Evaluate)</button>
     </div>
     <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-bottom:10px">
       <div style="border:1px solid var(--line);border-radius:6px;padding:8px;background:var(--soft)">
-        <div style="font-size:11px;color:var(--muted)">Latency (p95)</div>
-        <div id="metric-latency-p95" style="font-size:14px;font-weight:bold;margin-top:2px">315.0 ms</div>
+        <div style="font-size:11px;color:var(--muted)">Activity p95</div>
+        <div id="metric-latency-p95" style="font-size:14px;font-weight:bold;margin-top:2px">not measured</div>
       </div>
       <div style="border:1px solid var(--line);border-radius:6px;padding:8px;background:var(--soft)">
         <div style="font-size:11px;color:var(--muted)">Precision / Recall</div>
-        <div id="metric-precision" style="font-size:14px;font-weight:bold;margin-top:2px">0.93 / 0.90</div>
+        <div id="metric-precision" style="font-size:14px;font-weight:bold;margin-top:2px">not measured</div>
       </div>
       <div style="border:1px solid var(--line);border-radius:6px;padding:8px;background:var(--soft)">
-        <div style="font-size:11px;color:var(--muted)">Regressions / Violations</div>
-        <div id="metric-regressions" style="font-size:14px;font-weight:bold;margin-top:2px">0 / 0</div>
+        <div style="font-size:11px;color:var(--muted)">Current-or-gap p95</div>
+        <div id="metric-regressions" style="font-size:14px;font-weight:bold;margin-top:2px">not measured</div>
       </div>
     </div>
-    <div style="font-size:12px;margin-bottom:4px"><strong>SLM 세맨틱 과업 역량 상태:</strong></div>
+    <div style="font-size:12px;margin-bottom:4px"><strong>근거 기반 역량 상태:</strong></div>
     <div id="slm-capabilities-list" style="display:flex;gap:6px;flex-wrap:wrap;font-size:11px">
-      <span class="badge" style="background:#ebfbee;color:#1e602b">진입점 해석: Full</span>
-      <span class="badge" style="background:#ebfbee;color:#1e602b">슬라이스 합성: Full</span>
-      <span class="badge" style="background:#ebfbee;color:#1e602b">상태 델타 추론: Full</span>
-      <span class="badge" style="background:#ebfbee;color:#1e602b">비즈니스 규칙 추출: Full</span>
-      <span class="badge" style="background:#ebfbee;color:#1e602b">간접 영향 추적: Full</span>
-      <span class="badge" style="background:#ebfbee;color:#1e602b">장애 역추적: Full</span>
+      <span class="badge" style="background:#f4f4f2;color:#495057">not measured</span>
     </div>
     <div style="margin-top:8px;font-size:11px;color:var(--muted)">
-      <span>폴백 티어 (Fallback Tier): <span id="release-fallback-tier" style="font-family:monospace;font-weight:bold">local_slm</span></span>
+      <span>평가 범위: <span id="release-fallback-tier" style="font-family:monospace;font-weight:bold">not measured</span></span>
     </div>
   </section>
 
@@ -530,6 +596,8 @@ const IndexHTML = `<!doctype html>
         </div>
         <div class="timeline-controls">
           <span class="timeline-note" id="timeline-note"></span>
+          <span class="timeline-note" id="projection-summary">Projection: unknown · folds: 0 · unknown boundaries: 0</span>
+          <span class="timeline-note" id="view-state-status">Selection: not measured</span>
           <button class="btn-sm" id="timeline-toggle" onclick="toggleTimelineFilter()" style="display:none">전체 보기</button>
         </div>
       </div>
@@ -667,6 +735,51 @@ const IndexHTML = `<!doctype html>
 <script>
 const params=new URLSearchParams(location.search),token=params.get('token')||'';
 let currentFlowId=params.get('flow')||'',cachedFlows=[],currentSpec=null,selected=0,viewMode='symbol';
+// View state is measured from the rendered DOM and keyed by semantic structural
+// identity. A generated step id is not a preservation key because it may change
+// when a compatible generation is rebuilt.
+let viewState={
+  schemaId:'https://codeflow.local/schemas/rflsc.flowview-view-state.v2.schema.json',
+  schemaVersion:2,
+  viewId:'flow-view',
+  streamId:'live-comprehension-stream',
+  computedBasisId:'',
+  generationId:'unpublished',
+	validatedAgainstSnapshotId:'',
+	proposalId:'',
+	evidencePackId:'',
+	intentRevision:0,
+	approvalCommandId:'',
+	approvalIdempotencyKey:'',
+	approvalDecision:'',
+	approvalPendingRequest:null,
+	approvalExpectedVersion:null,
+	approvalExpectedState:'',
+	approvalPredecessorApprovalId:'',
+	approvalVersion:0,
+	approvalState:'none',
+	activeApprovalId:'',
+	dependencyFingerprint:'',
+  repositoryId:'',
+  worktreeId:'',
+  displayBasis:'candidate',
+  activityStatus:'idle',
+  qualityStage:'Q1',
+  settlement:'pending',
+  enrichmentStatus:'unavailable',
+  connectionStatus:'disconnected',
+  selectedStepId:null,
+  selectedStructuralIdentity:null,
+  logicalScrollAnchor:null,
+  visibleStepRefs:[],
+  preservedStepRefs:[],
+  corpusVersion:'rflsc-vs03-view-corpus-v1',
+  currentProofVerified:false,
+  lastEventSequence:0,
+  identityLoss:false,
+  preserved:false
+};
+let semanticRequestGeneration=0;
 let showAllTimeline=false;
 let mapMode='flow',cachedMap=null,excerptSymbol=null;
 
@@ -687,17 +800,514 @@ function esc(s){
 /* escJs: for values interpolated into single-quoted JS strings inside HTML
    attributes — HTML-escape first, then neutralize the JS string delimiter. */
 function escJs(s){
-  return esc(s).replace(/'/g,"\\'");
+  return esc(s).replace(/\\/g,"\\\\").replace(/'/g,"\\'").replace(/\r/g,"\\r").replace(/\n/g,"\\n").replace(/\u2028/g,"\\u2028").replace(/\u2029/g,"\\u2029");
 }
 
 const LAYER_ORDER=['presentation','controller','usecase','domain','data','infra','external','unknown'];
 const LAYER_LABELS={presentation:'프레젠테이션',controller:'컨트롤러',usecase:'유스케이스',domain:'도메인',data:'데이터',infra:'인프라',external:'외부 연동',unknown:'미분류',page:'Page (Flutter)',state:'상태(State)',repository:'Repository',ui:'Page (Flutter)',application:'UseCase'};
-const KIND_LABELS={guard:'조건 확인',mutation:'상태 변경',call:'기능 실행',branch:'흐름 분기'};
+const KIND_LABELS={user_action:'진입',guard:'조건 확인',mutation:'상태 변경',call:'기능 실행',branch:'흐름 분기',decision:'결정',failure:'실패',security:'보안',external_effect:'외부 효과'};
 const EDGE_LABELS={resolved_cross_file:'내부 위임',boundary_call:'외부 연동'};
-const FRESH_LABEL={fresh:'확인됨',stale:'재확인 필요',orphaned:'찾을 수 없음'};
+const FRESH_LABEL={fresh:'확인됨',historical:'후보 basis',unknown:'미확인',stale:'재확인 필요',orphaned:'찾을 수 없음'};
+const ENRICHMENT_STATUSES=['not_requested','pending','available','timed_out','unavailable'];
+
+function enrichmentEnvelope(data){
+  const root=data&&data.enrichment&&typeof data.enrichment==='object'?data.enrichment:{};
+  const state=root.state&&typeof root.state==='object'?root.state:(data&&data.enrichmentState&&typeof data.enrichmentState==='object'?data.enrichmentState:(root.status?root:{}));
+  const rawStatus=(state&&state.status)||(data&&data.enrichmentStatus)||'unavailable';
+  const status=ENRICHMENT_STATUSES.includes(rawStatus)?rawStatus:'unavailable';
+	return {
+		status:status,
+		state:state||{},
+		proposal:root.proposal||((data&&data.semanticProposal)||((data&&data.proposal)||null)),
+		pack:root.pack||((data&&data.pack)||null),
+		fallback:root.fallback||((data&&data.fallback)||null),
+    disclosure:root.disclosure||((state&&state.disclosure)||((data&&data.modelActivationDisclosure)||((data&&data.disclosure)||null)))
+  };
+}
+
+function enrichmentDisplayValue(value,fallback){
+  if(Array.isArray(value))return value.length?value.join(', '):fallback;
+  if(value===null||value===undefined)return fallback;
+  const text=String(value).trim();
+  return text?text:fallback;
+}
+
+function isDisplayOnlyInferredProposal(proposal){
+  if(!proposal||proposal.epistemicStatus!=='inferred')return false;
+  if(proposal.authority!=='model'&&proposal.authority!=='inferred')return false;
+  if(proposal.claimScope!=='display_only'&&proposal.claimScope!=='expression_only')return false;
+  return !!(enrichmentDisplayValue(proposal.targetSymbolPath,'')&&enrichmentDisplayValue(proposal.proposedTitle,'')&&enrichmentDisplayValue(proposal.proposedCategory,''));
+}
+
+function setSemanticEvidencePackIdentity(packID){
+  const value=typeof packID==='string'?packID.trim():'';
+  viewState={...viewState,evidencePackId:value};
+  const display=document.getElementById('evidence-pack-id');
+  if(display)display.textContent=value||'unavailable';
+}
+
+function clearSemanticEnrichmentIdentity(){
+  setSemanticEvidencePackIdentity('');
+	viewState={...viewState,proposalId:'',approvalCommandId:'',approvalIdempotencyKey:'',approvalDecision:'',approvalExpectedVersion:null,approvalExpectedState:'',approvalPredecessorApprovalId:'',approvalVersion:0,approvalState:'none',activeApprovalId:''};
+	viewState={...viewState,approvalPendingRequest:null};
+	if(typeof clearApprovalHistoryUI==='function')clearApprovalHistoryUI();
+	if(typeof syncApprovalControls==='function')syncApprovalControls();
+}
+
+function beginSemanticRequest(){
+	semanticRequestGeneration+=1;
+	clearSemanticEnrichmentIdentity();
+	return semanticRequestGeneration;
+}
+
+function isLatestSemanticRequest(generation){
+	return generation===semanticRequestGeneration;
+}
+
+const APPROVAL_HISTORY_SCHEMA_ID='https://codeflow.local/schemas/rflsc.approval-history.v1.schema.json';
+const APPROVAL_HISTORY_SCHEMA_VERSION=1;
+const APPROVAL_EVENT_SCHEMA_ID='https://codeflow.local/schemas/rflsc.approval-event.v2.schema.json';
+const APPROVAL_AGGREGATE_SCHEMA_ID='https://codeflow.local/schemas/rflsc.approval-aggregate.v2.schema.json';
+const APPROVAL_HISTORY_STATES=['none','active','rejected','revoked','superseded'];
+const APPROVAL_HISTORY_DECISIONS=['approve','edit_then_approve','reject','revoke','supersede'];
+const APPROVAL_HISTORY_RELATIONS=['initial','edit','reject','revoke','supersede'];
+const APPROVAL_HISTORY_MAX_RECORDS=256;
+let approvalHistoryModel=null;
+let approvalHistoryLoadSequence=0;
+let approvalHistoryMutationSequence=0;
+let approvalHistoryRefreshPending=null;
+const approvalHistoryNotificationLoads=new Map();
+
+function approvalHistoryExactKeys(value,required,optional){
+  if(!value||typeof value!=='object'||Array.isArray(value))return false;
+  const allowed=new Set(required.concat(optional||[]));
+  const keys=Object.keys(value);
+  if(keys.length<required.length)return false;
+  for(const key of required)if(!Object.prototype.hasOwnProperty.call(value,key))return false;
+  for(const key of keys)if(!allowed.has(key))return false;
+  return true;
+}
+
+function approvalHistoryValidID(value,allowEmpty=false,max=256){
+  if(typeof value!=='string')return false;
+  if(!allowEmpty&&value.trim()==='')return false;
+  if(value.trim()!==value||Array.from(value).length>max)return false;
+  for(const ch of value){
+    const code=ch.codePointAt(0);
+    if(code===0||code===0x7f||code<0x20||code>=0x80&&code<=0x9f||ch==='/'||ch==='\\'||value.includes('..'))return false;
+  }
+  return allowEmpty||value.length>0;
+}
+
+function approvalHistoryValidInteger(value,min,max){
+  return Number.isSafeInteger(value)&&value>=min&&value<=max;
+}
+
+function approvalHistoryIdentity(){
+  const spec=currentSpec&&typeof currentSpec==='object'?currentSpec:null;
+  return {
+    loadSequence:approvalHistoryLoadSequence,
+    mutationSequence:approvalHistoryMutationSequence,
+    requestGeneration:typeof semanticRequestGeneration==='number'?semanticRequestGeneration:0,
+    proposalId:typeof viewState.proposalId==='string'?viewState.proposalId.trim():'',
+    evidencePackId:typeof viewState.evidencePackId==='string'?viewState.evidencePackId.trim():'',
+    computedBasisId:typeof viewState.computedBasisId==='string'?viewState.computedBasisId.trim():'',
+    generationId:typeof viewState.generationId==='string'?viewState.generationId.trim():'',
+    intentRevision:Number.isInteger(viewState.intentRevision)?viewState.intentRevision:0,
+    validatedSnapshotId:typeof viewState.validatedAgainstSnapshotId==='string'?viewState.validatedAgainstSnapshotId.trim():'',
+    mapId:spec&&typeof spec.flowId==='string'?spec.flowId.trim():'',
+    workspaceId:spec&&typeof spec.workspaceId==='string'?spec.workspaceId.trim():'',
+    taskId:spec&&typeof spec.taskId==='string'?spec.taskId.trim():'',
+    pendingRequest:viewState.approvalPendingRequest||null
+  };
+}
+
+function approvalHistoryIdentityIsCurrent(identity){
+  if(!identity||identity.loadSequence!==approvalHistoryLoadSequence||identity.mutationSequence!==approvalHistoryMutationSequence)return false;
+  const current=approvalHistoryIdentity();
+  return identity.requestGeneration===current.requestGeneration&&identity.proposalId===current.proposalId&&identity.evidencePackId===current.evidencePackId&&identity.computedBasisId===current.computedBasisId&&identity.generationId===current.generationId&&identity.intentRevision===current.intentRevision&&identity.validatedSnapshotId===current.validatedSnapshotId&&identity.mapId===current.mapId&&identity.workspaceId===current.workspaceId&&identity.taskId===current.taskId&&identity.pendingRequest===current.pendingRequest;
+}
+
+function approvalHistoryValidText(value,max){
+  return typeof value==='string'&&Array.from(value).length<=max&&value.indexOf('\u0000')<0;
+}
+
+function approvalHistoryValidTimestamp(value){
+  if(!approvalHistoryValidText(value,128))return false;
+  const match=/^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})(?:\.(\d{1,9}))?Z$/.exec(value);
+  if(!match)return false;
+  const year=Number(match[1]),month=Number(match[2]),day=Number(match[3]),hour=Number(match[4]),minute=Number(match[5]),second=Number(match[6]),fraction=match[7]||'';
+  if(fraction&&fraction.endsWith('0'))return false;
+  const milliseconds=Number((fraction+'000').slice(0,3));
+  const date=new Date(0);
+  date.setUTCFullYear(year,month-1,day);
+  date.setUTCHours(hour,minute,second,milliseconds);
+  return date.getUTCFullYear()===year&&date.getUTCMonth()===month-1&&date.getUTCDate()===day&&date.getUTCHours()===hour&&date.getUTCMinutes()===minute&&date.getUTCSeconds()===second&&date.getUTCMilliseconds()===milliseconds;
+}
+
+function approvalHistoryTransition(state,active,event){
+  if(event.decision==='approve'){
+    if(state!=='none'||event.lifecycleRelation!=='initial'||Object.prototype.hasOwnProperty.call(event,'predecessorApprovalId')||event.approvedText.trim()==='')return null;
+    return {state:'active',active:event.approvalId};
+  }
+  if(event.decision==='edit_then_approve'){
+    if(state!=='active'||event.lifecycleRelation!=='edit'||event.predecessorApprovalId!==active||event.approvedText.trim()==='')return null;
+    return {state:'active',active:event.approvalId};
+  }
+  if(event.decision==='reject'){
+    if((state!=='none'&&state!=='active')||event.lifecycleRelation!=='reject'||event.approvedText!=='')return null;
+    if(state==='none'&&Object.prototype.hasOwnProperty.call(event,'predecessorApprovalId'))return null;
+    if(state==='active'&&Object.prototype.hasOwnProperty.call(event,'predecessorApprovalId')&&event.predecessorApprovalId!==active)return null;
+    return {state:'rejected',active:''};
+  }
+  if(event.decision==='revoke'||event.decision==='supersede'){
+    if(state!=='active'||event.lifecycleRelation!==event.decision||event.predecessorApprovalId!==active||event.approvedText!=='')return null;
+    return {state:event.decision==='revoke'?'revoked':'superseded',active:''};
+  }
+  return null;
+}
+
+function validateApprovalHistoryPayload(payload,identity){
+  const topRequired=['schemaId','schemaVersion','target','events','aggregate','freshness'];
+  if(!approvalHistoryExactKeys(payload,topRequired,[])||payload.schemaId!==APPROVAL_HISTORY_SCHEMA_ID||payload.schemaVersion!==APPROVAL_HISTORY_SCHEMA_VERSION||!['current','historical'].includes(payload.freshness))return null;
+  const targetKeys=['workspaceId','proposalId','evidencePackId','computedBasisId','generationId','intentRevision','validatedSnapshotId','workspaceEpoch','mapId','taskId'];
+  const target=payload.target;
+  if(!approvalHistoryExactKeys(target,targetKeys,[]))return null;
+  for(const key of ['workspaceId','proposalId','evidencePackId','computedBasisId','generationId','validatedSnapshotId','mapId','taskId'])if(!approvalHistoryValidID(target[key]))return null;
+  if(!approvalHistoryValidInteger(target.intentRevision,1,1000000)||!approvalHistoryValidInteger(target.workspaceEpoch,0,Number.MAX_SAFE_INTEGER))return null;
+  if(!identity||!approvalHistoryValidID(identity.workspaceId)||target.workspaceId!==identity.workspaceId||target.proposalId!==identity.proposalId||target.evidencePackId!==identity.evidencePackId)return null;
+  if(identity.computedBasisId&&target.computedBasisId!==identity.computedBasisId)return null;
+  if(identity.generationId&&identity.generationId!=='unpublished'&&target.generationId!==identity.generationId)return null;
+  if(identity.intentRevision>0&&target.intentRevision!==identity.intentRevision)return null;
+  if(identity.validatedSnapshotId&&target.validatedSnapshotId!==identity.validatedSnapshotId)return null;
+  if(identity.mapId&&target.mapId!==identity.mapId)return null;
+  if(identity.workspaceId&&target.workspaceId!==identity.workspaceId)return null;
+  if(identity.taskId&&target.taskId!==identity.taskId)return null;
+
+  if(!Array.isArray(payload.events)||payload.events.length<1||payload.events.length>APPROVAL_HISTORY_MAX_RECORDS-1)return null;
+  const eventKeys=['schemaId','schemaVersion','eventId','approvalId','aggregateId','aggregateVersion','actorId','sessionId','workspaceId','proposalId','evidencePackId','computedBasisId','generationId','intentRevision','decision','approvedText','timestamp','lifecycleRelation'];
+  const eventOptional=['predecessorApprovalId'];
+  const eventIDs=new Set();
+  const approvalIDs=new Set();
+  for(const event of payload.events){
+    if(!approvalHistoryExactKeys(event,eventKeys,eventOptional)||event.schemaId!==APPROVAL_EVENT_SCHEMA_ID||event.schemaVersion!==2)return null;
+    for(const key of ['eventId','approvalId','aggregateId'])if(!approvalHistoryValidID(event[key]))return null;
+    for(const key of ['actorId','sessionId','workspaceId','proposalId','evidencePackId','computedBasisId','generationId'])if(!approvalHistoryValidText(event[key],256))return null;
+    if(!approvalHistoryValidInteger(event.aggregateVersion,1,1000000000)||!approvalHistoryValidInteger(event.intentRevision,1,1000000)||!APPROVAL_HISTORY_DECISIONS.includes(event.decision)||!APPROVAL_HISTORY_RELATIONS.includes(event.lifecycleRelation)||!approvalHistoryValidText(event.approvedText,4096)||!approvalHistoryValidTimestamp(event.timestamp))return null;
+    if(Object.prototype.hasOwnProperty.call(event,'predecessorApprovalId')&&!approvalHistoryValidID(event.predecessorApprovalId))return null;
+    if(event.workspaceId!==target.workspaceId||event.proposalId!==target.proposalId||event.evidencePackId!==target.evidencePackId||event.computedBasisId!==target.computedBasisId||event.generationId!==target.generationId||event.intentRevision!==target.intentRevision)return null;
+    if(eventIDs.has(event.eventId)||approvalIDs.has(event.approvalId))return null;
+    eventIDs.add(event.eventId);approvalIDs.add(event.approvalId);
+  }
+
+  const aggregate=payload.aggregate;
+  const aggregateRequired=['schemaId','schemaVersion','aggregateId','workspaceId','proposalId','evidencePackId','computedBasisId','generationId','intentRevision','version','state','lastEventId','lastDecision','history'];
+  if(!approvalHistoryExactKeys(aggregate,aggregateRequired,['activeApprovalId'])||aggregate.schemaId!==APPROVAL_AGGREGATE_SCHEMA_ID||aggregate.schemaVersion!==2)return null;
+  for(const key of ['aggregateId','workspaceId','proposalId','evidencePackId','computedBasisId','generationId','lastEventId'])if(!approvalHistoryValidID(aggregate[key]))return null;
+  if(!approvalHistoryValidInteger(aggregate.intentRevision,1,1000000)||!approvalHistoryValidInteger(aggregate.version,0,1000000000)||!APPROVAL_HISTORY_STATES.includes(aggregate.state)||!['none'].concat(APPROVAL_HISTORY_DECISIONS).includes(aggregate.lastDecision))return null;
+  if(Object.prototype.hasOwnProperty.call(aggregate,'activeApprovalId')&&!approvalHistoryValidID(aggregate.activeApprovalId))return null;
+  if(aggregate.workspaceId!==target.workspaceId||aggregate.proposalId!==target.proposalId||aggregate.evidencePackId!==target.evidencePackId||aggregate.computedBasisId!==target.computedBasisId||aggregate.generationId!==target.generationId||aggregate.intentRevision!==target.intentRevision)return null;
+  if(aggregate.aggregateId!==payload.events[0].aggregateId||aggregate.version!==payload.events.length)return null;
+  for(const event of payload.events)if(event.aggregateId!==aggregate.aggregateId)return null;
+  if(!Array.isArray(aggregate.history)||aggregate.history.length!==payload.events.length+1||aggregate.history.length>APPROVAL_HISTORY_MAX_RECORDS)return null;
+  const genesis=aggregate.history[0];
+  if(!approvalHistoryExactKeys(genesis,['version','state','eventId','decision'],['approvalId'])||genesis.version!==0||genesis.state!=='none'||genesis.decision!=='none'||Object.prototype.hasOwnProperty.call(genesis,'approvalId')||!approvalHistoryValidID(genesis.eventId)||eventIDs.has(genesis.eventId))return null;
+  let state='none';
+  let active='';
+  for(let index=0;index<payload.events.length;index+=1){
+    const event=payload.events[index];
+    if(event.aggregateVersion!==index+1)return null;
+    const transition=approvalHistoryTransition(state,active,event);
+    if(!transition)return null;
+    const entry=aggregate.history[index+1];
+    if(!approvalHistoryExactKeys(entry,['version','state','eventId','decision'],['approvalId'])||entry.version!==index+1||entry.eventId!==event.eventId||entry.decision!==event.decision)return null;
+    if(event.decision==='approve'||event.decision==='edit_then_approve'||Object.prototype.hasOwnProperty.call(event,'approvalId')){
+      if(entry.approvalId!==event.approvalId)return null;
+    }else if(Object.prototype.hasOwnProperty.call(entry,'approvalId'))return null;
+    if(entry.state!==transition.state)return null;
+    state=transition.state;active=transition.active;
+  }
+  if(aggregate.state!==state||aggregate.lastEventId!==payload.events[payload.events.length-1].eventId||aggregate.lastDecision!==payload.events[payload.events.length-1].decision)return null;
+  if(state==='active'){
+    if(aggregate.activeApprovalId!==active)return null;
+  }else if(Object.prototype.hasOwnProperty.call(aggregate,'activeApprovalId')&&aggregate.activeApprovalId!=='')return null;
+  return JSON.parse(JSON.stringify(payload));
+}
+
+function approvalHistoryStateLabel(state){
+  return {none:'Awaiting approval',active:'Active approval',rejected:'Rejected',revoked:'Revoked',superseded:'Superseded'}[state]||'Approval history';
+}
+
+function approvalHistoryDecisionLabel(decision){
+  return {approve:'Approved',edit_then_approve:'Edited and approved',reject:'Rejected',revoke:'Revoked',supersede:'Superseded'}[decision]||'Lifecycle event';
+}
+
+function renderApprovalHistoryDisplay(events,aggregate,freshness){
+  const stateEl=document.getElementById('approval-history-state');
+  const versionEl=document.getElementById('approval-history-version');
+  const freshnessEl=document.getElementById('approval-history-freshness');
+  const statusEl=document.getElementById('approval-history-status');
+  const summaryEl=document.getElementById('approval-history-summary');
+  const list=document.getElementById('approval-history-events');
+  const errorEl=document.getElementById('approval-history-error');
+  if(stateEl)stateEl.textContent=aggregate&&APPROVAL_HISTORY_STATES.includes(aggregate.state)?aggregate.state:'none';
+  if(versionEl)versionEl.textContent=aggregate&&Number.isSafeInteger(aggregate.version)?String(aggregate.version):'0';
+  if(freshnessEl)freshnessEl.textContent=['current','historical'].includes(freshness)?freshness:'unknown';
+  if(statusEl){statusEl.textContent=aggregate&&aggregate.version>0?'Loaded from durable history':'No durable approval history';statusEl.style.background=aggregate&&aggregate.version>0?'#ebfbee':'#f4f4f2';}
+  if(summaryEl)summaryEl.textContent=aggregate&&aggregate.version>0?'Durable approval history':'No durable approval history';
+  if(errorEl){errorEl.hidden=true;errorEl.textContent='';}
+  if(list){
+    list.textContent='';
+    (Array.isArray(events)?events:[]).forEach((event,index)=>{
+      const item=document.createElement('li');
+      item.textContent='v'+String(Number.isSafeInteger(event.aggregateVersion)?event.aggregateVersion:index+1)+' · '+approvalHistoryDecisionLabel(event.decision);
+      list.appendChild(item);
+    });
+  }
+}
+
+function clearApprovalHistoryUI(freshness){
+  approvalHistoryModel=null;
+  const value=freshness==='current'?'current':'unknown';
+  renderApprovalHistoryDisplay([], {state:'none',version:0}, value);
+  viewState={...viewState,approvalVersion:0,approvalState:'none',approvalExpectedVersion:0,approvalExpectedState:'none',activeApprovalId:'',approvalPredecessorApprovalId:''};
+  if(typeof syncApprovalControls==='function')syncApprovalControls();
+}
+
+function setApprovalHistoryFailure(){
+  const statusEl=document.getElementById('approval-history-status');
+  const summaryEl=document.getElementById('approval-history-summary');
+  const errorEl=document.getElementById('approval-history-error');
+  if(statusEl)statusEl.textContent='Unavailable';
+  if(summaryEl)summaryEl.textContent='Durable approval history';
+  if(errorEl){errorEl.hidden=false;errorEl.textContent='Approval history could not be loaded.';}
+}
+
+function applyApprovalHistoryPayload(payload){
+  approvalHistoryModel=JSON.parse(JSON.stringify(payload));
+  const aggregate=approvalHistoryModel.aggregate;
+  renderApprovalHistoryDisplay(approvalHistoryModel.events,aggregate,approvalHistoryModel.freshness);
+  viewState={...viewState,approvalVersion:aggregate.version,approvalState:aggregate.state,approvalExpectedVersion:aggregate.version,approvalExpectedState:aggregate.state,activeApprovalId:aggregate.activeApprovalId||'',approvalPredecessorApprovalId:aggregate.activeApprovalId||''};
+  const badge=document.getElementById('approval-status-badge');
+  if(badge){badge.textContent=approvalHistoryStateLabel(aggregate.state);badge.style.background=aggregate.state==='active'?'#ebfbee':(aggregate.state==='none'?'#e7f5ff':'#fff5f5');badge.style.color=aggregate.state==='active'?'#2b8a3e':(aggregate.state==='none'?'#1864ab':'#c92a2a');}
+  if(typeof syncApprovalControls==='function')syncApprovalControls();
+}
+
+async function loadApprovalHistory(expectedAggregateId=''){
+  const proposalId=typeof viewState.proposalId==='string'?viewState.proposalId.trim():'';
+  const evidencePackId=typeof viewState.evidencePackId==='string'?viewState.evidencePackId.trim():'';
+  if(!proposalId||!evidencePackId){clearApprovalHistoryUI();return;}
+  // An aggregate notification is not yet known to concern the selected
+  // proposal. Supersede only that aggregate's other probes until the exact
+  // durable history establishes relevance.
+  const notificationToken=expectedAggregateId?{}:null;
+  if(notificationToken)approvalHistoryNotificationLoads.set(expectedAggregateId,notificationToken);
+  else approvalHistoryLoadSequence+=1;
+  const identity=approvalHistoryIdentity();
+  const loadIsCurrent=()=>approvalHistoryIdentityIsCurrent(identity)&&(!notificationToken||approvalHistoryNotificationLoads.get(expectedAggregateId)===notificationToken);
+  const statusEl=document.getElementById('approval-history-status');
+  const errorEl=document.getElementById('approval-history-error');
+  if(!expectedAggregateId){
+    if(statusEl)statusEl.textContent='Loading durable history';
+    if(errorEl)errorEl.hidden=true;
+  }
+  try{
+    const r=await api('/api/semantic/approval-history?proposalId='+encodeURIComponent(proposalId)+'&evidencePackId='+encodeURIComponent(evidencePackId),{allowErrors:true});
+    if(!loadIsCurrent())return;
+    let payload=null;
+    try{payload=await r.json();}catch(_){payload=null;}
+    if(!loadIsCurrent())return;
+    if(!r.ok){
+      if(r.status===404&&payload&&payload.code==='approval_unavailable'){if(!expectedAggregateId)clearApprovalHistoryUI();}
+      else setApprovalHistoryFailure();
+      return;
+    }
+    const validated=validateApprovalHistoryPayload(payload,identity);
+    if(!validated||!loadIsCurrent()){if(loadIsCurrent())setApprovalHistoryFailure();return;}
+    if(expectedAggregateId&&validated.aggregate.aggregateId!==expectedAggregateId)return;
+    if(notificationToken)approvalHistoryLoadSequence+=1;
+    applyApprovalHistoryPayload(validated);
+  }catch(_){
+    if(loadIsCurrent())setApprovalHistoryFailure();
+  }finally{
+    if(notificationToken&&approvalHistoryNotificationLoads.get(expectedAggregateId)===notificationToken)approvalHistoryNotificationLoads.delete(expectedAggregateId);
+  }
+}
+
+function requestApprovalHistoryRefresh(expectedAggregateId=''){
+  const identity=approvalHistoryIdentity();
+  if(!identity.proposalId||!identity.evidencePackId)return;
+  if(expectedAggregateId&&approvalHistoryModel&&approvalHistoryModel.aggregate.aggregateId!==expectedAggregateId)return;
+  if(viewState.approvalPendingRequest){
+    approvalHistoryRefreshPending={proposalId:identity.proposalId,evidencePackId:identity.evidencePackId,requestGeneration:identity.requestGeneration};
+    return;
+  }
+  approvalHistoryRefreshPending=null;
+  loadApprovalHistory(expectedAggregateId);
+}
+
+function appendApprovalHistoryProjection(payload){
+  if(!payload||!Array.isArray(payload.events)||!payload.aggregate)return false;
+  const identity=approvalHistoryIdentity();
+  const validated=validateApprovalHistoryPayload(payload,identity);
+  if(!validated||!approvalHistoryIdentityIsCurrent(identity))return false;
+  approvalHistoryMutationSequence+=1;
+  applyApprovalHistoryPayload(validated);
+  return true;
+}
+
+function appendApprovalHistoryLocalReceipt(result){
+  if(!result||!result.receipt||!result.receipt.event||!result.receipt.aggregate)return false;
+  const event=result.receipt.event;
+  const aggregate=result.receipt.aggregate;
+  if(aggregate.version!==1||event.aggregateVersion!==1||event.decision!=='approve'||event.lifecycleRelation!=='initial'||Object.prototype.hasOwnProperty.call(event,'predecessorApprovalId')||event.approvedText.trim()===''||aggregate.state!=='active'||aggregate.lastEventId!==event.eventId||aggregate.lastDecision!=='approve'||aggregate.activeApprovalId!==event.approvalId)return false;
+  if(!Array.isArray(aggregate.history)||aggregate.history.length!==2)return false;
+  const genesis=aggregate.history[0];
+  const tail=aggregate.history[1];
+  if(!approvalExecutionExactKeys(genesis,['version','state','eventId','decision'],[])||genesis.version!==0||genesis.state!=='none'||genesis.decision!=='none'||!approvalExecutionValidID(genesis.eventId))return false;
+  if(!approvalExecutionExactKeys(tail,['version','state','eventId','decision'],['approvalId'])||tail.version!==1||tail.state!=='active'||tail.eventId!==event.eventId||tail.decision!=='approve'||!Object.prototype.hasOwnProperty.call(tail,'approvalId')||tail.approvalId!==event.approvalId)return false;
+  const spec=typeof currentSpec!=='undefined'&&currentSpec&&typeof currentSpec==='object'?currentSpec:null;
+  const mapId=spec&&typeof spec.flowId==='string'?spec.flowId.trim():'';
+  const taskId=spec&&typeof spec.taskId==='string'?spec.taskId.trim():'';
+  if(!approvalHistoryValidID(mapId)||!approvalHistoryValidID(taskId))return false;
+  const hasWorkspaceEpoch=spec&&Object.prototype.hasOwnProperty.call(spec,'workspaceEpoch');
+  const workspaceEpoch=hasWorkspaceEpoch?spec.workspaceEpoch:0;
+  if(!approvalHistoryValidInteger(workspaceEpoch,0,Number.MAX_SAFE_INTEGER))return false;
+  const payload={
+    schemaId:APPROVAL_HISTORY_SCHEMA_ID,
+    schemaVersion:APPROVAL_HISTORY_SCHEMA_VERSION,
+    target:{workspaceId:event.workspaceId,proposalId:event.proposalId,evidencePackId:event.evidencePackId,computedBasisId:event.computedBasisId,generationId:event.generationId,intentRevision:event.intentRevision,validatedSnapshotId:result.validatedSnapshotId,workspaceEpoch:workspaceEpoch,mapId:mapId,taskId:taskId},
+    events:[event],
+    aggregate:aggregate,
+    freshness:result.freshness==='historical'?'historical':'current'
+  };
+  const identity=approvalHistoryIdentity();
+  const validated=validateApprovalHistoryPayload(payload,identity);
+  if(!validated||!approvalHistoryIdentityIsCurrent(identity))return false;
+  approvalHistoryMutationSequence+=1;
+  applyApprovalHistoryPayload(validated);
+  return true;
+}
+
+function appendApprovalHistoryReceipt(result){
+  if(!result||arguments.length!==1||typeof approvalExecutionExactKeys!=='function'||typeof APPROVAL_VALIDATED_EXECUTION_RESULTS==='undefined'||!APPROVAL_VALIDATED_EXECUTION_RESULTS||typeof APPROVAL_VALIDATED_EXECUTION_RESULTS.has!=='function'||!APPROVAL_VALIDATED_EXECUTION_RESULTS.has(result)||!approvalExecutionExactKeys(result,['receipt','generationId','computedBasisId','validatedSnapshotId','intentRevision','freshness'],[])||!result.receipt||!approvalExecutionExactKeys(result.receipt,['idempotencyResult','event','aggregate','outbox','replayed'],[])||!result.receipt.event||!result.receipt.aggregate)return false;
+  const event=result.receipt.event;
+  const aggregate=result.receipt.aggregate;
+  if(!event||!aggregate)return false;
+  if(!approvalHistoryModel||!Array.isArray(approvalHistoryModel.events))return appendApprovalHistoryLocalReceipt(result);
+  const identity=approvalHistoryIdentity();
+  if(!approvalHistoryIdentityIsCurrent(identity))return false;
+  const existingAggregate=approvalHistoryModel.aggregate&&typeof approvalHistoryModel.aggregate==='object'?approvalHistoryModel.aggregate:null;
+  const existingEvent=approvalHistoryModel.events[approvalHistoryModel.events.length-1];
+  const sameCommittedEvent=existingAggregate&&existingEvent&&existingAggregate.version===aggregate.version&&existingAggregate.aggregateId===aggregate.aggregateId&&existingAggregate.state===aggregate.state&&existingAggregate.lastEventId===event.eventId&&existingAggregate.lastDecision===event.decision&&existingEvent.eventId===event.eventId&&existingEvent.approvalId===event.approvalId&&existingEvent.aggregateVersion===event.aggregateVersion&&existingEvent.decision===event.decision;
+  if(sameCommittedEvent){
+    if(approvalHistoryModel.freshness===result.freshness)return true;
+    const freshnessCandidate={...approvalHistoryModel,freshness:result.freshness};
+    const freshnessValidated=validateApprovalHistoryPayload(freshnessCandidate,identity);
+    if(!freshnessValidated||!approvalHistoryIdentityIsCurrent(identity))return false;
+    approvalHistoryMutationSequence+=1;
+    applyApprovalHistoryPayload(freshnessValidated);
+    return true;
+  }
+  const candidate={...approvalHistoryModel,events:approvalHistoryModel.events.concat([event]),aggregate:aggregate,freshness:result.freshness};
+  const validated=validateApprovalHistoryPayload(candidate,identity);
+  if(!validated||!approvalHistoryIdentityIsCurrent(identity))return false;
+  approvalHistoryMutationSequence+=1;
+  applyApprovalHistoryPayload(validated);
+  return true;
+}
+
+function renderSemanticEnrichment(data){
+  const enrichment=enrichmentEnvelope(data);
+  const status=enrichment.status;
+	const durablePackID=status==='available'&&enrichment.pack&&typeof enrichment.pack.evidencePackId==='string'?enrichment.pack.evidencePackId:'';
+	setSemanticEvidencePackIdentity(durablePackID);
+	viewState={...viewState,enrichmentStatus:status,
+		proposalId:enrichment.proposal&&typeof enrichment.proposal.proposalId==='string'?enrichment.proposal.proposalId:'',
+		evidencePackId:viewState.evidencePackId};
+
+  const badge=document.getElementById('badge-enrichment');
+  if(badge){
+    badge.textContent='Enrichment: '+status;
+    badge.style.background=status==='available'?'#d3f9d8':(status==='pending'?'#fff9db':'#f4f4f2');
+  }
+
+  const card=document.getElementById('proposal-card');
+  const proposal=enrichment.proposal;
+  const inferred=isDisplayOnlyInferredProposal(proposal);
+  const fallback=enrichment.fallback;
+  const fallbackReason=enrichmentDisplayValue(fallback&&fallback.reason,enrichmentDisplayValue(enrichment.state&&enrichment.state.reason,'optional semantic enrichment is unavailable'));
+  const target=document.getElementById('proposal-target-symbol');
+  const category=document.getElementById('proposal-category');
+  const title=document.getElementById('proposal-title');
+  const rationale=document.getElementById('proposal-rationale');
+  const epistemic=document.getElementById('proposal-epistemic-status');
+  const authority=document.getElementById('proposal-authority');
+
+  if(card){
+    card.dataset.epistemicStatus=inferred?'inferred':'unknown';
+    card.setAttribute('aria-label',inferred?'Inferred semantic proposal':'Unknown semantic proposal state');
+  }
+  if(inferred){
+    if(target)target.textContent=enrichmentDisplayValue(proposal.targetSymbolPath,'unknown');
+    if(category)category.textContent=enrichmentDisplayValue(proposal.proposedCategory,'unknown');
+    if(title)title.textContent=enrichmentDisplayValue(proposal.proposedTitle,'semantic proposal');
+    if(rationale)rationale.textContent=enrichmentDisplayValue(proposal.rationale||proposal.proposedRationale,'Grounded in current verified evidence.');
+    if(epistemic)epistemic.textContent='inferred';
+    if(authority)authority.textContent='authority: '+enrichmentDisplayValue(proposal.authority,'model');
+  }else{
+    if(target)target.textContent='unknown';
+    if(category)category.textContent='unknown';
+    if(title)title.textContent=fallback&&fallback.title?enrichmentDisplayValue(fallback.title,'semantic proposal unavailable'):'의미 제안을 확인할 수 없음';
+    if(rationale)rationale.textContent=fallbackReason;
+    if(epistemic)epistemic.textContent='unknown';
+    if(authority)authority.textContent='authority: unknown';
+  }
+
+  const fallbackEl=document.getElementById('enrichment-fallback');
+  if(fallbackEl){
+    if(inferred){
+      fallbackEl.style.display='none';
+    }else{
+      const prefix=status==='timed_out'?'Timed out: ':((status==='pending')?'Pending: ':'Unknown: ');
+      fallbackEl.textContent=prefix+fallbackReason+'. 결정적 흐름 결과를 유지합니다.';
+      fallbackEl.style.display='block';
+    }
+  }
+
+  const disclosure=enrichment.disclosure;
+  const disclosureEl=document.getElementById('model-activation-disclosure');
+  const hasDisclosure=!!(disclosure&&disclosure.modelId&&disclosure.revision&&disclosure.license&&disclosure.checksum&&disclosure.runtime&&disclosure.dataBoundary);
+  if(disclosureEl){
+    disclosureEl.hidden=!hasDisclosure;
+    disclosureEl.style.display=hasDisclosure?'block':'none';
+  }
+  if(hasDisclosure){
+    const disclosureFields=[
+      ['disclosure-identity',disclosure.modelId],
+      ['disclosure-revision',disclosure.revision],
+      ['disclosure-license',disclosure.license],
+      ['disclosure-checksum',disclosure.checksum],
+      ['disclosure-runtime',disclosure.runtime],
+      ['disclosure-data-boundary',disclosure.dataBoundary]
+    ];
+    disclosureFields.forEach(([id,value])=>{const el=document.getElementById(id);if(el)el.textContent=enrichmentDisplayValue(value,'unknown');});
+    const change=document.getElementById('disclosure-capability-change');
+    if(change)change.textContent=enrichmentDisplayValue(disclosure.capabilityChange,'none declared');
+    const choice=document.getElementById('disclosure-choice-status');
+    const activate=document.getElementById('btn-model-activate');
+    const decline=document.getElementById('btn-model-decline');
+    const choiceValue=enrichmentDisplayValue(disclosure.choice,'');
+    if(choice)choice.textContent=choiceValue==='activate'?'Activation choice recorded':(choiceValue==='decline'?'Activation declined':'Explicit choice required');
+    if(activate)activate.disabled=choiceValue==='decline';
+    if(decline)decline.disabled=choiceValue==='activate';
+  }
+}
 
 function isCoreStep(st){
   if(!st)return false;
+  if(st.isPreserved)return true;
+  if(st.kind==='user_action'||st.kind==='guard'||st.kind==='branch'||st.kind==='decision'||st.kind==='failure'||st.kind==='security'||st.kind==='external_effect')return true;
   if(st.kind==='mutation'||st.kind==='call')return true;
   if(st.stateDelta||st.sideEffect)return true;
   return false;
@@ -753,14 +1363,14 @@ async function loadWorkspaceActivity(){
           badge.className='badge';
         }
       }
-      if(epoch&&d.workspaceEpoch){
+      if(epoch&&Number.isInteger(d.workspaceEpoch)){
         epoch.textContent='['+d.workspaceEpoch+']';
       }
       if(pending){
-        pending.textContent=(d.pendingRevisions||0)+' pending';
+        pending.textContent=(Number.isInteger(d.pendingRevisions)?d.pendingRevisions:'unknown')+' pending';
       }
       if(lag){
-        lag.textContent=(d.analysisLagMs||0)+'ms lag';
+        lag.textContent=(Number.isFinite(d.analysisLagMs)?d.analysisLagMs:'unknown')+'ms lag';
       }
       if(scope){
         scope.textContent=(d.scope&&d.scope.length)?d.scope.join(', '):'전체';
@@ -809,6 +1419,57 @@ async function loadFlow(id){
 let liveEventSource=null;
 let lastSeenEventId=null;
 
+function approvalRecoveryDataIsValid(data){
+  if(!approvalHistoryExactKeys(data,['activity','activePointer','activeManifest'],['verifiedGap','proofError']))return false;
+  if(Object.prototype.hasOwnProperty.call(data,'proofError')&&typeof data.proofError!=='string')return false;
+  if(Object.prototype.hasOwnProperty.call(data,'verifiedGap')&&(!data.verifiedGap||typeof data.verifiedGap!=='object'||Array.isArray(data.verifiedGap)))return false;
+  const activity=data.activity;
+  if(!approvalHistoryExactKeys(activity,['schemaId','schemaVersion','activity','analysisLagMs','pendingRevisions','currentSnapshotId','workspaceEpoch','timestamp'],['traceId','scope','ackLatencyMs','revisionIds','capturedAt','acknowledgedAt','analysisStartedAt','currentOrGapAt','activityLatencyMs','currentOrGapLatencyMs','metricsMeasured']))return false;
+  if(activity.schemaId!=='https://codeflow.local/schemas/rflsc.activity-state.v2.schema.json'||activity.schemaVersion!==2||!['idle','editing','analyzing','publishing','reconciling'].includes(activity.activity))return false;
+  for(const key of ['analysisLagMs','pendingRevisions','workspaceEpoch'])if(!approvalHistoryValidInteger(activity[key],0,Number.MAX_SAFE_INTEGER))return false;
+  if(!approvalHistoryValidID(activity.currentSnapshotId,true)||!approvalHistoryValidTimestamp(activity.timestamp))return false;
+  if(Object.prototype.hasOwnProperty.call(activity,'traceId')&&!approvalHistoryValidID(activity.traceId,true))return false;
+  if((activity.activity!=='idle'||activity.pendingRevisions>0)&&(!activity.traceId||!activity.currentSnapshotId))return false;
+  for(const key of ['scope','revisionIds'])if(Object.prototype.hasOwnProperty.call(activity,key)&&(!Array.isArray(activity[key])||activity[key].some(value=>typeof value!=='string'||!value)||new Set(activity[key]).size!==activity[key].length))return false;
+  for(const key of ['capturedAt','acknowledgedAt','analysisStartedAt','currentOrGapAt'])if(Object.prototype.hasOwnProperty.call(activity,key)&&!approvalHistoryValidTimestamp(activity[key]))return false;
+  for(const key of ['activityLatencyMs','currentOrGapLatencyMs'])if(Object.prototype.hasOwnProperty.call(activity,key)&&!approvalHistoryValidInteger(activity[key],-1,Number.MAX_SAFE_INTEGER))return false;
+  if(Object.prototype.hasOwnProperty.call(activity,'ackLatencyMs')&&(!Number.isFinite(activity.ackLatencyMs)||activity.ackLatencyMs<0))return false;
+  if(Object.prototype.hasOwnProperty.call(activity,'metricsMeasured')&&typeof activity.metricsMeasured!=='boolean')return false;
+  // Recovery proof artifacts are not adopted as approval authority. Check
+  // their identity relationship, then query the selected durable history.
+  const pointer=data.activePointer,manifest=data.activeManifest;
+  if(pointer===null||manifest===null)return pointer===null&&manifest===null;
+  if(!pointer||typeof pointer!=='object'||Array.isArray(pointer)||!manifest||typeof manifest!=='object'||Array.isArray(manifest))return false;
+  if(pointer.schemaId!=='https://codeflow.local/schemas/rflsc.active-pointer.v2.schema.json'||pointer.schemaVersion!==2||manifest.schemaId!=='https://codeflow.local/schemas/rflsc.generation-proof-manifest.v2.schema.json'||manifest.schemaVersion!==2)return false;
+  return approvalHistoryValidID(pointer.generationId)&&/^[a-f0-9]{64}$/.test(pointer.computedBasisId)&&approvalHistoryValidID(pointer.validatedAgainstSnapshotId)&&pointer.generationId===manifest.generationId&&pointer.computedBasisId===manifest.computedBasisId&&pointer.validatedAgainstSnapshotId===manifest.validatedAgainstSnapshotId;
+}
+
+function validatedApprovalStreamEnvelope(event,type){
+  let env;
+  try{env=JSON.parse(event.data);}catch(_){return null;}
+  if(!approvalHistoryExactKeys(env,['schemaId','schemaVersion','streamId','sequence','eventId','eventType','occurredAt','data'],['computedBasisId','validatedAgainstSnapshotId','generationId','payloadRef']))return null;
+  if(env.schemaId!=='https://codeflow.local/schemas/rflsc.event-envelope.v2.schema.json'||env.schemaVersion!==2||env.eventType!==type||!approvalHistoryValidID(env.streamId)||!approvalHistoryValidID(env.eventId)||event.lastEventId!==env.eventId||!approvalHistoryValidInteger(env.sequence,1,Number.MAX_SAFE_INTEGER)||!approvalHistoryValidTimestamp(env.occurredAt))return null;
+  if(!env.data||typeof env.data!=='object'||Array.isArray(env.data))return null;
+  if(Object.prototype.hasOwnProperty.call(env,'payloadRef')&&env.payloadRef!==null&&(typeof env.payloadRef!=='string'||!env.payloadRef))return null;
+  if(Object.prototype.hasOwnProperty.call(env,'computedBasisId')&&env.computedBasisId!==null&&(typeof env.computedBasisId!=='string'||!/^[a-f0-9]{64}$/.test(env.computedBasisId)))return null;
+  if(Object.prototype.hasOwnProperty.call(env,'validatedAgainstSnapshotId')&&env.validatedAgainstSnapshotId!==null&&!approvalHistoryValidID(env.validatedAgainstSnapshotId))return null;
+  if(Object.prototype.hasOwnProperty.call(env,'generationId')&&env.generationId!==null&&typeof env.generationId!=='string')return null;
+  const previous=Number.isSafeInteger(viewState.lastEventSequence)?viewState.lastEventSequence:0;
+  if(env.sequence<previous||type==='approval.updated'&&env.sequence===previous&&lastSeenEventId!=='snapshot-sync-empty')return null;
+  if(type==='snapshot_sync')return approvalRecoveryDataIsValid(env.data)?env:null;
+  const data=env.data;
+  if(!approvalHistoryExactKeys(data,['approvalEvent','computedBasisId','validatedAgainstSnapshotId','generationId','committedAt']))return null;
+  if(!/^[a-f0-9]{64}$/.test(data.computedBasisId)||!approvalHistoryValidID(data.validatedAgainstSnapshotId)||!approvalHistoryValidID(data.generationId)||!approvalHistoryValidTimestamp(data.committedAt))return null;
+  const orderedTimestamp=value=>value.slice(0,19)+'.'+(value.slice(19,-1).replace(/^\./,'')).padEnd(9,'0');
+  if(orderedTimestamp(env.occurredAt)<orderedTimestamp(data.committedAt))return null;
+  if(env.computedBasisId!==data.computedBasisId||env.validatedAgainstSnapshotId!==data.validatedAgainstSnapshotId||env.generationId!==data.generationId)return null;
+  const committed=data.approvalEvent;
+  if(!approvalHistoryExactKeys(committed,['eventId','approvalId','aggregateId','aggregateVersion','workspaceId','decision','payloadDigest']))return null;
+  for(const key of ['eventId','approvalId','aggregateId','workspaceId'])if(!approvalHistoryValidID(committed[key]))return null;
+  if(!approvalHistoryValidInteger(committed.aggregateVersion,1,1000000000)||!APPROVAL_HISTORY_DECISIONS.includes(committed.decision)||typeof committed.payloadDigest!=='string'||!/^sha256:[a-f0-9]{64}$/.test(committed.payloadDigest))return null;
+  return env;
+}
+
 function initLiveStream(){
   if(typeof EventSource==='undefined')return;
   if(liveEventSource){
@@ -821,6 +1482,8 @@ function initLiveStream(){
   }
 
   const setConn=(st)=>{
+    viewState={...viewState,connectionStatus:st};
+    setViewStateStatus(viewState);
     const el=document.getElementById('badge-connection');
     if(el){
       el.textContent='SSE: '+st;
@@ -837,6 +1500,7 @@ function initLiveStream(){
       if(e.lastEventId)lastSeenEventId=e.lastEventId;
       try{
         const env=JSON.parse(e.data);
+        if(Number.isInteger(env.sequence))viewState={...viewState,lastEventSequence:env.sequence};
         updateWorkspaceActivityUI(env.data||env);
       }catch(err){console.error(err);}
     });
@@ -844,6 +1508,8 @@ function initLiveStream(){
     liveEventSource.addEventListener('generation.published',e=>{
       if(e.lastEventId)lastSeenEventId=e.lastEventId;
       try{
+        const env=JSON.parse(e.data);
+        if(Number.isInteger(env.sequence))viewState={...viewState,lastEventSequence:env.sequence};
         const input=document.getElementById('query-input');
         const query=(input?input.value:'').trim();
         if(query){
@@ -857,18 +1523,29 @@ function initLiveStream(){
       if(e.lastEventId)lastSeenEventId=e.lastEventId;
       try{
         const env=JSON.parse(e.data);
+        if(Number.isInteger(env.sequence))viewState={...viewState,lastEventSequence:env.sequence,displayBasis:'last_verified',currentProofVerified:false};
         showVerifiedGap(env.data||env);
       }catch(err){console.error(err);}
     });
 
+    liveEventSource.addEventListener('approval.updated',e=>{
+      const env=validatedApprovalStreamEnvelope(e,'approval.updated');
+      if(!env)return;
+      const identity=approvalHistoryIdentity();
+      if(env.data.approvalEvent.workspaceId!==identity.workspaceId)return;
+      lastSeenEventId=env.eventId;
+      viewState={...viewState,lastEventSequence:env.sequence};
+      if(env.computedBasisId!==identity.computedBasisId||env.generationId!==identity.generationId||env.validatedAgainstSnapshotId!==identity.validatedSnapshotId)return;
+      requestApprovalHistoryRefresh(env.data.approvalEvent.aggregateId);
+    });
+
     liveEventSource.addEventListener('snapshot_sync',e=>{
-      if(e.lastEventId)lastSeenEventId=e.lastEventId;
-      try{
-        const env=JSON.parse(e.data);
-        if(env.data&&env.data.activity){
-          updateWorkspaceActivityUI(env.data.activity);
-        }
-      }catch(err){console.error(err);}
+      const env=validatedApprovalStreamEnvelope(e,'snapshot_sync');
+      if(!env)return;
+      lastSeenEventId=env.eventId;
+      viewState={...viewState,lastEventSequence:env.sequence};
+      if(env.data.activity)updateWorkspaceActivityUI(env.data.activity);
+      requestApprovalHistoryRefresh();
     });
   }catch(e){
     console.error('EventSource init error:',e);
@@ -878,19 +1555,20 @@ function initLiveStream(){
 
 function updateWorkspaceActivityUI(act){
   if(!act)return;
+  if(typeof act.activity==='string')viewState={...viewState,activityStatus:act.activity};
   const badge=document.getElementById('workspace-activity-badge');
   const activityBadge=document.getElementById('badge-activity');
   if(badge)badge.textContent=act.activity||'idle';
   if(activityBadge)activityBadge.textContent=act.activity||'idle';
 
   const pending=document.getElementById('workspace-pending-count');
-  if(pending)pending.textContent='pending: '+(act.pendingRevisions||0);
+  if(pending)pending.textContent='pending: '+(Number.isInteger(act.pendingRevisions)?act.pendingRevisions:'unknown');
 
   const lag=document.getElementById('workspace-analysis-lag');
-  if(lag)lag.textContent='lag: '+(act.analysisLagMs||0)+'ms';
+  if(lag)lag.textContent='lag: '+(Number.isFinite(act.analysisLagMs)?act.analysisLagMs:'unknown')+'ms';
 
   const scope=document.getElementById('workspace-scope-tag');
-  if(scope)scope.textContent=(act.activeScope&&act.activeScope.length)?act.activeScope.join(', '):'none';
+  if(scope)scope.textContent=(Array.isArray(act.scope)&&act.scope.length)?act.scope.join(', '):'none';
 }
 
 function showVerifiedGap(gap){
@@ -906,33 +1584,46 @@ function showVerifiedGap(gap){
   const lagEl=document.getElementById('verified-gap-lag');
   const pendingEl=document.getElementById('verified-gap-pending');
   if(scopeEl)scopeEl.textContent=(gap.affectedScope&&gap.affectedScope.length)?gap.affectedScope.join(', '):'none';
-  if(lagEl)lagEl.textContent=String(gap.analysisLagMs||0);
-  if(pendingEl)pendingEl.textContent=String(gap.pendingRevisions||0);
+  if(lagEl)lagEl.textContent=String(Number.isFinite(gap.analysisLagMs)?gap.analysisLagMs:'unknown');
+  if(pendingEl)pendingEl.textContent=String(Number.isInteger(gap.pendingRevisions)?gap.pendingRevisions:'unknown');
 }
 
 function hideVerifiedGap(){
   const banner=document.getElementById('verified-gap-banner');
   if(banner)banner.style.display='none';
-  const freshness=document.getElementById('badge-freshness');
-  if(freshness){
-    freshness.textContent='Current';
-    freshness.className='badge';
-  }
+}
+
+function chooseModelActivation(choice){
+  if(choice!=='activate'&&choice!=='decline')return;
+  const status=document.getElementById('disclosure-choice-status');
+  const activate=document.getElementById('btn-model-activate');
+  const decline=document.getElementById('btn-model-decline');
+  if(status)status.textContent=choice==='activate'?'Activation choice recorded':'Activation declined';
+  if(activate)activate.disabled=choice==='decline';
+  if(decline)decline.disabled=choice==='activate';
+  window.__codeflowModelActivationChoice=choice;
 }
 
 async function handleSemanticQuery(event,preserveSelection=false){
   if(event)event.preventDefault();
   const input=document.getElementById('query-input');
   const query=(input?input.value:'').trim();
-  if(!query)return;
+	if(!query){
+		beginSemanticRequest();
+		return;
+	}
+	const requestGeneration=beginSemanticRequest();
 
   const dialog=document.getElementById('disambiguation-dialog');
   if(dialog)dialog.style.display='none';
 
   try{
     const r=await api('/api/task/view?query='+encodeURIComponent(query)+'&mode=feature',{allowErrors:true});
+	if(!isLatestSemanticRequest(requestGeneration))return;
     if(!r.ok){
       const err=await r.json().catch(()=>({}));
+      if(!isLatestSemanticRequest(requestGeneration))return;
+      clearSemanticEnrichmentIdentity();
       if(err.code==='ambiguous_target'&&err.candidateTargets){
         showDisambiguation(err.candidateTargets);
         return;
@@ -941,8 +1632,11 @@ async function handleSemanticQuery(event,preserveSelection=false){
       return;
     }
     const d=await r.json();
+	if(!isLatestSemanticRequest(requestGeneration))return;
     renderSemanticTaskView(d,preserveSelection);
   }catch(e){
+	if(!isLatestSemanticRequest(requestGeneration))return;
+    clearSemanticEnrichmentIdentity();
     alert('질의 요청 오류: '+e.message);
   }
 }
@@ -974,39 +1668,141 @@ function showDisambiguation(candidates){
 async function selectSpecificEntry(entrySymbol){
   const dialog=document.getElementById('disambiguation-dialog');
   if(dialog)dialog.style.display='none';
+	const requestGeneration=beginSemanticRequest();
   try{
     const r=await api('/api/task/view?entrySymbol='+encodeURIComponent(entrySymbol)+'&mode=feature',{allowErrors:true});
+	if(!isLatestSemanticRequest(requestGeneration))return;
     if(r.ok){
       const d=await r.json();
+	  if(!isLatestSemanticRequest(requestGeneration))return;
       renderSemanticTaskView(d,false);
+    }else{
+      clearSemanticEnrichmentIdentity();
     }
   }catch(e){
+	if(!isLatestSemanticRequest(requestGeneration))return;
+    clearSemanticEnrichmentIdentity();
     console.error(e);
   }
 }
 
+function structuralIdentityOf(st){
+  const value=st&&st.structuralIdentity;
+  return typeof value==='string'&&value.trim()?value:null;
+}
+
+function captureLogicalViewState(){
+  if(!currentSpec||!Array.isArray(currentSpec.steps)||!currentSpec.steps.length){
+    return {...viewState,selectedStepId:null,selectedStructuralIdentity:null,logicalScrollAnchor:null,identityLoss:false,preserved:false};
+  }
+  const st=currentSpec.steps[selected]||null;
+  const identity=structuralIdentityOf(st);
+  const list=document.getElementById('timeline-list');
+  const item=list&&list.querySelector('[data-hstep="'+selected+'"]');
+  const offsetPx=item&&list?Math.max(0,item.offsetTop-list.scrollTop):0;
+  return {
+    ...viewState,
+    selectedStepId:st&&st.stepId?st.stepId:null,
+    selectedStructuralIdentity:identity,
+    logicalScrollAnchor:identity&&st&&st.stepId?{stepId:st.stepId,structuralIdentity:identity,offsetPx}:null,
+    identityLoss:false,
+    preserved:false
+  };
+}
+
+function setViewStateStatus(state){
+  if(state)window.__codeflowViewState=JSON.parse(JSON.stringify(state));
+  const el=document.getElementById('view-state-status');
+  if(!el)return;
+  if(state&&state.identityLoss){
+    el.textContent='Selection: identity lost · fallback excluded';
+  }else if(state&&state.preserved){
+    el.textContent='Selection: preserved · scroll anchor restored';
+  }else{
+    el.textContent='Selection: not measured';
+  }
+}
+
+function restoreLogicalViewState(previous){
+  if(!previous||!currentSpec||!Array.isArray(currentSpec.steps))return;
+  const identity=previous.selectedStructuralIdentity;
+  if(!identity)return;
+  const matches=currentSpec.steps.map((st,index)=>({st,index})).filter(item=>structuralIdentityOf(item.st)===identity);
+  if(matches.length!==1){
+    viewState={...viewState,selectedStepId:null,selectedStructuralIdentity:identity,logicalScrollAnchor:null,identityLoss:true,preserved:false};
+    setViewStateStatus(viewState);
+    return;
+  }
+  const matchIdx=matches[0].index;
+  selected=matchIdx;
+  selectStep(matchIdx,false);
+  viewState={...viewState,selectedStepId:currentSpec.steps[matchIdx].stepId||null,selectedStructuralIdentity:identity,logicalScrollAnchor:null,preserved:false,identityLoss:false};
+  const anchor=previous.logicalScrollAnchor;
+  const list=document.getElementById('timeline-list');
+  const item=list&&list.querySelector('[data-hstep="'+matchIdx+'"]');
+  if(list&&item&&anchor&&anchor.structuralIdentity===identity&&Number.isFinite(anchor.offsetPx)&&anchor.offsetPx>=0){
+    list.scrollTop=Math.max(0,item.offsetTop-anchor.offsetPx);
+    viewState={...viewState,logicalScrollAnchor:{stepId:currentSpec.steps[matchIdx].stepId,structuralIdentity:identity,offsetPx:anchor.offsetPx},preserved:true};
+  }
+  setViewStateStatus(viewState);
+}
+
+function updateViewStateGeneration(data){
+  const map=data&&data.semanticMap?data.semanticMap:null;
+  const projection=data&&data.projection?data.projection:null;
+  const enrichment=enrichmentEnvelope(data);
+  const quality=map&&map.quality&&map.quality.stage;
+  const proofVerified=data&&data.currentProofVerified===true;
+  viewState={
+    ...viewState,
+    computedBasisId:map&&map.computedBasisId?map.computedBasisId:'',
+    generationId:map&&map.generationId?map.generationId:'unpublished',
+    validatedAgainstSnapshotId:map&&map.validatedAgainstSnapshotId?map.validatedAgainstSnapshotId:'',
+    intentRevision:map&&map.task&&Number.isInteger(map.task.intentRevision)?map.task.intentRevision:(data&&data.taskIntent&&Number.isInteger(data.taskIntent.revision)?data.taskIntent.revision:0),
+    dependencyFingerprint:map&&map.basis&&map.basis.dependencyFingerprint?map.basis.dependencyFingerprint:'',
+    repositoryId:map&&map.basis&&map.basis.repositoryId?map.basis.repositoryId:'',
+    worktreeId:map&&map.basis&&map.basis.worktreeId?map.basis.worktreeId:'',
+    displayBasis:data&&data.verifiedGap?'last_verified':(proofVerified?'current':'candidate'),
+    qualityStage:['Q1','Q2','Q3','Q4'].includes(quality)?quality:'Q1',
+    settlement:map&&['pending','passed','failed'].includes(map.settlement)?map.settlement:'pending',
+    enrichmentStatus:enrichment.status,
+    currentProofVerified:proofVerified,
+    visibleStepRefs:projection&&Array.isArray(projection.visibleStepRefs)?[...new Set(projection.visibleStepRefs)]:[],
+    preservedStepRefs:projection&&Array.isArray(projection.preservedStepRefs)?[...new Set(projection.preservedStepRefs)]:[],
+    identityLoss:false,
+    preserved:false
+  };
+}
+
 function renderSemanticTaskView(data,preserveSelection=false){
+  const previousViewState=preserveSelection?captureLogicalViewState():null;
+  renderSemanticEnrichment(data||{});
   const strip=document.getElementById('current-answer-strip');
-  if(strip&&data.currentAnswer){
+  if(strip&&data.candidateAnswer){
     strip.style.display='block';
     const reqEl=document.getElementById('current-answer-requested');
     const stmtEl=document.getElementById('current-answer-statement');
     const stageEl=document.getElementById('current-answer-stage');
     const basisEl=document.getElementById('current-answer-basis');
-    if(reqEl)reqEl.textContent=data.currentAnswer.requested||'—';
-    if(stmtEl)stmtEl.textContent=data.currentAnswer.current||'—';
-    if(stageEl&&data.semanticMap&&data.semanticMap.quality)stageEl.textContent=data.semanticMap.quality.stage+' Verified';
-    if(basisEl&&data.semanticMap)basisEl.textContent='basis: '+(data.semanticMap.computedBasisId||'active');
+    const intentEl=document.getElementById('current-answer-intent');
+    const agentStatusEl=document.getElementById('current-answer-agent-status');
+    if(reqEl)reqEl.textContent=data.taskIntent&&data.taskIntent.request?data.taskIntent.request.rawRequest:(data.candidateAnswer.requested||'—');
+    if(stmtEl)stmtEl.textContent='Evidence-backed Implementation Fact: '+(data.candidateAnswer.candidate||'—');
+    if(intentEl)intentEl.textContent=data.taskIntent?('revision '+String(data.taskIntent.revision||'—')):'not loaded';
+    if(agentStatusEl)agentStatusEl.textContent=(data.agentReportedStatus&&data.agentReportedStatus!=='not_reported')?data.agentReportedStatus:'not reported';
+    if(stageEl&&data.semanticMap&&data.semanticMap.quality)stageEl.textContent=data.semanticMap.quality.stage||'unknown';
+    if(basisEl&&data.semanticMap)basisEl.textContent=data.semanticMap.computedBasisId?('basis: '+data.semanticMap.computedBasisId):'basis: unknown';
   }
 
   // Update Independent Status Axes (VS04-A8, D21)
   const freshnessEl=document.getElementById('badge-freshness');
   if(freshnessEl){
-    if(data.verifiedGap||(data.semanticMap&&data.semanticMap.freshness==='last_verified')){
-      freshnessEl.textContent='Last Verified';
+    const freshness=(data.semanticMap&&data.semanticMap.freshness)||(data.candidateAnswer&&data.candidateAnswer.freshness)||'unknown';
+    if(data.verifiedGap||freshness==='last_verified'){
+      freshnessEl.textContent='last_verified';
       freshnessEl.className='badge warn-badge';
     }else{
-      freshnessEl.textContent='Current';
+      freshnessEl.textContent=freshness;
       freshnessEl.className='badge';
     }
   }
@@ -1018,11 +1814,6 @@ function renderSemanticTaskView(data,preserveSelection=false){
   if(settlementEl&&data.semanticMap){
     settlementEl.textContent='Settlement: '+(data.semanticMap.settlement||'pending');
   }
-  const enrichmentEl=document.getElementById('badge-enrichment');
-  if(enrichmentEl){
-    enrichmentEl.textContent='Enrichment: not_requested';
-  }
-
   if(data.verifiedGap){
     showVerifiedGap(data.verifiedGap);
   }else{
@@ -1030,10 +1821,6 @@ function renderSemanticTaskView(data,preserveSelection=false){
   }
 
   if(data.semanticMap){
-    const prevSelectedStepId=(currentSpec&&currentSpec.steps&&currentSpec.steps[selected])
-      ?(currentSpec.steps[selected].stepId||currentSpec.steps[selected].code)
-      :null;
-
     const projVisible=new Set(data.projection?(data.projection.visibleStepRefs||[]):[]);
     const projPreserved=new Set(data.projection?(data.projection.preservedStepRefs||[]):[]);
 
@@ -1041,12 +1828,20 @@ function renderSemanticTaskView(data,preserveSelection=false){
       title:data.semanticMap.summary.requested||(data.taskIntent?data.taskIntent.request.rawRequest:''),
       description:data.semanticMap.summary.current,
       flowId:data.semanticMap.mapId,
-      basisSha:data.semanticMap.computedBasisId||'active',
+      workspaceId:data.workspaceId||data.semanticMap.workspaceId||'',
+      taskId:data.semanticMap.taskId||(data.semanticMap.task&&data.semanticMap.task.taskId)||data.taskId||'',
+      workspaceEpoch:Number.isSafeInteger(data.semanticMap.workspaceEpoch)?data.semanticMap.workspaceEpoch:(data.semanticMap.basis&&Number.isSafeInteger(data.semanticMap.basis.workspaceEpoch)?data.semanticMap.basis.workspaceEpoch:0),
+      basisSha:data.semanticMap.computedBasisId||'unknown',
+      generationId:data.semanticMap.generationId||'',
+      validatedAgainstSnapshotId:data.semanticMap.validatedAgainstSnapshotId||'',
+      freshness:data.semanticMap.freshness||'unknown',
+      dependencyFingerprint:(data.semanticMap.basis&&data.semanticMap.basis.dependencyFingerprint)||'',
       entrySymbolPath:(data.semanticMap.steps[0]||{}).technicalName||'',
       steps:data.semanticMap.steps.map(s=>({
         stepId:s.stepId,
         ordinal:s.ordinal,
         name:s.name,
+        structuralIdentity:s.structuralIdentity||null,
         layer:s.layer,
         kind:s.kind,
         code:s.technicalName,
@@ -1056,31 +1851,40 @@ function renderSemanticTaskView(data,preserveSelection=false){
         sideEffect:s.sideEffect,
         branch:s.branch,
         rules:s.rules,
-        freshness:'fresh',
+        freshness:s.freshness||data.semanticMap.freshness||'unknown',
         isVisible:projVisible.size===0||projVisible.has(s.stepId),
         isPreserved:projPreserved.has(s.stepId),
       })),
-      unknowns:data.unknowns||[]
+      unknowns:(data.semanticMap.unknowns||[]).concat((data.projection&&data.projection.unknownBoundaryRefs||[]).map(ref=>({subject:ref,reason:'unknown boundary preserved by projection'}))),
+      projection:data.projection||null
     };
-    currentFlowId=currentSpec.flowId;
-
-    // Stable selection (VS04-A10): preserve step identity across generation publications
-    if(preserveSelection&&prevSelectedStepId){
-      const matchIdx=currentSpec.steps.findIndex(st=>st.stepId===prevSelectedStepId||st.code===prevSelectedStepId);
-      if(matchIdx>=0){
-        selected=matchIdx;
-      }else{
-        selected=Math.min(selected,currentSpec.steps.length-1);
-      }
-    }else{
-      selected=0;
+    const projectionSummary=document.getElementById('projection-summary');
+    if(projectionSummary){
+      const folds=(data.projection&&data.projection.foldedSubflows)||[];
+      const boundaries=(data.projection&&data.projection.unknownBoundaryRefs)||[];
+      projectionSummary.textContent='Projection: '+(data.projection?'candidate':'unknown')+' · folds: '+folds.length+' · unknown boundaries: '+boundaries.length;
     }
+    currentFlowId=currentSpec.flowId;
+    updateViewStateGeneration(data);
+
+    // Stable selection (VS03-A14): only a canonical structural identity can
+    // preserve selection across generations. Step-id or symbol fallbacks are
+    // intentionally excluded from the measured eligible denominator.
+    selected=0;
 
     renderAll();
+    if(previousViewState){
+      restoreLogicalViewState(previousViewState);
+    }else{
+      viewState={...viewState,selectedStepId:currentSpec.steps[0]&&currentSpec.steps[0].stepId||null,selectedStructuralIdentity:currentSpec.steps[0]&&structuralIdentityOf(currentSpec.steps[0]),logicalScrollAnchor:null,identityLoss:false,preserved:false};
+      setViewStateStatus(viewState);
+    }
     renderRequirementAlignment(data.taskIntent, data.semanticMap);
     if(data.changePulse){
       renderChangePulse(data.changePulse);
     }
+    if(typeof syncApprovalControls==='function')syncApprovalControls();
+    if(typeof loadApprovalHistory==='function')loadApprovalHistory();
   }
 }
 
@@ -1269,7 +2073,7 @@ function renderHeader(){
   const hash=entry.indexOf('#');
   document.getElementById('bc-entry').textContent=hash>=0?entry.slice(hash+1):entry;
   document.getElementById('bc-file').textContent=hash>=0?entry.slice(0,hash):'—';
-  document.getElementById('bc-flow').textContent=(s.flowId||'').slice(0,16)+'@'+((s.basisSha||'').slice(0,8)||'active');
+  document.getElementById('bc-flow').textContent=(s.flowId||'').slice(0,16)+'@'+((s.basisSha||'').slice(0,8)||'unknown');
   document.getElementById('flow-basis').textContent=s.steps.length+'단계';
   document.getElementById('flow-badge').textContent=s.flowId.slice(0,12);
   
@@ -1504,7 +2308,7 @@ function renderDetail(){
 function renderRequirementAlignment(intent, semanticMap){
   const tag=document.getElementById('intent-status-tag');
   if(tag){
-    tag.textContent='Intent: '+(intent&&intent.intentStatus?intent.intentStatus:'parsed');
+    tag.textContent='Intent: '+(intent&&intent.intentStatus?intent.intentStatus:'not loaded');
   }
   const tbody=document.getElementById('requirement-alignment-tbody');
   if(!tbody)return;
@@ -1586,10 +2390,43 @@ async function triggerReviewMode(){
   }
 }
 
+const IMPACT_MAX_DEPTH=3;
+const IMPACT_MAX_NODES=50;
+const IMPACT_RELATION_KINDS=['calls'];
+
+function impactQueryFromLoadedView(sym){
+  const explicitSymbol=typeof sym==='string'?sym.trim():'';
+  const input=document.getElementById('impact-symbol-input');
+  const inputSymbol=input&&typeof input.value==='string'?input.value.trim():'';
+  const activeStep=currentSpec&&Array.isArray(currentSpec.steps)?currentSpec.steps[selected]:null;
+  const activeAnchor=activeStep&&activeStep.anchor;
+  const loadedSymbol=activeAnchor&&typeof activeAnchor.enclosingSymbolPath==='string'?activeAnchor.enclosingSymbolPath.trim():'';
+  const symbol=explicitSymbol||inputSymbol||loadedSymbol;
+  if(!symbol){
+    throw new Error('missing_precondition: enter a symbol or select a step from the loaded view');
+  }
+
+  const basis=currentSpec&&typeof currentSpec.basisSha==='string'?currentSpec.basisSha.trim():'';
+  const generation=viewState&&typeof viewState.generationId==='string'?viewState.generationId.trim():'';
+  if(!basis||basis==='unknown'||!generation||generation==='unpublished'){
+    throw new Error('missing_precondition: the loaded view must expose computedBasisId and generationId');
+  }
+
+  const query=new URLSearchParams();
+  query.set('symbolId',symbol);
+  query.set('computedBasisId',basis);
+  query.set('generationId',generation);
+  query.set('freshness',viewState.currentProofVerified===true?'current':'historical');
+  query.set('maxDepth',String(IMPACT_MAX_DEPTH));
+  query.set('maxNodes',String(IMPACT_MAX_NODES));
+  IMPACT_RELATION_KINDS.forEach(kind=>query.append('relationKinds',kind));
+  return query;
+}
+
 async function triggerImpactMode(sym){
-  const symbol = sym || (document.getElementById('impact-symbol-input') ? document.getElementById('impact-symbol-input').value.trim() : '') || (selectedStep ? selectedStep.technicalName || selectedStep.name : 'HomePage.handleQuickCheckout');
   try{
-    const r=await api('/api/task/impact?symbolId='+encodeURIComponent(symbol));
+    const query=impactQueryFromLoadedView(sym);
+    const r=await api('/api/task/impact?'+query.toString(),{allowErrors:true});
     if(!r.ok){
       const err=await r.json().catch(()=>({}));
       alert('Impact Query 실패: '+(err.message||r.statusText));
@@ -1598,6 +2435,10 @@ async function triggerImpactMode(sym){
     const d=await r.json();
     renderChangeImpact(d);
   }catch(e){
+    if(e&&typeof e.message==='string'&&e.message.indexOf('missing_precondition:')===0){
+      alert('Impact Query 실패: '+e.message);
+      return;
+    }
     console.error('triggerImpactMode error:',e);
   }
 }
@@ -1632,42 +2473,137 @@ function renderChangeImpact(graph){
   }
 }
 
+function failureInputValue(id){
+  const el=document.getElementById(id);
+  return el&&typeof el.value==='string'?el.value.trim():'';
+}
+
+function failureIdentityFromLoadedView(){
+  const basis=(currentSpec&&currentSpec.basisSha)||viewState.computedBasisId||'';
+  const generation=(currentSpec&&currentSpec.generationId)||viewState.generationId||'';
+  const snapshot=(currentSpec&&currentSpec.validatedAgainstSnapshotId)||viewState.validatedAgainstSnapshotId||'';
+  const freshness=viewState.currentProofVerified===true?'current':((currentSpec&&currentSpec.freshness)||'historical');
+  if(!basis||basis==='unknown'||!generation||generation==='unpublished'||!snapshot||!freshness||freshness==='unknown'){
+    throw new Error('missing_precondition: load a semantic view with exact basis, generation, validated snapshot, and freshness first');
+  }
+  return {basis:basis,generation:generation,snapshot:snapshot,freshness:freshness};
+}
+
 async function triggerFailureInvestigation(mode){
-  const errInput = document.getElementById('failure-error-input');
-  const trInput = document.getElementById('failure-trace-input');
-  let url = '';
+  let identity;
+  try{
+    identity=failureIdentityFromLoadedView();
+  }catch(e){
+    alert('조회 실패: '+(e.message||e));
+    return;
+  }
+  const query=new URLSearchParams();
+  query.set('computedBasisId',identity.basis);
+  query.set('generationId',identity.generation);
+  query.set('validatedAgainstSnapshotId',identity.snapshot);
+  query.set('freshness',identity.freshness);
+  let url='';
   if(mode === 'incident'){
-    const traceId = (trInput ? trInput.value.trim() : '') || 'trace-inc-default';
-    url = '/api/task/incident?traceId='+encodeURIComponent(traceId);
+    const traceId=failureInputValue('failure-trace-input');
+    const observationId=failureInputValue('failure-observation-input');
+    const scenario=failureInputValue('failure-scenario-input');
+    const environment=failureInputValue('failure-environment-input');
+    const dependency=failureInputValue('failure-dependency-input');
+    const from=failureInputValue('failure-window-from-input');
+    const to=failureInputValue('failure-window-to-input');
+    if(traceId)query.set('traceId',traceId);
+    if(observationId)query.set('runtimeObservationId',observationId);
+    query.set('scenario',scenario);
+    query.set('environment',environment);
+    query.set('dependencyFingerprint',dependency);
+    query.set('timeWindowFrom',from);
+    query.set('timeWindowTo',to);
+    url='/api/task/incident?'+query.toString();
   }else{
-    const errVal = (errInput ? errInput.value.trim() : '') || 'CardDeclinedException';
-    url = '/api/task/debug?error='+encodeURIComponent(errVal);
+    const error=failureInputValue('failure-error-input');
+    const symptom=failureInputValue('failure-symptom-input');
+    const evidence=failureInputValue('failure-evidence-input');
+    if(error)query.set('error',error);
+    if(symptom)query.set('symptom',symptom);
+    if(evidence)query.set('failureEvidenceId',evidence);
+    url='/api/task/debug?'+query.toString();
   }
 
   try{
-    const r=await api(url);
+    const r=await api(url,{allowErrors:true});
     if(!r.ok){
       const err=await r.json().catch(()=>({}));
+      renderFailureState(err);
       alert('조회 실패: '+(err.message||r.statusText));
       return;
     }
     const d=await r.json();
-    renderFailureInvestigation(d);
+    renderFailureInvestigation(d.trace||d,d);
   }catch(e){
+    renderFailureState({code:'unknown',message:e.message||String(e)});
     console.error('triggerFailureInvestigation error:',e);
   }
 }
 
-function renderFailureInvestigation(trace){
+function renderFailureState(state){
+  const tag=document.getElementById('failure-mode-tag');
+  if(tag)tag.textContent=(state&&state.code?String(state.code):'unknown').toUpperCase();
+  const desc=document.getElementById('failure-summary-desc');
+  if(desc)desc.textContent=(state&&state.message)?String(state.message):'장애 조사 상태를 확인할 수 없습니다.';
+  const unknown=document.getElementById('failure-unknown-state');
+  if(unknown)unknown.textContent=(state&&state.code==='unknown')?'[unknown]':'';
+  const promotion=document.getElementById('failure-promotion-state');
+  if(promotion&&state&&state.code==='blocked')promotion.textContent='blocked';
+}
+
+function renderFailureInvestigation(trace,envelope){
   if(!trace)return;
   const tag=document.getElementById('failure-mode-tag');
-  if(tag)tag.textContent=trace.mode.toUpperCase();
+  if(tag)tag.textContent=trace.mode?trace.mode.toUpperCase():'UNKNOWN';
+
+  const basis=document.getElementById('failure-basis-id');
+  const generation=document.getElementById('failure-generation-id');
+  const snapshot=document.getElementById('failure-snapshot-id');
+  const freshness=document.getElementById('failure-freshness');
+  if(basis)basis.textContent=trace.computedBasisId||'unknown';
+  if(generation)generation.textContent=trace.generationId||'unknown';
+  if(snapshot)snapshot.textContent=trace.validatedAgainstSnapshotId||'unknown';
+  if(freshness)freshness.textContent=trace.freshness||'unknown';
+
+  const observation=(envelope&&envelope.runtimeObservation)||null;
+  const isolation=(envelope&&envelope.runtimeIsolation)||null;
+  const command=document.getElementById('failure-command-state');
+  const access=document.getElementById('failure-access-state');
+  const isolationEl=document.getElementById('failure-isolation-state');
+  const promotion=document.getElementById('failure-promotion-state');
+  const integrity=document.getElementById('failure-integrity-state');
+  if(command)command.textContent=isolation?(isolation.command||'supplied'):'not supplied';
+  if(access)access.textContent=isolation?(isolation.accessScope&&isolation.accessScope.source||'supplied'):'not supplied';
+  if(isolationEl)isolationEl.textContent=isolation?(isolation.isolationScope&&isolation.isolationScope.level||'supplied'):(observation?(observation.isolationLevel||'observed'):'not supplied');
+  if(promotion)promotion.textContent=isolation?(isolation.evidencePromotion||'blocked'):(observation?'not evaluated':'not evaluated');
+  if(integrity)integrity.textContent=isolation?(isolation.sourceIntegrityStatus||'unknown'):(observation?'provider-validated':'not evaluated');
+  const scenario=document.getElementById('failure-scenario-input');
+  const environment=document.getElementById('failure-environment-input');
+  const dependency=document.getElementById('failure-dependency-input');
+  const from=document.getElementById('failure-window-from-input');
+  const to=document.getElementById('failure-window-to-input');
+  if(observation){
+    if(scenario)scenario.value=observation.scenario||'';
+    if(environment)environment.value=observation.environment||'';
+    if(dependency)dependency.value=observation.dependencyFingerprint||'';
+    if(from)from.value=observation.timeWindow&&observation.timeWindow.from||'';
+    if(to)to.value=observation.timeWindow&&observation.timeWindow.to||'';
+  }
 
   const desc=document.getElementById('failure-summary-desc');
   if(desc&&trace.summary)desc.textContent=trace.summary.description;
 
   const st=document.getElementById('failure-last-state');
   if(st&&trace.summary)st.textContent='[최종 확인 상태: '+trace.summary.lastConfirmedState+']';
+  const unknown=document.getElementById('failure-unknown-state');
+  if(unknown)unknown.textContent=trace.unknownCount?'[unknown: '+String(trace.unknownCount)+']':'';
+  const conflict=document.getElementById('failure-conflict-state');
+  if(conflict)conflict.textContent=trace.hasConflicts?'[conflict]':'';
 
   const nodesList=document.getElementById('failure-nodes-list');
   if(nodesList){
@@ -1685,59 +2621,637 @@ function renderFailureInvestigation(trace){
     (trace.timeline||[]).forEach(t=>{
       items.push('<li><span style="font-family:monospace;color:var(--muted)">'+esc(t.timestamp.slice(11,19))+'</span> <strong>'+esc(t.kind)+'</strong>: '+esc(t.target)+' ('+esc(t.status)+')</li>');
     });
-    timeList.innerHTML=items.length?items.join(''):'<li style="color:var(--muted)">인시던트 이벤트 없음 (Debug 모드)</li>';
+    timeList.innerHTML=items.length?items.join(''):'<li style="color:var(--muted)">관측된 타임라인 이벤트가 없습니다.</li>';
   }
 }
 
+function secureApprovalActionID(prefix){
+  const randomSource=typeof globalThis!=='undefined'&&globalThis.crypto?globalThis.crypto:null;
+  if(!randomSource)return '';
+  if(typeof randomSource.randomUUID==='function'){
+    try{
+      const value=randomSource.randomUUID();
+      if(typeof value==='string'&&value.trim())return prefix+value;
+    }catch(_){
+      // Fall through to getRandomValues when the preferred API is unavailable.
+    }
+  }
+  if(typeof randomSource.getRandomValues==='function'&&typeof Uint8Array==='function'){
+    try{
+      const bytes=new Uint8Array(16);
+      randomSource.getRandomValues(bytes);
+      let value='';
+      for(let i=0;i<bytes.length;i++)value+=bytes[i].toString(16).padStart(2,'0');
+      return prefix+value;
+    }catch(_){
+      // The approval action must fail closed if no secure source succeeds.
+    }
+  }
+  return '';
+}
+
+function approvalPendingRequestMatches(pending,semantic){
+  if(!pending||typeof pending!=='object'||!Object.isFrozen(pending))return false;
+  if(pending.proposalId!==semantic.proposalId||pending.evidencePackId!==semantic.evidencePackId||pending.computedBasisId!==semantic.computedBasisId||pending.generationId!==semantic.generationId||pending.intentRevision!==semantic.intentRevision||pending.decision!==semantic.decision||pending.expectedApprovalVersion!==semantic.expectedApprovalVersion||pending.expectedState!==semantic.expectedState)return false;
+  const pendingPredecessor=typeof pending.predecessorApprovalId==='string'?pending.predecessorApprovalId:'';
+  const semanticPredecessor=typeof semantic.predecessorApprovalId==='string'?semantic.predecessorApprovalId:'';
+  const hasPendingPredecessor=Object.prototype.hasOwnProperty.call(pending,'predecessorApprovalId');
+  if((semanticPredecessor!==''&&!hasPendingPredecessor)||(semanticPredecessor===''&&hasPendingPredecessor)||pendingPredecessor!==semanticPredecessor)return false;
+  const hasPendingEditedText=Object.prototype.hasOwnProperty.call(pending,'editedText');
+  const semanticEditedText=semantic.decision==='edit_then_approve'&&typeof semantic.editedText==='string'?semantic.editedText:'';
+  const pendingEditedText=typeof pending.editedText==='string'?pending.editedText:'';
+  if((semanticEditedText!==''&&!hasPendingEditedText)||(semanticEditedText===''&&hasPendingEditedText))return false;
+  return pendingEditedText===semanticEditedText;
+}
+
+const APPROVAL_ERROR_MESSAGES=Object.freeze({
+  approval_invalid:'approval request is invalid',
+  approval_conflict:'approval request conflicts with current state',
+  approval_unavailable:'approval service is unavailable',
+  approval_unauthenticated:'approval authentication is required',
+  approval_unauthorized:'approval workspace is not authorized'
+});
+
+function approvalErrorMessage(payload){
+  const code=payload&&typeof payload==='object'&&Object.prototype.hasOwnProperty.call(payload,'code')&&typeof payload.code==='string'?payload.code:'';
+  if(code&&Object.prototype.hasOwnProperty.call(APPROVAL_ERROR_MESSAGES,code))return code+': '+APPROVAL_ERROR_MESSAGES[code];
+  return 'approval request failed; please retry';
+}
+
+const APPROVAL_EXECUTION_SCHEMA_IDS=Object.freeze({
+  event:'https://codeflow.local/schemas/rflsc.approval-event.v2.schema.json',
+  aggregate:'https://codeflow.local/schemas/rflsc.approval-aggregate.v2.schema.json',
+  idempotency:'https://codeflow.local/schemas/rflsc.approval-idempotency-result.v1.schema.json',
+  outbox:'https://codeflow.local/schemas/rflsc.approval-outbox.v1.schema.json'
+});
+const APPROVAL_EXECUTION_DECISIONS=Object.freeze(['approve','edit_then_approve','reject','revoke','supersede']);
+const APPROVAL_EXECUTION_STATES=Object.freeze(['none','active','rejected','revoked','superseded']);
+const APPROVAL_EXECUTION_RELATIONS=Object.freeze(['initial','edit','reject','revoke','supersede']);
+const APPROVAL_EXECUTION_DIGEST=/^sha256:[0-9a-f]{64}$/;
+const APPROVAL_EXECUTION_MAX_VERSION=1000000000;
+const APPROVAL_VALIDATED_EXECUTION_RESULTS=new WeakSet();
+
+function approvalExecutionExactKeys(value,required,optional){
+  if(!value||typeof value!=='object'||Array.isArray(value))return false;
+  const allowed=new Set(required.concat(optional||[]));
+  for(const key of required)if(!Object.prototype.hasOwnProperty.call(value,key))return false;
+  for(const key of Object.keys(value))if(!allowed.has(key))return false;
+  return true;
+}
+
+function approvalExecutionValidText(value,max,required){
+  if(typeof value!=='string'||Array.from(value).length>max||value.indexOf('\u0000')>=0)return false;
+  return !required||value.trim()!=='';
+}
+
+function approvalExecutionValidID(value){
+  if(!approvalExecutionValidText(value,256,true)||value.trim()!==value||value.includes('..'))return false;
+  for(const ch of value){
+    const code=ch.codePointAt(0);
+    if(code===0||code===0x7f||code<0x20||code>=0x80&&code<=0x9f||ch==='/'||ch==='\\')return false;
+  }
+  return true;
+}
+
+function approvalExecutionValidInteger(value,min,max){
+  return Number.isSafeInteger(value)&&value>=min&&value<=max;
+}
+
+function approvalExecutionValidDigest(value){
+  return typeof value==='string'&&APPROVAL_EXECUTION_DIGEST.test(value);
+}
+
+function approvalExecutionValidTimestamp(value){
+  if(!approvalExecutionValidText(value,128,true))return false;
+  const match=/^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})(?:\.(\d{1,9}))?Z$/.exec(value);
+  if(!match)return false;
+  const year=Number(match[1]),month=Number(match[2]),day=Number(match[3]),hour=Number(match[4]),minute=Number(match[5]),second=Number(match[6]),fraction=match[7]||'';
+  if(fraction&&fraction.endsWith('0'))return false;
+  const date=new Date(0);
+  date.setUTCFullYear(year,month-1,day);
+  date.setUTCHours(hour,minute,second,0);
+  return date.getUTCFullYear()===year&&date.getUTCMonth()===month-1&&date.getUTCDate()===day&&date.getUTCHours()===hour&&date.getUTCMinutes()===minute&&date.getUTCSeconds()===second;
+}
+
+function approvalExecutionPreviousAggregateMatchesView(previous,semantic){
+  const aggregate=previous&&previous.aggregate&&typeof previous.aggregate==='object'?previous.aggregate:null;
+  if(!aggregate)return true;
+  if(!approvalExecutionExactKeys(aggregate,['schemaId','schemaVersion','aggregateId','workspaceId','proposalId','evidencePackId','computedBasisId','generationId','intentRevision','version','state','lastEventId','lastDecision','history'],['activeApprovalId']))return false;
+  if(aggregate.schemaId!==APPROVAL_EXECUTION_SCHEMA_IDS.aggregate||aggregate.schemaVersion!==2)return false;
+  if(!approvalExecutionValidID(aggregate.aggregateId)||!approvalExecutionValidID(aggregate.lastEventId)||!approvalExecutionValidID(aggregate.workspaceId)||!approvalExecutionValidID(aggregate.proposalId)||!approvalExecutionValidID(aggregate.evidencePackId)||!approvalExecutionValidID(aggregate.computedBasisId)||!approvalExecutionValidID(aggregate.generationId))return false;
+  if(!approvalExecutionValidInteger(aggregate.intentRevision,1,1000000)||!approvalExecutionValidInteger(aggregate.version,0,APPROVAL_EXECUTION_MAX_VERSION)||!APPROVAL_EXECUTION_STATES.includes(aggregate.state)||!['none'].concat(APPROVAL_EXECUTION_DECISIONS).includes(aggregate.lastDecision)||!Array.isArray(aggregate.history)||aggregate.history.length!==aggregate.version+1||aggregate.history.length>256)return false;
+  if(aggregate.version!==previous.version||aggregate.state!==previous.state)return false;
+  const currentWorkspace=approvalExecutionCurrentWorkspaceID();
+  if(!approvalExecutionValidID(currentWorkspace)||aggregate.workspaceId!==currentWorkspace)return false;
+  if(aggregate.proposalId!==semantic.proposalId||aggregate.evidencePackId!==semantic.evidencePackId||aggregate.computedBasisId!==semantic.computedBasisId||aggregate.generationId!==semantic.generationId||aggregate.intentRevision!==semantic.intentRevision)return false;
+  if(aggregate.state==='active'){
+    if(!Object.prototype.hasOwnProperty.call(aggregate,'activeApprovalId')||aggregate.activeApprovalId!==previous.activeApprovalId||!approvalExecutionValidID(aggregate.activeApprovalId))return false;
+  }else if(Object.prototype.hasOwnProperty.call(aggregate,'activeApprovalId'))return false;
+  const previousTail=aggregate.history[aggregate.history.length-1];
+  if(!previousTail||previousTail.eventId!==aggregate.lastEventId||previousTail.state!==aggregate.state||previousTail.decision!==aggregate.lastDecision)return false;
+  if(aggregate.state==='active'&&previousTail.approvalId!==aggregate.activeApprovalId)return false;
+  return true;
+}
+
+function approvalExecutionCurrentWorkspaceID(){
+  const viewWorkspace=typeof viewState.workspaceId==='string'?viewState.workspaceId.trim():'';
+  if(viewWorkspace)return viewWorkspace;
+  const specWorkspace=typeof currentSpec!=='undefined'&&currentSpec&&typeof currentSpec.workspaceId==='string'?currentSpec.workspaceId.trim():'';
+  return specWorkspace;
+}
+
+function approvalExecutionValidPendingRequest(pending,semantic){
+  if(!pending||typeof pending!=='object'||Array.isArray(pending)||!Object.isFrozen(pending))return false;
+  const optional=[];
+  if(semantic.predecessorApprovalId)optional.push('predecessorApprovalId');
+  if(semantic.decision==='edit_then_approve')optional.push('editedText');
+  if(!approvalExecutionExactKeys(pending,['commandId','proposalId','evidencePackId','computedBasisId','generationId','intentRevision','decision','idempotencyKey','expectedApprovalVersion','expectedState'],optional))return false;
+  for(const key of ['commandId','proposalId','evidencePackId','computedBasisId','generationId','idempotencyKey'])if(!approvalExecutionValidID(pending[key]))return false;
+  if(pending.generationId==='unpublished'||!approvalExecutionValidInteger(pending.intentRevision,1,1000000)||!APPROVAL_EXECUTION_DECISIONS.includes(pending.decision)||!approvalExecutionValidInteger(pending.expectedApprovalVersion,0,APPROVAL_EXECUTION_MAX_VERSION)||!APPROVAL_EXECUTION_STATES.includes(pending.expectedState))return false;
+  if((pending.expectedState==='none')!== (pending.expectedApprovalVersion===0))return false;
+  if(pending.proposalId!==semantic.proposalId||pending.evidencePackId!==semantic.evidencePackId||pending.computedBasisId!==semantic.computedBasisId||pending.generationId!==semantic.generationId||pending.intentRevision!==semantic.intentRevision||pending.decision!==semantic.decision||pending.expectedApprovalVersion!==semantic.expectedApprovalVersion||pending.expectedState!==semantic.expectedState)return false;
+  if(semantic.predecessorApprovalId){
+    if(!Object.prototype.hasOwnProperty.call(pending,'predecessorApprovalId')||pending.predecessorApprovalId!==semantic.predecessorApprovalId||!approvalExecutionValidID(pending.predecessorApprovalId))return false;
+  }else if(Object.prototype.hasOwnProperty.call(pending,'predecessorApprovalId'))return false;
+  if(semantic.decision==='edit_then_approve'){
+    if(!Object.prototype.hasOwnProperty.call(pending,'editedText')||pending.editedText!==semantic.editedText||!approvalExecutionValidText(pending.editedText,4096,true))return false;
+  }else if(Object.prototype.hasOwnProperty.call(pending,'editedText'))return false;
+  return true;
+}
+
+function approvalExecutionExpectedTransition(previous,pending){
+  const state=previous&&typeof previous.state==='string'?previous.state:'';
+  const active=previous&&typeof previous.activeApprovalId==='string'?previous.activeApprovalId:'';
+  switch(pending.decision){
+    case 'approve':
+      return state==='none'&&active===''&&!pending.predecessorApprovalId?{state:'active',relation:'initial',predecessor:'forbidden'}:null;
+    case 'edit_then_approve':
+      return state==='active'&&approvalExecutionValidID(active)&&pending.predecessorApprovalId===active?{state:'active',relation:'edit',predecessor:'required'}:null;
+    case 'reject':
+      if(state!=='none'&&state!=='active')return null;
+      if(state==='none'&&pending.predecessorApprovalId)return null;
+      if(state==='active'&&pending.predecessorApprovalId!==active)return null;
+      return {state:'rejected',relation:'reject',predecessor:state==='active'?'required':'forbidden'};
+    case 'revoke':
+      return state==='active'&&approvalExecutionValidID(active)&&pending.predecessorApprovalId===active?{state:'revoked',relation:'revoke',predecessor:'required'}:null;
+    case 'supersede':
+      return state==='active'&&approvalExecutionValidID(active)&&pending.predecessorApprovalId===active?{state:'superseded',relation:'supersede',predecessor:'required'}:null;
+    default:
+      return null;
+  }
+}
+
+function approvalExecutionHistoryEntryEqual(left,right){
+  const required=['version','state','eventId','decision'];
+  const optional=['approvalId'];
+  if(!approvalExecutionExactKeys(left,required,optional)||!approvalExecutionExactKeys(right,required,optional))return false;
+  for(const key of required)if(left[key]!==right[key])return false;
+  const leftHas=Object.prototype.hasOwnProperty.call(left,'approvalId');
+  const rightHas=Object.prototype.hasOwnProperty.call(right,'approvalId');
+  return leftHas===rightHas&&(!leftHas||left.approvalId===right.approvalId);
+}
+
+function approvalExecutionEventIsNew(event,previous){
+  const aggregate=previous&&previous.aggregate&&typeof previous.aggregate==='object'?previous.aggregate:null;
+  if(!aggregate||!Array.isArray(aggregate.history))return true;
+  return !aggregate.history.some(entry=>entry.eventId===event.eventId||entry.approvalId&&entry.approvalId===event.approvalId);
+}
+
+function validateApprovalExecutionResult(result,pending,semantic,previous){
+  const topRequired=['receipt','generationId','computedBasisId','validatedSnapshotId','intentRevision','freshness'];
+  if(!approvalExecutionExactKeys(result,topRequired,[])||!approvalExecutionValidID(result.generationId)||result.generationId==='unpublished'||!approvalExecutionValidID(result.computedBasisId)||!approvalExecutionValidID(result.validatedSnapshotId)||!approvalExecutionValidInteger(result.intentRevision,1,1000000)||!['current','historical'].includes(result.freshness))return null;
+  if(!approvalExecutionValidPendingRequest(pending,semantic))return null;
+  if(result.generationId!==pending.generationId||result.computedBasisId!==pending.computedBasisId||result.intentRevision!==pending.intentRevision)return null;
+  const currentSnapshot=typeof viewState.validatedAgainstSnapshotId==='string'?viewState.validatedAgainstSnapshotId.trim():'';
+  if(!currentSnapshot||result.validatedSnapshotId!==currentSnapshot)return null;
+  const currentWorkspace=approvalExecutionCurrentWorkspaceID();
+
+  const receipt=result.receipt;
+  if(!approvalExecutionExactKeys(receipt,['idempotencyResult','event','aggregate','outbox','replayed'],[])||typeof receipt.replayed!=='boolean')return null;
+  const event=receipt.event;
+  const eventRequired=['schemaId','schemaVersion','eventId','approvalId','aggregateId','aggregateVersion','actorId','sessionId','workspaceId','proposalId','evidencePackId','computedBasisId','generationId','intentRevision','decision','approvedText','timestamp','lifecycleRelation'];
+  if(!approvalExecutionExactKeys(event,eventRequired,['predecessorApprovalId'])||event.schemaId!==APPROVAL_EXECUTION_SCHEMA_IDS.event||event.schemaVersion!==2)return null;
+  for(const key of ['eventId','approvalId','aggregateId','workspaceId','proposalId','evidencePackId','computedBasisId','generationId'])if(!approvalExecutionValidID(event[key]))return null;
+  for(const key of ['actorId','sessionId'])if(!approvalExecutionValidID(event[key]))return null;
+  if(!approvalExecutionValidInteger(event.aggregateVersion,1,APPROVAL_EXECUTION_MAX_VERSION)||!approvalExecutionValidInteger(event.intentRevision,1,1000000)||!APPROVAL_EXECUTION_DECISIONS.includes(event.decision)||!APPROVAL_EXECUTION_RELATIONS.includes(event.lifecycleRelation)||!approvalExecutionValidText(event.approvedText,4096,false)||!approvalExecutionValidTimestamp(event.timestamp))return null;
+  if(Object.prototype.hasOwnProperty.call(event,'predecessorApprovalId')&&!approvalExecutionValidID(event.predecessorApprovalId))return null;
+  if(!approvalExecutionValidID(currentWorkspace)||event.workspaceId!==currentWorkspace)return null;
+  if(event.proposalId!==pending.proposalId||event.evidencePackId!==pending.evidencePackId||event.computedBasisId!==pending.computedBasisId||event.generationId!==pending.generationId||event.intentRevision!==pending.intentRevision||event.decision!==pending.decision)return null;
+
+  const previousState=previous&&typeof previous.state==='string'?previous.state:'';
+  const previousVersion=previous&&Number.isSafeInteger(previous.version)?previous.version:-1;
+  const previousActive=previous&&typeof previous.activeApprovalId==='string'?previous.activeApprovalId:'';
+  if(!APPROVAL_EXECUTION_STATES.includes(previousState)||!approvalExecutionValidInteger(previousVersion,0,APPROVAL_EXECUTION_MAX_VERSION)||((previousState==='active')!==Boolean(previousActive))||((previousState==='none')!==(previousVersion===0)))return null;
+  if(pending.expectedApprovalVersion!==previousVersion||pending.expectedState!==previousState)return null;
+  if(!approvalExecutionPreviousAggregateMatchesView(previous,semantic))return null;
+  const transition=approvalExecutionExpectedTransition({state:previousState,activeApprovalId:previousActive},pending);
+  if(!transition||event.aggregateVersion!==previousVersion+1||event.lifecycleRelation!==transition.relation||event.aggregateVersion>APPROVAL_EXECUTION_MAX_VERSION||!approvalExecutionEventIsNew(event,previous))return null;
+  if(transition.predecessor==='required'){
+    if(!Object.prototype.hasOwnProperty.call(event,'predecessorApprovalId')||event.predecessorApprovalId!==previousActive)return null;
+  }else if(Object.prototype.hasOwnProperty.call(event,'predecessorApprovalId'))return null;
+  if(pending.decision==='approve'){
+    if(event.approvedText.trim()==='')return null;
+  }else if(pending.decision==='edit_then_approve'){
+    if(event.approvedText!==pending.editedText||event.approvedText.trim()==='')return null;
+  }else if(event.approvedText!=='')return null;
+
+  const aggregate=receipt.aggregate;
+  const aggregateRequired=['schemaId','schemaVersion','aggregateId','workspaceId','proposalId','evidencePackId','computedBasisId','generationId','intentRevision','version','state','lastEventId','lastDecision','history'];
+  if(!approvalExecutionExactKeys(aggregate,aggregateRequired,['activeApprovalId'])||aggregate.schemaId!==APPROVAL_EXECUTION_SCHEMA_IDS.aggregate||aggregate.schemaVersion!==2)return null;
+  for(const key of ['aggregateId','workspaceId','proposalId','evidencePackId','computedBasisId','generationId','lastEventId'])if(!approvalExecutionValidID(aggregate[key]))return null;
+  if(!approvalExecutionValidInteger(aggregate.intentRevision,1,1000000)||!approvalExecutionValidInteger(aggregate.version,0,APPROVAL_EXECUTION_MAX_VERSION)||!APPROVAL_EXECUTION_STATES.includes(aggregate.state)||!['none'].concat(APPROVAL_EXECUTION_DECISIONS).includes(aggregate.lastDecision)||!Array.isArray(aggregate.history)||aggregate.history.length!==previousVersion+2||aggregate.history.length>256)return null;
+  if(aggregate.workspaceId!==event.workspaceId||aggregate.proposalId!==event.proposalId||aggregate.evidencePackId!==event.evidencePackId||aggregate.computedBasisId!==event.computedBasisId||aggregate.generationId!==event.generationId||aggregate.intentRevision!==event.intentRevision||aggregate.aggregateId!==event.aggregateId||aggregate.version!==event.aggregateVersion||aggregate.state!==transition.state||aggregate.lastEventId!==event.eventId||aggregate.lastDecision!==event.decision)return null;
+  if(transition.state==='active'){
+    if(!Object.prototype.hasOwnProperty.call(aggregate,'activeApprovalId')||aggregate.activeApprovalId!==event.approvalId||!approvalExecutionValidID(aggregate.activeApprovalId))return null;
+  }else if(Object.prototype.hasOwnProperty.call(aggregate,'activeApprovalId'))return null;
+  const genesis=aggregate.history[0];
+  if(!approvalExecutionExactKeys(genesis,['version','state','eventId','decision'],[])||genesis.version!==0||genesis.state!=='none'||genesis.decision!=='none'||!approvalExecutionValidID(genesis.eventId))return null;
+  const seenEvents=new Set([genesis.eventId]);
+  const seenApprovals=new Set();
+  let historyState='none';
+  for(let index=1;index<aggregate.history.length;index+=1){
+    const entry=aggregate.history[index];
+    if(!approvalExecutionExactKeys(entry,['version','state','eventId','decision'],['approvalId'])||entry.version!==index||!APPROVAL_EXECUTION_STATES.includes(entry.state)||!APPROVAL_EXECUTION_DECISIONS.includes(entry.decision)||!approvalExecutionValidID(entry.eventId)||!Object.prototype.hasOwnProperty.call(entry,'approvalId')||!approvalExecutionValidID(entry.approvalId)||seenEvents.has(entry.eventId)||seenApprovals.has(entry.approvalId))return null;
+    let expectedHistoryState='';
+    if(entry.decision==='approve'){if(historyState!=='none')return null;expectedHistoryState='active';}
+    else if(entry.decision==='edit_then_approve'){if(historyState!=='active')return null;expectedHistoryState='active';}
+    else if(entry.decision==='reject'){if(historyState!=='none'&&historyState!=='active')return null;expectedHistoryState='rejected';}
+    else if(entry.decision==='revoke'){if(historyState!=='active')return null;expectedHistoryState='revoked';}
+    else if(entry.decision==='supersede'){if(historyState!=='active')return null;expectedHistoryState='superseded';}
+    if(entry.state!==expectedHistoryState)return null;
+    seenEvents.add(entry.eventId);seenApprovals.add(entry.approvalId);
+    historyState=entry.state;
+  }
+  const tail=aggregate.history[aggregate.history.length-1];
+  if(tail.eventId!==event.eventId||tail.approvalId!==event.approvalId||tail.state!==transition.state||tail.decision!==event.decision)return null;
+  const previousAggregate=previous&&previous.aggregate&&typeof previous.aggregate==='object'?previous.aggregate:null;
+  if(previousAggregate){
+    if(aggregate.aggregateId!==previousAggregate.aggregateId)return null;
+    if(!Array.isArray(previousAggregate.history)||previousAggregate.history.length!==previousVersion+1)return null;
+    for(let index=0;index<previousAggregate.history.length;index+=1)if(!approvalExecutionHistoryEntryEqual(aggregate.history[index],previousAggregate.history[index]))return null;
+  }else if(previousVersion>0){
+    const previousTail=aggregate.history[previousVersion];
+    if(previousTail.version!==previousVersion||previousTail.state!==previousState||previousState==='active'&&previousTail.approvalId!==previousActive||previousState!=='active'&&previousTail.approvalId==='')return null;
+  }
+
+  const idempotency=receipt.idempotencyResult;
+  const idempotencyRequired=['schemaId','schemaVersion','idempotencyKey','commandId','actorId','sessionId','workspaceId','proposalId','evidencePackId','computedBasisId','generationId','requestDigest','outcome','approvalId','eventId','aggregateId','aggregateVersion','state','committedAt','originalCommand','originalResult'];
+  if(!approvalExecutionExactKeys(idempotency,idempotencyRequired,[])||idempotency.schemaId!==APPROVAL_EXECUTION_SCHEMA_IDS.idempotency||idempotency.schemaVersion!==1)return null;
+  for(const key of ['idempotencyKey','commandId','actorId','sessionId','workspaceId','proposalId','evidencePackId','computedBasisId','generationId','approvalId','eventId','aggregateId'])if(!approvalExecutionValidID(idempotency[key]))return null;
+  if(!approvalExecutionValidDigest(idempotency.requestDigest)||idempotency.outcome!=='committed'||!approvalExecutionValidInteger(idempotency.aggregateVersion,1,APPROVAL_EXECUTION_MAX_VERSION)||!APPROVAL_EXECUTION_STATES.includes(idempotency.state)||!approvalExecutionValidTimestamp(idempotency.committedAt))return null;
+  if(idempotency.idempotencyKey!==pending.idempotencyKey||idempotency.commandId!==pending.commandId||idempotency.actorId!==event.actorId||idempotency.sessionId!==event.sessionId||idempotency.workspaceId!==event.workspaceId||idempotency.proposalId!==event.proposalId||idempotency.evidencePackId!==event.evidencePackId||idempotency.computedBasisId!==event.computedBasisId||idempotency.generationId!==event.generationId||idempotency.approvalId!==event.approvalId||idempotency.eventId!==event.eventId||idempotency.aggregateId!==aggregate.aggregateId||idempotency.aggregateVersion!==aggregate.version||idempotency.state!==aggregate.state||idempotency.committedAt!==event.timestamp)return null;
+  const originalCommand=idempotency.originalCommand;
+  if(!approvalExecutionExactKeys(originalCommand,['commandId','idempotencyKey','actorId','workspaceId','proposalId','decision','expectedApprovalVersion'],[])||!approvalExecutionValidID(originalCommand.commandId)||!approvalExecutionValidID(originalCommand.idempotencyKey)||!approvalExecutionValidID(originalCommand.actorId)||!approvalExecutionValidID(originalCommand.workspaceId)||!approvalExecutionValidID(originalCommand.proposalId)||!APPROVAL_EXECUTION_DECISIONS.includes(originalCommand.decision)||!approvalExecutionValidInteger(originalCommand.expectedApprovalVersion,0,APPROVAL_EXECUTION_MAX_VERSION))return null;
+  if(originalCommand.commandId!==pending.commandId||originalCommand.idempotencyKey!==pending.idempotencyKey||originalCommand.actorId!==idempotency.actorId||originalCommand.workspaceId!==idempotency.workspaceId||originalCommand.proposalId!==pending.proposalId||originalCommand.decision!==pending.decision||originalCommand.expectedApprovalVersion!==previousVersion)return null;
+  const originalResult=idempotency.originalResult;
+  if(!approvalExecutionExactKeys(originalResult,['outcome','approvalId','eventId','aggregateId','aggregateVersion','state'],[])||originalResult.outcome!=='committed'||!approvalExecutionValidID(originalResult.approvalId)||!approvalExecutionValidID(originalResult.eventId)||!approvalExecutionValidID(originalResult.aggregateId)||!approvalExecutionValidInteger(originalResult.aggregateVersion,1,APPROVAL_EXECUTION_MAX_VERSION)||!APPROVAL_EXECUTION_STATES.includes(originalResult.state))return null;
+  if(originalResult.approvalId!==event.approvalId||originalResult.eventId!==event.eventId||originalResult.aggregateId!==aggregate.aggregateId||originalResult.aggregateVersion!==aggregate.version||originalResult.state!==aggregate.state)return null;
+
+  const outbox=receipt.outbox;
+  const outboxRequired=['schemaId','schemaVersion','outboxId','eventId','aggregateId','aggregateVersion','workspaceId','payloadDigest','committedAt','deliveryState','committedEvent'];
+  if(!approvalExecutionExactKeys(outbox,outboxRequired,['publishedAt','failureReason'])||outbox.schemaId!==APPROVAL_EXECUTION_SCHEMA_IDS.outbox||outbox.schemaVersion!==1)return null;
+  for(const key of ['outboxId','eventId','aggregateId','workspaceId'])if(!approvalExecutionValidID(outbox[key]))return null;
+  if(!approvalExecutionValidInteger(outbox.aggregateVersion,1,APPROVAL_EXECUTION_MAX_VERSION)||!approvalExecutionValidDigest(outbox.payloadDigest)||!approvalExecutionValidTimestamp(outbox.committedAt)||!['pending','published'].includes(outbox.deliveryState))return null;
+  if(Object.prototype.hasOwnProperty.call(outbox,'failureReason'))return null;
+  if(outbox.deliveryState==='pending'){
+    if(Object.prototype.hasOwnProperty.call(outbox,'publishedAt'))return null;
+  }else{
+    if(!approvalExecutionValidTimestamp(outbox.publishedAt))return null;
+    const orderedTimestamp=value=>value.slice(0,19)+'.'+(value.slice(19,-1).replace(/^\./,'')).padEnd(9,'0');
+    if(orderedTimestamp(outbox.publishedAt)<orderedTimestamp(outbox.committedAt))return null;
+  }
+  if(outbox.eventId!==event.eventId||outbox.aggregateId!==aggregate.aggregateId||outbox.aggregateVersion!==aggregate.version||outbox.workspaceId!==event.workspaceId||outbox.committedAt!==event.timestamp)return null;
+  const committedEvent=outbox.committedEvent;
+  if(!approvalExecutionExactKeys(committedEvent,['eventId','approvalId','aggregateId','aggregateVersion','workspaceId','decision','payloadDigest'],[])||!approvalExecutionValidID(committedEvent.eventId)||!approvalExecutionValidID(committedEvent.approvalId)||!approvalExecutionValidID(committedEvent.aggregateId)||!approvalExecutionValidInteger(committedEvent.aggregateVersion,1,APPROVAL_EXECUTION_MAX_VERSION)||!approvalExecutionValidID(committedEvent.workspaceId)||!APPROVAL_EXECUTION_DECISIONS.includes(committedEvent.decision)||!approvalExecutionValidDigest(committedEvent.payloadDigest))return null;
+  if(committedEvent.eventId!==event.eventId||committedEvent.approvalId!==event.approvalId||committedEvent.aggregateId!==aggregate.aggregateId||committedEvent.aggregateVersion!==aggregate.version||committedEvent.workspaceId!==event.workspaceId||committedEvent.decision!==event.decision||committedEvent.payloadDigest!==outbox.payloadDigest)return null;
+  const validated=JSON.parse(JSON.stringify(result));
+  APPROVAL_VALIDATED_EXECUTION_RESULTS.add(validated);
+  return validated;
+}
+
+function approvalEditedTextValue(){
+  const input=document.getElementById('approval-edited-text');
+  return input&&typeof input.value==='string'?input.value:'';
+}
+
+function approvalEditedTextLength(value){
+  return typeof value==='string'?Array.from(value).length:0;
+}
+
+function approvalLifecycleAdmission(decision,editedText){
+  const state=typeof viewState.approvalState==='string'?viewState.approvalState:'none';
+  const expectedState=typeof viewState.approvalExpectedState==='string'&&viewState.approvalExpectedState?viewState.approvalExpectedState:state;
+  const activeApprovalId=typeof viewState.activeApprovalId==='string'?viewState.activeApprovalId.trim():'';
+  const predecessorApprovalId=typeof viewState.approvalPredecessorApprovalId==='string'?viewState.approvalPredecessorApprovalId.trim():'';
+  if(expectedState!==state)return false;
+  if(decision==='approve')return state==='none'&&!activeApprovalId&&!predecessorApprovalId;
+  if(decision==='edit_then_approve')return state==='active'&&!!activeApprovalId&&typeof editedText==='string'&&editedText.trim()!==''&&approvalEditedTextLength(editedText)<=4096;
+  if(decision==='reject')return state==='none'?(!activeApprovalId&&!predecessorApprovalId):(state==='active'&&!!activeApprovalId);
+  if(decision==='revoke'||decision==='supersede')return state==='active'&&!!activeApprovalId;
+  return false;
+}
+
+function approvalAdmissionMessage(decision,editedText){
+  if(decision==='edit_then_approve'){
+    const state=typeof viewState.approvalState==='string'?viewState.approvalState:'none';
+    const activeApprovalId=typeof viewState.activeApprovalId==='string'?viewState.activeApprovalId.trim():'';
+    if(state!=='active'||!activeApprovalId)return 'edit_then_approve requires an active approval';
+    if(typeof editedText!=='string'||editedText.trim()==='')return 'edited text is required for edit_then_approve';
+    if(approvalEditedTextLength(editedText)>4096)return 'edited text must be 4096 characters or fewer';
+  }
+  return 'approval action is not allowed in the current lifecycle state';
+}
+
+function syncApprovalControls(){
+  const state=typeof viewState.approvalState==='string'?viewState.approvalState:'none';
+  const expectedState=typeof viewState.approvalExpectedState==='string'&&viewState.approvalExpectedState?viewState.approvalExpectedState:state;
+  const coherentState=expectedState===state;
+  const proposalId=typeof viewState.proposalId==='string'?viewState.proposalId.trim():'';
+  const evidencePackId=typeof viewState.evidencePackId==='string'?viewState.evidencePackId.trim():'';
+  const hasIdentity=!!proposalId&&!!evidencePackId;
+  const activeApprovalId=typeof viewState.activeApprovalId==='string'?viewState.activeApprovalId.trim():'';
+  const predecessorApprovalId=typeof viewState.approvalPredecessorApprovalId==='string'?viewState.approvalPredecessorApprovalId.trim():'';
+  const controls={
+    approve:document.getElementById('btn-semantic-approve'),
+    edit_then_approve:document.getElementById('btn-semantic-edit-then-approve'),
+    reject:document.getElementById('btn-semantic-reject'),
+    revoke:document.getElementById('btn-semantic-revoke'),
+    supersede:document.getElementById('btn-semantic-supersede')
+  };
+  if(controls.approve)controls.approve.disabled=!(hasIdentity&&coherentState&&state==='none'&&!activeApprovalId&&!predecessorApprovalId);
+  if(controls.edit_then_approve)controls.edit_then_approve.disabled=!(hasIdentity&&coherentState&&state==='active'&&!!activeApprovalId);
+  if(controls.reject)controls.reject.disabled=!(hasIdentity&&coherentState&&(state==='none'?(!activeApprovalId&&!predecessorApprovalId):(state==='active'&&!!activeApprovalId)));
+  if(controls.revoke)controls.revoke.disabled=!(hasIdentity&&coherentState&&state==='active'&&!!activeApprovalId);
+  if(controls.supersede)controls.supersede.disabled=!(hasIdentity&&coherentState&&state==='active'&&!!activeApprovalId);
+  const input=document.getElementById('approval-edited-text');
+  if(input)input.disabled=!(hasIdentity&&coherentState&&state==='active'&&!!activeApprovalId);
+}
+
+function approvalOperationIsCurrent(requestGeneration,pendingRequest,semantic){
+  const currentGeneration=typeof semanticRequestGeneration==='number'?semanticRequestGeneration:0;
+  if(requestGeneration!==currentGeneration||viewState.approvalPendingRequest!==pendingRequest)return false;
+  if(!pendingRequest||typeof pendingRequest!=='object'||!Object.isFrozen(pendingRequest))return false;
+  const currentProposalId=typeof viewState.proposalId==='string'?viewState.proposalId.trim():'';
+  const currentEvidencePackId=typeof viewState.evidencePackId==='string'?viewState.evidencePackId.trim():'';
+  const currentComputedBasisId=typeof viewState.computedBasisId==='string'?viewState.computedBasisId.trim():'';
+  const currentGenerationId=typeof viewState.generationId==='string'?viewState.generationId.trim():'';
+  const currentValidatedSnapshotId=typeof viewState.validatedAgainstSnapshotId==='string'?viewState.validatedAgainstSnapshotId.trim():'';
+  const currentIntentRevision=Number.isInteger(viewState.intentRevision)?viewState.intentRevision:0;
+  const currentDecision=typeof viewState.approvalDecision==='string'?viewState.approvalDecision:'';
+  const currentExpectedVersion=Number.isInteger(viewState.approvalExpectedVersion)?viewState.approvalExpectedVersion:(Number.isInteger(viewState.approvalVersion)?viewState.approvalVersion:0);
+  const currentExpectedState=typeof viewState.approvalExpectedState==='string'&&viewState.approvalExpectedState?viewState.approvalExpectedState:(viewState.approvalState||'none');
+  const currentState=typeof viewState.approvalState==='string'?viewState.approvalState:'none';
+  const currentPredecessorApprovalId=typeof viewState.activeApprovalId==='string'?viewState.activeApprovalId.trim():'';
+  const currentApprovalPredecessorApprovalId=typeof viewState.approvalPredecessorApprovalId==='string'?viewState.approvalPredecessorApprovalId.trim():'';
+  const editedTextInput=document.getElementById('approval-edited-text');
+  const currentEditedText=semantic.decision==='edit_then_approve'&&editedTextInput&&typeof editedTextInput.value==='string'?editedTextInput.value:'';
+  const pendingEditedText=typeof pendingRequest.editedText==='string'?pendingRequest.editedText:'';
+  return currentProposalId===semantic.proposalId&&currentEvidencePackId===semantic.evidencePackId&&currentComputedBasisId===semantic.computedBasisId&&currentGenerationId===semantic.generationId&&currentValidatedSnapshotId===semantic.validatedSnapshotId&&currentIntentRevision===semantic.intentRevision&&currentDecision===semantic.decision&&currentExpectedVersion===semantic.expectedApprovalVersion&&currentExpectedState===semantic.expectedState&&currentState===semantic.expectedState&&currentPredecessorApprovalId===semantic.predecessorApprovalId&&currentApprovalPredecessorApprovalId===semantic.predecessorApprovalId&&currentEditedText===semantic.editedText&&pendingRequest.proposalId===semantic.proposalId&&pendingRequest.evidencePackId===semantic.evidencePackId&&pendingRequest.computedBasisId===semantic.computedBasisId&&pendingRequest.generationId===semantic.generationId&&pendingRequest.intentRevision===semantic.intentRevision&&pendingRequest.decision===semantic.decision&&pendingRequest.expectedApprovalVersion===semantic.expectedApprovalVersion&&pendingRequest.expectedState===semantic.expectedState&&pendingEditedText===semantic.editedText;
+}
+
 async function submitProposalApproval(decision){
-  const targetSym = (document.getElementById('proposal-target-symbol') ? document.getElementById('proposal-target-symbol').textContent.trim() : '') || 'HomePage.handleQuickCheckout';
-  const badge = document.getElementById('approval-status-badge');
-  const msg = document.getElementById('approval-result-msg');
+  const proposalId=typeof viewState.proposalId==='string'?viewState.proposalId.trim():'';
+  const evidencePackId=typeof viewState.evidencePackId==='string'?viewState.evidencePackId.trim():'';
+  const badge=document.getElementById('approval-status-badge');
+  const msg=document.getElementById('approval-result-msg');
+  if(!proposalId||!evidencePackId){
+    if(msg)msg.textContent='✓ 저장된 의미 제안과 근거 팩이 필요합니다.';
+    return;
+  }
+  if(decision!=='approve'&&decision!=='reject'&&decision!=='edit_then_approve'&&decision!=='revoke'&&decision!=='supersede'){
+    if(msg)msg.textContent='invalid approval decision';
+    return;
+  }
+  const editedTextInput=document.getElementById('approval-edited-text');
+  const editedText=editedTextInput&&typeof editedTextInput.value==='string'?editedTextInput.value:'';
+  const lifecycleIsAdmitted=typeof approvalLifecycleAdmission==='function'?approvalLifecycleAdmission:()=>true;
+  if(!lifecycleIsAdmitted(decision,editedText)){
+    if(msg)msg.textContent=approvalAdmissionMessage(decision,editedText);
+    return;
+  }
+  const computedBasisId=typeof viewState.computedBasisId==='string'?viewState.computedBasisId.trim():'';
+  const generationId=typeof viewState.generationId==='string'?viewState.generationId.trim():'';
+  const validatedSnapshotId=typeof viewState.validatedAgainstSnapshotId==='string'?viewState.validatedAgainstSnapshotId.trim():'';
+  const intentRevision=Number.isInteger(viewState.intentRevision)?viewState.intentRevision:0;
+  const expectedApprovalVersion=Number.isInteger(viewState.approvalExpectedVersion)?viewState.approvalExpectedVersion:(Number.isInteger(viewState.approvalVersion)?viewState.approvalVersion:0);
+  const expectedState=typeof viewState.approvalExpectedState==='string'&&viewState.approvalExpectedState?viewState.approvalExpectedState:(viewState.approvalState||'none');
+  const predecessorApprovalId=typeof viewState.activeApprovalId==='string'?viewState.activeApprovalId.trim():'';
+  const semantic={proposalId:proposalId,evidencePackId:evidencePackId,computedBasisId:computedBasisId,generationId:generationId,validatedSnapshotId:validatedSnapshotId,intentRevision:intentRevision,decision:decision,editedText:decision==='edit_then_approve'?editedText:'',expectedApprovalVersion:expectedApprovalVersion,expectedState:expectedState,predecessorApprovalId:predecessorApprovalId};
+  let previousAggregate=null;
+  if(typeof approvalHistoryModel!=='undefined'&&approvalHistoryModel&&approvalHistoryModel.aggregate&&typeof approvalHistoryModel.aggregate==='object'){
+    try{previousAggregate=JSON.parse(JSON.stringify(approvalHistoryModel.aggregate));}catch(_){previousAggregate=null;}
+  }
+  const previous={state:typeof viewState.approvalState==='string'?viewState.approvalState:'none',version:expectedApprovalVersion,activeApprovalId:predecessorApprovalId,aggregate:previousAggregate};
+  let pendingRequest=approvalPendingRequestMatches(viewState.approvalPendingRequest,semantic)?viewState.approvalPendingRequest:null;
+  if(!pendingRequest){
+    const commandId=secureApprovalActionID('cmd-ui-');
+    const idempotencyKey=secureApprovalActionID('idem-ui-');
+    if(!commandId||!idempotencyKey){
+      if(msg)msg.textContent='승인 처리에 필요한 보안 임의성을 사용할 수 없습니다.';
+      return;
+    }
+    const request={
+      commandId:commandId,
+      proposalId:semantic.proposalId,
+      evidencePackId:semantic.evidencePackId,
+      computedBasisId:semantic.computedBasisId,
+      generationId:semantic.generationId,
+      intentRevision:semantic.intentRevision,
+      decision:semantic.decision,
+      idempotencyKey:idempotencyKey,
+      expectedApprovalVersion:semantic.expectedApprovalVersion,
+      expectedState:semantic.expectedState
+    };
+    if(semantic.predecessorApprovalId)request.predecessorApprovalId=semantic.predecessorApprovalId;
+    if(semantic.decision==='edit_then_approve')request.editedText=semantic.editedText;
+    pendingRequest=Object.freeze(request);
+    viewState={...viewState,
+      approvalPendingRequest:pendingRequest,
+      approvalCommandId:pendingRequest.commandId,
+      approvalIdempotencyKey:pendingRequest.idempotencyKey,
+      approvalDecision:pendingRequest.decision,
+      approvalExpectedVersion:pendingRequest.expectedApprovalVersion,
+      approvalExpectedState:pendingRequest.expectedState,
+      approvalPredecessorApprovalId:semantic.predecessorApprovalId
+    };
+  }
+  const requestGeneration=typeof semanticRequestGeneration==='number'?semanticRequestGeneration:0;
+  const operationPendingRequest=pendingRequest;
+  const operationSemantic=Object.freeze({...semantic});
+  const operationIsCurrent=typeof approvalOperationIsCurrent==='function'?approvalOperationIsCurrent:()=>true;
+  const operationSpecID=(key)=>{const spec=typeof currentSpec!=='undefined'&&currentSpec&&typeof currentSpec==='object'?currentSpec:null;return spec&&typeof spec[key]==='string'?spec[key].trim():'';};
+  const operationMapID=operationSpecID('flowId');
+  const operationTaskID=operationSpecID('taskId');
+  const operationWorkspaceID=operationSpecID('workspaceId');
+  const replayOperationIsCurrent=(result)=>{
+    if(typeof semanticRequestGeneration!=='number'||semanticRequestGeneration!==requestGeneration||viewState.approvalPendingRequest!==null)return false;
+    const currentProposalId=typeof viewState.proposalId==='string'?viewState.proposalId.trim():'';
+    const currentEvidencePackId=typeof viewState.evidencePackId==='string'?viewState.evidencePackId.trim():'';
+    const currentComputedBasisId=typeof viewState.computedBasisId==='string'?viewState.computedBasisId.trim():'';
+    const currentGenerationId=typeof viewState.generationId==='string'?viewState.generationId.trim():'';
+    const currentValidatedSnapshotId=typeof viewState.validatedAgainstSnapshotId==='string'?viewState.validatedAgainstSnapshotId.trim():'';
+    const currentIntentRevision=Number.isInteger(viewState.intentRevision)?viewState.intentRevision:0;
+    if(currentProposalId!==operationSemantic.proposalId||currentEvidencePackId!==operationSemantic.evidencePackId||currentComputedBasisId!==operationSemantic.computedBasisId||currentGenerationId!==operationSemantic.generationId||currentValidatedSnapshotId!==operationSemantic.validatedSnapshotId||currentIntentRevision!==operationSemantic.intentRevision||operationSpecID('flowId')!==operationMapID||operationSpecID('taskId')!==operationTaskID||operationSpecID('workspaceId')!==operationWorkspaceID)return false;
+    if(typeof approvalHistoryModel==='undefined'||!approvalHistoryModel||!Array.isArray(approvalHistoryModel.events)||!approvalHistoryModel.aggregate)return false;
+    const displayedAggregate=approvalHistoryModel.aggregate;
+    const displayedActiveApprovalId=typeof displayedAggregate.activeApprovalId==='string'?displayedAggregate.activeApprovalId:'';
+    if(viewState.approvalVersion!==displayedAggregate.version||viewState.approvalState!==displayedAggregate.state||viewState.approvalExpectedVersion!==displayedAggregate.version||viewState.approvalExpectedState!==displayedAggregate.state||viewState.activeApprovalId!==displayedActiveApprovalId||viewState.approvalPredecessorApprovalId!==displayedActiveApprovalId||viewState.approvalCommandId!==''||viewState.approvalIdempotencyKey!==''||viewState.approvalDecision!=='')return false;
+    if(!result)return true;
+    if(!result.receipt||result.receipt.replayed!==true)return false;
+    const existingEvent=approvalHistoryModel.events[approvalHistoryModel.events.length-1];
+    const existingAggregate=displayedAggregate;
+    const event=result.receipt.event;
+    const aggregate=result.receipt.aggregate;
+    if(!event||!aggregate)return false;
+    const sameValue=(left,right)=>{
+      if(left===right)return true;
+      if(!left||!right||typeof left!==typeof right)return false;
+      if(Array.isArray(left)||Array.isArray(right)){
+        if(!Array.isArray(left)||!Array.isArray(right)||left.length!==right.length)return false;
+        for(let index=0;index<left.length;index+=1)if(!sameValue(left[index],right[index]))return false;
+        return true;
+      }
+      if(typeof left!=='object')return false;
+      const leftKeys=Object.keys(left).sort();
+      const rightKeys=Object.keys(right).sort();
+      if(leftKeys.length!==rightKeys.length)return false;
+      for(let index=0;index<leftKeys.length;index+=1){if(leftKeys[index]!==rightKeys[index]||!sameValue(left[leftKeys[index]],right[rightKeys[index]]))return false;}
+      return true;
+    };
+    return sameValue(existingEvent,event)&&sameValue(existingAggregate,aggregate);
+  };
+  if(typeof approvalHistoryMutationSequence==='number')approvalHistoryMutationSequence+=1;
   try{
     const r=await api('/api/semantic/approve',{
-      method: 'POST',
-      headers: {'Content-Type': 'application/json'},
+      allowErrors:true,
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
       body: JSON.stringify({
-        proposalId: 'prop-'+targetSym,
-        decision: decision,
-        approver: 'developer@workspace.local'
+        commandId: pendingRequest.commandId,
+        proposalId: pendingRequest.proposalId,
+        evidencePackId: pendingRequest.evidencePackId,
+        computedBasisId: pendingRequest.computedBasisId,
+        generationId: pendingRequest.generationId,
+        intentRevision: pendingRequest.intentRevision,
+        decision: pendingRequest.decision,
+        ...(pendingRequest.editedText!==undefined?{editedText: pendingRequest.editedText}: {}),
+        idempotencyKey: pendingRequest.idempotencyKey,
+        expectedApprovalVersion: pendingRequest.expectedApprovalVersion,
+        expectedState: pendingRequest.expectedState,
+        ...(pendingRequest.predecessorApprovalId?{predecessorApprovalId: pendingRequest.predecessorApprovalId}: {})
       })
     });
+    const operationCurrentBeforeResponse=operationIsCurrent(requestGeneration,operationPendingRequest,operationSemantic);
+    const replayWindowBeforeResponse=!operationCurrentBeforeResponse&&replayOperationIsCurrent(null);
+    if(!operationCurrentBeforeResponse&&!replayWindowBeforeResponse)return;
     if(!r.ok){
-      const err=await r.json().catch(()=>({}));
-      alert('승인 처리 실패: '+(err.message||r.statusText));
+      let payload=null;
+      try{payload=await r.json();}catch(_){
+        payload=null;
+      }
+      if(!operationCurrentBeforeResponse)return;
+      if(!operationIsCurrent(requestGeneration,operationPendingRequest,operationSemantic))return;
+      if(msg)msg.textContent=approvalErrorMessage(payload);
       return;
     }
     const d=await r.json();
+    const operationCurrentAfterJSON=operationIsCurrent(requestGeneration,operationPendingRequest,operationSemantic);
+    const replayWindowAfterJSON=!operationCurrentAfterJSON&&replayOperationIsCurrent(null);
+    if(!operationCurrentAfterJSON&&!replayWindowAfterJSON)return;
+    const validated=validateApprovalExecutionResult(d,operationPendingRequest,operationSemantic,previous);
+    if(!validated){
+      if(operationCurrentAfterJSON&&operationIsCurrent(requestGeneration,operationPendingRequest,operationSemantic)&&msg)msg.textContent='approval request failed; please retry';
+      return;
+    }
+    if(replayWindowAfterJSON){
+      if(!replayOperationIsCurrent(validated))return;
+      if(typeof appendApprovalHistoryReceipt==='function'&&!appendApprovalHistoryReceipt(validated))return;
+      return;
+    }
+    if(!operationIsCurrent(requestGeneration,operationPendingRequest,operationSemantic))return;
+    const committedEvent=validated.receipt.event;
+    const committedAggregate=validated.receipt.aggregate;
+    const committedVersion=Number.isInteger(committedAggregate.version)?committedAggregate.version:viewState.approvalVersion;
+    const committedState=typeof committedAggregate.state==='string'?committedAggregate.state:viewState.approvalState;
+    const committedActiveApprovalId=typeof committedAggregate.activeApprovalId==='string'?committedAggregate.activeApprovalId:'';
+    if(typeof appendApprovalHistoryReceipt==='function'&&!appendApprovalHistoryReceipt(validated)){
+      if(msg)msg.textContent='approval request failed; please retry';
+      return;
+    }
+    viewState={...viewState,
+      approvalVersion:committedVersion,
+      approvalState:committedState,
+      activeApprovalId:committedActiveApprovalId,
+      approvalExpectedVersion:committedVersion,
+      approvalExpectedState:committedState,
+      approvalPredecessorApprovalId:committedActiveApprovalId,
+      approvalPendingRequest:null,
+      approvalCommandId:'',
+      approvalIdempotencyKey:'',
+      approvalDecision:''
+    };
     if(badge){
-      if(decision==='approved'){
-        badge.textContent='Approved';
+      const badgeLabels={none:'Awaiting Human Approval',active:'Active',rejected:'Rejected',revoked:'Revoked',superseded:'Superseded'};
+      if(committedState==='active'){
+        badge.textContent=badgeLabels.active;
         badge.style.background='#ebfbee';
         badge.style.color='#2b8a3e';
-      }else{
-        badge.textContent='Rejected';
+      }else if(badgeLabels[committedState]){
+        badge.textContent=badgeLabels[committedState];
         badge.style.background='#fff5f5';
         badge.style.color='#c92a2a';
+      }else{
+        badge.textContent=badgeLabels.none;
+        badge.style.background='#f4f4f2';
+        badge.style.color='#495057';
       }
     }
-    if(msg)msg.textContent='✓ 승인 기록 생성됨: '+d.approvalId+' ('+d.decision+')';
-  }catch(e){
-    console.error('submitProposalApproval error:',e);
+    if(typeof syncApprovalControls==='function')syncApprovalControls();
+    if(msg)msg.textContent='✓ 승인 기록 생성됨: '+(committedEvent.approvalId||'')+' ('+(committedEvent.decision||decision)+')';
+    if(typeof approvalHistoryRefreshPending!=='undefined'&&approvalHistoryRefreshPending){
+      const refresh=approvalHistoryRefreshPending;
+      approvalHistoryRefreshPending=null;
+      if(refresh.proposalId===viewState.proposalId&&refresh.evidencePackId===viewState.evidencePackId&&refresh.requestGeneration===semanticRequestGeneration)requestApprovalHistoryRefresh();
+    }
+  }catch(_){
+    if(!operationIsCurrent(requestGeneration,operationPendingRequest,operationSemantic))return;
+    if(msg)msg.textContent='approval request could not be sent; please retry';
   }
 }
 
 async function exploreDomains(){
+  const errEl=document.getElementById('onboarding-error');
+  if(errEl){errEl.style.display='none';errEl.textContent='';}
+  const basis=viewState||{};
+  const repositoryId=(basis.repositoryId||'').trim();
+  const computedBasisId=(basis.computedBasisId||'').trim();
+  const generationId=(basis.generationId||'').trim();
+  const snapshotId=(basis.validatedAgainstSnapshotId||'').trim();
+  if(!repositoryId||!computedBasisId||!generationId||!snapshotId||generationId==='unpublished'){
+    const message='missing_precondition: 먼저 repositoryId, basis, generation, snapshot이 있는 task view를 조회하세요.';
+    if(errEl){errEl.style.display='block';errEl.textContent=message;}
+    return;
+  }
   try{
-    const r=await api('/api/task/onboarding');
+    const q=new URLSearchParams({
+      repositoryId:repositoryId,
+      computedBasisId:computedBasisId,
+      generationId:generationId,
+      validatedAgainstSnapshotId:snapshotId,
+      freshness:basis.currentProofVerified===true?'current':'historical',
+      level:'1'
+    });
+    const r=await api('/api/task/onboarding?'+q.toString(),{allowErrors:true});
     if(!r.ok){
       const err=await r.json().catch(()=>({}));
-      alert('도메인 탐색 실패: '+(err.message||r.statusText));
+      const message=err.message||r.statusText;
+      if(errEl){errEl.style.display='block';errEl.textContent=message;}
       return;
     }
     const d=await r.json();
     renderDomainOverview(d);
   }catch(e){
-    console.error('exploreDomains error:',e);
+    if(errEl){errEl.style.display='block';errEl.textContent=String(e&&e.message||e);}
   }
 }
 
@@ -1750,40 +3264,91 @@ function renderDomainOverview(ov){
 
   if(totalDom&&ov.summary)totalDom.textContent=String(ov.summary.totalDomains);
   if(totalFlows&&ov.summary)totalFlows.textContent=String(ov.summary.totalFlows);
-  if(covRatio&&ov.summary)covRatio.textContent=Math.round(ov.summary.coverageRatio*100)+'%';
+  if(covRatio&&ov.summary)covRatio.textContent=Math.round((Number(ov.summary.coverageRatio)||0)*100)+'%';
+  const badge=document.getElementById('onboarding-coverage-badge');
+  if(badge){
+    const current=ov.freshness==='current';
+    badge.textContent=current?'Level 1: Current verified':'Level 1: Historical candidate';
+    badge.className=current?'badge':'badge warn-badge';
+  }
+  const status=document.getElementById('onboarding-evidence-status');
+  if(status){
+    const c=ov.coverageBoundary||{};
+    status.textContent='basis: '+(ov.computedBasisId||'unknown')+' · generation: '+(ov.generationId||'unknown')+' · freshness: '+(ov.freshness||'unknown')+' · domains '+String((ov.domains||[]).length)+' · unmapped '+String((ov.unmappedModules||[]).length)+' · excluded '+String((c.excludedReasons||[]).length);
+  }
 
   if(grid){
     const cards=[];
     (ov.domains||[]).forEach(d=>{
+      const domainRef=d.domainId||d.name||'';
+      const refs=Array.isArray(d.evidenceRefs)?d.evidenceRefs.join(', '):'';
       cards.push(
-        '<div style="border:1px solid var(--line);border-radius:6px;padding:10px;background:var(--paper);cursor:pointer" onclick="loadDomainCatalog(\''+esc(d.name)+'\')">'+
+        '<button type="button" style="width:100%;text-align:left;border:1px solid var(--line);border-radius:6px;padding:10px;background:var(--paper);cursor:pointer;color:inherit" aria-label="도메인 '+esc(d.name)+' 대표 흐름 보기" onclick="loadDomainCatalog(\''+escJs(domainRef)+'\')">'+
           '<div style="display:flex;justify-content:space-between;align-items:center">'+
             '<strong style="font-size:13px">'+esc(d.name)+'</strong>'+
             '<span class="badge" style="background:#e7f5ff;color:#1864ab">'+d.representativeFlowCount+' flows</span>'+
           '</div>'+
-          '<div style="font-size:11px;color:var(--muted);margin-top:4px">'+esc(d.description)+'</div>'+
-          '<div style="font-size:10px;font-family:monospace;color:var(--muted);margin-top:6px">진입점: '+esc((d.entryPoints||[]).join(', '))+'</div>'+
-        '</div>'
+	          '<div style="font-size:11px;color:var(--muted);margin-top:4px">'+esc(d.responsibility||d.description||'unknown')+'</div>'+
+	          '<div style="font-size:10px;color:var(--muted);margin-top:6px">상태: '+esc(d.epistemicState||'unknown')+' · 신뢰도: '+Math.round((Number(d.confidence)||0)*100)+'%</div>'+
+	          '<div style="font-size:10px;color:var(--muted);margin-top:4px">'+esc(d.rationale||d.selectionReason||'')+'</div>'+
+	          '<div style="font-size:10px;font-family:monospace;color:var(--muted);margin-top:4px">근거: '+esc(refs||'없음')+'</div>'+
+	          '<div style="font-size:10px;font-family:monospace;color:var(--muted);margin-top:4px">진입점: '+esc((d.entryPoints||[]).join(', ')||'없음')+'</div>'+
+        '</button>'
       );
     });
-    grid.innerHTML=cards.length?cards.join(''):'<div style="color:var(--muted)">도메인이 없습니다.</div>';
+    const unmapped=(ov.unmappedModules||[]).map(u=>'<li>'+esc(typeof u==='string'?u:(u.subject||u.modulePath||u))+'</li>').join('');
+    const unknowns=(ov.unknowns||[]).map(u=>'<li>'+esc(u.subject||'unknown')+' · '+esc(u.reason||'unresolved')+'</li>').join('');
+    grid.innerHTML=(cards.length?cards.join(''):'<div style="color:var(--muted)">근거가 있는 도메인이 없습니다.</div>')+(unmapped?'<div style="grid-column:1/-1;border:1px dashed var(--line);padding:8px;color:var(--muted)"><strong>미분류 영역</strong><ul style="margin:4px 0 0 16px">'+unmapped+'</ul></div>':'')+(unknowns?'<div style="grid-column:1/-1;border:1px dashed var(--line);padding:8px;color:var(--muted)"><strong>확인되지 않은 근거</strong><ul style="margin:4px 0 0 16px">'+unknowns+'</ul></div>':'');
   }
 }
 
-function loadDomainCatalog(domainName){
+async function loadDomainCatalog(domainName){
   const catContainer=document.getElementById('onboarding-catalog-container');
   const list=document.getElementById('representative-flows-list');
   if(catContainer)catContainer.style.display='block';
-  if(list){
-    list.innerHTML=
-      '<li><strong>'+esc(domainName)+' 기본 흐름:</strong> 진입점 실행 → 비즈니스 규칙 검증 → 상태 전이</li>'+
-      '<li><strong>'+esc(domainName)+' 예외/대체 흐름:</strong> 오류 처리 및 트랜잭션 롤백</li>';
+  const errEl=document.getElementById('onboarding-error');
+  if(errEl){errEl.style.display='none';errEl.textContent='';}
+  if(list)list.innerHTML='<li style="color:var(--muted)">대표 흐름 근거를 조회하는 중...</li>';
+  const q=new URLSearchParams({
+    repositoryId:(viewState.repositoryId||''),
+    domain:domainName,
+    freshness:viewState.currentProofVerified===true?'current':'historical',
+    computedBasisId:viewState.computedBasisId||'',
+    generationId:viewState.generationId||'',
+    validatedAgainstSnapshotId:viewState.validatedAgainstSnapshotId||'',
+    level:'2'
+  });
+  try{
+    const r=await api('/api/task/onboarding?'+q.toString(),{allowErrors:true});
+    if(!r.ok){
+      const err=await r.json().catch(()=>({}));
+      if(errEl){errEl.style.display='block';errEl.textContent=err.message||r.statusText;}
+      if(list)list.innerHTML='';
+      return;
+    }
+    const cat=await r.json();
+    if(list){
+      const flows=Array.isArray(cat.flows)?cat.flows:[];
+      list.innerHTML=flows.length?flows.map(f=>{
+        const canonical=(f.groundedMapId||'')+' / '+(f.entrySymbol||f.flowId||'');
+        return '<li style="border:1px solid var(--line);border-radius:5px;padding:7px;background:var(--soft)">'+
+	          '<div style="display:flex;justify-content:space-between;gap:8px"><strong>'+esc(f.title||f.entrySymbol||f.flowId)+'</strong><span class="badge">score '+Number(f.complexityScore||0).toFixed(1)+'</span></div>'+
+	          '<div class="mono" style="font-size:10px;color:var(--muted);margin-top:3px">'+esc(f.entrySymbol||'')+'</div>'+
+	          '<div style="font-size:10px;color:var(--muted);margin-top:3px">'+esc(f.selectionReason||'')+' · '+esc(f.epistemicState||'unknown')+' · '+Math.round((Number(f.confidence)||0)*100)+'%</div>'+
+	          '<div style="font-size:10px;color:var(--muted);margin-top:3px">'+esc(f.rationale||'')+'</div>'+
+	          '<div style="font-size:10px;color:var(--muted);margin-top:3px">근거: '+esc((f.evidenceRefs||[]).join(', ')||'없음')+' · canonical: '+esc(canonical)+'</div>'+
+        '</li>';
+      }).join(''):'<li style="color:var(--muted)">선택한 도메인에 근거가 있는 대표 흐름이 없습니다.</li>';
+    }
+  }catch(e){
+    if(errEl){errEl.style.display='block';errEl.textContent=String(e&&e.message||e);}
+    if(list)list.innerHTML='';
   }
 }
 
 async function evaluateReleaseCapability(){
   try{
-    const r=await api('/api/release/capability?targetVersion=v0.9.0-rc1');
+    const r=await api('/api/release/capability',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}',allowErrors:true});
     if(!r.ok){
       const err=await r.json().catch(()=>({}));
       alert('릴리즈 역량 평가 실패: '+(err.message||r.statusText));
@@ -1799,7 +3364,7 @@ async function evaluateReleaseCapability(){
 function renderReleaseCapability(data){
   if(!data)return;
   const rep=data.benchmarkReport;
-  const slm=data.slmCapability;
+  const matrix=data.capabilityMatrix;
 
   const badge=document.getElementById('release-ready-badge');
   const lat=document.getElementById('metric-latency-p95');
@@ -1807,22 +3372,33 @@ function renderReleaseCapability(data){
   const reg=document.getElementById('metric-regressions');
   const tier=document.getElementById('release-fallback-tier');
 
+  const metrics=rep&&Array.isArray(rep.metrics)?rep.metrics:[];
+  const metric=name=>metrics.find(m=>m&&m.metric===name);
+  const activity=metric('activity_latency_ms');
+  const currentOrGap=metric('current_or_gap_latency_ms');
+  const precision=metric('precision');
+  const recall=metric('recall');
+  const measured=!!activity&&!!currentOrGap&&!!precision&&!!recall;
+
   if(badge&&rep){
-    if(rep.releaseReady){
+    if(rep.releaseReady&&measured){
       badge.textContent='Release Ready: PASSED';
       badge.style.background='#ebfbee';
       badge.style.color='#1e602b';
     }else{
-      badge.textContent='Release Ready: FAILED';
-      badge.style.background='#fff5f5';
-      badge.style.color='#c92a2a';
+      badge.textContent=measured?'Release Ready: FAILED':'Release Ready: NOT MEASURED';
+      badge.style.background=measured?'#fff5f5':'#f4f4f2';
+      badge.style.color=measured?'#c92a2a':'#495057';
     }
   }
 
-  if(lat&&rep&&rep.metrics)lat.textContent=rep.metrics.latencyP95Ms.toFixed(1)+' ms';
-  if(prec&&rep&&rep.metrics)prec.textContent=rep.metrics.precision.toFixed(2)+' / '+rep.metrics.recall.toFixed(2);
-  if(reg&&rep&&rep.metrics)reg.textContent=rep.metrics.regressionFailures+' / '+rep.metrics.contractViolations;
-  if(tier&&slm)tier.textContent=slm.fallbackTier;
+  if(lat)lat.textContent=activity?Number(activity.value).toFixed(1)+' ms':'not measured';
+  if(prec)prec.textContent=precision&&recall?Number(precision.value).toFixed(2)+' / '+Number(recall.value).toFixed(2):'not measured';
+  if(reg)reg.textContent=currentOrGap?Number(currentOrGap.value).toFixed(1)+' ms':'not measured';
+  if(tier)tier.textContent=matrix&&matrix.profileId?(matrix.profileId+' / '+(matrix.corpusVersion||'undeclared corpus')):'not measured';
+  const list=document.getElementById('slm-capabilities-list');
+  const capabilities=matrix&&Array.isArray(matrix.capabilities)?matrix.capabilities:[];
+  if(list)list.innerHTML=capabilities.length?capabilities.map(c=>'<span class="badge">'+esc(c.capabilityId)+': '+esc(c.state)+'</span>').join(''):'<span class="badge" style="background:#f4f4f2;color:#495057">not measured</span>';
 }
 function switchEvidenceDockTab(tab){
   ['why','code','test','history'].forEach(t=>{

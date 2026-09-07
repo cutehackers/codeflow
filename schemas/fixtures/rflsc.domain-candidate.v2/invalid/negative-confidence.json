@@ -1,0 +1,15 @@
+{
+  "domainId": "domain-billing",
+  "name": "Billing",
+  "responsibility": "billing",
+  "description": "billing",
+  "representativeFlowCount": 1,
+  "entryPoints": ["services/billing/charge.rb#Billing#charge"],
+  "rationale": "derived",
+  "evidenceRefs": ["ev-billing"],
+  "confidence": -0.1,
+  "epistemicState": "candidate",
+  "coverageBoundary": {"includedSourceRoots": ["services"], "excludedReasons": []},
+  "selectionReason": "candidate",
+  "redactionStatus": "clean"
+}

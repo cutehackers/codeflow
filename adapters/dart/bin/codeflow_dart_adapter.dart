@@ -9,6 +9,11 @@ import 'package:codeflow_dart_adapter/src/protocol.dart';
 
 const int _maxMessageBytes = 1 << 20;
 const int _maxHeaderBytes = 8 << 10;
+const int _maxBufferBytes = _maxMessageBytes + _maxHeaderBytes;
+
+String _boundedDiagnostic(Object? value) {
+  return redactDiagnostic(value);
+}
 
 void main() {
   final server = AdapterServer(
@@ -20,9 +25,11 @@ void main() {
   var active = 0;
   final cancelled = <String>{};
   var shuttingDown = false;
+  var discardBytes = 0;
 
   void writeRpc(Object value) {
-    final body = utf8.encode(jsonEncode(value));
+    final body = encodeBoundedResponse(value, maxBytes: _maxMessageBytes);
+    if (body == null) return;
     stdout.add(utf8.encode('Content-Length: ${body.length}\r\n\r\n'));
     stdout.add(body);
   }
@@ -37,8 +44,12 @@ void main() {
       'id': id,
       'error': {
         'code': rpcCode,
-        'message': message.length > 512 ? message.substring(0, 512) : message,
-        'data': {'code': code, 'retryable': retryable},
+        'message': _boundedDiagnostic(message),
+        'data': {
+          'code': code,
+          'retryable': retryable,
+          'detail': _boundedDiagnostic(message),
+        },
       },
     };
   }
@@ -57,6 +68,7 @@ void main() {
   }
 
   void processFramed() {
+    if (discardBytes > 0) return;
     while (true) {
       final headerEnd = _findBytes(buffer, const [13, 10, 13, 10]);
       if (headerEnd < 0) {
@@ -89,10 +101,14 @@ void main() {
       }
       final frameEnd = headerEnd + 4 + length;
       if (length > _maxMessageBytes) {
-        if (buffer.length < frameEnd) return;
-        buffer.removeRange(0, frameEnd);
         writeRpc(
             rpcError('', 'E_BAD_REQUEST', 'message exceeds maxMessageBytes'));
+        final bodyStart = headerEnd + 4;
+        final available = buffer.length - bodyStart;
+        final consumed = available < length ? available : length;
+        buffer.removeRange(0, bodyStart + consumed);
+        discardBytes = length - consumed;
+        if (discardBytes > 0) return;
         continue;
       }
       if (buffer.length < frameEnd) return;
@@ -163,22 +179,39 @@ void main() {
   }
 
   stdin.listen((chunk) {
-    buffer.addAll(chunk);
     if (mode == null) {
-      final prefix =
-          utf8.decode(buffer.take(32).toList(), allowMalformed: true);
+      final prefix = utf8.decode(chunk.take(32).toList(), allowMalformed: true);
       if (RegExp(r'^\s*Content-Length\s*:', caseSensitive: false)
           .hasMatch(prefix)) {
         mode = 'framed';
-      } else if (buffer.contains(10)) {
-        mode = 'legacy';
       }
     }
+    if (mode == 'framed' && discardBytes > 0) {
+      final consumed =
+          chunk.length < discardBytes ? chunk.length : discardBytes;
+      discardBytes -= consumed;
+      chunk = chunk.sublist(consumed);
+      if (chunk.isEmpty) return;
+    }
+    if (mode == 'framed') processFramed();
+    final remaining = _maxBufferBytes - buffer.length;
+    if (chunk.length > remaining) {
+      if (remaining > 0) buffer.addAll(chunk.take(remaining));
+      buffer.clear();
+      writeRpc(rpcError(
+          '', 'E_BAD_REQUEST', 'frame buffer exceeds negotiated bound'));
+      return;
+    }
+    buffer.addAll(chunk);
+    if (mode == null && buffer.contains(10)) mode = 'legacy';
     if (mode == 'framed') processFramed();
     if (mode == 'legacy') processLegacy();
   }, onDone: () async {
     if (mode == 'legacy') processLegacy();
-    if (mode == 'framed' && buffer.isNotEmpty && !shuttingDown) {
+    if (mode == 'framed' &&
+        buffer.isNotEmpty &&
+        discardBytes == 0 &&
+        !shuttingDown) {
       writeRpc(
           rpcError('', 'E_BAD_REQUEST', 'incomplete Content-Length frame'));
     }

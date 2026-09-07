@@ -1,0 +1,18 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://codeflow.local/schemas/rflsc.snapshot-lease.v1.schema.json",
+  "title": "RFL-SC VS-01 Snapshot Lease v1",
+  "type": "object",
+  "required": ["schemaId", "schemaVersion", "leaseId", "snapshotId", "workspaceEpoch", "rootTreeId", "openedAt", "retainedRevisionIds"],
+  "additionalProperties": false,
+  "properties": {
+    "schemaId": { "const": "https://codeflow.local/schemas/rflsc.snapshot-lease.v1.schema.json" },
+    "schemaVersion": { "const": 1 },
+    "leaseId": { "type": "string", "minLength": 1 },
+    "snapshotId": { "type": "string", "minLength": 1 },
+    "workspaceEpoch": { "type": "integer", "minimum": 0 },
+    "rootTreeId": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+    "openedAt": { "type": "string", "format": "date-time" },
+    "retainedRevisionIds": { "type": "array", "items": { "type": "string", "minLength": 1 } }
+  }
+}

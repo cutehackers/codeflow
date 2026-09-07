@@ -5,7 +5,6 @@ package flowview
 import (
 	"context"
 	"crypto/rand"
-	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -18,6 +17,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"codeflow/internal/contractharness"
@@ -25,6 +25,7 @@ import (
 	"codeflow/internal/fusion"
 	"codeflow/internal/harvest"
 	"codeflow/internal/protocol"
+	"codeflow/internal/rflscvs06"
 	"codeflow/internal/semantic"
 	"codeflow/internal/slicing"
 	"codeflow/internal/storage"
@@ -33,20 +34,134 @@ import (
 
 // Server coordinates the loopback HTTP server for FlowView.
 type Server struct {
-	repoRoot   string
-	storage    *storage.Storage
-	eventLog   *fusion.EventLog
-	engine     *workspace.SnapshotEngine
-	authToken  string
-	listener   net.Listener
-	httpServer *http.Server
-	mu         sync.Mutex
-	addr       string
-	genCache   *generationCache
-	hub        *EventHub
-	gate       *semantic.PublicationGate
-	scheduler  *semantic.CoalescingScheduler
-	mapCache   map[string]*semantic.SemanticMapIR
+	repoRoot     string
+	approvalGate *semantic.ApprovalAccessGate
+	// approvalWorkspaceID is derived from the Core-configured repository root
+	// and is never accepted from an HTTP request.
+	approvalWorkspaceID string
+	proposalStore       semantic.ProposalStore
+	approvalService     *semantic.ApprovalExecutionService
+	storage             *storage.Storage
+	eventLog            *fusion.EventLog
+	engine              *workspace.SnapshotEngine
+	authToken           string
+	listener            net.Listener
+	httpServer          *http.Server
+	mu                  sync.Mutex
+	addr                string
+	genCache            *generationCache
+	hub                 *EventHub
+	gate                *semantic.PublicationGate
+	scheduler           *semantic.CoalescingScheduler
+	mapCache            map[string]*semantic.SemanticMapIR
+	modelHostFactory    protocol.ModelHostFactory
+	modelHostMu         sync.Mutex
+	// modelHostSpawnMu serializes the complete request-scoped factory
+	// invocation. modelHostClosing is independent so Shutdown can close
+	// admission and cancel active requests without waiting for a spawn.
+	modelHostSpawnMu   sync.Mutex
+	modelHostClosing   atomic.Bool
+	modelHostActive    map[uint64]context.CancelFunc
+	modelHostNextID    uint64
+	modelHostClosed    bool
+	modelHostWG        sync.WaitGroup
+	modelHostDrainDone chan struct{}
+	modelHostSpawning  int
+	modelHostSpawnDone chan struct{}
+	// Failure investigation dependencies are injected at the FlowView seam.
+	// They are intentionally interface-valued so a request can never supply
+	// runtime authority or a repository-backed observation directly.
+	runtimeObservationProvider any
+	runtimeObservationStore    any
+	observationProvider        any
+	observationStore           any
+	runtimeExecutor            any
+	oneShotExecutor            any
+	runtimeExecutionSpec       rflscvs06.RuntimeExecutionSpec
+	runtimeConsent             *rflscvs06.RuntimeConsent
+	releaseThresholdDecisions  semantic.ThresholdDecisionResolver
+	live                       liveState
+	liveCtx                    context.Context
+	liveCancel                 context.CancelFunc
+	analysisMu                 sync.Mutex
+	analysisCancel             context.CancelFunc
+	compileCandidate           candidateCompiler
+	pipelineErrMu              sync.Mutex
+	lastPipelineErr            error
+	liveWG                     sync.WaitGroup
+	liveMu                     sync.Mutex
+	liveDone                   chan struct{}
+	startOnce                  sync.Once
+	shutdownMu                 sync.Mutex
+	shutdownStarted            bool
+	shutdownInitDone           chan struct{}
+	shutdownResultDone         chan struct{}
+	shutdownInitErr            error
+	shutdownFirstErr           error
+}
+
+func (s *Server) recordPipelineError(err error) {
+	if err == nil {
+		return
+	}
+	s.pipelineErrMu.Lock()
+	s.lastPipelineErr = err
+	s.pipelineErrMu.Unlock()
+}
+
+func (s *Server) lastPipelineError() error {
+	s.pipelineErrMu.Lock()
+	defer s.pipelineErrMu.Unlock()
+	return s.lastPipelineErr
+}
+
+// LastPipelineError reports the most recent terminal live-analysis error. It
+// is diagnostic state only and never grants current authority.
+func (s *Server) LastPipelineError() error {
+	return s.lastPipelineError()
+}
+
+// captureAnalysisSnapshot establishes one VS-01 lease for the complete
+// FlowView request. The lease remains live until adapters, publication, and
+// evidence extraction have all consumed the captured bytes.
+func (s *Server) captureAnalysisSnapshot(ctx context.Context) (protocol.Snapshot, *workspace.WorkspaceSnapshot, func(), error) {
+	// Reconcile at the request boundary so a persisted head from an earlier
+	// process cannot silently become the analysis basis for the current tree.
+	head, err := s.engine.ReconcileIfChanged(ctx, nil)
+	if err != nil {
+		return protocol.Snapshot{}, nil, nil, fmt.Errorf("capture workspace snapshot: %w", err)
+	}
+	lease, err := s.engine.SnapshotVFS(head.SnapshotID)
+	if err != nil {
+		return protocol.Snapshot{}, nil, nil, fmt.Errorf("retain workspace snapshot: %w", err)
+	}
+	snapshot, err := protocol.SnapshotFromLease(lease)
+	if err != nil {
+		_ = lease.Close()
+		return protocol.Snapshot{}, nil, nil, fmt.Errorf("convert workspace snapshot: %w", err)
+	}
+	return snapshot, head, func() { _ = lease.Close() }, nil
+}
+
+func snapshotSourceFiles(snapshot protocol.Snapshot) map[string]string {
+	files := snapshot.Files
+	if len(files) == 0 {
+		files = snapshot.ContentOverlay
+	}
+	out := make(map[string]string, len(files))
+	for path, content := range files {
+		out[path] = content
+	}
+	return out
+}
+
+func snapshotSourceBytes(snapshot protocol.Snapshot) map[string][]byte {
+	files := snapshotSourceFiles(snapshot)
+	out := make(map[string][]byte, len(files))
+	for path, content := range files {
+		out[path] = []byte(content)
+	}
+	return out
 }
 
 // Config configures the FlowView server.
@@ -54,6 +169,30 @@ type Config struct {
 	RepoRoot  string
 	Port      int
 	AuthToken string
+	// ReleaseThresholdDecisions is trusted server-side configuration. HTTP
+	// request bodies cannot supply or replace it.
+	ReleaseThresholdDecisions semantic.ThresholdDecisionResolver
+	// ProposalStore lets local product surfaces share the same durable
+	// proposal/evidence boundary with enrichment and approval execution.
+	ProposalStore semantic.ProposalStore
+
+	// Runtime observations are resolved by ID through a trusted server-side
+	// provider or store. The HTTP request never carries an observation object.
+	RuntimeObservationProvider any
+	RuntimeObservationStore    any
+	ObservationProvider        any // compatibility alias for integrations
+	ObservationStore           any // compatibility alias for integrations
+
+	// RuntimeExecutor is an optional one-shot trusted_local execution seam.
+	// RuntimeExecutionSpec describes the command and isolation scope that a
+	// RuntimeConsent must authorize. Neither is constructed from the request.
+	RuntimeExecutor      any
+	OneShotExecutor      any // compatibility alias for integrations
+	RuntimeExecutionSpec rflscvs06.RuntimeExecutionSpec
+	RuntimeConsent       *rflscvs06.RuntimeConsent
+	// ModelHostFactory creates one Core-supervised host per enrichment request.
+	// The returned host is owned and closed by that request.
+	ModelHostFactory protocol.ModelHostFactory
 }
 
 // NewServer initializes a FlowView server instance.
@@ -61,6 +200,9 @@ func NewServer(cfg Config) (*Server, error) {
 	st := storage.New(cfg.RepoRoot)
 	if err := st.InitLayout(); err != nil {
 		return nil, fmt.Errorf("init storage: %w", err)
+	}
+	if err := st.RecoverPendingPublication(); err != nil {
+		return nil, fmt.Errorf("recover live publication: %w", err)
 	}
 
 	token := cfg.AuthToken
@@ -70,25 +212,75 @@ func NewServer(cfg Config) (*Server, error) {
 		token = hex.EncodeToString(b)
 	}
 
-	engine, err := workspace.NewSnapshotEngine(cfg.RepoRoot, "")
+	engine, err := workspace.NewSnapshotEngine(cfg.RepoRoot, 0)
 	if err != nil {
 		return nil, fmt.Errorf("init snapshot engine: %w", err)
 	}
+	identity := defaultLiveIdentity(cfg.RepoRoot)
+	currentIdentity := engine.WorkspaceIdentity()
+	if currentIdentity == (workspace.WorkspaceIdentity{}) {
+		if err := engine.BindWorkspaceIdentity(identity); err != nil {
+			// A state created by an earlier version may have snapshots but no
+			// persisted identity. It has lineage and therefore needs the normal
+			// epoch transition before the new identity can become authoritative.
+			if _, transitionErr := engine.SetWorkspaceIdentity(identity); transitionErr != nil {
+				return nil, fmt.Errorf("bind workspace identity: %w", err)
+			}
+		}
+	} else if currentIdentity != identity {
+		if _, err := engine.SetWorkspaceIdentity(identity); err != nil {
+			return nil, fmt.Errorf("set workspace identity: %w", err)
+		}
+	}
 
-	hub := NewEventHub("flowview-live-stream", 100)
+	hub, err := NewDurableEventHub("flowview-live-stream", 100, filepath.Join(st.BaseDir(), "semantics", "events", "event-ledger.jsonl"))
+	if err != nil {
+		return nil, fmt.Errorf("init live event ledger: %w", err)
+	}
 	gate := semantic.NewPublicationGate()
 	scheduler := semantic.NewCoalescingScheduler(semantic.DefaultCoalescingConfig())
+	authenticator := semantic.NewLocalProcessApprovalAuthenticator()
+	authorizer := semantic.NewApprovalWorkspaceAuthorizer(cfg.RepoRoot)
+	proposalStore := cfg.ProposalStore
+	if proposalStore == nil {
+		proposalStore = semantic.NewDurableProposalStore(cfg.RepoRoot)
+	}
+	approvalService, err := semantic.NewApprovalExecutionService(cfg.RepoRoot, engine, proposalStore)
+	if err != nil {
+		return nil, fmt.Errorf("init approval service: %w", err)
+	}
 
 	s := &Server{
-		repoRoot:  cfg.RepoRoot,
-		storage:   st,
-		eventLog:  fusion.NewEventLog(cfg.RepoRoot),
-		engine:    engine,
-		authToken: token,
-		hub:       hub,
-		gate:      gate,
-		scheduler: scheduler,
-		mapCache:  make(map[string]*semantic.SemanticMapIR),
+		repoRoot:                   cfg.RepoRoot,
+		approvalGate:               semantic.NewApprovalAccessGate(authenticator, authorizer),
+		approvalWorkspaceID:        authorizer.WorkspaceID(),
+		proposalStore:              proposalStore,
+		approvalService:            approvalService,
+		storage:                    st,
+		eventLog:                   fusion.NewEventLog(cfg.RepoRoot),
+		engine:                     engine,
+		authToken:                  token,
+		hub:                        hub,
+		gate:                       gate,
+		scheduler:                  scheduler,
+		mapCache:                   make(map[string]*semantic.SemanticMapIR),
+		modelHostFactory:           cfg.ModelHostFactory,
+		modelHostActive:            make(map[uint64]context.CancelFunc),
+		modelHostDrainDone:         closedLifecycleChannel(),
+		modelHostSpawnDone:         closedLifecycleChannel(),
+		liveDone:                   closedLifecycleChannel(),
+		runtimeObservationProvider: cfg.RuntimeObservationProvider,
+		runtimeObservationStore:    cfg.RuntimeObservationStore,
+		observationProvider:        cfg.ObservationProvider,
+		observationStore:           cfg.ObservationStore,
+		runtimeExecutor:            cfg.RuntimeExecutor,
+		oneShotExecutor:            cfg.OneShotExecutor,
+		runtimeExecutionSpec:       cfg.RuntimeExecutionSpec,
+		runtimeConsent:             cloneRuntimeConsent(cfg.RuntimeConsent),
+		releaseThresholdDecisions:  cfg.ReleaseThresholdDecisions,
+	}
+	if err := recoverPendingApprovalOutboxDeliveries(context.Background(), s.approvalService, s.hub); err != nil {
+		return nil, fmt.Errorf("recover approval outbox: %w", err)
 	}
 
 	mux := http.NewServeMux()
@@ -105,7 +297,9 @@ func NewServer(cfg Config) (*Server, error) {
 	mux.HandleFunc("/api/task/debug", s.handleTaskDebug)
 	mux.HandleFunc("/api/task/incident", s.handleTaskIncident)
 	mux.HandleFunc("/api/semantic/approve", s.handleSemanticApprove)
+	mux.HandleFunc("/api/semantic/approval-history", s.handleSemanticApprovalHistory)
 	mux.HandleFunc("/api/semantic/evidence-pack", s.handleEvidencePack)
+	mux.HandleFunc("/api/semantic/enrich", s.handleSemanticEnrichment)
 	mux.HandleFunc("/api/task/onboarding", s.handleTaskOnboarding)
 	mux.HandleFunc("/api/release/capability", s.handleReleaseCapability)
 	mux.HandleFunc("/api/workspace/activity", s.handleWorkspaceActivity)
@@ -122,9 +316,12 @@ func NewServer(cfg Config) (*Server, error) {
 	s.listener = ln
 	s.addr = ln.Addr().String()
 	s.httpServer = &http.Server{
-		Handler:      s.securityMiddleware(mux),
-		ReadTimeout:  15 * time.Second,
-		WriteTimeout: 15 * time.Second,
+		Handler:     s.securityMiddleware(mux),
+		ReadTimeout: 15 * time.Second,
+		// The workspace stream is intentionally long-lived. Per-response write
+		// deadlines would terminate a healthy idle SSE connection before the
+		// client can reconnect with Last-Event-ID.
+		WriteTimeout: 0,
 	}
 
 	return s, nil
@@ -145,39 +342,177 @@ func (s *Server) URL() string {
 	return fmt.Sprintf("http://%s/?token=%s", s.addr, s.authToken)
 }
 
+// SnapshotEngine exposes the single workspace lineage used by the FlowView
+// live coordinator. MCP and other local product surfaces use this accessor so
+// edits cannot create a second engine for the same repository.
+func (s *Server) SnapshotEngine() *workspace.SnapshotEngine {
+	if s == nil {
+		return nil
+	}
+	return s.engine
+}
+
+// CurrentActivity returns the live coordinator's durable activity view.
+func (s *Server) CurrentActivity() workspace.ActivityStatus {
+	if s == nil || s.engine == nil {
+		return workspace.ActivityStatus{SchemaID: "https://codeflow.local/schemas/rflsc.activity-state.v2.schema.json", SchemaVersion: 2, Activity: "idle", AnalysisLagMs: -1, PendingRevisions: 0, Timestamp: time.Now().UTC()}
+	}
+	return s.engine.CurrentActivity()
+}
+
+// RememberTaskQuery binds the latest normalized feature query to the live
+// checkpoint consumer. It stores only a defensive copy and does not publish
+// or grant authority by itself.
+func (s *Server) RememberTaskQuery(query *semantic.TaskViewQuery, requestText string) error {
+	if s == nil || query == nil || query.Feature == nil {
+		return fmt.Errorf("feature query is required")
+	}
+	s.rememberLiveRequest(query, requestText)
+	return nil
+}
+
+// SubmitVersionedEdit is the shared edit ingress for HTTP and MCP. The edit
+// snapshot, scheduler notification, durable activity event, and UX
+// acknowledgement all use this server's one live coordinator.
+func (s *Server) SubmitVersionedEdit(ctx context.Context, edit workspace.EditRequest) (*workspace.DocumentRevision, *workspace.WorkspaceSnapshot, error) {
+	if s == nil || s.engine == nil || s.scheduler == nil || s.hub == nil {
+		return nil, nil, fmt.Errorf("live coordinator is unavailable")
+	}
+	rev, snap, err := s.engine.ApplyVersionedEdit(ctx, edit)
+	if err != nil {
+		return nil, nil, err
+	}
+	// A newly accepted edit supersedes any checkpoint still compiling. The
+	// cancellation happens before notification so an extremely short timer
+	// cannot start the replacement analysis and then be canceled by this edit.
+	s.cancelActiveAnalysis()
+	// The scheduler retains this snapshot and the consumer processes it after
+	// the canceled analysis returns.
+	s.scheduler.NotifyEdit(snap)
+	act := s.engine.CurrentActivity()
+	if _, err := s.hub.PublishChecked("activity.updated", act, &snap.ComputedBasisID, &snap.SnapshotID, nil); err != nil {
+		return rev, snap, fmt.Errorf("persist activity event: %w", err)
+	}
+	// Acknowledgement is recorded only after the edit activity has a durable
+	// event. Publish the post-ack state as a second bounded event so observers
+	// can measure the transition without treating an in-memory timestamp as
+	// evidence.
+	s.engine.AcknowledgeEdit(snap.SnapshotID)
+	if _, err := s.hub.PublishChecked("activity.updated", s.engine.CurrentActivity(), &snap.ComputedBasisID, &snap.SnapshotID, nil); err != nil {
+		return rev, snap, fmt.Errorf("persist activity acknowledgement: %w", err)
+	}
+	return rev, snap, nil
+}
+
 // Start runs the HTTP server in the background.
 func (s *Server) Start() {
-	go func() {
-		_ = s.httpServer.Serve(s.listener)
-	}()
+	s.startOnce.Do(func() {
+		s.startLiveConsumer()
+		go func() { _ = s.httpServer.Serve(s.listener) }()
+	})
 }
 
 // Shutdown gracefully shuts down the HTTP server.
 func (s *Server) Shutdown(ctx context.Context) error {
-	return s.httpServer.Shutdown(ctx)
+	if s == nil {
+		return nil
+	}
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	s.shutdownMu.Lock()
+	if !s.shutdownStarted {
+		s.shutdownStarted = true
+		s.shutdownInitDone = make(chan struct{})
+		s.shutdownResultDone = make(chan struct{})
+		initDone := s.shutdownInitDone
+		s.shutdownMu.Unlock()
+
+		var initErrors []error
+		if stopErr := s.stopModelHostRequests(ctx); stopErr != nil {
+			initErrors = append(initErrors, stopErr)
+		}
+		s.liveMu.Lock()
+		liveCancel := s.liveCancel
+		s.liveMu.Unlock()
+		if liveCancel != nil {
+			liveCancel()
+		}
+		if s.scheduler != nil {
+			s.scheduler.Close()
+		}
+		if s.httpServer != nil {
+			if shutdownErr := s.httpServer.Shutdown(ctx); shutdownErr != nil {
+				initErrors = append(initErrors, shutdownErr)
+			}
+		}
+		initErr := joinLifecycleErrors(initErrors...)
+		s.shutdownMu.Lock()
+		s.shutdownInitErr = initErr
+		close(initDone)
+		s.shutdownMu.Unlock()
+
+		var waitErrors []error
+		if waitErr := s.waitLiveConsumer(ctx); waitErr != nil {
+			waitErrors = append(waitErrors, waitErr)
+		}
+		if waitErr := s.waitModelHostRequests(ctx); waitErr != nil {
+			waitErrors = append(waitErrors, waitErr)
+		}
+		firstErr := joinLifecycleErrors(append([]error{initErr}, waitErrors...)...)
+		s.shutdownMu.Lock()
+		s.shutdownFirstErr = firstErr
+		close(s.shutdownResultDone)
+		s.shutdownMu.Unlock()
+		return firstErr
+	}
+	resultDone := s.shutdownResultDone
+	s.shutdownMu.Unlock()
+	select {
+	case <-resultDone:
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+
+	s.shutdownMu.Lock()
+	firstErr := s.shutdownFirstErr
+	s.shutdownMu.Unlock()
+	var retryErrors []error
+	if s.httpServer != nil {
+		if shutdownErr := s.httpServer.Shutdown(ctx); shutdownErr != nil {
+			retryErrors = append(retryErrors, shutdownErr)
+		}
+	}
+	if waitErr := s.waitLiveConsumer(ctx); waitErr != nil {
+		retryErrors = append(retryErrors, waitErr)
+	}
+	if waitErr := s.waitModelHostRequests(ctx); waitErr != nil {
+		retryErrors = append(retryErrors, waitErr)
+	}
+	return joinLifecycleErrors(append([]error{firstErr}, retryErrors...)...)
 }
 
 // securityMiddleware enforces loopback Host validation, Origin/Referer CSRF check
 // (design-v2 §11.3) and per-run token verification.
 func (s *Server) securityMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		// Host check (R8 loopback)
-		host := r.Host
-		if !strings.HasPrefix(host, "127.0.0.1") && !strings.HasPrefix(host, "localhost") {
+		// Host check (R8 loopback). The hostname must be an exact local
+		// authority, with only a numeric optional port accepted.
+		if !isAllowedLoopbackHost(r.Host) {
 			http.Error(w, "Forbidden: invalid host", http.StatusForbidden)
 			return
 		}
 
-		// CSRF check: if Origin header present, verify it starts with
-		// http://127.0.0.1 or http://localhost (or is empty); otherwise 403.
-		// Also check Referer similarly when Origin is absent.
+		// CSRF check: if Origin header is present, it must be an HTTP URL
+		// whose authority is an exact loopback host. Also check Referer
+		// similarly when Origin is absent.
 		if origin := r.Header.Get("Origin"); origin != "" {
-			if !strings.HasPrefix(origin, "http://127.0.0.1") && !strings.HasPrefix(origin, "http://localhost") {
+			if !isAllowedLoopbackURL(origin) {
 				http.Error(w, "Forbidden: invalid origin", http.StatusForbidden)
 				return
 			}
 		} else if referer := r.Header.Get("Referer"); referer != "" {
-			if !strings.HasPrefix(referer, "http://127.0.0.1") && !strings.HasPrefix(referer, "http://localhost") {
+			if !isAllowedLoopbackURL(referer) {
 				http.Error(w, "Forbidden: invalid referer", http.StatusForbidden)
 				return
 			}
@@ -185,10 +520,7 @@ func (s *Server) securityMiddleware(next http.Handler) http.Handler {
 
 		// Token check for all API endpoints (R8: loopback + per-run token on all APIs)
 		if strings.HasPrefix(r.URL.Path, "/api/") {
-			tok := r.Header.Get("X-CodeFlow-Token")
-			if tok == "" {
-				tok = r.URL.Query().Get("token")
-			}
+			tok := requestAuthToken(r)
 			if tok != s.authToken {
 				http.Error(w, "Unauthorized: invalid token", http.StatusUnauthorized)
 				return
@@ -305,6 +637,31 @@ func (s *Server) generationData() *generationCache {
 	return gd
 }
 
+// generationDataForSnapshot reads persisted artifacts but takes all source
+// configuration from the request's retained snapshot. It is intentionally
+// uncached because the snapshot may differ from the current live head while a
+// request is in flight.
+func (s *Server) generationDataForSnapshot(snapshot protocol.Snapshot, overrides map[string]string) *generationCache {
+	idx, err := s.storage.ReadLatestIndex()
+	if err != nil || idx == nil {
+		return nil
+	}
+	docs := make([][]byte, 0, len(idx.Flows))
+	for _, f := range idx.Flows {
+		d, err := s.storage.ReadActiveFlowSpec(f.FlowID)
+		if err != nil {
+			continue
+		}
+		docs = append(docs, d)
+	}
+	return &generationCache{
+		genID:     idx.GenerationID,
+		docs:      docs,
+		coverage:  synthesizeCoverageDocs(s.storage.ReadAllSliceCaches(maxCoverageFiles)),
+		decorated: decorateAll(docs, overrides),
+	}
+}
+
 // manifestStamp fingerprints codeflow.flows.yaml cheaply; a missing file
 // yields zero values (the "no overrides" state).
 func (s *Server) manifestStamp() (time.Time, int64) {
@@ -332,13 +689,25 @@ func (s *Server) handleGetMap(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
+	snapshot, _, releaseSnapshot, err := s.captureAnalysisSnapshot(r.Context())
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	defer releaseSnapshot()
+
 	idx, err := s.storage.ReadLatestIndex()
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
 	amap := &ArchitectureMap{Lanes: []MapLane{}, Components: []MapComponent{}, EntryPoints: []string{}, Relations: []MapRelation{}}
-	if gd := s.generationData(); gd != nil && idx != nil {
+	manifest, manifestErr := harvest.LoadManifestFromSnapshot(snapshotSourceFiles(snapshot))
+	if manifestErr != nil {
+		http.Error(w, manifestErr.Error(), http.StatusInternalServerError)
+		return
+	}
+	if gd := s.generationDataForSnapshot(snapshot, manifest.LaneOverrideMap()); gd != nil && idx != nil {
 		entryPoints := make([]string, 0, len(idx.Flows))
 		for _, f := range idx.Flows {
 			entryPoints = append(entryPoints, f.EntrySymbolPath)
@@ -346,7 +715,7 @@ func (s *Server) handleGetMap(w http.ResponseWriter, r *http.Request) {
 		allDocs := make([][]byte, 0, len(gd.docs)+len(gd.coverage))
 		allDocs = append(allDocs, gd.docs...)
 		allDocs = append(allDocs, gd.coverage...)
-		amap = buildArchitectureMap(s.repoRoot, gd.genID, allDocs, s.laneOverrides(), entryPoints)
+		amap = buildArchitectureMapFromSnapshot(snapshotSourceBytes(snapshot), gd.genID, allDocs, manifest.LaneOverrideMap(), entryPoints)
 	}
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(amap)
@@ -398,14 +767,17 @@ func (s *Server) handleGetSource(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	fullPath := filepath.Join(s.repoRoot, cleanRel)
-	// Ensure the resolved path stays within repoRoot
-	if rel, err := filepath.Rel(s.repoRoot, fullPath); err != nil || strings.HasPrefix(rel, ".."+string(filepath.Separator)) || rel == ".." {
-		http.Error(w, "invalid path", http.StatusBadRequest)
+	// Source is served from the same retained VS-01 snapshot used for analysis.
+	// Reading repoRoot here would allow a live edit to disagree with the map and
+	// evidence produced for this request.
+	snapshot, _, releaseSnapshot, err := s.captureAnalysisSnapshot(r.Context())
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
-	data, err := os.ReadFile(fullPath)
-	if err != nil {
+	defer releaseSnapshot()
+	data, ok := snapshotSourceBytes(snapshot)[filepath.ToSlash(cleanRel)]
+	if !ok {
 		http.Error(w, "file not found", http.StatusNotFound)
 		return
 	}
@@ -556,10 +928,12 @@ func (s *Server) handleTaskView(w http.ResponseWriter, r *http.Request) {
 	flowID := r.URL.Query().Get("flowId")
 	entrySymbol := r.URL.Query().Get("entrySymbol")
 	domain := r.URL.Query().Get("domain")
+	var taskViewBody map[string]any
 
 	if r.Method == http.MethodPost {
 		var body map[string]any
 		if err := json.NewDecoder(r.Body).Decode(&body); err == nil {
+			taskViewBody = body
 			if m, ok := body["mode"].(string); ok && m != "" {
 				mode = m
 			}
@@ -578,6 +952,33 @@ func (s *Server) handleTaskView(w http.ResponseWriter, r *http.Request) {
 				}
 			}
 		}
+	}
+	if mode == "onboarding" {
+		req, err := onboardingQueryValues(r.URL.Query())
+		if err != nil {
+			writeOnboardingHTTPError(w, err)
+			return
+		}
+		if taskViewBody != nil {
+			req, err = mergeOnboardingEnvelope(req, taskViewBody)
+			if err != nil {
+				writeOnboardingHTTPError(w, err)
+				return
+			}
+		}
+		result, err := s.ExploreOnboarding(r.Context(), req)
+		if err != nil {
+			writeOnboardingHTTPError(w, err)
+			return
+		}
+		payload, err := redactOnboardingJSON(result)
+		if err != nil {
+			writeOnboardingHTTPError(w, fmt.Errorf("internal_error: %w", err))
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write(payload)
+		return
 	}
 
 	query := &semantic.TaskViewQuery{
@@ -604,7 +1005,14 @@ func (s *Server) handleTaskView(w http.ResponseWriter, r *http.Request) {
 	}
 
 	ctx := r.Context()
-	det := detect.Detect(s.repoRoot)
+	snapshot, _, releaseSnapshot, err := s.captureAnalysisSnapshot(ctx)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	defer releaseSnapshot()
+
+	det := detect.DetectSnapshot(snapshot.Files)
 	lang := det.Language
 	if lang == "" || lang == "unknown" {
 		lang = "typescript"
@@ -618,7 +1026,7 @@ func (s *Server) handleTaskView(w http.ResponseWriter, r *http.Request) {
 	defer pool.Close()
 
 	harvester := harvest.NewRunnerWithPool(pool)
-	candidates, err := harvester.Run(ctx, s.repoRoot)
+	candidates, err := harvester.RunWithSnapshot(ctx, s.repoRoot, snapshot)
 	if err != nil {
 		http.Error(w, fmt.Sprintf("harvest candidates: %v", err), http.StatusInternalServerError)
 		return
@@ -642,7 +1050,7 @@ func (s *Server) handleTaskView(w http.ResponseWriter, r *http.Request) {
 	}
 
 	slicer := slicing.NewRunner(pool)
-	slicePayload, err := slicer.Slice(ctx, s.repoRoot, resolved.CandidateID, resolved.EntrySymbolPath, nil)
+	slicePayload, err := slicer.SliceWithSnapshot(ctx, s.repoRoot, resolved.CandidateID, resolved.EntrySymbolPath, nil, snapshot)
 	if err != nil {
 		http.Error(w, fmt.Sprintf("slice error: %v", err), http.StatusInternalServerError)
 		return
@@ -658,128 +1066,41 @@ func (s *Server) handleTaskView(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, fmt.Sprintf("normalize intent: %v", err), http.StatusInternalServerError)
 		return
 	}
+	snapshotInput, err := snapshot.AnalyzerInput()
+	if err != nil {
+		http.Error(w, fmt.Sprintf("validated snapshot input: %v", err), http.StatusInternalServerError)
+		return
+	}
 
 	mapIR, proj, err := semantic.CompileDeterministicFeatureMap(resolved, intent, slicePayload, semantic.CompileOptions{
-		ComputedBasisID: slicePayload.ComputedBasisID,
-		WorkspaceEpoch:  slicePayload.WorkspaceEpoch,
+		ComputedBasisID: snapshot.ComputedBasisID, WorkspaceEpoch: snapshot.WorkspaceEpoch,
+		ValidatedAgainstSnapshotID: snapshot.SnapshotID, SnapshotID: snapshot.SnapshotID, SnapshotTreeID: snapshot.RootTreeID,
+		RepositoryID: snapshot.RepositoryID, WorktreeID: snapshot.WorktreeID, DependencyFingerprint: snapshot.DependencyFingerprint, ConfigurationFingerprint: snapshot.ConfigurationFingerprint,
+		AdapterVersion: slicePayload.AdapterVersion, AnalyzerRevision: slicePayload.AnalyzerVersion,
+		AnalysisReadSetID: semantic.MetadataString(slicePayload.AnalysisReadSet, "readSetId"), CausalObservationClosureID: semantic.MetadataString(slicePayload.CausalObservationClosure, "closureId"),
+		SnapshotFiles: snapshot.Files, SnapshotInput: &snapshotInput,
 	})
 	if err != nil {
 		http.Error(w, fmt.Sprintf("compile map: %v", err), http.StatusInternalServerError)
 		return
 	}
-
-	liveHead := s.engine.LiveHead()
-	var delta *workspace.WorkspaceDelta
-	if liveHead != nil && slicePayload.ComputedBasisID != "" {
-		delta, _ = s.engine.ComputeDelta(slicePayload.ComputedBasisID, liveHead.SnapshotID)
+	mapBytes, err := json.Marshal(mapIR)
+	if err != nil {
+		http.Error(w, fmt.Sprintf("marshal map: %v", err), http.StatusInternalServerError)
+		return
 	}
-
-	docRevRefs := []string{}
-	for _, st := range mapIR.Steps {
-		if st.Anchor.RepoRelativePath != "" {
-			docRevRefs = append(docRevRefs, st.Anchor.RepoRelativePath)
-		}
+	if err := contractharness.ValidateSemanticMapIR(mapBytes); err != nil {
+		http.Error(w, fmt.Sprintf("semantic map contract: %v", err), http.StatusInternalServerError)
+		return
 	}
-
-	normHashBytes := sha256.Sum256([]byte(reqText))
-	normHash := hex.EncodeToString(normHashBytes[:])
-
-	closure := &semantic.CausalObservationClosure{
-		SchemaID:            "https://codeflow.local/schemas/causal-observation-closure.schema.json",
-		SchemaVersion:       1,
-		ClosureID:           fmt.Sprintf("closure-%s", mapIR.GenerationID),
-		ComputedBasisID:     mapIR.ComputedBasisID,
-		TaskIntentRevision:  mapIR.Task.IntentRevision,
-		NormalizedQueryHash: normHash,
-		AnalysisReadSetID:   fmt.Sprintf("readset-%s", mapIR.GenerationID),
-		PositiveDependencies: semantic.PositiveDependencies{
-			DocumentRevisionRefs:     docRevRefs,
-			ConfigurationFingerprint: "cfg-live-fingerprint",
-		},
-		ClosureStatus: "closed",
-		ClosureDigest: normHash,
+	projectionBytes, err := json.Marshal(proj)
+	if err != nil {
+		http.Error(w, fmt.Sprintf("marshal projection: %v", err), http.StatusInternalServerError)
+		return
 	}
-
-	gateRes, gap := s.gate.Evaluate(mapIR, closure, delta, liveHead, intent)
-	settleRes := s.gate.EvaluateSettlement(mapIR)
-	mapIR.Settlement = settleRes.Gate
-
-	var manifest *storage.GenerationProofManifest
-	if gateRes.Eligibility == "passed" {
-		expectedPrevGen := ""
-		if prevPtr, _ := s.storage.ReadActivePointer(); prevPtr != nil {
-			expectedPrevGen = prevPtr.GenerationID
-		}
-		liveHeadSnapID := ""
-		if liveHead != nil {
-			liveHeadSnapID = liveHead.SnapshotID
-		}
-		now := time.Now().UTC()
-		manifest = &storage.GenerationProofManifest{
-			SchemaID:                   "https://codeflow.local/schemas/generation-proof-manifest.schema.json",
-			SchemaVersion:              1,
-			ProofID:                    fmt.Sprintf("proof-%s", mapIR.GenerationID),
-			GenerationID:               mapIR.GenerationID,
-			ComputedBasisID:            mapIR.ComputedBasisID,
-			ValidatedAgainstSnapshotID: liveHeadSnapID,
-			TaskIntentRevision:         mapIR.Task.IntentRevision,
-			NormalizedQueryHash:        closure.NormalizedQueryHash,
-			AnalysisReadSetID:          closure.AnalysisReadSetID,
-			CausalObservationClosureID: closure.ClosureID,
-			CurrentPublication: storage.CurrentPublicationResult{
-				Eligibility:           gateRes.Eligibility,
-				SnapshotGate:          gateRes.SnapshotGate,
-				ClosureGate:           gateRes.ClosureGate,
-				EvidenceGate:          gateRes.EvidenceGate,
-				SemanticAtomicityGate: gateRes.SemanticAtomicityGate,
-				TaskRelevanceGate:     gateRes.TaskRelevanceGate,
-				ComprehensionGate:     gateRes.ComprehensionGate,
-			},
-			SettlementEvaluation: storage.SettlementEvaluation{
-				Gate:                   settleRes.Gate,
-				EvaluatedAt:            settleRes.EvaluatedAt,
-				BlockingObligationRefs: settleRes.BlockingObligationRefs,
-			},
-			ArtifactRefs: storage.ArtifactRefs{
-				SemanticMap: fmt.Sprintf("cas:sha256:%s", mapIR.GenerationID),
-			},
-			ExpectedLiveHeadSnapshotID:   liveHeadSnapID,
-			ExpectedPreviousGenerationID: &expectedPrevGen,
-			PublishedAt:                  now,
-		}
-
-		casRef, _ := s.storage.WriteManifestCAS(manifest)
-		activePtr := &storage.ActivePointer{
-			SchemaID:                     "https://codeflow.local/schemas/active-pointer.schema.json",
-			SchemaVersion:                1,
-			GenerationID:                 mapIR.GenerationID,
-			ManifestObjectRef:            casRef,
-			PublishedAt:                  now,
-			ComputedBasisID:              mapIR.ComputedBasisID,
-			ValidatedAgainstSnapshotID:   liveHeadSnapID,
-			ExpectedLiveHeadSnapshotID:   liveHeadSnapID,
-			ExpectedPreviousGenerationID: &expectedPrevGen,
-			WorkspaceEpoch:               fmt.Sprintf("epoch-%d", slicePayload.WorkspaceEpoch),
-			TaskIntentRevision:           mapIR.Task.IntentRevision,
-			NormalizedQueryHash:          closure.NormalizedQueryHash,
-			FlowCount:                    1,
-		}
-		_ = s.storage.CompareAndSwapActivePointer(liveHeadSnapID, expectedPrevGen, activePtr)
-
-		s.hub.Publish("generation.published", map[string]any{
-			"generationId": mapIR.GenerationID,
-			"manifest":     manifest,
-			"proofId":      manifest.ProofID,
-			"settlement":   mapIR.Settlement,
-			"qualityStage": mapIR.Quality.Stage,
-		}, &mapIR.ComputedBasisID, &liveHeadSnapID, &mapIR.GenerationID)
-	} else {
-		mapIR.Freshness = "last_verified"
-		if curAct := s.engine.CurrentActivity(); gap != nil {
-			gap.AnalysisLagMs = curAct.AnalysisLagMs
-			gap.PendingRevisions = curAct.PendingRevisions
-		}
-		s.hub.Publish("generation.gap", gap, &mapIR.ComputedBasisID, nil, &mapIR.GenerationID)
+	if err := contractharness.ValidateFlowViewProjection(projectionBytes); err != nil {
+		http.Error(w, fmt.Sprintf("projection contract: %v", err), http.StatusInternalServerError)
+		return
 	}
 
 	s.mu.Lock()
@@ -788,25 +1109,30 @@ func (s *Server) handleTaskView(w http.ResponseWriter, r *http.Request) {
 	}
 	s.mapCache[mapIR.GenerationID] = mapIR
 	s.mapCache[mapIR.ComputedBasisID] = mapIR
-	s.mapCache["active"] = mapIR
 	s.mu.Unlock()
+	s.rememberLiveRequest(query, reqText)
 
-	evidenceRecords, _ := semantic.ExtractAndRedactEvidence(resolved, slicePayload, s.repoRoot)
+	evidenceRecords, _ := semantic.ExtractAndRedactEvidenceFromProtocolSnapshot(resolved, slicePayload, snapshot)
 
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(map[string]any{
-		"currentAnswer": map[string]string{
-			"requested": mapIR.Summary.Requested,
-			"current":   mapIR.Summary.Current,
+		"workspaceId": s.approvalWorkspaceID,
+		"candidateAnswer": map[string]string{
+			"requested":  mapIR.Summary.Requested,
+			"candidate":  mapIR.Summary.Current,
+			"authority":  mapIR.Authority,
+			"freshness":  mapIR.Freshness,
+			"settlement": mapIR.Settlement,
 		},
-		"taskIntent":      intent,
-		"semanticMap":     mapIR,
-		"projection":      proj,
-		"evidence":        evidenceRecords,
-		"unknowns":        mapIR.Unknowns,
-		"publicationGate": gateRes,
-		"proofManifest":   manifest,
-		"verifiedGap":     gap,
+		"taskIntent":          intent,
+		"agentReportedStatus": nil,
+		"semanticMap":         mapIR,
+		"projection":          proj,
+		"evidence":            evidenceRecords,
+		"unknowns":            mapIR.Unknowns,
+		"publicationGate":     map[string]any{"eligibility": "not_evaluated", "reason": "VS03 current proof required"},
+		"proofManifest":       nil,
+		"verifiedGap":         nil,
 	})
 }
 
@@ -838,7 +1164,7 @@ func (s *Server) handleWorkspaceEdit(w http.ResponseWriter, r *http.Request) {
 	if req.Source == "" {
 		req.Source = workspace.SourceAgentTransaction
 	}
-	rev, snap, err := s.engine.ApplyVersionedEdit(r.Context(), workspace.EditRequest{
+	rev, snap, err := s.SubmitVersionedEdit(r.Context(), workspace.EditRequest{
 		Path:            req.Path,
 		Content:         []byte(req.Content),
 		DocumentVersion: req.DocumentVersion,
@@ -848,10 +1174,6 @@ func (s *Server) handleWorkspaceEdit(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
-
-	s.scheduler.NotifyEdit(snap)
-	act := s.engine.CurrentActivity()
-	s.hub.Publish("activity.updated", act, &snap.ComputedBasisID, &snap.SnapshotID, nil)
 
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(map[string]any{
@@ -881,21 +1203,25 @@ func (s *Server) handleWorkspaceStream(w http.ResponseWriter, r *http.Request) {
 	defer cancel()
 
 	if needsSync {
-		activeManifest, _ := s.storage.ReadActiveProofManifest()
+		activeManifest, activePointer, proofErr := s.storage.ReadValidatedActiveProofManifest()
 		curAct := s.engine.CurrentActivity()
-		syncEnv := &semantic.EventEnvelope{
-			SchemaID:      "https://codeflow.local/schemas/event-envelope.schema.json",
-			SchemaVersion: 1,
-			StreamID:      s.hub.streamID,
-			Sequence:      0,
-			EventID:       "sync-0",
-			EventType:     "snapshot_sync",
-			OccurredAt:    time.Now().UTC(),
-			Data: map[string]any{
-				"activeManifest": activeManifest,
-				"activity":       curAct,
-			},
+		if proofErr != nil {
+			// An invalid pointer/manifest pair is diagnostic state, never current
+			// authority exposed to a reconnecting client.
+			activeManifest = nil
+			activePointer = nil
 		}
+		syncData := map[string]any{"activeManifest": activeManifest, "activePointer": activePointer, "activity": curAct}
+		if terminal := s.hub.LatestTerminalEvent(); terminal != nil && terminal.EventType == "generation.gap" {
+			// The terminal payload came from the durable, schema-validated event
+			// ledger. Include it verbatim so restart/full-sync preserves measured
+			// scope, causes, lag, pending count, snapshot, and trace identity.
+			syncData["verifiedGap"] = terminal.Data
+		}
+		if proofErr != nil {
+			syncData["proofError"] = proofErr.Error()
+		}
+		syncEnv := s.hub.SnapshotSync(syncData)
 		if formatted, err := FormatSSE(syncEnv); err == nil {
 			_, _ = w.Write(formatted)
 			flusher.Flush()
@@ -910,16 +1236,25 @@ func (s *Server) handleWorkspaceStream(w http.ResponseWriter, r *http.Request) {
 	}
 
 	ctx := r.Context()
+	heartbeat := time.NewTicker(10 * time.Second)
+	defer heartbeat.Stop()
 	for {
 		select {
 		case <-ctx.Done():
 			return
+		case <-heartbeat.C:
+			if _, err := io.WriteString(w, ": heartbeat\n\n"); err != nil {
+				return
+			}
+			flusher.Flush()
 		case env, ok := <-ch:
 			if !ok {
 				return
 			}
 			if formatted, err := FormatSSE(env); err == nil {
-				_, _ = w.Write(formatted)
+				if _, err := w.Write(formatted); err != nil {
+					return
+				}
 				flusher.Flush()
 			}
 		}
@@ -931,14 +1266,9 @@ func (s *Server) handleWorkspaceProof(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
-	manifest, err := s.storage.ReadActiveProofManifest()
+	manifest, ptr, err := s.storage.ReadValidatedActiveProofManifest()
 	if err != nil {
-		http.Error(w, fmt.Sprintf("read proof manifest: %v", err), http.StatusInternalServerError)
-		return
-	}
-	ptr, err := s.storage.ReadActivePointer()
-	if err != nil {
-		http.Error(w, fmt.Sprintf("read active pointer: %v", err), http.StatusInternalServerError)
+		http.Error(w, fmt.Sprintf("read validated current proof: %v", err), http.StatusInternalServerError)
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")
@@ -1051,147 +1381,14 @@ func (s *Server) handleTaskReview(w http.ResponseWriter, r *http.Request) {
 	_ = json.NewEncoder(w).Encode(resp)
 }
 
-// handleTaskImpact implements GET /api/task/impact (Raw §8.6, VS-06).
-func (s *Server) handleTaskImpact(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodGet {
-		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
-		return
-	}
-
-	symbolID := r.URL.Query().Get("symbolId")
-	changeBatchID := r.URL.Query().Get("changeBatchId")
-	if symbolID == "" && changeBatchID == "" {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusBadRequest)
-		_ = json.NewEncoder(w).Encode(map[string]any{
-			"code":    "missing_precondition",
-			"message": "either symbolId or changeBatchId parameter is required",
-		})
-		return
-	}
-
-	target := semantic.ImpactTarget{
-		SymbolID:      symbolID,
-		ChangeBatchID: changeBatchID,
-	}
-
-	s.mu.Lock()
-	var activeMap *semantic.SemanticMapIR
-	for _, m := range s.mapCache {
-		activeMap = m
-		break
-	}
-	s.mu.Unlock()
-
-	res, err := semantic.ComputeChangeImpact(target, activeMap, semantic.ImpactOptions{MaxDepth: 3})
-	if err != nil {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusBadRequest)
-		_ = json.NewEncoder(w).Encode(map[string]any{
-			"code":    "missing_precondition",
-			"message": err.Error(),
-		})
-		return
-	}
-
-	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(res)
-}
-
-// handleTaskDebug implements GET /api/task/debug (Raw §8.7, VS-07).
+// handleTaskDebug serves the explicit rflsc.failure-query.v2 debug seam.
 func (s *Server) handleTaskDebug(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodGet {
-		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
-		return
-	}
-
-	errStr := r.URL.Query().Get("error")
-	symptom := r.URL.Query().Get("symptom")
-	failEvID := r.URL.Query().Get("failureEvidenceId")
-	if errStr == "" && symptom == "" && failEvID == "" {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusBadRequest)
-		_ = json.NewEncoder(w).Encode(map[string]any{
-			"code":    "missing_precondition",
-			"message": "debug query requires error, symptom, or failureEvidenceId parameter",
-		})
-		return
-	}
-
-	target := semantic.FailureTarget{
-		Error:             errStr,
-		Symptom:           symptom,
-		FailureEvidenceID: failEvID,
-	}
-
-	s.mu.Lock()
-	var activeMap *semantic.SemanticMapIR
-	for _, m := range s.mapCache {
-		activeMap = m
-		break
-	}
-	s.mu.Unlock()
-
-	trace, err := semantic.InvestigateFailure(target, "debug", activeMap, nil, semantic.FailureOptions{})
-	if err != nil {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusBadRequest)
-		_ = json.NewEncoder(w).Encode(map[string]any{
-			"code":    "missing_precondition",
-			"message": err.Error(),
-		})
-		return
-	}
-
-	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(trace)
+	s.handleFailureV2(w, r, "debug")
 }
 
-// handleTaskIncident implements GET /api/task/incident (Raw §8.8, VS-07).
+// handleTaskIncident serves the explicit rflsc.failure-query.v2 incident seam.
 func (s *Server) handleTaskIncident(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodGet {
-		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
-		return
-	}
-
-	traceID := r.URL.Query().Get("traceId")
-	incEvID := r.URL.Query().Get("incidentEvidenceId")
-	if traceID == "" && incEvID == "" {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusBadRequest)
-		_ = json.NewEncoder(w).Encode(map[string]any{
-			"code":    "missing_precondition",
-			"message": "incident query requires traceId or incidentEvidenceId parameter",
-		})
-		return
-	}
-
-	target := semantic.FailureTarget{
-		IncidentTraceID:    traceID,
-		IncidentEvidenceID: incEvID,
-	}
-
-	s.mu.Lock()
-	var activeMap *semantic.SemanticMapIR
-	for _, m := range s.mapCache {
-		activeMap = m
-		break
-	}
-	s.mu.Unlock()
-
-	trace, err := semantic.InvestigateFailure(target, "incident", activeMap, nil, semantic.FailureOptions{})
-	if err != nil {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusBadRequest)
-		_ = json.NewEncoder(w).Encode(map[string]any{
-			"code":    "missing_precondition",
-			"message": err.Error(),
-		})
-		return
-	}
-
-	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(trace)
+	s.handleFailureV2(w, r, "incident")
 }
 
 // handleEvidencePack implements GET /api/semantic/evidence-pack (Raw §9.7, VS-08).
@@ -1212,20 +1409,40 @@ func (s *Server) handleEvidencePack(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	items := []semantic.EvidenceItem{
-		{
-			EvidenceID: "ev-ast-" + sym,
+	var pack *semantic.EvidencePack
+	if mapIR := s.cachedSemanticMap("", ""); mapIR != nil {
+		var targetIDs []string
+		for _, step := range mapIR.Steps {
+			if step.Name == sym || step.TechnicalName == sym || step.StructuralIdentity == sym {
+				targetIDs = append(targetIDs, step.StepID)
+			}
+		}
+		if len(targetIDs) > 0 {
+			snapshot, _, releaseSnapshot, snapshotErr := s.captureAnalysisSnapshot(r.Context())
+			if snapshotErr == nil {
+				publication := s.currentSemanticPublication()
+				var currentProof *storage.GenerationProofManifest
+				var currentProofBytes, semanticMapBytes []byte
+				var currentPointer *storage.ActivePointer
+				if publication != nil {
+					currentProof, currentProofBytes, currentPointer, semanticMapBytes = publication.Manifest, publication.ManifestBytes, publication.Pointer, publication.SemanticMap
+				}
+				pack, _ = semantic.BuildEvidencePackV2(semantic.EvidencePackRequest{Map: mapIR, Snapshot: snapshot, CurrentProof: currentProof, CurrentProofBytes: currentProofBytes, CurrentPointer: currentPointer, SemanticMapBytes: semanticMapBytes, LiveHeadSnapshotID: snapshot.SnapshotID, TargetStepIDs: targetIDs, TargetSymbolPath: sym})
+				releaseSnapshot()
+			}
+		}
+	}
+	if pack == nil {
+		// Keep the legacy response shape for callers that have not published a
+		// deterministic map, but mark the item unverified instead of inventing
+		// source representation or a current authority claim.
+		pack, _ = semantic.BuildEvidencePack(sym, "active", "active", []semantic.EvidenceItem{{
+			EvidenceID: "ev-unavailable-" + sym,
 			Kind:       "ast_anchor",
 			Source:     sym,
-			Content:    "source representation for " + sym,
-			Verified:   true,
-		},
-	}
-
-	pack, err := semantic.BuildEvidencePack(sym, "active", "active", items)
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
+			Content:    "current verified evidence unavailable",
+			Verified:   false,
+		}})
 	}
 
 	w.Header().Set("Content-Type", "application/json")
@@ -1239,147 +1456,199 @@ func (s *Server) handleSemanticApprove(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var req semantic.ApprovalRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusBadRequest)
-		_ = json.NewEncoder(w).Encode(map[string]any{
-			"code":    "missing_precondition",
-			"message": "failed to decode approval request body",
-		})
+	if r.Body == nil {
+		semanticJSONError(w, http.StatusBadRequest, "missing_precondition", "failed to decode approval request body")
 		return
 	}
-
-	if req.ProposalID == "" || req.Approver == "" {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusBadRequest)
-		_ = json.NewEncoder(w).Encode(map[string]any{
-			"code":    "missing_precondition",
-			"message": "proposalId and approver are required",
-		})
+	body, err := io.ReadAll(io.LimitReader(r.Body, (1<<20)+1))
+	if err != nil || len(body) > 1<<20 {
+		semanticJSONError(w, http.StatusBadRequest, "missing_precondition", "failed to decode approval request body")
 		return
 	}
-
-	pack, _ := semantic.BuildEvidencePack(req.ProposalID, "active", "active", []semantic.EvidenceItem{
-		{
-			EvidenceID: "ev-appr-" + req.ProposalID,
-			Kind:       "ast_anchor",
-			Source:     req.ProposalID,
-			Content:    "verified code anchor",
-			Verified:   true,
-		},
-	})
-
-	proposal := &semantic.ModelProposal{
-		ProposalID:       req.ProposalID,
-		TargetSymbolPath: req.ProposalID,
-		ProposedTitle:    "승인 대상 모델 제안",
-		ProposedCategory: "business_rule",
-		EpistemicStatus:  "proposed",
-		ComputedBasisID:  "active",
-		GenerationID:     "active",
-		EvidenceRefs:     []string{"ev-appr-" + req.ProposalID},
-	}
-
-	appr, err := semantic.SubmitSemanticApproval(req, proposal, pack)
+	draft, err := semantic.ParseApprovalCommandDraftJSON(body)
 	if err != nil {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusBadRequest)
-		_ = json.NewEncoder(w).Encode(map[string]any{
-			"code":    "missing_precondition",
-			"message": err.Error(),
-		})
+		semanticJSONError(w, http.StatusBadRequest, "missing_precondition", "failed to decode approval request body")
+		return
+	}
+	target, err := filepath.Abs(s.repoRoot)
+	if err != nil {
+		writeSemanticApprovalAccessError(w, &semantic.ApprovalUnauthorizedError{Reason: "approval workspace is unavailable"})
+		return
+	}
+	access, err := s.authorizeSemanticApproval(r.Context(), target)
+	if err != nil {
+		writeSemanticApprovalAccessError(w, err)
+		return
+	}
+	result, err := s.SubmitSemanticApproval(r.Context(), access, draft)
+	if err != nil {
+		writeSemanticApprovalExecutionError(w, err)
 		return
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(appr)
+	_ = json.NewEncoder(w).Encode(result)
 }
 
-// handleTaskOnboarding implements GET /api/task/onboarding (Raw §8.9, VS-09).
+func (s *Server) authorizeSemanticApproval(ctx context.Context, target string) (semantic.ApprovalAccess, error) {
+	if s == nil || s.approvalGate == nil {
+		return semantic.ApprovalAccess{}, &semantic.ApprovalUnauthenticatedError{Reason: "approval authenticator is unavailable"}
+	}
+	access, err := s.approvalGate.AuthenticateAndAuthorize(ctx, s.approvalWorkspaceID, target)
+	if err != nil {
+		return semantic.ApprovalAccess{}, err
+	}
+	return access, nil
+}
+
+func writeSemanticApprovalExecutionError(w http.ResponseWriter, err error) {
+	status := http.StatusBadRequest
+	code := "approval_invalid"
+	message := "approval command could not be executed"
+	switch {
+	case errors.Is(err, semantic.ErrApprovalExecutionConflict):
+		status = http.StatusConflict
+		code = "approval_conflict"
+	case errors.Is(err, semantic.ErrApprovalExecutionUnavailable):
+		status = http.StatusNotFound
+		code = "approval_unavailable"
+	case errors.Is(err, context.Canceled), errors.Is(err, context.DeadlineExceeded):
+		status = http.StatusRequestTimeout
+		code = "approval_unavailable"
+	}
+	if code == "approval_conflict" {
+		if version, ok := semantic.ApprovalConflictCurrentVersion(err); ok {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(status)
+			_ = json.NewEncoder(w).Encode(map[string]any{"code": code, "message": message, "currentVersion": version})
+			return
+		}
+	}
+	semanticJSONError(w, status, code, message)
+}
+
+func writeSemanticApprovalAccessError(w http.ResponseWriter, err error) {
+	status := http.StatusInternalServerError
+	code := "approval_unavailable"
+	message := "approval authorization is unavailable"
+	var unauthenticated *semantic.ApprovalUnauthenticatedError
+	var unauthorized *semantic.ApprovalUnauthorizedError
+	switch {
+	case errors.As(err, &unauthenticated):
+		status = http.StatusUnauthorized
+		code = "approval_unauthenticated"
+	case errors.As(err, &unauthorized):
+		status = http.StatusForbidden
+		code = "approval_unauthorized"
+	}
+	semanticJSONError(w, status, code, message)
+}
+
+// handleTaskOnboarding implements the evidence-backed onboarding projection
+// (Raw §8.9, VS-07). It accepts only an explicit repository and exact basis.
 func (s *Server) handleTaskOnboarding(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodGet {
+	if r.Method != http.MethodGet && r.Method != http.MethodPost {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
 
-	repoID := r.URL.Query().Get("repositoryId")
-	if repoID == "" {
-		repoID = "workspace"
-	}
-
-	candidates := []semantic.CandidateEntry{
-		{
-			CandidateID:     "cand-1",
-			EntrySymbolPath: "OrderController.checkout",
-			Domain:          "Order",
-			Title:           "주문 결제 및 처리",
-		},
-		{
-			CandidateID:     "cand-2",
-			EntrySymbolPath: "CatalogController.search",
-			Domain:          "Catalog",
-			Title:           "상품 검색 및 조회",
-		},
-	}
-
-	overview, err := semantic.ExploreDomains(repoID, candidates, semantic.OnboardingOptions{
-		Level:   1,
-		BasisID: "active",
-		GenID:   "active",
-	})
+	req, err := onboardingQueryValues(r.URL.Query())
 	if err != nil {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusBadRequest)
-		_ = json.NewEncoder(w).Encode(map[string]any{
-			"code":    "missing_precondition",
-			"message": err.Error(),
-		})
+		writeOnboardingHTTPError(w, err)
 		return
 	}
+	if r.Method == http.MethodPost {
+		var body map[string]any
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			writeOnboardingHTTPError(w, fmt.Errorf("invalid_precondition: decode onboarding request: %w", err))
+			return
+		}
+		req, err = mergeOnboardingEnvelope(req, body)
+		if err != nil {
+			writeOnboardingHTTPError(w, err)
+			return
+		}
+	}
 
+	result, err := s.ExploreOnboarding(r.Context(), req)
+	if err != nil {
+		writeOnboardingHTTPError(w, err)
+		return
+	}
+	payload, err := redactOnboardingJSON(result)
+	if err != nil {
+		writeOnboardingHTTPError(w, fmt.Errorf("internal_error: %w", err))
+		return
+	}
 	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(overview)
+	_, _ = w.Write(payload)
 }
 
-// handleReleaseCapability implements GET /api/release/capability (Raw §16–§18, VS-10).
+func writeOnboardingHTTPError(w http.ResponseWriter, err error) {
+	code := "onboarding_error"
+	status := http.StatusBadRequest
+	message := "onboarding request failed"
+	if err != nil {
+		message = err.Error()
+		lower := strings.ToLower(message)
+		switch {
+		case strings.HasPrefix(lower, "missing_precondition:"), strings.HasPrefix(lower, "invalid_precondition:"), strings.HasPrefix(lower, "incomparable_basis:"):
+			code = strings.SplitN(message, ":", 2)[0]
+		case strings.HasPrefix(lower, "stale_live_head:"):
+			code = "stale_live_head"
+			status = http.StatusConflict
+		case strings.HasPrefix(lower, "current_proof_unavailable:"), strings.HasPrefix(lower, "unavailable:"):
+			code = "current_proof_unavailable"
+			status = http.StatusPreconditionFailed
+		case strings.HasPrefix(lower, "invalid_graph:"):
+			code = "invalid_graph"
+			status = http.StatusUnprocessableEntity
+		case strings.HasPrefix(lower, "invalid_identity:"), strings.HasPrefix(lower, "invalid_evidence:"), strings.HasPrefix(lower, "invalid_authority:"), strings.HasPrefix(lower, "no_match:"):
+			code = strings.SplitN(message, ":", 2)[0]
+			status = http.StatusUnprocessableEntity
+		case strings.HasPrefix(lower, "internal_error:"):
+			code = "internal_error"
+			status = http.StatusInternalServerError
+		}
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(status)
+	_ = json.NewEncoder(w).Encode(map[string]any{"code": code, "message": message})
+}
+
+// handleReleaseCapability evaluates only caller-supplied immutable evidence.
 func (s *Server) handleReleaseCapability(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodGet {
+	if r.Method != http.MethodPost {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
 
-	targetVer := r.URL.Query().Get("targetVersion")
-	if targetVer == "" {
-		targetVer = "v0.9.0-rc1"
+	r.Body = http.MaxBytesReader(w, r.Body, 8<<20)
+	decoder := json.NewDecoder(r.Body)
+	decoder.DisallowUnknownFields()
+	var input semantic.ReleaseEvaluationInput
+	if err := decoder.Decode(&input); err != nil && !errors.Is(err, io.EOF) {
+		writeReleaseAPIError(w, http.StatusBadRequest, fmt.Errorf("invalid release evaluation input: %w", err))
+		return
 	}
-
-	modelID := r.URL.Query().Get("modelId")
-	modelVer := r.URL.Query().Get("modelVersion")
-
-	rep, err := semantic.EvaluateReleaseBenchmark(targetVer, semantic.BenchmarkOptions{})
-	if err != nil {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusBadRequest)
-		_ = json.NewEncoder(w).Encode(map[string]any{
-			"code":    "missing_precondition",
-			"message": err.Error(),
-		})
+	var trailing any
+	if err := decoder.Decode(&trailing); !errors.Is(err, io.EOF) {
+		writeReleaseAPIError(w, http.StatusBadRequest, fmt.Errorf("invalid release evaluation input: expected one JSON object"))
 		return
 	}
 
-	slmState := semantic.GetSLMCapabilityState(modelID, modelVer)
+	evaluation, err := semantic.EvaluateReleaseCapabilityWithThresholdDecisions(input, s.releaseThresholdDecisions)
+	if err != nil {
+		writeReleaseAPIError(w, http.StatusInternalServerError, err)
+		return
+	}
 
 	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(map[string]any{
-		"benchmarkReport": rep,
-		"slmCapability":   slmState,
-	})
+	_ = json.NewEncoder(w).Encode(evaluation)
 }
 
-
-
-
-
-
-
+func writeReleaseAPIError(w http.ResponseWriter, status int, err error) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(status)
+	_ = json.NewEncoder(w).Encode(map[string]string{"code": "release_evaluation_error", "message": err.Error()})
+}

@@ -1,0 +1,9 @@
+{
+  "schemaId":"https://codeflow.local/schemas/rflsc.adapter-capability-matrix.v1.schema.json",
+  "schemaVersion":1,
+  "measurements":[
+    {"adapter":"dart","adapterVersion":"dart/0.1","protocolVersion":1,"analyzerRevision":"dart/1","measurementId":"forged-dart","status":"measured","features":["snapshot_bytes"],"unsupported":[],"evidence":["declared"]},
+    {"adapter":"typescript","adapterVersion":"typescript/0.1","protocolVersion":1,"analyzerRevision":"typescript/1","measurementId":"forged-typescript","status":"measured","features":["snapshot_bytes"],"unsupported":[],"evidence":["declared"]},
+    {"adapter":"go","adapterVersion":"go/0.1","protocolVersion":1,"analyzerRevision":"go/1","measurementId":"forged-go","status":"measured","features":["snapshot_bytes"],"unsupported":[],"evidence":["declared"]}
+  ]
+}

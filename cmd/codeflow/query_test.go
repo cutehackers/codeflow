@@ -50,8 +50,8 @@ func TestCLIQueryCommand(t *testing.T) {
 	if err := json.Unmarshal(outBuf.Bytes(), &jsonOutput); err != nil {
 		t.Fatalf("failed to parse JSON output: %v, raw: %s", err, outBuf.String())
 	}
-	if _, ok := jsonOutput["currentAnswer"]; !ok {
-		t.Error("expected currentAnswer in JSON output")
+	if _, ok := jsonOutput["candidateAnswer"]; !ok {
+		t.Error("expected candidateAnswer in JSON output")
 	}
 	if _, ok := jsonOutput["semanticMap"]; !ok {
 		t.Error("expected semanticMap in JSON output")
@@ -65,7 +65,7 @@ func TestCLIQueryCommand(t *testing.T) {
 		t.Fatalf("expected 0 exit code, got %d. stderr: %s", code, errBuf.String())
 	}
 	text := outBuf.String()
-	idxAnswer := strings.Index(text, "Current Answer")
+	idxAnswer := strings.Index(text, "Candidate Answer")
 	idxFlow := strings.Index(text, "Semantic Flow Rail")
 	idxEvidence := strings.Index(text, "Evidence Dock")
 	idxUnknowns := strings.Index(text, "Unknowns")

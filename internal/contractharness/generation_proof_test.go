@@ -18,6 +18,7 @@ func TestGenerationProofValidators(t *testing.T) {
 		"analysisReadSetId":              "rs-1",
 		"causalObservationClosureId":     "close-1",
 		"causalObservationClosureDigest": "f0e1d2c3b4a59687f0e1d2c3b4a59687f0e1d2c3b4a59687f0e1d2c3b4a59687",
+		"workspaceEpoch":                 1,
 		"currentPublication": map[string]any{
 			"eligibility":           "passed",
 			"snapshotGate":          "passed",
@@ -84,14 +85,14 @@ func TestGenerationProofValidators(t *testing.T) {
 	// ActivePointer test
 	validPtr := map[string]any{
 		"schemaId":                   "https://codeflow.local/schemas/active-pointer.schema.json",
-		"schemaVersion":              1,
+		"schemaVersion":              2,
 		"generationId":               "gen-1",
 		"manifestObjectRef":          "cas:1",
 		"publishedAt":                "2026-09-03T12:00:00Z",
 		"computedBasisId":            "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
 		"validatedAgainstSnapshotId": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
 		"expectedLiveHeadSnapshotId": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
-		"workspaceEpoch":             "epoch-1",
+		"workspaceEpoch":             1,
 		"taskIntentRevision":         1,
 		"normalizedQueryHash":        "a1b2c3d4e5f67890a1b2c3d4e5f67890a1b2c3d4e5f67890a1b2c3d4e5f67890",
 		"flowCount":                  1,

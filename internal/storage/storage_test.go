@@ -1,12 +1,49 @@
 package storage_test
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"testing"
 
 	"codeflow/internal/storage"
 )
+
+func TestLegacyActivePointersAreQuarantinedOnce(t *testing.T) {
+	root := t.TempDir()
+	st := storage.New(root)
+	if err := st.InitLayout(); err != nil {
+		t.Fatal(err)
+	}
+	legacy := []byte(`{"workspaceEpoch":"legacy-epoch","generationId":"old"}`)
+	activePath := filepath.Join(st.BaseDir(), "active-pointer.json")
+	if err := os.WriteFile(activePath, legacy, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.ReadActivePointer(); !errors.Is(err, storage.ErrIncompatibleEpoch) {
+		t.Fatalf("legacy active pointer was not rejected: %v", err)
+	}
+	if _, err := st.ReadActivePointer(); err != nil {
+		t.Fatalf("quarantined active pointer was reprocessed: %v", err)
+	}
+	if _, err := os.Stat(activePath); !os.IsNotExist(err) {
+		t.Fatalf("legacy active pointer remained active: %v", err)
+	}
+
+	legacyPointerPath := filepath.Join(st.BaseDir(), "pointer.json")
+	if err := os.WriteFile(legacyPointerPath, legacy, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.ReadPointer(); !errors.Is(err, storage.ErrIncompatibleEpoch) {
+		t.Fatalf("legacy pointer was not rejected: %v", err)
+	}
+	if _, err := st.ReadPointer(); err != nil {
+		t.Fatalf("quarantined pointer was reprocessed: %v", err)
+	}
+	if _, err := os.Stat(legacyPointerPath); !os.IsNotExist(err) {
+		t.Fatalf("legacy pointer remained active: %v", err)
+	}
+}
 
 func TestStorageAtomicPublishAndRecovery(t *testing.T) {
 	tmpDir, err := os.MkdirTemp("", "codeflow-storage-test-*")
@@ -168,6 +205,7 @@ func TestActivePointerCASAndProofManifestCAS(t *testing.T) {
 		NormalizedQueryHash:        "a1b2c3d4e5f67890a1b2c3d4e5f67890a1b2c3d4e5f67890a1b2c3d4e5f67890",
 		AnalysisReadSetID:          "readset-1",
 		CausalObservationClosureID: "closure-1",
+		WorkspaceEpoch:             1,
 		CurrentPublication: storage.CurrentPublicationResult{
 			Eligibility:           "passed",
 			SnapshotGate:          "passed",
@@ -205,13 +243,13 @@ func TestActivePointerCASAndProofManifestCAS(t *testing.T) {
 	// 3. Initial CAS: expectedPreviousGen = "", expectedLiveHead = "snap-1" -> Succeeded
 	ptr1 := &storage.ActivePointer{
 		SchemaID:                   "https://codeflow.local/schemas/active-pointer.schema.json",
-		SchemaVersion:              1,
+		SchemaVersion:              2,
 		GenerationID:               "gen-1",
 		ManifestObjectRef:          casRef1,
 		ComputedBasisID:            manifest1.ComputedBasisID,
 		ValidatedAgainstSnapshotID: "snap-1",
 		ExpectedLiveHeadSnapshotID: "snap-1",
-		WorkspaceEpoch:             "epoch-1",
+		WorkspaceEpoch:             1,
 		TaskIntentRevision:         1,
 		NormalizedQueryHash:        manifest1.NormalizedQueryHash,
 		FlowCount:                  1,
@@ -247,13 +285,13 @@ func TestActivePointerCASAndProofManifestCAS(t *testing.T) {
 	// 6. Valid CAS attempt: correct previousGen "gen-1" and correct liveHead "snap-1" (current pointer snapshot) -> Succeeded
 	ptr2 = &storage.ActivePointer{
 		SchemaID:                   "https://codeflow.local/schemas/active-pointer.schema.json",
-		SchemaVersion:              1,
+		SchemaVersion:              2,
 		GenerationID:               "gen-2",
 		ManifestObjectRef:          casRef1,
 		ComputedBasisID:            manifest1.ComputedBasisID,
 		ValidatedAgainstSnapshotID: "snap-2",
 		ExpectedLiveHeadSnapshotID: "snap-2",
-		WorkspaceEpoch:             "epoch-1",
+		WorkspaceEpoch:             1,
 		TaskIntentRevision:         1,
 		NormalizedQueryHash:        manifest1.NormalizedQueryHash,
 		FlowCount:                  2,
@@ -271,4 +309,3 @@ func TestActivePointerCASAndProofManifestCAS(t *testing.T) {
 		t.Errorf("unexpected active manifest: %+v", activeManifest)
 	}
 }
-

@@ -1,0 +1,305 @@
+{
+  "schemaId": "https://codeflow.local/schemas/rflsc.execution-report.v2.schema.json",
+  "schemaVersion": 2,
+  "reportId": "report-synthetic",
+  "artifactRef": "sha256:d4ffdf2c984c1a20227eb33d153af1123d2a027bab4070c6c86245037acb701a",
+  "profileId": "profile-synthetic",
+  "profileRef": "sha256:abe9551ff3a21b43eab4a0d3426486aa9e9e9dc16ebf6cbbe3d9a6c49c034ea9",
+  "corpusId": "corpus-synthetic",
+  "corpusVersion": "1.0.0",
+  "corpusRef": "sha256:bc60026d396199d5edf95eebae1af4af623f99e64958de7d998823defc208746",
+  "command": "synthetic evaluator fixture; not production evidence",
+  "executedAt": "2026-09-07T00:00:00Z",
+  "toolchainIds": [
+    "go-1.25"
+  ],
+  "scenarioResults": [
+    {
+      "scenarioId": "s1",
+      "traceId": "t1",
+      "traceRef": "sha256:2000000000000000000000000000000000000000000000000000000000000002",
+      "toolchainId": "go-1.25",
+      "capabilityIds": [
+        "live-current-or-gap"
+      ],
+      "passed": true
+    },
+    {
+      "scenarioId": "s2",
+      "traceId": "t2",
+      "traceRef": "sha256:2000000000000000000000000000000000000000000000000000000000000003",
+      "toolchainId": "go-1.25",
+      "capabilityIds": [
+        "live-current-or-gap"
+      ],
+      "passed": true
+    },
+    {
+      "scenarioId": "s3",
+      "traceId": "t3",
+      "traceRef": "sha256:2000000000000000000000000000000000000000000000000000000000000004",
+      "toolchainId": "go-1.25",
+      "capabilityIds": [
+        "live-current-or-gap"
+      ],
+      "passed": true
+    },
+    {
+      "scenarioId": "s4",
+      "traceId": "t4",
+      "traceRef": "sha256:2000000000000000000000000000000000000000000000000000000000000005",
+      "toolchainId": "go-1.25",
+      "capabilityIds": [
+        "live-current-or-gap"
+      ],
+      "passed": true
+    },
+    {
+      "scenarioId": "s5",
+      "traceId": "t5",
+      "traceRef": "sha256:2000000000000000000000000000000000000000000000000000000000000006",
+      "toolchainId": "go-1.25",
+      "capabilityIds": [
+        "live-current-or-gap"
+      ],
+      "passed": true
+    },
+    {
+      "scenarioId": "s6",
+      "traceId": "t6",
+      "traceRef": "sha256:2000000000000000000000000000000000000000000000000000000000000007",
+      "toolchainId": "go-1.25",
+      "capabilityIds": [
+        "live-current-or-gap"
+      ],
+      "passed": true
+    },
+    {
+      "scenarioId": "s7",
+      "traceId": "t7",
+      "traceRef": "sha256:2000000000000000000000000000000000000000000000000000000000000008",
+      "toolchainId": "go-1.25",
+      "capabilityIds": [
+        "live-current-or-gap"
+      ],
+      "passed": true
+    },
+    {
+      "scenarioId": "s8",
+      "traceId": "t8",
+      "traceRef": "sha256:2000000000000000000000000000000000000000000000000000000000000009",
+      "toolchainId": "go-1.25",
+      "capabilityIds": [
+        "live-current-or-gap"
+      ],
+      "passed": true
+    },
+    {
+      "scenarioId": "s9",
+      "traceId": "t9",
+      "traceRef": "sha256:200000000000000000000000000000000000000000000000000000000000000a",
+      "toolchainId": "go-1.25",
+      "capabilityIds": [
+        "live-current-or-gap"
+      ],
+      "passed": true
+    },
+    {
+      "scenarioId": "s10",
+      "traceId": "t10",
+      "traceRef": "sha256:200000000000000000000000000000000000000000000000000000000000000b",
+      "toolchainId": "go-1.25",
+      "capabilityIds": [
+        "live-current-or-gap"
+      ],
+      "passed": true
+    },
+    {
+      "scenarioId": "s11",
+      "traceId": "t11",
+      "traceRef": "sha256:200000000000000000000000000000000000000000000000000000000000000c",
+      "toolchainId": "go-1.25",
+      "capabilityIds": [
+        "live-current-or-gap"
+      ],
+      "passed": true
+    },
+    {
+      "scenarioId": "s12",
+      "traceId": "t12",
+      "traceRef": "sha256:200000000000000000000000000000000000000000000000000000000000000d",
+      "toolchainId": "go-1.25",
+      "capabilityIds": [
+        "live-current-or-gap"
+      ],
+      "passed": true
+    }
+  ],
+  "metricSeries": [
+    {
+      "metric": "activity_latency_ms",
+      "capabilityId": "live-current-or-gap",
+      "category": "latency",
+      "unit": "ms",
+      "samples": [
+        {
+          "scenarioId": "s1",
+          "traceId": "t1",
+          "traceRef": "sha256:2000000000000000000000000000000000000000000000000000000000000002",
+          "toolchainId": "go-1.25",
+          "profileId": "profile-synthetic",
+          "evidenceRef": "sha256:2100000000000000000000000000000000000000000000000000000000000001",
+          "value": 100
+        }
+      ]
+    },
+    {
+      "metric": "current_or_gap_latency_ms",
+      "capabilityId": "live-current-or-gap",
+      "category": "latency",
+      "unit": "ms",
+      "samples": [
+        {
+          "scenarioId": "s1",
+          "traceId": "t1",
+          "traceRef": "sha256:2000000000000000000000000000000000000000000000000000000000000002",
+          "toolchainId": "go-1.25",
+          "profileId": "profile-synthetic",
+          "evidenceRef": "sha256:2100000000000000000000000000000000000000000000000000000000000002",
+          "value": 1000
+        }
+      ]
+    },
+    {
+      "metric": "precision",
+      "capabilityId": "live-current-or-gap",
+      "category": "quality",
+      "unit": "ratio",
+      "samples": [
+        {
+          "scenarioId": "s1",
+          "traceId": "t1",
+          "traceRef": "sha256:2000000000000000000000000000000000000000000000000000000000000002",
+          "toolchainId": "go-1.25",
+          "profileId": "profile-synthetic",
+          "evidenceRef": "sha256:2100000000000000000000000000000000000000000000000000000000000003",
+          "value": 0.9
+        }
+      ]
+    },
+    {
+      "metric": "recall",
+      "capabilityId": "live-current-or-gap",
+      "category": "quality",
+      "unit": "ratio",
+      "samples": [
+        {
+          "scenarioId": "s1",
+          "traceId": "t1",
+          "traceRef": "sha256:2000000000000000000000000000000000000000000000000000000000000002",
+          "toolchainId": "go-1.25",
+          "profileId": "profile-synthetic",
+          "evidenceRef": "sha256:2100000000000000000000000000000000000000000000000000000000000004",
+          "value": 0.9
+        }
+      ]
+    },
+    {
+      "metric": "semantic_delta",
+      "capabilityId": "live-current-or-gap",
+      "category": "quality",
+      "unit": "ratio",
+      "samples": [
+        {
+          "scenarioId": "s1",
+          "traceId": "t1",
+          "traceRef": "sha256:2000000000000000000000000000000000000000000000000000000000000002",
+          "toolchainId": "go-1.25",
+          "profileId": "profile-synthetic",
+          "evidenceRef": "sha256:2100000000000000000000000000000000000000000000000000000000000005",
+          "value": 1
+        }
+      ]
+    },
+    {
+      "metric": "alignment_validity",
+      "capabilityId": "live-current-or-gap",
+      "category": "quality",
+      "unit": "ratio",
+      "samples": [
+        {
+          "scenarioId": "s1",
+          "traceId": "t1",
+          "traceRef": "sha256:2000000000000000000000000000000000000000000000000000000000000002",
+          "toolchainId": "go-1.25",
+          "profileId": "profile-synthetic",
+          "evidenceRef": "sha256:2100000000000000000000000000000000000000000000000000000000000006",
+          "value": 1
+        }
+      ]
+    },
+    {
+      "metric": "unknown_coverage",
+      "capabilityId": "live-current-or-gap",
+      "category": "quality",
+      "unit": "ratio",
+      "samples": [
+        {
+          "scenarioId": "s1",
+          "traceId": "t1",
+          "traceRef": "sha256:2000000000000000000000000000000000000000000000000000000000000002",
+          "toolchainId": "go-1.25",
+          "profileId": "profile-synthetic",
+          "evidenceRef": "sha256:2100000000000000000000000000000000000000000000000000000000000007",
+          "value": 1
+        }
+      ]
+    },
+    {
+      "metric": "comprehension",
+      "capabilityId": "live-current-or-gap",
+      "category": "quality",
+      "unit": "ratio",
+      "samples": [
+        {
+          "scenarioId": "s1",
+          "traceId": "t1",
+          "traceRef": "sha256:2000000000000000000000000000000000000000000000000000000000000002",
+          "toolchainId": "go-1.25",
+          "profileId": "profile-synthetic",
+          "evidenceRef": "sha256:2100000000000000000000000000000000000000000000000000000000000008",
+          "value": 0.9
+        }
+      ]
+    },
+    {
+      "metric": "peak_memory_bytes",
+      "capabilityId": "live-current-or-gap",
+      "category": "resource",
+      "unit": "bytes",
+      "samples": [
+        {
+          "scenarioId": "s1",
+          "traceId": "t1",
+          "traceRef": "sha256:2000000000000000000000000000000000000000000000000000000000000002",
+          "toolchainId": "go-1.25",
+          "profileId": "profile-synthetic",
+          "evidenceRef": "sha256:2100000000000000000000000000000000000000000000000000000000000009",
+          "value": 1000
+        }
+      ]
+    }
+  ],
+  "invariantChecks": [
+    {"kind":"proof_less_current","capabilityId":"live-current-or-gap","scenarioId":"s1","traceId":"t1","evidenceRef":"sha256:2200000000000000000000000000000000000000000000000000000000000001","result":"pass"},
+    {"kind":"false_settlement","capabilityId":"live-current-or-gap","scenarioId":"s1","traceId":"t1","evidenceRef":"sha256:2200000000000000000000000000000000000000000000000000000000000002","result":"pass"},
+    {"kind":"cross_generation_mix","capabilityId":"live-current-or-gap","scenarioId":"s1","traceId":"t1","evidenceRef":"sha256:2200000000000000000000000000000000000000000000000000000000000003","result":"pass"},
+    {"kind":"fabricated_evidence","capabilityId":"live-current-or-gap","scenarioId":"s1","traceId":"t1","evidenceRef":"sha256:2200000000000000000000000000000000000000000000000000000000000004","result":"pass"},
+    {"kind":"fabricated_runtime","capabilityId":"live-current-or-gap","scenarioId":"s1","traceId":"t1","evidenceRef":"sha256:2200000000000000000000000000000000000000000000000000000000000005","result":"pass"},
+    {"kind":"unsafe_approval","capabilityId":"live-current-or-gap","scenarioId":"s1","traceId":"t1","evidenceRef":"sha256:2200000000000000000000000000000000000000000000000000000000000006","result":"pass"},
+    {"kind":"secret_leak","capabilityId":"live-current-or-gap","scenarioId":"s1","traceId":"t1","evidenceRef":"sha256:2200000000000000000000000000000000000000000000000000000000000007","result":"pass"},
+    {"kind":"path_leak","capabilityId":"live-current-or-gap","scenarioId":"s1","traceId":"t1","evidenceRef":"sha256:2200000000000000000000000000000000000000000000000000000000000008","result":"pass"},
+    {"kind":"race","capabilityId":"live-current-or-gap","scenarioId":"s1","traceId":"t1","evidenceRef":"sha256:2200000000000000000000000000000000000000000000000000000000000009","result":"pass"},
+    {"kind":"unrecovered_event_gap","capabilityId":"live-current-or-gap","scenarioId":"s1","traceId":"t1","evidenceRef":"sha256:2200000000000000000000000000000000000000000000000000000000000010","result":"pass"}
+  ]
+}

@@ -1,0 +1,46 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://codeflow.local/schemas/rflsc.impact-frontier.v1.schema.json",
+  "title": "RFL-SC Impact Frontier v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaId",
+    "schemaVersion",
+    "frontierId",
+    "boundaryType",
+    "target",
+    "depth",
+    "reason",
+    "path",
+    "evidenceRefs",
+    "expandable"
+  ],
+  "properties": {
+    "schemaId": { "const": "https://codeflow.local/schemas/rflsc.impact-frontier.v1.schema.json" },
+    "schemaVersion": { "const": 1 },
+    "frontierId": { "type": "string", "minLength": 1 },
+    "boundaryType": {
+      "enum": [
+        "unresolved_dynamic_caller",
+        "unsupported_capability",
+        "budget_exhausted",
+        "coverage_boundary",
+        "invalid_evidence"
+      ]
+    },
+    "target": { "type": "string", "minLength": 1 },
+    "depth": { "type": "integer", "minimum": 0, "maximum": 5 },
+    "reason": { "type": "string", "minLength": 1 },
+    "path": {
+      "type": "array",
+      "items": { "type": "string", "minLength": 1 }
+    },
+    "evidenceRefs": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": { "type": "string", "minLength": 1 }
+    },
+    "expandable": { "type": "boolean" }
+  }
+}

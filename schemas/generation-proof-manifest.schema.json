@@ -16,6 +16,7 @@
     "analysisReadSetId",
     "causalObservationClosureId",
     "causalObservationClosureDigest",
+	"workspaceEpoch",
     "currentPublication",
     "settlementEvaluation",
     "artifactRefs",
@@ -43,6 +44,7 @@
     "causalObservationClosureId": { "type": "string", "minLength": 1 },
     "causalObservationClosureDigest": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
     "capabilityProfileDigest": { "type": "string" },
+	"workspaceEpoch": { "type": "integer", "minimum": 0 },
     "currentPublication": {
       "type": "object",
       "required": [

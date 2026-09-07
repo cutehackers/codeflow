@@ -1,0 +1,23 @@
+{
+  "schemaId": "https://codeflow.local/schemas/rflsc.analyzer-request.v2.schema.json",
+  "schemaVersion": 2,
+  "requestId": "req-1",
+  "operation": "slice",
+  "snapshot": {
+    "schemaId": "https://codeflow.local/schemas/rflsc.analyzer-request.v2.schema.json",
+    "schemaVersion": 2,
+    "snapshotId": "snap-1",
+    "workspaceEpoch": 7,
+    "computedBasisId": "basis-1",
+    "rootTreeId": "tree-1",
+    "configurationFingerprint": "config-1",
+    "dependencyFingerprint": "dep-1",
+    "documents": [{"path":"lib/main.go","documentRevisionId":"rev-1","contentId":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","documentVersion":1,"contentHash":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","byteLength":14}],
+    "files": {"lib/main.go":"package main\n"},
+    "repositoryPathWriteAudit": {"codeflowWriteCount":0,"sourceIntegrityViolation":false,"capturedSnapshotTreeDigest":"tree-1"}
+  },
+  "taskScope": ["lib/main.go"],
+  "requiredObservations": ["membership", "negative_lookup", "dependency_frontier"],
+  "capabilityRequest": ["snapshot_bytes", "read_set"],
+  "maxMessageBytes": 1048576
+}

@@ -9,6 +9,12 @@ import (
 // and enforces semantic delta invariants (SID-C2, Raw §10.12, VS-05).
 func ValidateSemanticDeltaIR(data []byte) error {
 	schemaID := BaseURL + "semantic-delta-ir.schema.json"
+	var header struct {
+		SchemaID string `json:"schemaId"`
+	}
+	if err := json.Unmarshal(data, &header); err == nil && header.SchemaID == BaseURL+"rflsc.semantic-delta-ir.v2.schema.json" {
+		schemaID = header.SchemaID
+	}
 	if err := Validate(schemaID, data); err != nil {
 		return fmt.Errorf("semantic-delta-ir schema violation: %w", err)
 	}
@@ -52,6 +58,12 @@ func ValidateSemanticDeltaIR(data []byte) error {
 // and enforces evidence grounding invariants (SID-C2, Raw D15, §10.13, VS05-A5, A6).
 func ValidateRequirementAlignment(data []byte) error {
 	schemaID := BaseURL + "requirement-alignment.schema.json"
+	var header struct {
+		SchemaID string `json:"schemaId"`
+	}
+	if err := json.Unmarshal(data, &header); err == nil && header.SchemaID == BaseURL+"rflsc.requirement-alignment.v2.schema.json" {
+		schemaID = header.SchemaID
+	}
 	if err := Validate(schemaID, data); err != nil {
 		return fmt.Errorf("requirement-alignment schema violation: %w", err)
 	}
@@ -70,6 +82,9 @@ func ValidateRequirementAlignment(data []byte) error {
 
 	// Invariant (Raw D15, VS05-A6): 'confirmed' requires non-empty evidenceRefs and coveredStepRefs, and no missing evidence
 	if alignment.Status == "confirmed" {
+		if schemaID == BaseURL+"rflsc.requirement-alignment.v2.schema.json" {
+			return fmt.Errorf("VS04 requirement alignment cannot be confirmed before current proof")
+		}
 		if len(alignment.EvidenceRefs) == 0 {
 			return fmt.Errorf("criterion %q has status 'confirmed' but 0 evidenceRefs (Evidence required)", alignment.CriterionID)
 		}

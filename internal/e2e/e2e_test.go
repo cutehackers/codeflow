@@ -80,7 +80,24 @@ func TestTier1_WireProtocol_FramingAndEnvelopes(t *testing.T) {
 		Confident bool   `json:"confident"`
 	}
 	appDir := filepath.Join(root, "testdata", "ts_example_app")
-	if err := pool.Call(ctx, protocol.OpDetect, map[string]any{"repoRoot": appDir}, &det); err != nil {
+	engine, err := workspace.NewSnapshotEngine(appDir, 0)
+	if err != nil {
+		t.Fatalf("snapshot engine failed: %v", err)
+	}
+	head, err := engine.Reconcile(ctx, nil)
+	if err != nil {
+		t.Fatalf("snapshot capture failed: %v", err)
+	}
+	lease, err := engine.SnapshotVFS(head.SnapshotID)
+	if err != nil {
+		t.Fatalf("snapshot lease failed: %v", err)
+	}
+	defer lease.Close()
+	snapshot, err := protocol.SnapshotFromLease(lease)
+	if err != nil {
+		t.Fatalf("protocol snapshot failed: %v", err)
+	}
+	if err := pool.Call(ctx, protocol.OpDetect, snapshot.Params(), &det); err != nil {
 		t.Fatalf("detect failed: %v", err)
 	}
 	if !det.Confident || det.Language != "typescript" {
@@ -611,4 +628,3 @@ func TestTier5_VS04_EndToEndSLOAndTrace(t *testing.T) {
 		t.Errorf("active pointer was corrupted by race loser: got %s, want gen-race-a", activePtr.GenerationID)
 	}
 }
-

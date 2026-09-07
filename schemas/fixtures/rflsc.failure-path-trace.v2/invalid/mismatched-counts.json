@@ -1,0 +1,21 @@
+{
+  "schemaId": "https://codeflow.local/schemas/rflsc.failure-path-trace.v2.schema.json",
+  "schemaVersion": 2,
+  "traceId": "trace-vs06",
+  "mode": "debug",
+  "computedBasisId": "basis-vs06",
+  "generationId": "generation-vs06",
+  "validatedAgainstSnapshotId": "snapshot-vs06",
+  "freshness": "historical",
+  "failureTarget": { "error": "PaymentDeclined" },
+  "nodes": [],
+  "relationships": [],
+  "timeline": [],
+  "unknownCount": 0,
+  "hasConflicts": false,
+  "summary": { "description": "invalid", "lastConfirmedState": "unknown" },
+  "staticEvidence": [],
+  "unknownFrontier": [],
+  "recoveryStates": [],
+  "coverage": { "complete": true, "confirmedNodeCount": 0, "confirmedEdgeCount": 0, "unresolvedEdgeCount": 0 }
+}

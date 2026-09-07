@@ -1,0 +1,1 @@
+{"schemaId":"https://codeflow.local/schemas/rflsc.requirement-alignment.v2.schema.json","schemaVersion":2,"criterionId":"AC-1","status":"partial","coveredStepRefs":[],"evidenceRefs":[],"missingEvidence":["implementation_step"],"computedBasisId":"basis-1","authority":"agent"}

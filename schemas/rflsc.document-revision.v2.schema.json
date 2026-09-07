@@ -1,0 +1,21 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://codeflow.local/schemas/rflsc.document-revision.v2.schema.json",
+  "title": "RFL-SC VS-01 Document Revision v2",
+  "type": "object",
+  "required": ["schemaId", "schemaVersion", "revisionId", "path", "documentVersion", "contentId", "source", "workspaceEpoch", "createdAt"],
+  "additionalProperties": false,
+  "properties": {
+    "schemaId": { "const": "https://codeflow.local/schemas/rflsc.document-revision.v2.schema.json" },
+    "schemaVersion": { "const": 2 },
+    "revisionId": { "type": "string", "minLength": 1, "maxLength": 128 },
+    "path": { "type": "string", "minLength": 1 },
+    "documentVersion": { "type": "integer", "minimum": 1 },
+    "contentId": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+    "source": { "type": "string", "enum": ["agent_transaction", "ide_versioned", "watcher_fallback", "repository_capture"] },
+    "workspaceEpoch": { "type": "integer", "minimum": 0 },
+    "createdAt": { "type": "string", "format": "date-time" },
+    "content": { "type": "string" },
+    "byteLength": { "type": "integer", "minimum": 0 }
+  }
+}

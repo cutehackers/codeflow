@@ -3,7 +3,7 @@
   "version": "1.0.0",
   "private": true,
   "scripts": {
-    "test:e2e": "playwright test tests/e2e.spec.ts",
+    "test:e2e": "playwright test tests/e2e.spec.ts tests/approval.spec.ts",
     "test:a11y": "playwright test tests/a11y.spec.ts"
   },
   "devDependencies": {

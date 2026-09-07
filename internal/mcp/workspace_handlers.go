@@ -2,24 +2,127 @@ package mcp
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"math"
 	"path/filepath"
+	"strconv"
+	"strings"
+	"time"
 
+	"codeflow/internal/flowview"
 	"codeflow/internal/semantic"
 	"codeflow/internal/workspace"
 )
 
 func (s *Server) getSnapshotEngine(absTarget string) (*workspace.SnapshotEngine, error) {
-	if val, ok := s.engines.Load(absTarget); ok {
-		return val.(*workspace.SnapshotEngine), nil
+	if val, ok := s.liveServers.Load(absTarget); ok {
+		if server, ok := val.(*flowview.Server); ok && server != nil && server.SnapshotEngine() != nil {
+			return server.SnapshotEngine(), nil
+		}
 	}
-	engine, err := workspace.NewSnapshotEngine(absTarget, "")
+	// All MCP workspace and analysis operations use the same live coordinator
+	// as the HTTP surface. This lazy path prevents a query-before-edit from
+	// creating a second snapshot lineage that can race the scheduler.
+	coordinator, err := s.getLiveCoordinator(absTarget)
 	if err != nil {
 		return nil, err
 	}
-	actual, _ := s.engines.LoadOrStore(absTarget, engine)
-	return actual.(*workspace.SnapshotEngine), nil
+	return coordinator.SnapshotEngine(), nil
+}
+
+// getLiveCoordinator lazily creates the one production FlowView live
+// coordinator for a repository. MCP and HTTP therefore share the snapshot
+// engine, scheduler, event ledger, and checkpoint consumer.
+func (s *Server) getLiveCoordinator(absTarget string) (*flowview.Server, error) {
+	canonicalTarget, err := filepath.EvalSymlinks(absTarget)
+	if err != nil {
+		return nil, fmt.Errorf("resolve live coordinator workspace: %w", err)
+	}
+	absTarget = filepath.Clean(canonicalTarget)
+	// Serialize lazy coordinator creation with Close. This prevents a request
+	// racing shutdown from creating a server after shutdown has started.
+	s.modelHostMu.Lock()
+	defer s.modelHostMu.Unlock()
+	if s.modelHostClosed || s.modelHostClosing.Load() {
+		return nil, errMCPModelHostServerClosed
+	}
+	if val, ok := s.liveServers.Load(absTarget); ok {
+		server, ok := val.(*flowview.Server)
+		if !ok || server == nil {
+			return nil, fmt.Errorf("invalid live coordinator for %s", absTarget)
+		}
+		return server, nil
+	}
+	var proposalStore semantic.ProposalStore
+	if semantic.NewApprovalWorkspaceAuthorizer(absTarget).WorkspaceID() == s.approvalWorkspaceID {
+		proposalStore = s.proposalStore
+	}
+	server, err := flowview.NewServer(flowview.Config{
+		RepoRoot:                   absTarget,
+		Port:                       0,
+		ProposalStore:              proposalStore,
+		RuntimeObservationProvider: s.cfg.RuntimeObservationProvider,
+		RuntimeObservationStore:    s.cfg.RuntimeObservationStore,
+		ObservationProvider:        s.cfg.ObservationProvider,
+		ObservationStore:           s.cfg.ObservationStore,
+		RuntimeExecutor:            s.cfg.RuntimeExecutor,
+		OneShotExecutor:            s.cfg.OneShotExecutor,
+		RuntimeExecutionSpec:       s.cfg.RuntimeExecutionSpec,
+		RuntimeConsent:             s.cfg.RuntimeConsent,
+		ReleaseThresholdDecisions:  s.cfg.ReleaseThresholdDecisions,
+		ModelHostFactory:           s.coordinatorModelHostFactory(),
+	})
+	if err != nil {
+		return nil, fmt.Errorf("start live coordinator: %w", err)
+	}
+	if s.modelHostClosing.Load() || s.modelHostClosed {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		shutdownErr := server.Shutdown(ctx)
+		cancel()
+		if shutdownErr != nil {
+			return nil, errors.Join(errMCPModelHostServerClosed, shutdownErr)
+		}
+		return nil, errMCPModelHostServerClosed
+	}
+	server.Start()
+	if s.modelHostClosing.Load() || s.modelHostClosed {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		shutdownErr := server.Shutdown(ctx)
+		cancel()
+		if shutdownErr != nil {
+			return nil, errors.Join(errMCPModelHostServerClosed, shutdownErr)
+		}
+		return nil, errMCPModelHostServerClosed
+	}
+	actual, loaded := s.liveServers.LoadOrStore(absTarget, server)
+	if s.modelHostClosing.Load() || s.modelHostClosed {
+		if !loaded {
+			s.liveServers.Delete(absTarget)
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		shutdownErr := server.Shutdown(ctx)
+		cancel()
+		if shutdownErr != nil {
+			return nil, errors.Join(errMCPModelHostServerClosed, shutdownErr)
+		}
+		return nil, errMCPModelHostServerClosed
+	}
+	if loaded {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		_ = server.Shutdown(ctx)
+		cancel()
+		return actual.(*flowview.Server), nil
+	}
+	// Keep the compatibility open_review handle pointed at the same
+	// coordinator when it is the first one created.
+	s.fvMu.Lock()
+	if s.fv == nil {
+		s.fv = server
+	}
+	s.fvMu.Unlock()
+	return server, nil
 }
 
 func (s *Server) handleGetWorkspaceActivity(ctx context.Context, args map[string]any) (any, error) {
@@ -32,10 +135,11 @@ func (s *Server) handleGetWorkspaceActivity(ctx context.Context, args map[string
 		return nil, fmt.Errorf("resolve target: %w", err)
 	}
 
-	engine, err := s.getSnapshotEngine(absTarget)
+	coordinator, err := s.getLiveCoordinator(absTarget)
 	if err != nil {
 		return nil, fmt.Errorf("get snapshot engine: %w", err)
 	}
+	engine := coordinator.SnapshotEngine()
 
 	act := engine.CurrentActivity()
 	var liveHeadSnap *workspace.WorkspaceSnapshot
@@ -82,12 +186,12 @@ func (s *Server) handleSubmitVersionedEdit(ctx context.Context, args map[string]
 		source = workspace.SourceAgentTransaction
 	}
 
-	engine, err := s.getSnapshotEngine(absTarget)
+	coordinator, err := s.getLiveCoordinator(absTarget)
 	if err != nil {
 		return nil, fmt.Errorf("get snapshot engine: %w", err)
 	}
 
-	rev, snap, err := engine.ApplyVersionedEdit(ctx, workspace.EditRequest{
+	rev, snap, err := coordinator.SubmitVersionedEdit(ctx, workspace.EditRequest{
 		Path:            path,
 		Content:         []byte(contentStr),
 		DocumentVersion: docVer,
@@ -119,13 +223,9 @@ func (s *Server) handleGetGenerationProof(ctx context.Context, args map[string]a
 		return nil, fmt.Errorf("get storage: %w", err)
 	}
 
-	ptr, err := st.ReadActivePointer()
+	manifest, ptr, err := st.ReadValidatedActiveProofManifest()
 	if err != nil {
-		return nil, fmt.Errorf("read active pointer: %w", err)
-	}
-	manifest, err := st.ReadActiveProofManifest()
-	if err != nil {
-		return nil, fmt.Errorf("read proof manifest: %w", err)
+		return nil, fmt.Errorf("read validated current proof: %w", err)
 	}
 
 	var ptrVal any
@@ -158,31 +258,65 @@ func (s *Server) handleGetVerifiedGap(ctx context.Context, args map[string]any) 
 	if err != nil {
 		return nil, fmt.Errorf("get storage: %w", err)
 	}
-	engine, err := s.getSnapshotEngine(absTarget)
+	coordinator, err := s.getLiveCoordinator(absTarget)
 	if err != nil {
 		return nil, fmt.Errorf("get snapshot engine: %w", err)
 	}
+	engine := coordinator.SnapshotEngine()
 
-	ptr, err := st.ReadActivePointer()
-	if err != nil {
-		return nil, fmt.Errorf("read active pointer: %w", err)
-	}
-	if ptr == nil {
+	manifest, ptr, proofErr := st.ReadValidatedActiveProofManifest()
+	if ptr == nil && proofErr == nil {
 		return map[string]any{
 			"status": "no_generation_published",
 		}, nil
 	}
-
 	liveHead := engine.LiveHead()
-	if liveHead == nil || liveHead.SnapshotID == ptr.ExpectedLiveHeadSnapshotID {
+	if proofErr != nil {
+		// An invalid proof can never be reported as current. If a live head is
+		// available, expose a measured non-current gap with the validation cause
+		// so callers can repair the publication. A missing live head is a typed
+		// unknown rather than a fabricated freshness claim.
+		if liveHead == nil {
+			return map[string]any{
+				"code":      "invalid_current_proof",
+				"message":   proofErr.Error(),
+				"freshness": "unknown",
+			}, nil
+		}
+		return map[string]any{
+			"freshness":         "last_verified",
+			"activity":          engine.CurrentActivity().Activity,
+			"lastVerifiedGenId": ptr.GenerationID,
+			"latestSnapshotId":  liveHead.SnapshotID,
+			"affectedScope":     []string{},
+			"analysisLagMs":     engine.CurrentActivity().AnalysisLagMs,
+			"pendingRevisions":  engine.CurrentActivity().PendingRevisions,
+			"intersectedCauses": []string{"invalid current proof: " + proofErr.Error()},
+		}, nil
+	}
+	if manifest == nil || ptr == nil {
+		return map[string]any{
+			"code":      "invalid_current_proof",
+			"freshness": "unknown",
+			"message":   "validated proof is unavailable",
+		}, nil
+	}
+	if liveHead == nil {
+		return map[string]any{
+			"code":      "no_live_head",
+			"freshness": "unknown",
+			"message":   "workspace has no measured live snapshot",
+		}, nil
+	}
+	if liveHead.SnapshotID == ptr.ExpectedLiveHeadSnapshotID {
 		return map[string]any{
 			"freshness":    "current",
 			"generationId": ptr.GenerationID,
-			"settlement":   "evaluated",
+			"settlement":   manifest.SettlementEvaluation.Gate,
 		}, nil
 	}
 
-	delta, _ := engine.ComputeDelta(ptr.ComputedBasisID, liveHead.SnapshotID)
+	delta, deltaErr := engine.ComputeDelta(ptr.ValidatedAgainstSnapshotID, liveHead.SnapshotID)
 	curAct := engine.CurrentActivity()
 
 	changedPaths := []string{}
@@ -198,6 +332,12 @@ func (s *Server) handleGetVerifiedGap(ctx context.Context, args map[string]any) 
 		"affectedScope":     changedPaths,
 		"analysisLagMs":     curAct.AnalysisLagMs,
 		"pendingRevisions":  curAct.PendingRevisions,
+		"intersectedCauses": func() []string {
+			if deltaErr != nil {
+				return []string{"workspace delta unavailable: " + deltaErr.Error()}
+			}
+			return []string{"live head differs from validated proof"}
+		}(),
 	}, nil
 }
 
@@ -221,30 +361,21 @@ func (s *Server) handleGetSemanticDelta(ctx context.Context, args map[string]any
 		return nil, fmt.Errorf("resolve target: %w", err)
 	}
 
-	st, err := s.getStorage(absTarget)
-	if err != nil {
-		return nil, fmt.Errorf("get storage: %w", err)
-	}
-
-	ptr, _ := st.ReadActivePointer()
-	baseMap := &semantic.SemanticMapIR{
-		MapID:           "map-" + baseline,
-		GenerationID:    baseline,
-		ComputedBasisID: "basis-" + baseline,
-		SchemaVersion:   1,
-		Basis:           semantic.MapBasisContext{WorkspaceEpoch: 1},
-	}
-	currMap := &semantic.SemanticMapIR{
-		MapID:           "map-" + current,
-		GenerationID:    current,
-		ComputedBasisID: "basis-" + current,
-		SchemaVersion:   1,
-		Basis:           semantic.MapBasisContext{WorkspaceEpoch: 1},
-	}
-	if ptr != nil && ptr.GenerationID == current {
-		currMap.GenerationID = ptr.GenerationID
-		currMap.ComputedBasisID = ptr.ComputedBasisID
-		currMap.ValidatedAgainstSnapshotID = ptr.ValidatedAgainstSnapshotID
+	baseMap, baseOK := s.loadSemanticMap(absTarget, baseline)
+	currMap, currOK := s.loadSemanticMap(absTarget, current)
+	if !baseOK || !currOK {
+		missing := baseline
+		if !baseOK && !currOK {
+			missing = baseline + " and " + current
+		} else if !baseOK {
+			missing = baseline
+		} else {
+			missing = current
+		}
+		return map[string]any{
+			"code":    "missing_precondition",
+			"message": fmt.Sprintf("semantic map artifact %q is not stored for this target", missing),
+		}, nil
 	}
 
 	delta, err := semantic.ComputeSemanticDelta("comp-"+baseline+"-"+current, baseMap, currMap)
@@ -278,167 +409,38 @@ func (s *Server) handleGetRequirementAlignment(ctx context.Context, args map[str
 		return nil, fmt.Errorf("resolve target: %w", err)
 	}
 
-	st, err := s.getStorage(absTarget)
-	if err != nil {
-		return nil, fmt.Errorf("get storage: %w", err)
+	basisID := ""
+	if requested, ok := args["generation"].(string); ok && requested != "" {
+		basisID = requested
 	}
-
-	ptr, _ := st.ReadActivePointer()
-	basisID := "active"
-	if ptr != nil {
-		basisID = ptr.ComputedBasisID
+	lookupID := basisID
+	if lookupID == "" {
+		lookupID = "active"
 	}
-
-	currMap := &semantic.SemanticMapIR{
-		MapID:           "map-active",
-		ComputedBasisID: basisID,
-		Coverage: &semantic.CoverageBoundary{
-			IncludedSourceRoots: []string{"."},
-		},
-		Steps: []semantic.SemanticStep{},
+	currMap, ok := s.loadSemanticMap(absTarget, lookupID)
+	if !ok {
+		return map[string]any{
+			"code":    "missing_precondition",
+			"message": "a stored semantic map with requirement alignment is required",
+		}, nil
 	}
-
-	criteria := []semantic.AcceptanceCriterion{
-		{ID: "AC-1", Text: "기능 기본 동작 및 핵심 흐름 검증"},
+	if currMap.RequirementAlignment == nil {
+		return map[string]any{
+			"code":    "missing_precondition",
+			"message": "stored semantic map has no requirement alignment artifact",
+		}, nil
 	}
-
-	alignments := semantic.ComputeRequirementAlignment(criteria, currMap, semantic.AlignmentOptions{})
+	if basisID == "" {
+		basisID = currMap.ComputedBasisID
+	}
 	return map[string]any{
-		"requirementAlignment": alignments,
+		"requirementAlignment": currMap.RequirementAlignment,
 		"computedBasisId":      basisID,
 	}, nil
 }
 
-func (s *Server) handleGetChangeImpact(ctx context.Context, args map[string]any) (any, error) {
-	if err := s.checkAuth(args["token"]); err != nil {
-		return nil, err
-	}
-
-	symbolID, _ := args["symbolId"].(string)
-	changeBatchID, _ := args["changeBatchId"].(string)
-	if symbolID == "" && changeBatchID == "" {
-		return map[string]any{
-			"code":    "missing_precondition",
-			"message": "either symbolId or changeBatchId must be provided",
-		}, nil
-	}
-
-	target := s.resolveTarget(args["target"])
-	absTarget, err := filepath.Abs(target)
-	if err != nil {
-		return nil, fmt.Errorf("resolve target: %w", err)
-	}
-
-	st, err := s.getStorage(absTarget)
-	if err != nil {
-		return nil, fmt.Errorf("get storage: %w", err)
-	}
-
-	ptr, _ := st.ReadActivePointer()
-	basisID := "active"
-	genID := "active"
-	if ptr != nil {
-		basisID = ptr.ComputedBasisID
-		genID = ptr.GenerationID
-	}
-
-	mapIR := &semantic.SemanticMapIR{
-		MapID:           "map-" + genID,
-		GenerationID:    genID,
-		ComputedBasisID: basisID,
-		SchemaVersion:   1,
-		Coverage: &semantic.CoverageBoundary{
-			IncludedSourceRoots: []string{"."},
-		},
-		Steps: []semantic.SemanticStep{
-			{
-				StepID:        "step-target",
-				Name:          symbolID,
-				TechnicalName: symbolID,
-				Rules:         []string{"test:" + symbolID},
-			},
-		},
-	}
-
-	impactTarget := semantic.ImpactTarget{
-		SymbolID:      symbolID,
-		ChangeBatchID: changeBatchID,
-	}
-
-	return semantic.ComputeChangeImpact(impactTarget, mapIR, semantic.ImpactOptions{MaxDepth: 3})
-}
-
 func (s *Server) handleInvestigateFailure(ctx context.Context, args map[string]any) (any, error) {
-	if err := s.checkAuth(args["token"]); err != nil {
-		return nil, err
-	}
-
-	mode, _ := args["mode"].(string)
-	if mode == "" {
-		mode = "debug"
-	}
-
-	errStr, _ := args["error"].(string)
-	symptom, _ := args["symptom"].(string)
-	failEvID, _ := args["failureEvidenceId"].(string)
-	traceID, _ := args["traceId"].(string)
-	incEvID, _ := args["incidentEvidenceId"].(string)
-
-	target := semantic.FailureTarget{
-		Error:              errStr,
-		Symptom:            symptom,
-		FailureEvidenceID:  failEvID,
-		IncidentTraceID:    traceID,
-		IncidentEvidenceID: incEvID,
-	}
-
-	if mode == "debug" && errStr == "" && symptom == "" && failEvID == "" {
-		return map[string]any{
-			"code":    "missing_precondition",
-			"message": "debug query requires error, symptom, or failureEvidenceId",
-		}, nil
-	}
-	if mode == "incident" && traceID == "" && incEvID == "" {
-		return map[string]any{
-			"code":    "missing_precondition",
-			"message": "incident query requires traceId or incidentEvidenceId",
-		}, nil
-	}
-
-	targetRepo := s.resolveTarget(args["target"])
-	absTarget, err := filepath.Abs(targetRepo)
-	if err != nil {
-		return nil, fmt.Errorf("resolve target: %w", err)
-	}
-
-	st, err := s.getStorage(absTarget)
-	if err != nil {
-		return nil, fmt.Errorf("get storage: %w", err)
-	}
-
-	ptr, _ := st.ReadActivePointer()
-	basisID := "active"
-	genID := "active"
-	if ptr != nil {
-		basisID = ptr.ComputedBasisID
-		genID = ptr.GenerationID
-	}
-
-	mapIR := &semantic.SemanticMapIR{
-		MapID:           "map-" + genID,
-		GenerationID:    genID,
-		ComputedBasisID: basisID,
-		SchemaVersion:   1,
-		Steps: []semantic.SemanticStep{
-			{
-				StepID:        "step-fail-1",
-				Name:          "장애 발생 지점",
-				TechnicalName: errStr,
-			},
-		},
-	}
-
-	return semantic.InvestigateFailure(target, mode, mapIR, nil, semantic.FailureOptions{})
+	return s.handleFailureV2Request(ctx, args)
 }
 
 func (s *Server) handleGetEvidencePack(ctx context.Context, args map[string]any) (any, error) {
@@ -478,8 +480,8 @@ func (s *Server) handleGetEvidencePack(ctx context.Context, args map[string]any)
 			EvidenceID: "ev-ast-" + symbolPath,
 			Kind:       "ast_anchor",
 			Source:     symbolPath,
-			Content:    "source representation for " + symbolPath,
-			Verified:   true,
+			Content:    "current verified evidence unavailable",
+			Verified:   false,
 		},
 	}
 
@@ -491,68 +493,232 @@ func (s *Server) handleSubmitSemanticApproval(ctx context.Context, args map[stri
 		return nil, err
 	}
 
-	proposalID, _ := args["proposalId"].(string)
-	decision, _ := args["decision"].(string)
-	approver, _ := args["approver"].(string)
-
-	if proposalID == "" || approver == "" {
-		return map[string]any{
-			"code":    "missing_precondition",
-			"message": "proposalId and approver are required",
-		}, nil
-	}
-
-	if decision == "" {
-		decision = "approved"
-	}
-
-	targetRepo := s.resolveTarget(args["target"])
-	absTarget, err := filepath.Abs(targetRepo)
+	rawTarget := s.rawSemanticApprovalTarget(args["target"])
+	access, err := s.authorizeSemanticApproval(ctx, rawTarget)
 	if err != nil {
-		return nil, fmt.Errorf("resolve target: %w", err)
+		return nil, err
 	}
-
-	st, err := s.getStorage(absTarget)
+	draft, err := approvalCommandDraftFromArgs(args)
 	if err != nil {
-		return nil, fmt.Errorf("get storage: %w", err)
+		return nil, err
+	}
+	targetRoot := access.Workspace().CanonicalRepoRoot()
+	coordinator, err := s.getLiveCoordinator(targetRoot)
+	if err != nil {
+		return nil, semantic.ErrApprovalExecutionUnavailable
+	}
+	result, err := coordinator.SubmitSemanticApproval(ctx, access, draft)
+	if err != nil {
+		return nil, err
+	}
+	return result, nil
+}
+
+func (s *Server) handleSubmitSemanticApprovalJSON(ctx context.Context, data []byte) (any, error) {
+	envelope, err := semantic.ParseApprovalCommandDraftEnvelopeJSON(data)
+	if err != nil {
+		return nil, err
+	}
+	var token any
+	if envelope.Token != nil {
+		token = *envelope.Token
+	}
+	if err := s.checkAuth(token); err != nil {
+		return nil, err
+	}
+	var targetArg any
+	if envelope.Target != nil {
+		targetArg = *envelope.Target
+	}
+	access, err := s.authorizeSemanticApproval(ctx, s.rawSemanticApprovalTarget(targetArg))
+	if err != nil {
+		return nil, err
+	}
+	targetRoot := access.Workspace().CanonicalRepoRoot()
+	coordinator, err := s.getLiveCoordinator(targetRoot)
+	if err != nil {
+		return nil, semantic.ErrApprovalExecutionUnavailable
+	}
+	result, err := coordinator.SubmitSemanticApproval(ctx, access, envelope.Draft)
+	if err != nil {
+		return nil, err
+	}
+	return result, nil
+}
+
+func approvalCommandDraftFromArgs(args map[string]any) (semantic.ApprovalCommandDraft, error) {
+	var zero semantic.ApprovalCommandDraft
+	if args == nil {
+		return zero, errors.New("invalid approval command draft")
+	}
+	allowed := map[string]struct{}{
+		"target": {}, "token": {},
+		"commandId": {}, "proposalId": {}, "evidencePackId": {}, "computedBasisId": {},
+		"generationId": {}, "intentRevision": {}, "decision": {}, "editedText": {},
+		"idempotencyKey": {}, "expectedApprovalVersion": {}, "expectedState": {},
+		"predecessorApprovalId": {},
+	}
+	for key := range args {
+		if _, ok := allowed[key]; !ok {
+			return zero, errors.New("invalid approval command draft")
+		}
+	}
+	stringValue := func(key string) (string, error) {
+		raw, present := args[key]
+		value, ok := raw.(string)
+		if !present || !ok || strings.TrimSpace(value) == "" {
+			return "", errors.New("invalid approval command draft")
+		}
+		return value, nil
+	}
+	commandID, err := stringValue("commandId")
+	if err != nil {
+		return zero, err
+	}
+	proposalID, err := stringValue("proposalId")
+	if err != nil {
+		return zero, err
+	}
+	packID, err := stringValue("evidencePackId")
+	if err != nil {
+		return zero, err
+	}
+	basisID, err := stringValue("computedBasisId")
+	if err != nil {
+		return zero, err
+	}
+	generationID, err := stringValue("generationId")
+	if err != nil {
+		return zero, err
+	}
+	decision, err := stringValue("decision")
+	if err != nil {
+		return zero, err
+	}
+	idempotencyKey, err := stringValue("idempotencyKey")
+	if err != nil {
+		return zero, err
+	}
+	expectedState, err := stringValue("expectedState")
+	if err != nil {
+		return zero, err
+	}
+	intentRevision, err := int64ApprovalArgument(args, "intentRevision")
+	if err != nil {
+		return zero, err
+	}
+	expectedVersion, err := int64ApprovalArgument(args, "expectedApprovalVersion")
+	if err != nil {
+		return zero, err
+	}
+	draft := semantic.ApprovalCommandDraft{
+		CommandID: commandID, ProposalID: proposalID, EvidencePackID: packID,
+		ComputedBasisID: basisID, GenerationID: generationID, IntentRevision: intentRevision,
+		Decision: decision, IdempotencyKey: idempotencyKey, ExpectedApprovalVersion: expectedVersion,
+		ExpectedState: expectedState,
+	}
+	for key, destination := range map[string]**string{
+		"editedText":            &draft.EditedText,
+		"predecessorApprovalId": &draft.PredecessorApprovalID,
+	} {
+		raw, present := args[key]
+		if !present {
+			continue
+		}
+		value, ok := raw.(string)
+		if !ok {
+			return zero, errors.New("invalid approval command draft")
+		}
+		copied := value
+		*destination = &copied
+	}
+	return draft, nil
+}
+
+func int64ApprovalArgument(args map[string]any, key string) (int64, error) {
+	raw, present := args[key]
+	if !present {
+		return 0, errors.New("invalid approval command draft")
+	}
+	switch value := raw.(type) {
+	case int:
+		return int64(value), nil
+	case int8:
+		return int64(value), nil
+	case int16:
+		return int64(value), nil
+	case int32:
+		return int64(value), nil
+	case int64:
+		return value, nil
+	case uint:
+		if uint64(value) > uint64(^uint64(0)>>1) {
+			return 0, errors.New("invalid approval command draft")
+		}
+		return int64(value), nil
+	case uint8:
+		return int64(value), nil
+	case uint16:
+		return int64(value), nil
+	case uint32:
+		return int64(value), nil
+	case uint64:
+		if value > uint64(^uint64(0)>>1) {
+			return 0, errors.New("invalid approval command draft")
+		}
+		return int64(value), nil
+	case float64:
+		if math.IsNaN(value) || math.IsInf(value, 0) || math.Trunc(value) != value || value < -float64(1<<63) || value >= float64(1<<63) {
+			return 0, errors.New("invalid approval command draft")
+		}
+		return int64(value), nil
+	case json.Number:
+		parsed, err := strconv.ParseInt(string(value), 10, 64)
+		if err != nil {
+			return 0, errors.New("invalid approval command draft")
+		}
+		return parsed, nil
+	default:
+		return 0, errors.New("invalid approval command draft")
+	}
+}
+
+// rawSemanticApprovalTarget preserves untrusted parent traversal segments for
+// the approval authorization boundary. Other MCP tools intentionally retain
+// resolveTarget's historical normalization behavior.
+func (s *Server) rawSemanticApprovalTarget(targetArg any) string {
+	configuredRoot := ""
+	if s != nil {
+		configuredRoot = s.cfg.RepoRoot
+	}
+	if configuredRoot != "" {
+		if absRoot, err := filepath.Abs(configuredRoot); err == nil {
+			configuredRoot = absRoot
+		}
 	}
 
-	ptr, _ := st.ReadActivePointer()
-	basisID := "active"
-	genID := "active"
-	if ptr != nil {
-		basisID = ptr.ComputedBasisID
-		genID = ptr.GenerationID
+	rawTarget, ok := targetArg.(string)
+	if !ok || rawTarget == "" || rawTarget == "." {
+		return configuredRoot
 	}
-
-	pack, _ := semantic.BuildEvidencePack(proposalID, basisID, genID, []semantic.EvidenceItem{
-		{
-			EvidenceID: "ev-appr-" + proposalID,
-			Kind:       "ast_anchor",
-			Source:     proposalID,
-			Content:    "verified code anchor",
-			Verified:   true,
-		},
-	})
-
-	proposal := &semantic.ModelProposal{
-		ProposalID:       proposalID,
-		TargetSymbolPath: proposalID,
-		ProposedTitle:    "승인 대상 모델 제안",
-		ProposedCategory: "business_rule",
-		EpistemicStatus:  "proposed",
-		ComputedBasisID:  basisID,
-		GenerationID:     genID,
-		EvidenceRefs:     []string{"ev-appr-" + proposalID},
+	if filepath.IsAbs(rawTarget) || configuredRoot == "" {
+		return rawTarget
 	}
+	return strings.TrimRight(configuredRoot, `/\`) + string(filepath.Separator) + rawTarget
+}
 
-	req := semantic.ApprovalRequest{
-		ProposalID: proposalID,
-		Decision:   decision,
-		Approver:   approver,
+// authorizeSemanticApproval authenticates the Core-owned local actor and
+// binds the request to the server's exact configured workspace before any
+// evidence or approval work is performed.
+func (s *Server) authorizeSemanticApproval(ctx context.Context, target string) (semantic.ApprovalAccess, error) {
+	if s == nil || s.approvalGate == nil {
+		return semantic.ApprovalAccess{}, &semantic.ApprovalUnauthenticatedError{Reason: "approval authenticator is unavailable"}
 	}
-
-	return semantic.SubmitSemanticApproval(req, proposal, pack)
+	access, err := s.approvalGate.AuthenticateAndAuthorize(ctx, s.approvalWorkspaceID, target)
+	if err != nil {
+		return semantic.ApprovalAccess{}, err
+	}
+	return access, nil
 }
 
 func (s *Server) handleExploreProjectDomains(ctx context.Context, args map[string]any) (any, error) {
@@ -560,61 +726,20 @@ func (s *Server) handleExploreProjectDomains(ctx context.Context, args map[strin
 		return nil, err
 	}
 
-	repoID, _ := args["repositoryId"].(string)
-	if repoID == "" {
-		repoID = "workspace"
+	req, err := onboardingRequestFromArgs(args)
+	if err != nil {
+		return nil, err
 	}
-	domain, _ := args["domain"].(string)
-
-	level := 1
-	if l, ok := args["level"].(float64); ok && l > 0 {
-		level = int(l)
-	}
-
 	targetRepo := s.resolveTarget(args["target"])
 	absTarget, err := filepath.Abs(targetRepo)
 	if err != nil {
 		return nil, fmt.Errorf("resolve target: %w", err)
 	}
-
-	st, err := s.getStorage(absTarget)
+	coordinator, err := s.getLiveCoordinator(absTarget)
 	if err != nil {
-		return nil, fmt.Errorf("get storage: %w", err)
+		return nil, fmt.Errorf("get onboarding coordinator: %w", err)
 	}
-
-	ptr, _ := st.ReadActivePointer()
-	basisID := "active"
-	genID := "active"
-	if ptr != nil {
-		basisID = ptr.ComputedBasisID
-		genID = ptr.GenerationID
-	}
-
-	candidates := []semantic.CandidateEntry{
-		{
-			CandidateID:     "cand-1",
-			EntrySymbolPath: "OrderController.checkout",
-			Domain:          "Order",
-			Title:           "주문 결제 및 처리",
-		},
-		{
-			CandidateID:     "cand-2",
-			EntrySymbolPath: "CatalogController.search",
-			Domain:          "Catalog",
-			Title:           "상품 검색 및 조회",
-		},
-	}
-
-	if level == 2 && domain != "" {
-		return semantic.GetRepresentativeFlowCatalog(domain, basisID, genID, candidates)
-	}
-
-	return semantic.ExploreDomains(repoID, candidates, semantic.OnboardingOptions{
-		Level:   level,
-		Domain:  domain,
-		BasisID: basisID,
-		GenID:   genID,
-	})
+	return coordinator.ExploreOnboarding(ctx, req)
 }
 
 func (s *Server) handleValidateReleaseCapability(ctx context.Context, args map[string]any) (any, error) {
@@ -622,32 +747,18 @@ func (s *Server) handleValidateReleaseCapability(ctx context.Context, args map[s
 		return nil, err
 	}
 
-	targetVer, _ := args["targetVersion"].(string)
-	if targetVer == "" {
-		targetVer = "v0.9.0-rc1"
+	var input semantic.ReleaseEvaluationInput
+	if raw, present := args["evaluation"]; present && raw != nil {
+		data, err := json.Marshal(raw)
+		if err != nil {
+			return nil, fmt.Errorf("encode release evaluation input: %w", err)
+		}
+		decoder := json.NewDecoder(strings.NewReader(string(data)))
+		decoder.DisallowUnknownFields()
+		if err := decoder.Decode(&input); err != nil {
+			return nil, fmt.Errorf("decode release evaluation input: %w", err)
+		}
 	}
 
-	modelID, _ := args["modelId"].(string)
-	modelVer, _ := args["modelVersion"].(string)
-
-	rep, err := semantic.EvaluateReleaseBenchmark(targetVer, semantic.BenchmarkOptions{})
-	if err != nil {
-		return map[string]any{
-			"code":    "missing_precondition",
-			"message": err.Error(),
-		}, nil
-	}
-
-	slmState := semantic.GetSLMCapabilityState(modelID, modelVer)
-
-	return map[string]any{
-		"benchmarkReport": rep,
-		"slmCapability":   slmState,
-	}, nil
+	return semantic.EvaluateReleaseCapabilityWithThresholdDecisions(input, s.cfg.ReleaseThresholdDecisions)
 }
-
-
-
-
-
-

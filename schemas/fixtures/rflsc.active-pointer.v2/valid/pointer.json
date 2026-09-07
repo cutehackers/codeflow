@@ -1,0 +1,21 @@
+{
+  "schemaId": "https://codeflow.local/schemas/rflsc.active-pointer.v2.schema.json",
+  "schemaVersion": 2,
+  "generationId": "generation-001",
+  "manifestObjectRef": "cas:sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "publishedAt": "2026-09-04T00:00:00Z",
+  "computedBasisId": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+  "validatedAgainstSnapshotId": "snap-live-001",
+  "expectedLiveHeadSnapshotId": "snap-live-001",
+  "expectedPreviousGenerationId": "generation-000",
+  "workspaceEpoch": 7,
+  "taskIntentRevision": 3,
+  "normalizedQueryHash": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+  "flowCount": 2,
+  "repositoryId": "repo-001",
+  "worktreeId": "worktree-001",
+  "taskId": "task-001",
+  "proofManifestRef": "cas:sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "authority": "current_proof",
+  "freshness": "current"
+}

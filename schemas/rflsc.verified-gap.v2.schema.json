@@ -1,0 +1,29 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://codeflow.local/schemas/rflsc.verified-gap.v2.schema.json",
+  "title": "RFL-SC Verified Gap v2",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaId", "schemaVersion", "freshness", "activity", "lastVerifiedGenId",
+    "latestSnapshotId", "workspaceEpoch", "affectedScope", "analysisLagMs",
+    "pendingRevisions", "intersectedCauses", "timestamp", "traceId"
+  ],
+  "properties": {
+    "schemaId": { "const": "https://codeflow.local/schemas/rflsc.verified-gap.v2.schema.json" },
+    "schemaVersion": { "const": 2 },
+    "freshness": { "const": "last_verified" },
+    "activity": { "enum": ["idle", "editing", "analyzing", "publishing", "reconciling"] },
+    "lastVerifiedGenId": { "type": "string" },
+    "latestSnapshotId": { "type": "string", "minLength": 1 },
+    "workspaceEpoch": { "type": "integer", "minimum": 0 },
+    "affectedScope": { "type": "array", "items": { "type": "string", "minLength": 1 }, "uniqueItems": true },
+    "analysisLagMs": { "type": "integer", "minimum": 0 },
+    "pendingRevisions": { "type": "integer", "minimum": 0 },
+    "intersectedCauses": { "type": "array", "items": { "type": "string", "minLength": 1 }, "minItems": 1, "uniqueItems": true },
+    "timestamp": { "type": "string", "format": "date-time" },
+    "traceId": { "type": "string", "minLength": 1 },
+    "deltaRef": { "type": "string", "minLength": 1 },
+    "closureRef": { "type": "string", "minLength": 1 }
+  }
+}

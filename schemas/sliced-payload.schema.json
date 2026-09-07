@@ -114,6 +114,10 @@
     "operation": { "const": "slice" },
     "computedBasisId": { "type": "string", "minLength": 1, "maxLength": 256 },
     "workspaceEpoch": { "type": "integer", "minimum": 0 },
+    "snapshotId": { "type": "string", "minLength": 1, "maxLength": 256 },
+    "rootTreeId": { "type": "string", "minLength": 1, "maxLength": 256 },
+    "dependencyFingerprint": { "type": "string", "minLength": 1, "maxLength": 256 },
+    "configurationFingerprint": { "type": "string", "minLength": 1, "maxLength": 256 },
     "analysisReadSet": {
       "$ref": "https://codeflow.local/schemas/adapter-analysis.schema.json#/$defs/analysisReadSet"
     },

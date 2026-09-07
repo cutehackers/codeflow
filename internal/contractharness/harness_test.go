@@ -72,7 +72,7 @@ func TestValidateGoldenFixtures(t *testing.T) {
 
 	var b strings.Builder
 	fmt.Fprintf(&b, "golden fixtures: %d valid + %d invalid = %d exercised\n", passedValid, passedInvalid, passedValid+passedInvalid)
-	for _, s := range []string{"identity", "candidate", "sliced-payload", "adapter-analysis", "flowspec", "session-artifact", "adapter-protocol", "core-artifact", "layers-config", "task-intent", "task-view-query", "semantic-map-ir", "flow-view-projection", "document-revision", "workspace-snapshot", "change-batch", "generation-proof-manifest", "active-pointer", "event-envelope", "semantic-delta-ir", "requirement-alignment", "change-impact-graph", "failure-path-trace", "runtime-observation", "model-proposal", "semantic-approval", "evidence-pack", "domain-overview", "representative-flow-catalog", "release-benchmark-report", "slm-capability-state"} {
+	for _, s := range []string{"identity", "candidate", "sliced-payload", "adapter-analysis", "flowspec", "session-artifact", "adapter-protocol", "core-artifact", "layers-config", "task-intent", "task-view-query", "semantic-map-ir", "flow-view-projection", "document-revision", "workspace-snapshot", "change-batch", "generation-proof-manifest", "active-pointer", "event-envelope", "semantic-delta-ir", "requirement-alignment", "change-impact-graph", "failure-path-trace", "runtime-observation", "model-proposal", "semantic-approval", "evidence-pack", "domain-overview", "representative-flow-catalog"} {
 		if c, ok := counts[s]; ok {
 			fmt.Fprintf(&b, "  %-17s valid=%d invalid=%d\n", s, c[0], c[1])
 		}
@@ -112,5 +112,143 @@ func TestValidateExportedContractBoundary(t *testing.T) {
 	}
 	if !strings.Contains(fmt.Sprint(err), "provenance") && !strings.Contains(strings.ToLower(fmt.Sprint(err)), "required") {
 		t.Errorf("rejection should mention the missing provenance requirement, got: %v", err)
+	}
+}
+
+func TestAvailableEnrichmentStateRequiresResourceLimitEvidence(t *testing.T) {
+	raw, err := fs.ReadFile(schemas.FixturesFS, "fixtures/rflsc.enrichment-state.v2/valid/available.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var document map[string]any
+	if err := json.Unmarshal(raw, &document); err != nil {
+		t.Fatal(err)
+	}
+	capability, ok := document["capability"].(map[string]any)
+	if !ok || capability["resourceLimits"] == nil {
+		t.Fatal("available fixture must carry capability resourceLimits evidence")
+	}
+	isolation, ok := document["isolation"].(map[string]any)
+	if !ok || isolation["resourceLimits"] == nil {
+		t.Fatal("available fixture must carry isolation resourceLimits evidence")
+	}
+
+	delete(capability, "resourceLimits")
+	withoutCapabilityEvidence, err := json.Marshal(document)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := Validate(BaseURL+"rflsc.enrichment-state.v2.schema.json", withoutCapabilityEvidence); err == nil {
+		t.Fatal("available state without capability resource limits unexpectedly validated")
+	}
+
+	capability["resourceLimits"] = map[string]any{
+		"version":           1,
+		"declared":          map[string]any{"version": 1, "cpuTimeSeconds": 60, "memoryBytes": 1073741824, "processCount": 64},
+		"applied":           map[string]any{"version": 1, "cpuTimeSeconds": 60, "memoryBytes": 1073741824, "processCount": 1},
+		"enforcementStatus": "enforced",
+		"backend":           "darwin.rlimit_cpu_rss.no_fork",
+	}
+	delete(isolation, "resourceLimits")
+	withoutIsolationEvidence, err := json.Marshal(document)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := Validate(BaseURL+"rflsc.enrichment-state.v2.schema.json", withoutIsolationEvidence); err == nil {
+		t.Fatal("available state without isolation resource limits unexpectedly validated")
+	}
+}
+
+func TestAvailableEnrichmentStateRequiresCapabilityEnforcedRepositoryWriteAudit(t *testing.T) {
+	raw, err := fs.ReadFile(schemas.FixturesFS, "fixtures/rflsc.enrichment-state.v2/valid/available.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	const schemaID = BaseURL + "rflsc.enrichment-state.v2.schema.json"
+	if err := Validate(schemaID, raw); err != nil {
+		t.Fatalf("capability_enforced available fixture must validate: %v", err)
+	}
+
+	for _, test := range []struct {
+		name   string
+		mutate func(map[string]any)
+	}{
+		{
+			name: "missing",
+			mutate: func(document map[string]any) {
+				delete(document["isolation"].(map[string]any), "repositoryWriteAuditStatus")
+			},
+		},
+		{
+			name: "attributed_attempt",
+			mutate: func(document map[string]any) {
+				document["isolation"].(map[string]any)["repositoryWriteAuditStatus"] = "attributed_attempt"
+			},
+		},
+		{
+			name: "indeterminate",
+			mutate: func(document map[string]any) {
+				document["isolation"].(map[string]any)["repositoryWriteAuditStatus"] = "indeterminate"
+			},
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			var document map[string]any
+			if err := json.Unmarshal(raw, &document); err != nil {
+				t.Fatal(err)
+			}
+			test.mutate(document)
+			violated, err := json.Marshal(document)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := Validate(schemaID, violated); err == nil {
+				t.Fatalf("available state with %s repository-write audit unexpectedly validated", test.name)
+			}
+		})
+	}
+}
+
+func TestAvailableEnrichmentStateSeparatesRuntimeAndTrustedProbePolicyEvidence(t *testing.T) {
+	raw, err := fs.ReadFile(schemas.FixturesFS, "fixtures/rflsc.enrichment-state.v2/valid/available.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	const schemaID = BaseURL + "rflsc.enrichment-state.v2.schema.json"
+	if err := Validate(schemaID, raw); err != nil {
+		t.Fatalf("available policy evidence fixture must validate: %v", err)
+	}
+	for _, test := range []struct {
+		name   string
+		mutate func(map[string]any)
+	}{
+		{name: "missing runtime binding", mutate: func(document map[string]any) { delete(document["isolation"].(map[string]any), "runtimePolicyBinding") }},
+		{name: "wrong runtime binding", mutate: func(document map[string]any) {
+			document["isolation"].(map[string]any)["runtimePolicyBinding"] = "probe_profile"
+		}},
+		{name: "wrong probe scope", mutate: func(document map[string]any) {
+			document["isolation"].(map[string]any)["probeScope"] = "exact_runtime_profile"
+		}},
+		{name: "invalid probe digest", mutate: func(document map[string]any) {
+			document["isolation"].(map[string]any)["probePolicyDigest"] = "tampered"
+		}},
+		{name: "missing capability probe binding", mutate: func(document map[string]any) {
+			delete(document["capability"].(map[string]any), "probeSharedBaseDigest")
+		}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			var document map[string]any
+			if err := json.Unmarshal(raw, &document); err != nil {
+				t.Fatal(err)
+			}
+			test.mutate(document)
+			violated, err := json.Marshal(document)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := Validate(schemaID, violated); err == nil {
+				t.Fatalf("available state with %s unexpectedly validated", test.name)
+			}
+		})
 	}
 }

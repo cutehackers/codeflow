@@ -1,0 +1,11 @@
+{
+  "schemaId": "https://codeflow.local/schemas/rflsc.document-revision.v2.schema.json",
+  "schemaVersion": 2,
+  "revisionId": "rev-legacy",
+  "path": "app/page.tsx",
+  "documentVersion": 1,
+  "contentId": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+  "source": "ide_versioned",
+  "workspaceEpoch": "epoch-legacy",
+  "createdAt": "2026-09-03T05:00:00Z"
+}

@@ -3,11 +3,14 @@ package semantic
 import (
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 
+	"codeflow/internal/protocol"
+	"codeflow/internal/rflscvs02"
 	"codeflow/internal/slicing"
 )
 
@@ -36,6 +39,9 @@ class AuthController {
 
 	hBefore := sha256.Sum256([]byte(initialSource))
 	hashHex := hex.EncodeToString(hBefore[:])
+	spanStart, spanEnd := 20, 100
+	hSpan := sha256.Sum256([]byte(initialSource)[spanStart:spanEnd])
+	spanHashHex := hex.EncodeToString(hSpan[:])
 
 	// Create step with secret text in description/side effect
 	step := slicing.SliceStep{
@@ -45,9 +51,9 @@ class AuthController {
 		SymbolPath:  "AuthController.login",
 		Anchor: slicing.Anchor{
 			RepoRelativePath:        sourceRelPath,
-			ByteRange:               [2]int{20, 100},
+			ByteRange:               [2]int{spanStart, spanEnd},
 			FileHash:                hashHex,
-			SpanHash:                hashHex,
+			SpanHash:                spanHashHex,
 			EnclosingSymbolPath:     "AuthController.login",
 			CanonicalAstFingerprint: hashHex,
 		},
@@ -110,5 +116,90 @@ class AuthController {
 	hAfter := sha256.Sum256(currentData)
 	if hBefore != hAfter {
 		t.Fatal("product source file was modified by analysis! Must be read-only")
+	}
+}
+
+func TestVS02A5EvidenceStaysBoundToCapturedSnapshotAfterDiskMutation(t *testing.T) {
+	tmpDir := t.TempDir()
+	relPath := "lib/feature.dart"
+	fullPath := filepath.Join(tmpDir, relPath)
+	if err := os.MkdirAll(filepath.Dir(fullPath), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	original := "class Feature {\n  void run() {\n    return;\n  }\n}\n"
+	if err := os.WriteFile(fullPath, []byte(original), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	snapshot, err := protocol.CaptureSnapshot(tmpDir, 3)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(fullPath, []byte("class Feature {\n  void run() {\n    throw changed;\n  }\n}\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	originalSum := sha256.Sum256([]byte(original))
+	originalHash := hex.EncodeToString(originalSum[:])
+	payload := &slicing.SlicedPayload{Steps: []slicing.SliceStep{{
+		Ordinal:     1,
+		Description: "must not be used as source evidence",
+		Anchor: slicing.Anchor{
+			RepoRelativePath: relPath,
+			ByteRange:        [2]int{0, len(original)},
+			FileHash:         originalHash,
+			SpanHash:         originalHash,
+		},
+	}}}
+	target := &ResolvedTarget{FlowID: "flow-feature"}
+	records, err := ExtractAndRedactEvidenceFromProtocolSnapshot(target, payload, snapshot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(records) != 1 || records[0].Snippet != original {
+		t.Fatalf("evidence was not snapshot-bound: %+v", records)
+	}
+	if strings.Contains(records[0].Snippet, "changed") {
+		t.Fatalf("evidence leaked post-capture disk content: %q", records[0].Snippet)
+	}
+}
+
+func TestVS02A5SemanticEvidenceRequiresMatchingAnchorIdentity(t *testing.T) {
+	root := t.TempDir()
+	relPath := "lib/feature.dart"
+	fullPath := filepath.Join(root, relPath)
+	if err := os.MkdirAll(filepath.Dir(fullPath), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	content := "class Feature {\n  void run() {}\n}\n"
+	if err := os.WriteFile(fullPath, []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	snapshot, err := protocol.CaptureSnapshot(root, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	target := &ResolvedTarget{FlowID: "flow-feature"}
+	base := slicing.SliceStep{Ordinal: 1, Anchor: slicing.Anchor{
+		RepoRelativePath: relPath,
+		ByteRange:        [2]int{0, len(content)},
+		FileHash:         "wrong-file-hash",
+		SpanHash:         "wrong-span-hash",
+	}}
+	_, err = ExtractAndRedactEvidenceFromProtocolSnapshot(target, &slicing.SlicedPayload{Steps: []slicing.SliceStep{base}}, snapshot)
+	if err == nil {
+		t.Fatal("semantic evidence accepted stale anchor hashes")
+	}
+	var typed *rflscvs02.EvidenceError
+	if !errors.As(err, &typed) || typed.Code != "unknown_revision" {
+		t.Fatalf("stale anchor returned wrong typed error: %T %v", err, err)
+	}
+
+	base.Anchor.FileHash = ""
+	_, err = ExtractAndRedactEvidenceFromProtocolSnapshot(target, &slicing.SlicedPayload{Steps: []slicing.SliceStep{base}}, snapshot)
+	if err == nil {
+		t.Fatal("semantic evidence accepted anchor without identity hashes")
+	}
+	if !errors.As(err, &typed) || typed.Code != "invalid_anchor" {
+		t.Fatalf("missing anchor hash returned wrong typed error: %T %v", err, err)
 	}
 }

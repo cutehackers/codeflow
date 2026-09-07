@@ -5,7 +5,7 @@ const path = require('path');
 const { sha256Hex } = require('./sha256');
 const { humanizeIdentifier } = require('./humanize');
 const { scanSource } = require('./scanner');
-const { overlayFor } = require('./analysis');
+const { overlayFor, createAnalysisTracker } = require('./analysis');
 
 const triggerUserAction = 'user_action';
 const triggerUseCaseInvocation = 'use_case_invocation';
@@ -24,17 +24,16 @@ const markerStateMutation = 'state_mutation';
  * @param {string} params.repoRoot
  * @returns {{ candidates: Array<object> }}
  */
-function harvestCandidates(params) {
+function harvestCandidates(params, tracker = null) {
   const repoRoot = path.resolve(params.repoRoot);
-  const overlay = overlayFor(params);
+  const activeTracker = tracker || createAnalysisTracker(params, 'harvest_candidates');
+  const overlay = activeTracker.overlay || overlayFor(params);
   const candidates = [];
 
   // Determine packageName from package.json
   let packageName = path.basename(repoRoot) || 'root';
-  const pkgPath = path.join(repoRoot, 'package.json');
-  const packageJSON = overlay && overlay.has('package.json')
-    ? overlay.get('package.json')
-    : (overlay ? null : (fs.existsSync(pkgPath) ? fs.readFileSync(pkgPath, 'utf8') : null));
+  const packageJSON = activeTracker.read('package.json');
+  if (packageJSON !== null) activeTracker.recordDependency('package.json');
   if (packageJSON) {
     try {
       const pkg = JSON.parse(packageJSON);
@@ -45,12 +44,14 @@ function harvestCandidates(params) {
   }
 
   // Walk files in sorted lexicographical order for determinism
-  const sourceFiles = overlay ? listOverlaySourceFiles(overlay) : listSourceFiles(repoRoot);
+  const sourceFiles = tracker
+    ? activeTracker.enumerateSourceFiles()
+    : (overlay ? listOverlaySourceFiles(overlay) : listSourceFiles(repoRoot));
 
   for (const relPath of sourceFiles) {
     let code;
     try {
-      code = overlay ? overlay.get(relPath) : fs.readFileSync(path.join(repoRoot, relPath), 'utf8');
+      code = tracker ? activeTracker.read(relPath) : (overlay ? overlay.get(relPath) : fs.readFileSync(path.join(repoRoot, relPath), 'utf8'));
     } catch (_) {
       continue;
     }

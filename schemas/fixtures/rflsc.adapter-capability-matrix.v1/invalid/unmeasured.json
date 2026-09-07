@@ -1,0 +1,5 @@
+{
+  "schemaId":"https://codeflow.local/schemas/rflsc.adapter-capability-matrix.v1.schema.json",
+  "schemaVersion":1,
+  "measurements":[{"adapter":"dart","analyzerRevision":"dart-structural/0.2.0","measurementId":"m-dart","status":"declared","features":[],"unsupported":[]}]
+}

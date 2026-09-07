@@ -1,0 +1,25 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://codeflow.local/schemas/rflsc.requirement-alignment.v2.schema.json",
+  "title": "RFL-SC Requirement Alignment v2",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaId", "schemaVersion", "criterionId", "status", "coveredStepRefs", "evidenceRefs", "missingEvidence", "computedBasisId", "authority"],
+  "properties": {
+    "schemaId": {"const": "https://codeflow.local/schemas/rflsc.requirement-alignment.v2.schema.json"},
+    "schemaVersion": {"const": 2},
+    "criterionId": {"type": "string", "minLength": 1},
+    "description": {"type": "string"},
+    "status": {"enum": ["partial", "not_observed", "conflicting", "unknown"]},
+    "coveredStepRefs": {"type": "array", "items": {"type": "string"}},
+    "evidenceRefs": {"type": "array", "items": {"type": "string"}},
+    "missingEvidence": {"type": "array", "items": {"type": "string"}},
+    "computedBasisId": {"type": "string", "minLength": 1},
+    "notes": {"type": "string"},
+    "reason": {"type": "string"},
+    "authority": {"const": "candidate"},
+    "missingTests": {"type": "array", "items": {"type": "string"}},
+    "missingContracts": {"type": "array", "items": {"type": "string"}},
+    "missingRuntime": {"type": "array", "items": {"type": "string"}}
+  }
+}

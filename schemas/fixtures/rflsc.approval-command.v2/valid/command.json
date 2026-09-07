@@ -1,0 +1,17 @@
+{
+  "schemaId": "https://codeflow.local/schemas/rflsc.approval-command.v2.schema.json",
+  "schemaVersion": 2,
+  "commandId": "command-1",
+  "actorId": "actor-1",
+  "sessionId": "session-1",
+  "workspaceId": "workspace-1",
+  "proposalId": "proposal-1",
+  "evidencePackId": "pack-1",
+  "computedBasisId": "basis-1",
+  "generationId": "generation-1",
+  "intentRevision": 1,
+  "decision": "approve",
+  "idempotencyKey": "idem-1",
+  "expectedApprovalVersion": 0,
+  "expectedState": "none"
+}

@@ -1,0 +1,24 @@
+{
+  "schemaId": "https://codeflow.local/schemas/rflsc.change-impact-graph.v2.schema.json",
+  "schemaVersion": 2,
+  "impactGraphId": "impact-invalid-direction",
+  "target": { "symbolId": "PaymentService.process" },
+  "computedBasisId": "basis-impact",
+  "generationId": "generation-impact",
+  "validatedAgainstSnapshotId": "snapshot-impact",
+  "freshness": "historical",
+  "directImpact": {
+      "callers": [{ "symbolPath": "PaymentService.process", "name": "process", "relationKind": "reverse_calls", "filePath": "src/payment.go", "depth": 1, "path": ["PaymentService.process", "PaymentService.process"], "evidenceRefs": ["ev-1"] }],
+    "stateMutations": [], "externalEffects": [], "relatedFlows": [], "tests": []
+  },
+  "indirectImpact": {
+    "callers": [], "stateMutations": [], "externalEffects": [], "relatedFlows": [], "tests": [],
+    "maxDepth": 1, "maxNodes": 1, "exploredDepth": 0, "totalNodeCount": 0, "bounded": true, "completedWithinCoverage": false
+  },
+  "frontiers": [], "unresolvedBoundaries": [], "additionalExplorationAvailable": false, "unknownCount": 0,
+  "coverageBoundary": { "includedSourceRoots": ["src"], "excludedReasons": [] },
+  "evidence": [{
+    "evidenceId": "ev-1", "kind": "source", "sourceAuthority": "code", "computedBasisId": "basis-impact", "snapshotId": "snapshot-impact", "validationStatus": "verified",
+    "anchor": { "repoRelativePath": "src/payment.go", "enclosingSymbolPath": "PaymentService.process", "byteRange": [0, 1] }
+  }]
+}

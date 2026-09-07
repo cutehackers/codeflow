@@ -1,0 +1,11 @@
+{
+  "schemaId": "https://codeflow.local/schemas/rflsc.impact-frontier.v1.schema.json",
+  "schemaVersion": 1,
+  "frontierId": "frontier-invalid",
+  "boundaryType": "invalid_evidence",
+  "target": "PaymentState.markPaid",
+  "depth": 1,
+  "reason": "relation lacks same-basis Evidence",
+  "path": ["PaymentService.process", "PaymentState.markPaid"],
+  "expandable": false
+}

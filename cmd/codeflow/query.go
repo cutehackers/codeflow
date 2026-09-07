@@ -16,6 +16,7 @@ import (
 	"codeflow/internal/protocol"
 	"codeflow/internal/semantic"
 	"codeflow/internal/slicing"
+	"codeflow/internal/workspace"
 )
 
 func runQuery(args []string) {
@@ -70,8 +71,29 @@ func executeQuery(args []string, stdout, stderr io.Writer) int {
 	}
 
 	ctx := context.Background()
+	engine, err := workspace.NewSnapshotEngine(absRoot, 0)
+	if err != nil {
+		fmt.Fprintf(stderr, "initialize workspace snapshot: %v\n", err)
+		return 1
+	}
+	head, err := engine.Reconcile(ctx, nil)
+	if err != nil {
+		fmt.Fprintf(stderr, "capture workspace snapshot: %v\n", err)
+		return 1
+	}
+	lease, err := engine.SnapshotVFS(head.SnapshotID)
+	if err != nil {
+		fmt.Fprintf(stderr, "retain workspace snapshot: %v\n", err)
+		return 1
+	}
+	defer lease.Close()
+	snapshot, err := protocol.SnapshotFromLease(lease)
+	if err != nil {
+		fmt.Fprintf(stderr, "convert workspace snapshot: %v\n", err)
+		return 1
+	}
 
-	det := detect.Detect(absRoot)
+	det := detect.DetectSnapshot(snapshot.Files)
 	lang := det.Language
 	if lang == "" || lang == "unknown" {
 		lang = "typescript"
@@ -87,7 +109,7 @@ func executeQuery(args []string, stdout, stderr io.Writer) int {
 	defer pool.Close()
 
 	harvester := harvest.NewRunnerWithPool(pool)
-	candidates, err := harvester.Run(ctx, absRoot)
+	candidates, err := harvester.RunWithSnapshot(ctx, absRoot, snapshot)
 	if err != nil {
 		fmt.Fprintf(stderr, "harvest candidates: %v\n", err)
 		return 1
@@ -111,7 +133,7 @@ func executeQuery(args []string, stdout, stderr io.Writer) int {
 	}
 
 	slicer := slicing.NewRunner(pool)
-	slicePayload, err := slicer.Slice(ctx, absRoot, target.CandidateID, target.EntrySymbolPath, nil)
+	slicePayload, err := slicer.SliceWithSnapshot(ctx, absRoot, target.CandidateID, target.EntrySymbolPath, nil, snapshot)
 	if err != nil {
 		fmt.Fprintf(stderr, "slice failed: %v\n", err)
 		return 1
@@ -129,29 +151,60 @@ func executeQuery(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintf(stderr, "normalize intent: %v\n", err)
 		return 1
 	}
+	snapshotInput, err := snapshot.AnalyzerInput()
+	if err != nil {
+		fmt.Fprintf(stderr, "validated snapshot input: %v\n", err)
+		return 1
+	}
 
 	mapIR, proj, err := semantic.CompileDeterministicFeatureMap(target, intent, slicePayload, semantic.CompileOptions{
-		ComputedBasisID: slicePayload.ComputedBasisID,
-		WorkspaceEpoch:  slicePayload.WorkspaceEpoch,
+		ComputedBasisID: snapshot.ComputedBasisID, WorkspaceEpoch: snapshot.WorkspaceEpoch,
+		ValidatedAgainstSnapshotID: snapshot.SnapshotID, SnapshotID: snapshot.SnapshotID, SnapshotTreeID: snapshot.RootTreeID,
+		RepositoryID: absRoot, DependencyFingerprint: snapshot.DependencyFingerprint, ConfigurationFingerprint: snapshot.ConfigurationFingerprint,
+		AdapterVersion: slicePayload.AdapterVersion, AnalyzerRevision: slicePayload.AnalyzerVersion,
+		AnalysisReadSetID: semantic.MetadataString(slicePayload.AnalysisReadSet, "readSetId"), CausalObservationClosureID: semantic.MetadataString(slicePayload.CausalObservationClosure, "closureId"),
+		SnapshotFiles: snapshot.Files, SnapshotInput: &snapshotInput,
 	})
 	if err != nil {
 		fmt.Fprintf(stderr, "compile map: %v\n", err)
 		return 1
 	}
+	mapBytes, err := json.Marshal(mapIR)
+	if err != nil {
+		fmt.Fprintf(stderr, "marshal map: %v\n", err)
+		return 1
+	}
+	if err := contractharness.ValidateSemanticMapIR(mapBytes); err != nil {
+		fmt.Fprintf(stderr, "semantic map contract: %v\n", err)
+		return 1
+	}
+	projectionBytes, err := json.Marshal(proj)
+	if err != nil {
+		fmt.Fprintf(stderr, "marshal projection: %v\n", err)
+		return 1
+	}
+	if err := contractharness.ValidateFlowViewProjection(projectionBytes); err != nil {
+		fmt.Fprintf(stderr, "projection contract: %v\n", err)
+		return 1
+	}
 
-	evidenceRecords, _ := semantic.ExtractAndRedactEvidence(target, slicePayload, absRoot)
+	evidenceRecords, _ := semantic.ExtractAndRedactEvidenceFromProtocolSnapshot(target, slicePayload, snapshot)
 
 	if *jsonFlag {
 		output := map[string]any{
-			"currentAnswer": map[string]string{
-				"requested": mapIR.Summary.Requested,
-				"current":   mapIR.Summary.Current,
+			"candidateAnswer": map[string]string{
+				"requested":  mapIR.Summary.Requested,
+				"candidate":  mapIR.Summary.Current,
+				"authority":  mapIR.Authority,
+				"freshness":  mapIR.Freshness,
+				"settlement": mapIR.Settlement,
 			},
-			"taskIntent":  intent,
-			"semanticMap": mapIR,
-			"projection":  proj,
-			"evidence":    evidenceRecords,
-			"unknowns":    mapIR.Unknowns,
+			"taskIntent":          intent,
+			"agentReportedStatus": nil,
+			"semanticMap":         mapIR,
+			"projection":          proj,
+			"evidence":            evidenceRecords,
+			"unknowns":            mapIR.Unknowns,
 		}
 		enc := json.NewEncoder(stdout)
 		enc.SetIndent("", "  ")
@@ -160,9 +213,9 @@ func executeQuery(args []string, stdout, stderr io.Writer) int {
 	}
 
 	// Human readable output format: Answer -> Flow Rail -> Evidence Dock -> Unknowns
-	fmt.Fprintf(stdout, "=== Current Answer ===\n")
+	fmt.Fprintf(stdout, "=== Candidate Answer ===\n")
 	fmt.Fprintf(stdout, "Requested: %s\n", mapIR.Summary.Requested)
-	fmt.Fprintf(stdout, "Current:   %s\n", mapIR.Summary.Current)
+	fmt.Fprintf(stdout, "Candidate: %s\n", mapIR.Summary.Current)
 	fmt.Fprintf(stdout, "Quality:   %s (basis: %s, epoch: %d)\n\n", mapIR.Quality.Stage, mapIR.ComputedBasisID, mapIR.Basis.WorkspaceEpoch)
 
 	fmt.Fprintf(stdout, "=== Semantic Flow Rail ===\n")

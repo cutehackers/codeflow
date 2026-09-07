@@ -394,7 +394,7 @@ func (r *Runner) RunWithSnapshot(ctx context.Context, repoRoot string, snapshot 
 
 	var det detectResult
 	detectParams := snapshot.Params()
-	detectParams["repoRoot"] = root
+	detectParams["requiredObservations"] = []string{"negative_lookup", "membership", "dependency_frontier"}
 	if err := r.pool.Call(ctx, protocol.OpDetect, detectParams, &det); err != nil {
 		return nil, fmt.Errorf("adapter detect: %w", err)
 	}
@@ -408,8 +408,8 @@ func (r *Runner) RunWithSnapshot(ctx context.Context, repoRoot string, snapshot 
 		Candidates []Candidate `json:"candidates"`
 	}
 	params := snapshot.Params()
-	params["repoRoot"] = root
 	params["libSubdir"] = defaultLibSubdir
+	params["requiredObservations"] = []string{"negative_lookup", "membership", "dependency_frontier"}
 	if err := r.pool.Call(ctx, protocol.OpHarvestCandidates, params, &wire); err != nil {
 		return nil, fmt.Errorf("adapter harvest_candidates: %w", err)
 	}
@@ -419,7 +419,7 @@ func (r *Runner) RunWithSnapshot(ctx context.Context, repoRoot string, snapshot 
 		}
 	}
 
-	idx, err := loadSourceIndex(root, defaultLibSubdir)
+	idx, err := loadSourceIndexFromSnapshot(snapshotFiles(snapshot), defaultLibSubdir)
 	if err != nil {
 		return nil, fmt.Errorf("index sources for scoring: %w", err)
 	}
@@ -427,7 +427,7 @@ func (r *Runner) RunWithSnapshot(ctx context.Context, repoRoot string, snapshot 
 	ScoreAll(wire.Candidates, idx)
 	DedupAndTieBreak(wire.Candidates)
 
-	man, err := LoadManifest(root)
+	man, err := LoadManifestFromSnapshot(snapshotFiles(snapshot))
 	if err != nil {
 		return nil, err
 	}
@@ -440,6 +440,13 @@ func (r *Runner) RunWithSnapshot(ctx context.Context, repoRoot string, snapshot 
 		}
 	}
 	return out, nil
+}
+
+func snapshotFiles(snapshot protocol.Snapshot) map[string]string {
+	if len(snapshot.Files) > 0 {
+		return snapshot.Files
+	}
+	return snapshot.ContentOverlay
 }
 
 // validateCandidate checks one candidate against the candidate contract.

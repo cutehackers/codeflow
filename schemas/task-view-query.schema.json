@@ -71,14 +71,44 @@
     },
     "impact": {
       "type": "object",
+      "required": [
+        "computedBasisId",
+        "generationId",
+        "freshness",
+        "maxDepth",
+        "maxNodes",
+        "relationKinds"
+      ],
       "additionalProperties": false,
       "properties": {
         "symbolId": { "type": "string", "minLength": 1 },
-        "changeBatchId": { "type": "string", "minLength": 1 }
+        "changeBatchId": { "type": "string", "minLength": 1 },
+        "computedBasisId": { "type": "string", "minLength": 1 },
+        "generationId": { "type": "string", "minLength": 1 },
+        "freshness": { "type": "string", "enum": ["current", "historical"] },
+        "maxDepth": { "type": "integer", "minimum": 1, "maximum": 5 },
+        "maxNodes": { "type": "integer", "minimum": 1, "maximum": 50 },
+        "relationKinds": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "enum": [
+              "calls",
+              "overrides",
+              "instantiates",
+              "state_mutation",
+              "external_effect",
+              "related_test",
+              "related_flow"
+            ]
+          }
+        }
       },
-      "anyOf": [
-        { "required": ["symbolId"] },
-        { "required": ["changeBatchId"] }
+      "oneOf": [
+        { "required": ["symbolId"], "not": { "required": ["changeBatchId"] } },
+        { "required": ["changeBatchId"], "not": { "required": ["symbolId"] } }
       ]
     },
     "debug": {

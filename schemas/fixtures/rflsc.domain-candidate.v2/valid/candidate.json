@@ -1,0 +1,17 @@
+{
+  "domainId": "domain-billing",
+  "name": "Billing",
+  "responsibility": "Evidence-backed billing source/module signals",
+  "description": "Evidence-backed billing source/module signals",
+  "representativeFlowCount": 1,
+  "entryPoints": ["services/billing/charge.rb#Billing#charge"],
+  "rationale": "derived from module billing and verified Evidence ev-billing",
+  "evidenceRefs": ["ev-billing"],
+  "ownershipEvidenceRefs": [],
+  "glossaryEvidenceRefs": [],
+  "confidence": 0.75,
+  "epistemicState": "candidate",
+  "coverageBoundary": {"includedSourceRoots": ["services"], "excludedReasons": []},
+  "selectionReason": "derived from canonical module signal",
+  "redactionStatus": "clean"
+}

@@ -14,7 +14,7 @@ func TestVS03A4_WorkspaceWatcherIntegration(t *testing.T) {
 	}
 	defer os.RemoveAll(tempDir)
 
-	engine, err := NewSnapshotEngine(tempDir, "epoch-watch-01")
+	engine, err := NewSnapshotEngine(tempDir, 1)
 	if err != nil {
 		t.Fatalf("NewSnapshotEngine failed: %v", err)
 	}
@@ -60,7 +60,7 @@ func TestVS03A4_WatcherConcurrentCaptures(t *testing.T) {
 	}
 	defer os.RemoveAll(tempDir)
 
-	engine, err := NewSnapshotEngine(tempDir, "epoch-watch-race")
+	engine, err := NewSnapshotEngine(tempDir, 1)
 	if err != nil {
 		t.Fatalf("NewSnapshotEngine failed: %v", err)
 	}
@@ -89,5 +89,40 @@ func TestVS03A4_WatcherConcurrentCaptures(t *testing.T) {
 	}
 	if head.Entries["pkg/concurrent.go"].DocumentVersion != n {
 		t.Errorf("expected final documentVersion %d, got %d", n, head.Entries["pkg/concurrent.go"].DocumentVersion)
+	}
+}
+
+func TestVS06CurrentProofReconcileIfChangedPreservesUnchangedHead(t *testing.T) {
+	tempDir := t.TempDir()
+	path := tempDir + "/main.go"
+	if err := os.WriteFile(path, []byte("package main\nconst Version = 1\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	engine, err := NewSnapshotEngine(tempDir, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	first, err := engine.ReconcileIfChanged(context.Background(), nil)
+	if err != nil {
+		t.Fatalf("initial reconciliation failed: %v", err)
+	}
+	second, err := engine.ReconcileIfChanged(context.Background(), nil)
+	if err != nil {
+		t.Fatalf("unchanged reconciliation failed: %v", err)
+	}
+	if second.SnapshotID != first.SnapshotID || second.Sequence != first.Sequence {
+		t.Fatalf("unchanged current-proof check manufactured a new head: first=%+v second=%+v", first, second)
+	}
+
+	if err := os.WriteFile(path, []byte("package main\nconst Version = 2\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	third, err := engine.ReconcileIfChanged(context.Background(), nil)
+	if err != nil {
+		t.Fatalf("changed reconciliation failed: %v", err)
+	}
+	if third.SnapshotID == second.SnapshotID || third.RootTreeID == second.RootTreeID || third.Sequence != second.Sequence+1 {
+		t.Fatalf("changed worktree was not assigned a new immutable head: second=%+v third=%+v", second, third)
 	}
 }

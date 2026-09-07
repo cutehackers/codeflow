@@ -1,0 +1,84 @@
+{
+  "schemaId": "https://codeflow.local/schemas/rflsc.failure-path-trace.v2.schema.json",
+  "schemaVersion": 2,
+  "traceId": "trace-vs06",
+  "mode": "debug",
+  "computedBasisId": "basis-vs06",
+  "generationId": "generation-vs06",
+  "validatedAgainstSnapshotId": "snapshot-vs06",
+  "freshness": "historical",
+  "failureTarget": { "failureEvidenceId": "ev-failure" },
+  "nodes": [
+    {
+      "nodeId": "node-throw",
+      "symbolPath": "PaymentGateway.charge",
+      "role": "throw",
+      "status": "static_candidate",
+      "evidenceRefs": ["ev-failure"]
+    },
+    {
+      "nodeId": "node-handle",
+      "symbolPath": "PaymentService.process",
+      "role": "handle",
+      "status": "static_candidate",
+      "evidenceRefs": ["ev-handle"]
+    }
+  ],
+  "relationships": [
+    {
+      "fromNodeId": "node-throw",
+      "toNodeId": "node-handle",
+      "kind": "thrown_to",
+      "evidenceRefs": ["ev-failure", "ev-handle"]
+    }
+  ],
+  "timeline": [],
+  "unknownCount": 0,
+  "hasConflicts": false,
+  "summary": {
+    "description": "Payment gateway failure is connected to its handler",
+    "lastConfirmedState": "Order.Pending"
+  },
+  "staticEvidence": [
+    {
+      "evidenceId": "ev-failure",
+      "kind": "source",
+      "sourceAuthority": "code",
+      "computedBasisId": "basis-vs06",
+      "snapshotId": "snapshot-vs06",
+      "anchor": {
+        "repoRelativePath": "internal/payment/gateway.go",
+        "byteRange": [10, 30],
+        "fileHash": "file-hash-gateway",
+        "spanHash": "span-hash-gateway",
+        "enclosingSymbolPath": "PaymentGateway.charge"
+      },
+      "validationStatus": "verified",
+      "redactionStatus": "clean"
+    },
+    {
+      "evidenceId": "ev-handle",
+      "kind": "source",
+      "sourceAuthority": "code",
+      "computedBasisId": "basis-vs06",
+      "snapshotId": "snapshot-vs06",
+      "anchor": {
+        "repoRelativePath": "internal/payment/service.go",
+        "byteRange": [40, 70],
+        "fileHash": "file-hash-service",
+        "spanHash": "span-hash-service",
+        "enclosingSymbolPath": "PaymentService.process"
+      },
+      "validationStatus": "verified",
+      "redactionStatus": "clean"
+    }
+  ],
+  "unknownFrontier": [],
+  "recoveryStates": [],
+  "coverage": {
+    "complete": true,
+    "confirmedNodeCount": 2,
+    "confirmedEdgeCount": 1,
+    "unresolvedEdgeCount": 0
+  }
+}

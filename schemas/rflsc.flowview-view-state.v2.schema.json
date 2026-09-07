@@ -1,0 +1,46 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://codeflow.local/schemas/rflsc.flowview-view-state.v2.schema.json",
+  "title": "RFL-SC FlowView View State v2",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaId", "schemaVersion", "viewId", "streamId", "generationId", "displayBasis",
+    "activityStatus", "qualityStage", "settlement", "enrichmentStatus", "connectionStatus",
+    "selectedStepId", "selectedStructuralIdentity", "logicalScrollAnchor", "visibleStepRefs", "preservedStepRefs", "corpusVersion", "identityLoss", "preserved"
+  ],
+  "properties": {
+    "schemaId": { "const": "https://codeflow.local/schemas/rflsc.flowview-view-state.v2.schema.json" },
+    "schemaVersion": { "const": 2 },
+    "viewId": { "type": "string", "minLength": 1 },
+    "streamId": { "type": "string", "minLength": 1 },
+    "generationId": { "type": "string", "minLength": 1 },
+    "displayBasis": { "enum": ["current", "last_verified", "candidate"] },
+    "activityStatus": { "enum": ["idle", "editing", "analyzing", "publishing", "reconciling"] },
+    "qualityStage": { "enum": ["Q1", "Q2", "Q3", "Q4"] },
+    "settlement": { "enum": ["pending", "passed", "failed"] },
+    "enrichmentStatus": { "enum": ["unavailable", "partial", "available"] },
+    "connectionStatus": { "enum": ["connected", "reconnecting", "disconnected"] },
+    "selectedStepId": { "type": ["string", "null"], "minLength": 1 },
+    "selectedStructuralIdentity": { "type": ["string", "null"], "minLength": 1 },
+    "logicalScrollAnchor": {
+      "type": ["object", "null"],
+      "additionalProperties": false,
+      "required": ["stepId", "structuralIdentity", "offsetPx"],
+      "properties": {
+        "stepId": { "type": "string", "minLength": 1 },
+        "structuralIdentity": { "type": "string", "minLength": 1 },
+        "offsetPx": { "type": "number", "minimum": 0 }
+      }
+    },
+    "visibleStepRefs": { "type": "array", "items": { "type": "string", "minLength": 1 }, "uniqueItems": true },
+    "preservedStepRefs": { "type": "array", "items": { "type": "string", "minLength": 1 }, "uniqueItems": true },
+    "corpusVersion": { "type": "string", "minLength": 1 },
+    "identityLoss": { "type": "boolean" },
+    "preserved": { "type": "boolean" },
+    "currentProofVerified": { "type": "boolean" },
+    "proofManifestRef": { "type": "string", "minLength": 1 },
+    "lastEventSequence": { "type": "integer", "minimum": 0 },
+    "unknownBoundaryRefs": { "type": "array", "items": { "type": "string", "minLength": 1 }, "uniqueItems": true }
+  }
+}

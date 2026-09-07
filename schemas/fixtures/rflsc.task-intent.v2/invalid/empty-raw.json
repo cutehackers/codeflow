@@ -1,0 +1,1 @@
+{"schemaId":"https://codeflow.local/schemas/rflsc.task-intent.v2.schema.json","schemaVersion":2,"taskId":"task-1","revision":1,"request":{"rawRequest":""},"normalizedIntent":{"expectedOutcome":"show","unresolvedInterpretations":[]},"acceptanceCriteria":[],"intentStatus":"parsed","mode":"feature","authority":{"source":"user"}}

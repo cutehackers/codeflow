@@ -16,7 +16,7 @@ func TestSnapshotEngineComputeDelta(t *testing.T) {
 
 	_ = os.WriteFile(filepath.Join(tempDir, "base.txt"), []byte("initial base"), 0o644)
 
-	engine, err := NewSnapshotEngine(tempDir, "epoch-1")
+	engine, err := NewSnapshotEngine(tempDir, 1)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -70,6 +70,9 @@ func TestSnapshotEngineComputeDelta(t *testing.T) {
 	if len(delta.ChangedPaths) != 2 {
 		t.Errorf("expected 2 changed paths, got %v", delta.ChangedPaths)
 	}
+	if delta.ResolutionChanged {
+		t.Fatal("source edits must not overclaim a measured resolver change")
+	}
 
 	// Compute delta from snap1 to snap1 (same)
 	sameDelta, err := engine.ComputeDelta(snap1.SnapshotID, snap1.SnapshotID)
@@ -78,5 +81,47 @@ func TestSnapshotEngineComputeDelta(t *testing.T) {
 	}
 	if len(sameDelta.ChangedPaths) != 0 {
 		t.Errorf("expected 0 changed paths for same snapshot, got %v", sameDelta.ChangedPaths)
+	}
+}
+
+func TestSnapshotEngineComputeDeltaSeparatesMeasuredDimensions(t *testing.T) {
+	tempDir := t.TempDir()
+	for path, content := range map[string]string{
+		"main.go": "package main\nfunc main() {}\n",
+		"go.mod":  "module example.test\n\ngo 1.22\n",
+	} {
+		if err := os.WriteFile(filepath.Join(tempDir, path), []byte(content), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	engine, err := NewSnapshotEngine(tempDir, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	baseline, err := engine.Reconcile(context.Background(), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, sourceEdit, err := engine.ApplyVersionedEdit(context.Background(), EditRequest{Path: "main.go", Content: []byte("package main\nfunc main() { println(1) }\n"), DocumentVersion: 2, Source: SourceAgentTransaction})
+	if err != nil {
+		t.Fatal(err)
+	}
+	sourceDelta, err := engine.ComputeDelta(baseline.SnapshotID, sourceEdit.SnapshotID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !sourceDelta.IndexChanged || !sourceDelta.PublicContractChanged || sourceDelta.ResolutionChanged {
+		t.Fatalf("source edit dimensions over/under-reported: %+v", sourceDelta)
+	}
+	_, resolverEdit, err := engine.ApplyVersionedEdit(context.Background(), EditRequest{Path: "go.mod", Content: []byte("module example.test\n\ngo 1.22\n\nrequire example.test/dep v1.0.0\n"), DocumentVersion: 2, Source: SourceAgentTransaction})
+	if err != nil {
+		t.Fatal(err)
+	}
+	resolverDelta, err := engine.ComputeDelta(sourceEdit.SnapshotID, resolverEdit.SnapshotID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !resolverDelta.ResolutionChanged || !resolverDelta.ConfigurationChanged || !resolverDelta.IndexChanged {
+		t.Fatalf("resolver input dimensions were not measured: %+v", resolverDelta)
 	}
 }

@@ -2,11 +2,16 @@ package mcp
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"os"
+	"strings"
 	"testing"
 
 	"codeflow/internal/semantic"
+	"codeflow/internal/slicing"
 	"codeflow/internal/storage"
+	"codeflow/internal/testfixture"
 )
 
 func TestVS03_MCPWorkspaceTools(t *testing.T) {
@@ -138,14 +143,11 @@ func TestVS04_MCPProofAndGapTools(t *testing.T) {
 	}
 	_ = st.CompareAndSwapActivePointer("snap-1", "", ptr)
 
-	// 3. Query get_generation_proof again -> non-nil
-	resProof2, err := srv.executeTool(ctx, "get_generation_proof", map[string]any{"target": tempDir})
-	if err != nil {
-		t.Fatalf("get_generation_proof 2 error: %v", err)
-	}
-	proofMap2 := resProof2.(map[string]any)
-	if proofMap2["pointer"] == nil || proofMap2["manifest"] == nil {
-		t.Fatalf("expected non-nil pointer and manifest, got %+v", proofMap2)
+	// 3. A legacy, incomplete publication cannot be exposed as current proof.
+	// The public MCP boundary must use the strict reader instead of returning
+	// pointer and manifest fields that merely claim eligibility.
+	if _, err := srv.executeTool(ctx, "get_generation_proof", map[string]any{"target": tempDir}); err == nil || !strings.Contains(err.Error(), "read validated current proof") {
+		t.Fatalf("incomplete proof must fail closed at public MCP boundary, got %v", err)
 	}
 
 	// 4. Submit edit so snapshot changes -> get_verified_gap should report last_verified
@@ -185,6 +187,10 @@ func TestVS05_MCPSemanticDeltaAndAlignmentTools(t *testing.T) {
 	}
 
 	ctx := context.Background()
+	baseMap := explicitComparableSemanticMap(tempDir, "gen-1", "basis-1", "snap-1", "tree-1", 1, 1)
+	currMap := explicitComparableSemanticMap(tempDir, "gen-2", "basis-2", "snap-2", "tree-2", 1, 2)
+	srv.rememberSemanticMap(tempDir, baseMap)
+	srv.rememberSemanticMap(tempDir, currMap)
 
 	// 1. get_semantic_delta missing arguments
 	resDeltaMissing, err := srv.executeTool(ctx, "get_semantic_delta", map[string]any{"target": tempDir})
@@ -227,7 +233,25 @@ func TestVS05_MCPSemanticDeltaAndAlignmentTools(t *testing.T) {
 	}
 }
 
-func TestVS06_MCPChangeImpact(t *testing.T) {
+func explicitComparableSemanticMap(repositoryID, generationID, basisID, snapshotID, treeID string, epoch, steps int) *semantic.SemanticMapIR {
+	items := make([]semantic.SemanticStep, 0, steps)
+	for i := 1; i <= steps; i++ {
+		items = append(items, semantic.SemanticStep{
+			StepID: fmt.Sprintf("step-%d", i), StructuralIdentity: fmt.Sprintf("src/file.ts\x00Service.step%d\x00Service.step%d\x00call", i, i),
+			Ordinal: i, Name: fmt.Sprintf("step %d", i), TechnicalName: fmt.Sprintf("Service.step%d", i), Kind: "call",
+			Anchor: slicing.Anchor{RepoRelativePath: "src/file.ts", EnclosingSymbolPath: fmt.Sprintf("Service.step%d", i)},
+		})
+	}
+	return &semantic.SemanticMapIR{
+		SchemaID: "https://codeflow.local/schemas/semantic-map-ir.schema.json", SchemaVersion: 1,
+		MapID: "map-" + generationID, GenerationID: generationID, ComputedBasisID: basisID, ValidatedAgainstSnapshotID: snapshotID,
+		Task:  semantic.MapTaskContext{TaskID: "task-mcp", IntentRevision: 1, Mode: "feature"},
+		Basis: semantic.MapBasisContext{RepositoryID: repositoryID, WorkspaceEpoch: int64(epoch), ComputedWorkspaceSnapshotID: snapshotID, SnapshotTreeID: treeID, ComputedBasisID: basisID},
+		Steps: items, RequirementAlignment: []semantic.RequirementAlignment{{CriterionID: "AC-1", Status: "partial", Authority: "candidate", Reason: "awaiting_current_proof"}},
+	}
+}
+
+func TestVS05_MCPChangeImpactRequiresProofAndUsesExplicitHistoricalMap(t *testing.T) {
 	tempDir, err := os.MkdirTemp("", "codeflow-mcp-impact-*")
 	if err != nil {
 		t.Fatal(err)
@@ -241,10 +265,11 @@ func TestVS06_MCPChangeImpact(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewServer failed: %v", err)
 	}
+	defer srv.Close()
 
 	ctx := context.Background()
 
-	// 1. Missing precondition (VS06-A2)
+	// VS05-A1: the seam must not invent a default target.
 	resMissing, err := srv.executeTool(ctx, "get_change_impact", map[string]any{
 		"target": tempDir,
 	})
@@ -256,49 +281,132 @@ func TestVS06_MCPChangeImpact(t *testing.T) {
 		t.Fatalf("expected missing_precondition code, got: %+v", resMissing)
 	}
 
-	// 2. Valid symbolId query (VS06-A1, A3, A4, A7)
-	resImpact, err := srv.executeTool(ctx, "get_change_impact", map[string]any{
-		"target":   tempDir,
-		"symbolId": "PaymentService.process",
+	// Explicit identity and bounds are required before a proof can be read.
+	resMissingIdentity, err := srv.executeTool(ctx, "get_change_impact", map[string]any{
+		"target": tempDir, "symbolId": "PaymentService.process",
 	})
 	if err != nil {
-		t.Fatalf("get_change_impact failed: %v", err)
+		t.Fatalf("unexpected identity validation error: %v", err)
 	}
-	impactGraph, ok := resImpact.(*semantic.ChangeImpactGraph)
-	if !ok {
-		t.Fatalf("expected *semantic.ChangeImpactGraph, got %T: %+v", resImpact, resImpact)
-	}
-	if impactGraph.Target.SymbolID != "PaymentService.process" {
-		t.Errorf("expected symbolId PaymentService.process, got %s", impactGraph.Target.SymbolID)
-	}
-	if impactGraph.Freshness != "current" {
-		t.Errorf("expected freshness current, got %s", impactGraph.Freshness)
-	}
-	if !impactGraph.IndirectImpact.Bounded {
-		t.Errorf("expected indirect impact to be bounded")
+	identityDoc, ok := resMissingIdentity.(map[string]any)
+	if !ok || identityDoc["code"] != "missing_precondition" {
+		t.Fatalf("expected explicit identity precondition, got: %+v", resMissingIdentity)
 	}
 
-	// 3. query_task_view with mode=impact
-	resQuery, err := srv.executeTool(ctx, "query_task_view", map[string]any{
+	// A current query with explicit identity still fails closed without a
+	// validated publication. It must not synthesize an "active" map.
+	resNoProof, err := srv.executeTool(ctx, "get_change_impact", map[string]any{
+		"target": tempDir, "symbolId": "PaymentService.process", "computedBasisId": "basis-1", "generationId": "gen-1",
+		"freshness": "current", "maxDepth": float64(2), "maxNodes": float64(10), "relationKinds": []any{"calls"},
+	})
+	if err != nil {
+		t.Fatalf("unexpected no-proof execution error: %v", err)
+	}
+	noProofDoc, ok := resNoProof.(map[string]any)
+	if !ok || noProofDoc["code"] != "missing_precondition" {
+		t.Fatalf("expected missing current proof, got: %+v", resNoProof)
+	}
+
+	// Historical queries use an explicitly cached v2 map. No analyzer
+	// capability is attached to this cache, so the result remains bounded and
+	// reports a coverage frontier instead of claiming repository-wide absence.
+	historical := explicitComparableSemanticMap(tempDir, "gen-historical", "basis-historical", "snap-historical", "tree-historical", 1, 1)
+	historical.SchemaID = semantic.SemanticMapSchemaID
+	historical.SchemaVersion = semantic.SemanticSchemaVersion
+	historical.Freshness = "historical"
+	historical.Authority = "historical"
+	historical.Coverage = &semantic.CoverageBoundary{IncludedSourceRoots: []string{"src"}, ExcludedReasons: []string{"adapter_capability_not_persisted"}}
+	srv.rememberSemanticMap(tempDir, historical)
+	resImpact, err := srv.executeTool(ctx, "get_change_impact", map[string]any{
+		"target": tempDir, "symbolId": "Service.step1", "computedBasisId": "basis-historical", "generationId": "gen-historical",
+		"freshness": "historical", "maxDepth": float64(2), "maxNodes": float64(10), "relationKinds": []any{"calls"},
+	})
+	if err != nil {
+		t.Fatalf("historical get_change_impact failed: %v", err)
+	}
+	impactGraph, ok := resImpact.(map[string]any)
+	if !ok {
+		t.Fatalf("expected canonical impact payload, got %T: %+v", resImpact, resImpact)
+	}
+	if impactGraph["schemaId"] != semantic.ChangeImpactGraphSchemaID {
+		t.Errorf("expected v2 impact schema, got %v", impactGraph["schemaId"])
+	}
+	target, ok := impactGraph["target"].(map[string]any)
+	if !ok || target["symbolId"] != "Service.step1" {
+		t.Errorf("expected explicit historical target, got %v", impactGraph["target"])
+	}
+	if impactGraph["unknownCount"] == float64(0) {
+		t.Errorf("historical cache without capability must expose an unknown frontier: %+v", impactGraph)
+	}
+}
+
+func TestVS05_MCPTaskViewImpactForwardsExplicitContract(t *testing.T) {
+	tempDir, err := os.MkdirTemp("", "codeflow-mcp-task-impact-*")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.RemoveAll(tempDir)
+
+	srv, err := NewServer(Config{RepoRoot: tempDir, AuthToken: "task-impact-token", RequireToken: true})
+	if err != nil {
+		t.Fatalf("NewServer failed: %v", err)
+	}
+	defer srv.Close()
+
+	historical := explicitComparableSemanticMap(tempDir, "gen-task-impact", "basis-task-impact", "snap-task-impact", "tree-task-impact", 1, 1)
+	historical.SchemaID = semantic.SemanticMapSchemaID
+	historical.SchemaVersion = semantic.SemanticSchemaVersion
+	historical.Freshness = "historical"
+	historical.Authority = "historical"
+	historical.Coverage = &semantic.CoverageBoundary{IncludedSourceRoots: []string{"src"}, ExcludedReasons: []string{"adapter_capability_not_persisted"}}
+	srv.rememberSemanticMap(tempDir, historical)
+
+	ctx := context.Background()
+	missing, err := srv.executeTool(ctx, "query_task_view", map[string]any{
+		"token":  "task-impact-token",
+		"target": tempDir,
+		"query": map[string]any{
+			"schemaId":      "https://codeflow.local/schemas/task-view-query.schema.json",
+			"schemaVersion": 1,
+			"mode":          "impact",
+			"impact":        map[string]any{"symbolId": "Service.step1"},
+		},
+	})
+	if err == nil || !strings.Contains(err.Error(), semantic.ErrCodeMissingPrecondition) {
+		t.Fatalf("expected Task View impact schema precondition, got result=%+v error=%v", missing, err)
+	}
+
+	res, err := srv.executeTool(ctx, "query_task_view", map[string]any{
+		"token":  "task-impact-token",
 		"target": tempDir,
 		"query": map[string]any{
 			"schemaId":      "https://codeflow.local/schemas/task-view-query.schema.json",
 			"schemaVersion": 1,
 			"mode":          "impact",
 			"impact": map[string]any{
-				"symbolId": "PaymentService.process",
+				"symbolId":        "Service.step1",
+				"computedBasisId": "basis-task-impact",
+				"generationId":    "gen-task-impact",
+				"freshness":       "historical",
+				"maxDepth":        4,
+				"maxNodes":        7,
+				"relationKinds":   []string{"calls"},
 			},
 		},
 	})
 	if err != nil {
-		t.Fatalf("query_task_view mode=impact failed: %v", err)
+		t.Fatalf("Task View impact execution failed: %v", err)
 	}
-	qGraph, ok := resQuery.(*semantic.ChangeImpactGraph)
+	graph, ok := res.(map[string]any)
 	if !ok {
-		t.Fatalf("expected *semantic.ChangeImpactGraph from query_task_view, got %T", resQuery)
+		t.Fatalf("expected impact graph, got %T: %+v", res, res)
 	}
-	if qGraph.Target.SymbolID != "PaymentService.process" {
-		t.Errorf("expected symbolId PaymentService.process, got %s", qGraph.Target.SymbolID)
+	if graph["computedBasisId"] != "basis-task-impact" || graph["generationId"] != "gen-task-impact" || graph["freshness"] != "historical" {
+		t.Fatalf("Task View impact identity was not forwarded exactly: %+v", graph)
+	}
+	indirect, ok := graph["indirectImpact"].(map[string]any)
+	if !ok || indirect["maxDepth"] != float64(4) || indirect["maxNodes"] != float64(7) {
+		t.Fatalf("Task View impact bounds were not forwarded exactly: %+v", graph["indirectImpact"])
 	}
 }
 
@@ -309,17 +417,26 @@ func TestVS07_MCPInvestigateFailure(t *testing.T) {
 	}
 	defer os.RemoveAll(tempDir)
 
+	fixture := newMCPFailureFixture("snapshot-vs06")
 	srv, err := NewServer(Config{
 		RepoRoot:     tempDir,
 		RequireToken: false,
+		RuntimeObservationProvider: RuntimeObservationProviderFunc(func(_ context.Context, request RuntimeObservationRequest) (*semantic.RuntimeObservationV2, error) {
+			if request.ObservationID != fixture.observation.ObservationID {
+				t.Fatalf("provider received observation id %q, want %q", request.ObservationID, fixture.observation.ObservationID)
+			}
+			return fixture.observation, nil
+		}),
 	})
 	if err != nil {
 		t.Fatalf("NewServer failed: %v", err)
 	}
+	defer srv.Close()
 
 	ctx := context.Background()
 
-	// 1. Missing precondition (VS07-A3)
+	// The legacy top-level mode/error shape is no longer an authority boundary.
+	// A request without an explicit v2 query receives a typed precondition.
 	resMissing, err := srv.executeTool(ctx, "investigate_failure", map[string]any{
 		"target": tempDir,
 		"mode":   "debug",
@@ -332,67 +449,71 @@ func TestVS07_MCPInvestigateFailure(t *testing.T) {
 		t.Fatalf("expected missing_precondition, got: %+v", resMissing)
 	}
 
-	// 2. Valid debug call (VS07-A1, A4)
+	// Explicit historical map and proof identities are required. The trace is
+	// returned by the semantic v2 reverse path, not a synthetic origin.
 	resDebug, err := srv.executeTool(ctx, "investigate_failure", map[string]any{
-		"target": tempDir,
-		"mode":   "debug",
-		"error":  "NullPointerException",
+		"target":      tempDir,
+		"query":       fixture.debugQuery,
+		"semanticMap": fixture.mapIR,
+		"proof":       fixture.proof,
 	})
 	if err != nil {
 		t.Fatalf("investigate_failure debug failed: %v", err)
 	}
-	debugTrace, ok := resDebug.(*semantic.FailurePathTrace)
+	debugTrace, ok := resDebug.(*semantic.FailurePathTraceV2)
 	if !ok {
-		t.Fatalf("expected *semantic.FailurePathTrace, got %T", resDebug)
+		t.Fatalf("expected *semantic.FailurePathTraceV2, got %T", resDebug)
 	}
-	if debugTrace.Mode != "debug" {
-		t.Errorf("expected mode debug, got %s", debugTrace.Mode)
+	if debugTrace.SchemaID != semantic.FailurePathTraceSchemaID || debugTrace.SchemaVersion != semantic.FailureContractSchemaVersion || debugTrace.Mode != "debug" {
+		t.Errorf("expected canonical debug trace, got %+v", debugTrace)
 	}
-	if len(debugTrace.Nodes) == 0 {
-		t.Error("expected nodes in failure trace")
+	if len(debugTrace.Nodes) != 3 || len(debugTrace.Relationships) != 2 {
+		t.Errorf("expected canonical reverse path, got nodes=%d relationships=%d", len(debugTrace.Nodes), len(debugTrace.Relationships))
+	}
+	for _, node := range debugTrace.Nodes {
+		if node.NodeID == "node-origin" || node.SymbolPath == "ErrorOrigin" || len(node.EvidenceRefs) == 0 {
+			t.Fatalf("synthetic or evidence-free node escaped: %+v", node)
+		}
 	}
 
-	// 3. Valid incident call (VS07-A2, A5)
+	// Incident evidence is resolved by identifier through the trusted provider.
+	// The only timeline event is the event returned by that provider.
 	resInc, err := srv.executeTool(ctx, "investigate_failure", map[string]any{
-		"target":  tempDir,
-		"mode":    "incident",
-		"traceId": "trace-tx-100",
+		"target":      tempDir,
+		"query":       fixture.incidentQuery,
+		"semanticMap": fixture.mapIR,
+		"proof":       fixture.proof,
 	})
 	if err != nil {
 		t.Fatalf("investigate_failure incident failed: %v", err)
 	}
-	incTrace, ok := resInc.(*semantic.FailurePathTrace)
+	incTrace, ok := resInc.(*semantic.FailurePathTraceV2)
 	if !ok {
-		t.Fatalf("expected *semantic.FailurePathTrace, got %T", resInc)
+		t.Fatalf("expected *semantic.FailurePathTraceV2, got %T", resInc)
 	}
-	if incTrace.Mode != "incident" {
-		t.Errorf("expected mode incident, got %s", incTrace.Mode)
+	if incTrace.Mode != "incident" || incTrace.RuntimeObservationRef != fixture.observation.ObservationID {
+		t.Errorf("expected scoped incident trace, got %+v", incTrace)
 	}
-	if len(incTrace.Timeline) == 0 {
-		t.Error("expected timeline in incident trace")
+	if len(incTrace.Timeline) != 1 || incTrace.Timeline[0].EventID != "event-failure" {
+		t.Errorf("incident trace contains synthetic or missing events: %+v", incTrace.Timeline)
 	}
 
-	// 4. query_task_view with mode=debug
+	// query_task_view uses the same explicit v2 failure seam.
 	resQuery, err := srv.executeTool(ctx, "query_task_view", map[string]any{
-		"target": tempDir,
-		"query": map[string]any{
-			"schemaId":      "https://codeflow.local/schemas/task-view-query.schema.json",
-			"schemaVersion": 1,
-			"mode":          "debug",
-			"debug": map[string]any{
-				"error": "NullPointerException",
-			},
-		},
+		"target":      tempDir,
+		"query":       fixture.debugQuery,
+		"semanticMap": fixture.mapIR,
+		"proof":       fixture.proof,
 	})
 	if err != nil {
-		t.Fatalf("query_task_view mode=debug failed: %v", err)
+		t.Fatalf("query_task_view v2 debug failed: %v", err)
 	}
-	qTrace, ok := resQuery.(*semantic.FailurePathTrace)
+	qTrace, ok := resQuery.(*semantic.FailurePathTraceV2)
 	if !ok {
-		t.Fatalf("expected *semantic.FailurePathTrace from query_task_view, got %T", resQuery)
+		t.Fatalf("expected *semantic.FailurePathTraceV2 from query_task_view, got %T", resQuery)
 	}
-	if qTrace.Mode != "debug" {
-		t.Errorf("expected mode debug, got %s", qTrace.Mode)
+	if qTrace.Mode != "debug" || qTrace.ComputedBasisID != fixture.debugQuery.ComputedBasisID {
+		t.Errorf("query_task_view did not preserve v2 identity: %+v", qTrace)
 	}
 }
 
@@ -412,6 +533,10 @@ func TestVS08_MCPApprovalAndEvidence(t *testing.T) {
 	}
 
 	ctx := context.Background()
+	approvalFixture := completeUnattestedAvailableResultForMCP(t)
+	srv.proposalStore = &mcpApprovalPairStore{stored: &semantic.StoredProposal{
+		WorkspaceID: srv.approvalWorkspaceID, Proposal: approvalFixture.Proposal, Pack: approvalFixture.Pack,
+	}}
 
 	// 1. get_evidence_pack missing symbolPath (VS08-A6)
 	resMissingEv, err := srv.executeTool(ctx, "get_evidence_pack", map[string]any{
@@ -441,41 +566,19 @@ func TestVS08_MCPApprovalAndEvidence(t *testing.T) {
 		t.Error("expected evidence items in pack")
 	}
 
-	// 3. submit_semantic_approval missing approver (VS08-A6)
-	resMissingAppr, err := srv.executeTool(ctx, "submit_semantic_approval", map[string]any{
-		"target":     tempDir,
-		"proposalId": "prop-1",
-	})
-	if err != nil {
-		t.Fatalf("unexpected execution error: %v", err)
-	}
-	missingApprDoc, ok := resMissingAppr.(map[string]any)
-	if !ok || missingApprDoc["code"] != "missing_precondition" {
-		t.Fatalf("expected missing_precondition, got: %+v", resMissingAppr)
+	// 3. submit_semantic_approval missing command fields is rejected before
+	// any approval execution work.
+	if _, err := srv.executeTool(ctx, "submit_semantic_approval", map[string]any{
+		"target": tempDir, "proposalId": "",
+	}); err == nil {
+		t.Fatal("incomplete approval draft unexpectedly succeeded")
 	}
 
-	// 4. submit_semantic_approval valid (VS08-A2, A3)
-	resAppr, err := srv.executeTool(ctx, "submit_semantic_approval", map[string]any{
-		"target":     tempDir,
-		"proposalId": "prop-1",
-		"decision":   "approved",
-		"approver":   "team-lead@company.corp",
-	})
-	if err != nil {
-		t.Fatalf("submit_semantic_approval failed: %v", err)
-	}
-	appr, ok := resAppr.(*semantic.SemanticApproval)
-	if !ok {
-		t.Fatalf("expected *semantic.SemanticApproval, got %T", resAppr)
-	}
-	if appr.Decision != "approved" {
-		t.Errorf("expected decision approved, got %s", appr.Decision)
-	}
-	if appr.Approver != "team-lead@company.corp" {
-		t.Errorf("expected approver team-lead@company.corp, got %s", appr.Approver)
-	}
-	if appr.Freshness != "current" {
-		t.Errorf("expected freshness current, got %s", appr.Freshness)
+	// 4. A complete draft still requires a published current proof and the
+	// durable proposal pair. This fixture has neither, so execution fails
+	// closed instead of synthesizing a legacy approval.
+	if _, err := srv.executeTool(ctx, "submit_semantic_approval", mcpApprovalRequestArgs(tempDir, approvalFixture, "legacy-test")); !errors.Is(err, semantic.ErrApprovalExecutionUnavailable) {
+		t.Fatalf("complete draft error = %v, want ErrApprovalExecutionUnavailable", err)
 	}
 }
 
@@ -496,48 +599,36 @@ func TestVS09_MCPOnboarding(t *testing.T) {
 
 	ctx := context.Background()
 
-	// 1. Level 1: System / Domain Overview (VS09-A1, A2)
-	resL1, err := srv.executeTool(ctx, "explore_project_domains", map[string]any{
+	// A repository id without an exact basis must not select a synthetic
+	// workspace/domain set.
+	_, err = srv.executeTool(ctx, "explore_project_domains", map[string]any{
 		"target":       tempDir,
 		"repositoryId": "shop-app",
 		"level":        float64(1),
 	})
-	if err != nil {
-		t.Fatalf("explore_project_domains L1 failed: %v", err)
-	}
-	overview, ok := resL1.(*semantic.DomainOverview)
-	if !ok {
-		t.Fatalf("expected *semantic.DomainOverview, got %T", resL1)
-	}
-	if overview.RepositoryID != "shop-app" {
-		t.Errorf("expected repositoryId shop-app, got %s", overview.RepositoryID)
-	}
-	if len(overview.Domains) == 0 {
-		t.Error("expected domains in overview")
+	if err == nil || !strings.Contains(err.Error(), "freshness is required") {
+		t.Fatalf("expected strict freshness precondition, got %v", err)
 	}
 
-	// 2. Level 2: Representative Flow Catalog (VS09-A2, A3)
-	resL2, err := srv.executeTool(ctx, "explore_project_domains", map[string]any{
-		"target": tempDir,
-		"level":  float64(2),
-		"domain": "Order",
+	// An explicit historical identity still cannot succeed without an exact
+	// cached semantic map. The old fixed Order/Catalog candidates are gone.
+	_, err = srv.executeTool(ctx, "explore_project_domains", map[string]any{
+		"target":                     tempDir,
+		"level":                      float64(2),
+		"domain":                     "src/orders",
+		"repositoryId":               "shop-app",
+		"freshness":                  "historical",
+		"computedBasisId":            "basis-historical",
+		"generationId":               "generation-historical",
+		"validatedAgainstSnapshotId": "snapshot-historical",
 	})
-	if err != nil {
-		t.Fatalf("explore_project_domains L2 failed: %v", err)
-	}
-	catalog, ok := resL2.(*semantic.RepresentativeFlowCatalog)
-	if !ok {
-		t.Fatalf("expected *semantic.RepresentativeFlowCatalog, got %T", resL2)
-	}
-	if catalog.DomainID != "Order" {
-		t.Errorf("expected domain Order, got %s", catalog.DomainID)
-	}
-	if len(catalog.Flows) == 0 {
-		t.Error("expected flows in catalog")
+	if err == nil || !strings.Contains(err.Error(), "historical semantic map") {
+		t.Fatalf("expected unavailable historical basis, got %v", err)
 	}
 
-	// 3. query_task_view mode=onboarding
-	resQuery, err := srv.executeTool(ctx, "query_task_view", map[string]any{
+	// query_task_view onboarding follows the same precondition and does not
+	// default repositoryId or basis.
+	_, err = srv.executeTool(ctx, "query_task_view", map[string]any{
 		"target": tempDir,
 		"query": map[string]any{
 			"schemaId":      "https://codeflow.local/schemas/task-view-query.schema.json",
@@ -549,14 +640,31 @@ func TestVS09_MCPOnboarding(t *testing.T) {
 		},
 	})
 	if err != nil {
-		t.Fatalf("query_task_view mode=onboarding failed: %v", err)
+		if !strings.Contains(err.Error(), "freshness is required") {
+			t.Fatalf("expected strict query_task_view basis precondition, got %v", err)
+		}
+	} else {
+		t.Fatal("expected query_task_view onboarding to require an exact basis")
 	}
-	qOverview, ok := resQuery.(*semantic.DomainOverview)
-	if !ok {
-		t.Fatalf("expected *semantic.DomainOverview from query_task_view, got %T", resQuery)
-	}
-	if qOverview.RepositoryID != "shop-app" {
-		t.Errorf("expected repositoryId shop-app, got %s", qOverview.RepositoryID)
+
+	// The task-view seam also accepts the normalized onboarding v2 query. It
+	// must reach the exact historical resolver instead of being rejected by the
+	// legacy task-view schema or silently losing its identity fields.
+	_, err = srv.executeTool(ctx, "query_task_view", map[string]any{
+		"target": tempDir,
+		"query": map[string]any{
+			"schemaId":                   semantic.OnboardingQuerySchemaID,
+			"schemaVersion":              semantic.SemanticSchemaVersion,
+			"repositoryId":               "shop-app",
+			"computedBasisId":            "basis-historical",
+			"generationId":               "generation-historical",
+			"validatedAgainstSnapshotId": "snapshot-historical",
+			"freshness":                  "historical",
+			"level":                      1,
+		},
+	})
+	if err == nil || !strings.Contains(err.Error(), "historical semantic map") {
+		t.Fatalf("expected v2 query_task_view to require the selected historical map, got %v", err)
 	}
 }
 
@@ -577,41 +685,56 @@ func TestVS10_MCPReleaseCapability(t *testing.T) {
 
 	ctx := context.Background()
 
-	// 1. validate_release_capability execution (VS10-A1, A2, A3)
-	res, err := srv.executeTool(ctx, "validate_release_capability", map[string]any{
-		"target":        tempDir,
-		"targetVersion": "v0.9.0-rc1",
-		"modelId":       "qwen2.5-coder-7b",
-	})
+	res, err := srv.executeTool(ctx, "validate_release_capability", map[string]any{})
 	if err != nil {
 		t.Fatalf("validate_release_capability failed: %v", err)
 	}
 
-	resMap, ok := res.(map[string]any)
+	evaluation, ok := res.(*semantic.ReleaseEvaluation)
 	if !ok {
-		t.Fatalf("expected map[string]any, got %T", res)
+		t.Fatalf("expected *semantic.ReleaseEvaluation, got %T", res)
+	}
+	if evaluation.BenchmarkReport.Status != "incomplete" || evaluation.BenchmarkReport.ReleaseReady {
+		t.Fatalf("missing evidence must be inspectable and incomplete: %+v", evaluation.BenchmarkReport)
+	}
+	if len(evaluation.BenchmarkReport.Metrics) != 0 || len(evaluation.CapabilityMatrix.Capabilities) != 0 {
+		t.Fatalf("missing evidence must not generate metrics or capability claims: %+v", evaluation)
 	}
 
-	rep, ok := resMap["benchmarkReport"].(*semantic.ReleaseBenchmarkReport)
-	if !ok {
-		t.Fatalf("expected *semantic.ReleaseBenchmarkReport, got %T", resMap["benchmarkReport"])
+	res, err = srv.executeTool(ctx, "validate_release_capability", map[string]any{"evaluation": testfixture.VS10ReleaseEvaluationInput()})
+	if err != nil {
+		t.Fatalf("explicit evidence evaluation failed: %v", err)
 	}
-	if !rep.ReleaseReady {
-		t.Errorf("expected releaseReady true for rc1")
+	evaluation, ok = res.(*semantic.ReleaseEvaluation)
+	if !ok || evaluation.BenchmarkReport.Status != "incomplete" || evaluation.BenchmarkReport.ReleaseReady {
+		t.Fatalf("default MCP server trusted caller decision labels: %#v", res)
 	}
 
-	slm, ok := resMap["slmCapability"].(*semantic.SLMCapabilityState)
-	if !ok {
-		t.Fatalf("expected *semantic.SLMCapabilityState, got %T", resMap["slmCapability"])
+	configured, err := NewServer(Config{
+		RepoRoot:                  tempDir,
+		RequireToken:              false,
+		ReleaseThresholdDecisions: testfixture.VS10ReleaseThresholdDecisions(),
+	})
+	if err != nil {
+		t.Fatalf("configured NewServer failed: %v", err)
 	}
-	if slm.ModelID != "qwen2.5-coder-7b" {
-		t.Errorf("expected modelId qwen2.5-coder-7b, got %s", slm.ModelID)
+	res, err = configured.executeTool(ctx, "validate_release_capability", map[string]any{"evaluation": testfixture.VS10ReleaseEvaluationInput()})
+	if err != nil {
+		t.Fatalf("configured explicit evidence evaluation failed: %v", err)
+	}
+	evaluation, ok = res.(*semantic.ReleaseEvaluation)
+	if !ok || !evaluation.BenchmarkReport.ReleaseReady || !evaluation.CapabilityMatrix.ReleaseReady {
+		t.Fatalf("trusted configured decisions did not cross the MCP boundary: %#v", res)
+	}
+
+	tampered := testfixture.VS10ReleaseEvaluationInput()
+	tampered.Profile.OS = "linux"
+	res, err = configured.executeTool(ctx, "validate_release_capability", map[string]any{"evaluation": tampered})
+	if err != nil {
+		t.Fatalf("tampered evidence must return an inspectable result: %v", err)
+	}
+	evaluation = res.(*semantic.ReleaseEvaluation)
+	if evaluation.BenchmarkReport.Status != "incomplete" || evaluation.BenchmarkReport.ReleaseReady {
+		t.Fatalf("MCP accepted evidence whose content did not match artifactRef: %+v", evaluation.BenchmarkReport)
 	}
 }
-
-
-
-
-
-
-

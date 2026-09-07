@@ -1,0 +1,27 @@
+{
+  "schemaId": "https://codeflow.local/schemas/rflsc.runtime-consent.v1.schema.json",
+  "schemaVersion": 1,
+  "consentId": "consent-vs06-invalid-approval",
+  "actorId": "actor-vs06",
+  "approved": false,
+  "issuedAt": "2026-09-05T00:00:00Z",
+  "expiresAt": "2030-09-05T00:00:00Z",
+  "command": "/bin/echo",
+  "args": ["hello"],
+  "accessScope": {
+    "source": "immutable_snapshot",
+    "network": "none",
+    "credentials": "none"
+  },
+  "isolationScope": {
+    "level": "trusted_local",
+    "sourceMount": "not_mounted",
+    "sourcePermission": "read_only",
+    "workingDirectory": "process_private_disposable",
+    "writableLayer": "discard_after_terminal",
+    "repositoryPathExposed": false
+  },
+  "snapshotId": "snapshot-vs06",
+  "snapshotTreeDigest": "tree-vs06",
+  "nonce": "nonce-vs06-00000003"
+}

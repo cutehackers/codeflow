@@ -1,0 +1,274 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://codeflow.local/schemas/rflsc.failure-path-trace.v2.schema.json",
+  "title": "RFL-SC Evidence-Bounded Failure Path Trace v2",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaId",
+    "schemaVersion",
+    "traceId",
+    "mode",
+    "computedBasisId",
+    "generationId",
+    "validatedAgainstSnapshotId",
+    "freshness",
+    "failureTarget",
+    "nodes",
+    "relationships",
+    "timeline",
+    "summary",
+    "unknownCount",
+    "hasConflicts",
+    "staticEvidence",
+    "unknownFrontier",
+    "recoveryStates",
+    "coverage"
+  ],
+  "properties": {
+    "schemaId": { "const": "https://codeflow.local/schemas/rflsc.failure-path-trace.v2.schema.json" },
+    "schemaVersion": { "const": 2 },
+    "traceId": { "type": "string", "minLength": 1, "maxLength": 256 },
+    "mode": { "enum": ["debug", "incident"] },
+    "computedBasisId": { "type": "string", "minLength": 1, "maxLength": 256 },
+    "generationId": { "type": "string", "minLength": 1, "maxLength": 256 },
+    "validatedAgainstSnapshotId": { "type": "string", "minLength": 1, "maxLength": 256 },
+    "freshness": { "enum": ["current", "historical"] },
+    "failureTarget": { "$ref": "#/$defs/failureTarget" },
+    "nodes": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 16384,
+      "items": { "$ref": "#/$defs/node" }
+    },
+    "relationships": {
+      "type": "array",
+      "maxItems": 16384,
+      "items": { "$ref": "#/$defs/relationship" }
+    },
+    "timeline": {
+      "type": "array",
+      "maxItems": 16384,
+      "items": { "$ref": "#/$defs/timelineEvent" }
+    },
+    "runtimeObservationRef": { "type": "string", "minLength": 1, "maxLength": 256 },
+    "unknownCount": { "type": "integer", "minimum": 0 },
+    "hasConflicts": { "type": "boolean" },
+    "summary": { "$ref": "#/$defs/summary" },
+    "staticEvidence": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": { "$ref": "#/$defs/staticEvidence" }
+    },
+    "runtimeEvidence": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": { "$ref": "#/$defs/runtimeEvidence" }
+    },
+    "unknownFrontier": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": { "$ref": "#/$defs/frontier" }
+    },
+    "recoveryStates": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": { "$ref": "#/$defs/recoveryState" }
+    },
+    "coverage": { "$ref": "#/$defs/coverage" }
+  },
+  "$defs": {
+    "failureTarget": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "error": { "type": "string", "minLength": 1, "maxLength": 4096 },
+        "symptom": { "type": "string", "minLength": 1, "maxLength": 4096 },
+        "failureEvidenceId": { "type": "string", "minLength": 1, "maxLength": 256 },
+        "incidentTraceId": { "type": "string", "minLength": 1, "maxLength": 256 },
+        "incidentEvidenceId": { "type": "string", "minLength": 1, "maxLength": 256 }
+      },
+      "anyOf": [
+        { "required": ["error"] },
+        { "required": ["symptom"] },
+        { "required": ["failureEvidenceId"] },
+        { "required": ["incidentTraceId"] },
+        { "required": ["incidentEvidenceId"] }
+      ]
+    },
+    "node": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["nodeId", "symbolPath", "role", "status", "evidenceRefs"],
+      "properties": {
+        "nodeId": { "type": "string", "minLength": 1, "maxLength": 256 },
+        "symbolPath": { "type": "string", "minLength": 1, "maxLength": 4096 },
+        "role": { "enum": ["throw", "transform", "handle", "ignore", "last_verified_state", "side_effect"] },
+        "status": { "enum": ["static_candidate", "runtime_observed", "corroborated", "conflicting", "unknown"] },
+        "evidenceRefs": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": { "type": "string", "minLength": 1, "maxLength": 256 }
+        }
+      }
+    },
+    "relationship": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["fromNodeId", "toNodeId", "kind", "evidenceRefs"],
+      "properties": {
+        "fromNodeId": { "type": "string", "minLength": 1, "maxLength": 256 },
+        "toNodeId": { "type": "string", "minLength": 1, "maxLength": 256 },
+        "kind": { "enum": ["thrown_to", "transformed_to", "handled_by", "ignored_by", "causes"] },
+        "evidenceRefs": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": { "type": "string", "minLength": 1, "maxLength": 256 }
+        }
+      }
+    },
+    "timelineEvent": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["timestamp", "kind", "target", "status"],
+      "properties": {
+        "eventId": { "type": "string", "minLength": 1, "maxLength": 256 },
+        "timestamp": { "type": "string", "format": "date-time" },
+        "kind": { "enum": ["external_call", "timeout", "retry", "circuit_break", "compensation", "partial_commit", "failure_emission"] },
+        "target": { "type": "string", "minLength": 1, "maxLength": 4096 },
+        "status": { "type": "string", "minLength": 1, "maxLength": 256 },
+        "evidenceRef": { "type": "string", "minLength": 1, "maxLength": 256 },
+        "evidenceRefs": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": { "type": "string", "minLength": 1, "maxLength": 256 }
+        },
+        "symbolPath": { "type": "string", "minLength": 1, "maxLength": 4096 },
+        "scenario": { "type": "string", "minLength": 1, "maxLength": 512 },
+        "environment": { "type": "string", "minLength": 1, "maxLength": 512 },
+        "dependencyFingerprint": { "type": "string", "minLength": 1, "maxLength": 256 },
+        "anchor": { "$ref": "https://codeflow.local/schemas/rflsc.runtime-observation.v2.schema.json#/$defs/anchor" }
+      },
+      "anyOf": [
+        { "required": ["evidenceRef"] },
+        { "required": ["evidenceRefs"] }
+      ]
+    },
+    "summary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["description", "lastConfirmedState"],
+      "properties": {
+        "description": { "type": "string", "minLength": 1, "maxLength": 4096 },
+        "lastConfirmedState": { "type": "string", "minLength": 1, "maxLength": 4096 }
+      }
+    },
+    "staticEvidence": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["evidenceId", "kind", "sourceAuthority", "computedBasisId", "snapshotId", "anchor", "validationStatus", "redactionStatus"],
+      "properties": {
+        "evidenceId": { "type": "string", "minLength": 1, "maxLength": 256 },
+        "kind": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "sourceAuthority": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "computedBasisId": { "type": "string", "minLength": 1, "maxLength": 256 },
+        "documentRevisionId": { "type": "string", "minLength": 1, "maxLength": 256 },
+        "snapshotId": { "type": "string", "minLength": 1, "maxLength": 256 },
+        "anchor": { "$ref": "https://codeflow.local/schemas/rflsc.runtime-observation.v2.schema.json#/$defs/anchor" },
+        "producer": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "name": { "type": "string", "maxLength": 256 },
+            "version": { "type": "string", "maxLength": 256 }
+          }
+        },
+        "validationStatus": { "const": "verified" },
+        "redactionStatus": { "enum": ["clean", "redacted", "passed"] },
+        "byteRange": {
+          "type": "array",
+          "prefixItems": [
+            { "type": "integer", "minimum": 0 },
+            { "type": "integer", "minimum": 0 }
+          ],
+          "items": false,
+          "minItems": 2,
+          "maxItems": 2
+        },
+        "lineRange": {
+          "type": "array",
+          "prefixItems": [
+            { "type": "integer", "minimum": 1 },
+            { "type": "integer", "minimum": 1 }
+          ],
+          "items": false,
+          "minItems": 2,
+          "maxItems": 2
+        }
+      }
+    },
+    "runtimeEvidence": {
+      "$ref": "https://codeflow.local/schemas/rflsc.runtime-observation.v2.schema.json#/$defs/evidence"
+    },
+    "frontier": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["frontierId", "lastConfirmedNodeId", "target", "reason"],
+      "properties": {
+        "frontierId": { "type": "string", "minLength": 1, "maxLength": 256 },
+        "lastConfirmedNodeId": { "type": "string", "minLength": 1, "maxLength": 256 },
+        "target": { "type": "string", "minLength": 1, "maxLength": 4096 },
+        "relationKind": { "type": "string", "minLength": 1, "maxLength": 256 },
+        "reason": { "type": "string", "minLength": 1, "maxLength": 4096 },
+        "path": {
+          "type": "array",
+          "items": { "type": "string", "minLength": 1, "maxLength": 4096 }
+        },
+        "evidenceRefs": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": { "type": "string", "minLength": 1, "maxLength": 256 }
+        }
+      }
+    },
+    "recoveryState": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "status", "reason"],
+      "properties": {
+        "kind": { "enum": ["timeout", "retry", "circuit_break", "compensation"] },
+        "status": { "enum": ["runtime_observed", "possible_unknown", "conflicting"] },
+        "reason": { "type": "string", "minLength": 1, "maxLength": 4096 },
+        "evidenceRefs": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": { "type": "string", "minLength": 1, "maxLength": 256 }
+        }
+      }
+    },
+    "coverage": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["complete", "confirmedNodeCount", "confirmedEdgeCount", "unresolvedEdgeCount"],
+      "properties": {
+        "includedSourceRoots": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": { "type": "string", "minLength": 1, "maxLength": 4096 }
+        },
+        "excludedReasons": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": { "type": "string", "minLength": 1, "maxLength": 4096 }
+        },
+        "complete": { "type": "boolean" },
+        "confirmedNodeCount": { "type": "integer", "minimum": 0 },
+        "confirmedEdgeCount": { "type": "integer", "minimum": 0 },
+        "unresolvedEdgeCount": { "type": "integer", "minimum": 0 }
+      }
+    }
+  }
+}

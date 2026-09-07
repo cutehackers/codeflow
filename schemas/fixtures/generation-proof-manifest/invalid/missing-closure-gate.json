@@ -10,6 +10,7 @@
   "analysisReadSetId": "readset-43",
   "causalObservationClosureId": "closure-43",
   "causalObservationClosureDigest": "f0e1d2c3b4a59687f0e1d2c3b4a59687f0e1d2c3b4a59687f0e1d2c3b4a59687",
+  "workspaceEpoch": 12,
   "currentPublication": {
     "eligibility": "passed",
     "snapshotGate": "passed",

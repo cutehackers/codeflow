@@ -1,0 +1,1 @@
+{"schemaId":"https://codeflow.local/schemas/rflsc.flowview-projection.v2.schema.json","schemaVersion":1,"projectionId":"projection-1","generationId":"generation-1","computedBasisId":"basis-1","mode":"feature","displayBudget":{"targetMin":7,"targetMax":15,"enforcement":"soft"},"visibleStepRefs":[],"preservedStepRefs":[],"unknownBoundaryRefs":[],"foldedSubflows":[]}

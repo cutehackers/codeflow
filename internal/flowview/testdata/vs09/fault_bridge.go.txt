@@ -1,0 +1,6 @@
+package semantic
+
+// Included only by the repository-owned disposable VS09 test overlay.
+func VS09TestBuildSetApprovalFault(service *ApprovalExecutionService, fault func(string) error) {
+	service.transactions.fault = fault
+}

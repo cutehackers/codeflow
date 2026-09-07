@@ -67,6 +67,7 @@ type Error struct {
 	Message   string    `json:"message"`
 	Retryable bool      `json:"retryable"`
 	Detail    any       `json:"-"`
+	cause     error     `json:"-"`
 }
 
 var (
@@ -82,7 +83,12 @@ var (
 var defaultRetryable = map[ErrorCode]bool{ETimeout: true, EBackpressure: true}
 
 func NewError(code ErrorCode, message string, detail any) *Error {
-	return &Error{Code: code, Message: message, Retryable: defaultRetryable[code], Detail: detail}
+	return &Error{
+		Code:      code,
+		Message:   boundedDiagnosticText(message),
+		Retryable: defaultRetryable[code],
+		Detail:    secret.RedactAndClip(detail, 512, 64),
+	}
 }
 func TimeoutError(detail any) *Error   { return NewError(ETimeout, ErrTimeout.Message, detail) }
 func CancelledError(detail any) *Error { return NewError(ECancelled, ErrCancelled.Message, detail) }
@@ -99,9 +105,9 @@ func AdapterInternalError(detail any) *Error {
 }
 
 func (e *Error) Error() string {
-	s := fmt.Sprintf("%s: %s", e.Code, e.Message)
+	s := fmt.Sprintf("%s: %s", e.Code, boundedDiagnosticText(e.Message))
 	if e.Detail != nil {
-		s += fmt.Sprintf(" (%v)", e.Detail)
+		s += " (" + boundedDiagnosticValue(e.Detail) + ")"
 	}
 	return s
 }
@@ -111,15 +117,22 @@ func (e *Error) Is(target error) bool {
 	return ok && t.Code == e.Code
 }
 
+func (e *Error) Unwrap() error {
+	if e == nil {
+		return nil
+	}
+	return e.cause
+}
+
 func (e *Error) MarshalJSON() ([]byte, error) {
 	wire := struct {
 		Code      ErrorCode `json:"code"`
 		Message   string    `json:"message"`
 		Retryable bool      `json:"retryable"`
 		Detail    *string   `json:"detail,omitempty"`
-	}{Code: e.Code, Message: e.Message, Retryable: e.Retryable}
+	}{Code: e.Code, Message: boundedDiagnosticText(e.Message), Retryable: e.Retryable}
 	if e.Detail != nil {
-		d := fmt.Sprintf("%v", e.Detail)
+		d := boundedDiagnosticValue(e.Detail)
 		wire.Detail = &d
 	}
 	return json.Marshal(wire)
@@ -127,10 +140,10 @@ func (e *Error) MarshalJSON() ([]byte, error) {
 
 func (e *Error) UnmarshalJSON(b []byte) error {
 	var wire struct {
-		Code      ErrorCode `json:"code"`
-		Message   string    `json:"message"`
-		Retryable bool      `json:"retryable"`
-		Detail    *string   `json:"detail"`
+		Code      ErrorCode       `json:"code"`
+		Message   string          `json:"message"`
+		Retryable bool            `json:"retryable"`
+		Detail    json.RawMessage `json:"detail"`
 	}
 	if err := json.Unmarshal(b, &wire); err != nil {
 		return err
@@ -138,11 +151,39 @@ func (e *Error) UnmarshalJSON(b []byte) error {
 	if !IsValidErrorCode(wire.Code) {
 		return fmt.Errorf("adapter-protocol: unknown error code %q (not in contract enum)", string(wire.Code))
 	}
-	e.Code, e.Message, e.Retryable, e.Detail = wire.Code, wire.Message, wire.Retryable, nil
-	if wire.Detail != nil {
-		e.Detail = *wire.Detail
+	e.Code, e.Message, e.Retryable, e.Detail = wire.Code, boundedDiagnosticText(wire.Message), wire.Retryable, nil
+	if len(wire.Detail) != 0 && string(wire.Detail) != "null" {
+		var detail any
+		if err := json.Unmarshal(wire.Detail, &detail); err == nil {
+			e.Detail = secret.RedactAndClip(detail, 512, 64)
+		} else {
+			e.Detail = boundedDiagnosticText(string(wire.Detail))
+		}
 	}
 	return nil
+}
+
+func boundedDiagnosticText(value string) string {
+	clean := secret.Redact(value).Text
+	if len(clean) > 512 {
+		return clean[:512]
+	}
+	return clean
+}
+
+func boundedDiagnosticValue(value any) string {
+	safe := secret.RedactAndClip(value, 512, 64)
+	if text, ok := safe.(string); ok {
+		return text
+	}
+	data, err := json.Marshal(safe)
+	if err != nil {
+		return boundedDiagnosticText(fmt.Sprint(safe))
+	}
+	if len(data) > 512 {
+		data = data[:512]
+	}
+	return string(data)
 }
 
 func IsRetryable(err error) bool {
@@ -361,24 +402,59 @@ func rpcCodeFor(err *Error) int {
 }
 
 func rpcErrorFor(err *Error) *rpcError {
-	data, _ := json.Marshal(err)
-	return &rpcError{Code: rpcCodeFor(err), Message: err.Message, Data: data}
+	if err == nil {
+		err = AdapterInternalError("missing error")
+	}
+	message := boundedDiagnosticText(err.Message)
+	dataValue := map[string]any{
+		"code":      err.Code,
+		"message":   message,
+		"retryable": err.Retryable,
+	}
+	if err.Detail != nil {
+		dataValue["detail"] = secret.RedactAndClip(err.Detail, 512, 64)
+	}
+	data, marshalErr := json.Marshal(dataValue)
+	if marshalErr != nil || len(data) > 4096 {
+		// Never byte-clip a serialized secret-bearing value. Dropping the
+		// untrusted detail keeps the remaining diagnostic valid and bounded.
+		dataValue["detail"] = "***REDACTED***"
+		data, _ = json.Marshal(dataValue)
+	}
+	return &rpcError{Code: rpcCodeFor(err), Message: message, Data: data}
 }
 
 func errorFromRPC(err rpcError) *Error {
-	message := secret.Redact(err.Message).Text
+	message := boundedDiagnosticText(err.Message)
 	if len(err.Data) != 0 && string(err.Data) != "null" {
-		var domain Error
-		if json.Unmarshal(err.Data, &domain) == nil && IsValidErrorCode(domain.Code) {
+		cleanData, _, redactErr := secret.RedactJSON(err.Data)
+		if redactErr != nil {
+			cleanData = []byte(secret.Redact(string(err.Data)).Text)
+		}
+		var wire struct {
+			Code      ErrorCode       `json:"code"`
+			Message   string          `json:"message"`
+			Retryable bool            `json:"retryable"`
+			Detail    json.RawMessage `json:"detail"`
+		}
+		if json.Unmarshal(cleanData, &wire) == nil && IsValidErrorCode(wire.Code) {
+			domain := &Error{
+				Code:      wire.Code,
+				Message:   boundedDiagnosticText(wire.Message),
+				Retryable: wire.Retryable,
+			}
 			if domain.Message == "" {
 				domain.Message = message
-			} else {
-				domain.Message = secret.Redact(domain.Message).Text
 			}
-			if detail, ok := domain.Detail.(string); ok {
-				domain.Detail = secret.Redact(detail).Text
+			if len(wire.Detail) != 0 && string(wire.Detail) != "null" {
+				var detail any
+				if json.Unmarshal(wire.Detail, &detail) == nil {
+					domain.Detail = secret.RedactAndClip(detail, 512, 64)
+				} else {
+					domain.Detail = boundedDiagnosticText(string(wire.Detail))
+				}
 			}
-			return &domain
+			return domain
 		}
 	}
 	switch err.Code {

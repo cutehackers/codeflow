@@ -13,7 +13,7 @@ func TestVS03A7_WorkspaceEpochSeparation(t *testing.T) {
 	}
 	defer os.RemoveAll(tempDir)
 
-	engine, err := NewSnapshotEngine(tempDir, "epoch-feature-branch")
+	engine, err := NewSnapshotEngine(tempDir, 1)
 	if err != nil {
 		t.Fatalf("NewSnapshotEngine failed: %v", err)
 	}
@@ -31,23 +31,25 @@ func TestVS03A7_WorkspaceEpochSeparation(t *testing.T) {
 		t.Fatalf("ApplyVersionedEdit 1 failed: %v", err)
 	}
 
-	if snap1.WorkspaceEpoch != "epoch-feature-branch" {
-		t.Errorf("expected epoch epoch-feature-branch, got %s", snap1.WorkspaceEpoch)
+	if snap1.WorkspaceEpoch != 1 {
+		t.Errorf("expected epoch 1, got %d", snap1.WorkspaceEpoch)
 	}
 	if !snap1.LiveHead {
 		t.Errorf("expected snap1.LiveHead == true")
 	}
 
 	// 2. Branch or configuration switch triggers epoch transition
-	engine.SetEpoch("epoch-main-branch")
+	if err := engine.SetEpoch(2); err != nil {
+		t.Fatalf("SetEpoch failed: %v", err)
+	}
 
 	// Verify liveHead is decoupled from prior epoch
 	if engine.LiveHead() != nil {
 		t.Errorf("expected liveHead to be nil in fresh epoch before first edit")
 	}
 	act := engine.CurrentActivity()
-	if act.WorkspaceEpoch != "epoch-main-branch" {
-		t.Errorf("expected activity epoch epoch-main-branch, got %s", act.WorkspaceEpoch)
+	if act.WorkspaceEpoch != 2 {
+		t.Errorf("expected activity epoch 2, got %d", act.WorkspaceEpoch)
 	}
 	if act.Activity != "reconciling" {
 		t.Errorf("expected activity reconciling on epoch switch, got %s", act.Activity)
@@ -64,8 +66,8 @@ func TestVS03A7_WorkspaceEpochSeparation(t *testing.T) {
 		t.Fatalf("ApplyVersionedEdit 2 failed: %v", err)
 	}
 
-	if snap2.WorkspaceEpoch != "epoch-main-branch" {
-		t.Errorf("expected snap2 epoch epoch-main-branch, got %s", snap2.WorkspaceEpoch)
+	if snap2.WorkspaceEpoch != 2 {
+		t.Errorf("expected snap2 epoch 2, got %d", snap2.WorkspaceEpoch)
 	}
 	if snap2.Sequence != 1 {
 		t.Errorf("expected snap2 sequence 1 in new epoch, got %d", snap2.Sequence)
@@ -79,7 +81,7 @@ func TestVS03A7_WorkspaceEpochSeparation(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GetSnapshot historical failed: %v", err)
 	}
-	if historicalSnap.WorkspaceEpoch != "epoch-feature-branch" {
-		t.Errorf("historical snap epoch changed: %s", historicalSnap.WorkspaceEpoch)
+	if historicalSnap.WorkspaceEpoch != 1 {
+		t.Errorf("historical snap epoch changed: %d", historicalSnap.WorkspaceEpoch)
 	}
 }

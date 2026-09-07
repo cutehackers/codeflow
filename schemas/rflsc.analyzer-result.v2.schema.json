@@ -1,0 +1,127 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://codeflow.local/schemas/rflsc.analyzer-result.v2.schema.json",
+  "title": "CodeFlow R2 Analyzer Result",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaId", "schemaVersion", "requestId", "operation", "adapterVersion", "analyzerRevision", "workspaceEpoch", "computedBasisId", "snapshotId", "snapshotTreeDigest", "dependencyFingerprint", "analysisReadSet", "causalObservationClosure", "capabilityProfile", "coverage", "diagnostics", "payload"],
+  "properties": {
+    "schemaId": { "const": "https://codeflow.local/schemas/rflsc.analyzer-result.v2.schema.json" },
+    "schemaVersion": { "const": 2 },
+    "requestId": { "type": "string", "minLength": 1, "maxLength": 256 },
+    "operation": { "type": "string", "enum": ["detect", "harvest_candidates", "slice"] },
+    "adapterVersion": { "type": "string", "minLength": 1, "maxLength": 256 },
+    "analyzerRevision": { "type": "string", "minLength": 1, "maxLength": 256 },
+    "workspaceEpoch": { "type": "integer", "minimum": 0 },
+    "computedBasisId": { "type": "string", "minLength": 1, "maxLength": 256 },
+    "snapshotId": { "type": "string", "minLength": 1, "maxLength": 256 },
+    "snapshotTreeDigest": { "type": "string", "minLength": 1, "maxLength": 256 },
+    "dependencyFingerprint": { "type": "string", "minLength": 1, "maxLength": 256 },
+    "analysisReadSet": { "$ref": "rflsc.analysis-read-set.v2.schema.json" },
+    "causalObservationClosure": { "$ref": "rflsc.observation-closure.v2.schema.json" },
+    "capabilityProfile": { "$ref": "#/$defs/capability" },
+    "coverage": { "$ref": "#/$defs/coverage" },
+    "payload": { "$ref": "#/$defs/operationPayload" },
+    "facts": { "type": "array", "maxItems": 16384, "items": { "$ref": "#/$defs/fact" } },
+    "diagnostics": { "type": "array", "maxItems": 64, "items": { "$ref": "rflsc.adapter-diagnostic.v2.schema.json#/$defs/diagnostic" } }
+  },
+  "$defs": {
+    "operationPayload": {
+      "type": "object",
+      "maxProperties": 16384,
+      "additionalProperties": false,
+      "description": "Operation-specific adapter output. The operation condition below selects one closed payload contract before Core unwraps it.",
+      "properties": {
+        "matched": { "type": "boolean" },
+        "language": { "type": "string", "minLength": 1, "maxLength": 64 },
+        "confident": { "type": "boolean" },
+        "frameworks": { "type": "array", "maxItems": 128, "items": { "type": "string", "maxLength": 128 } },
+        "entryRoot": { "type": "string", "maxLength": 1024 },
+        "sourceExtensions": { "type": "array", "maxItems": 64, "items": { "type": "string", "maxLength": 32 } },
+        "projectName": { "type": "string", "maxLength": 256 },
+        "pid": { "type": "integer", "minimum": 1 },
+        "candidates": { "type": "array", "maxItems": 4096, "items": { "$ref": "candidate.schema.json" } },
+        "candidateId": { "type": "string", "pattern": "^cand-[a-z0-9]{8,32}$" },
+        "entrySymbolPath": { "type": "string", "minLength": 1, "maxLength": 4096 },
+        "steps": { "type": "array", "minItems": 1 },
+        "edges": { "type": "array" },
+        "truncated": { "type": "boolean" },
+        "visitedCycleDetected": { "type": "boolean" },
+        "redactedCount": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "detectPayload": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["language", "confident"],
+      "properties": {
+        "matched": { "type": "boolean" },
+        "language": { "type": "string", "minLength": 1, "maxLength": 64 },
+        "confident": { "type": "boolean" },
+        "frameworks": { "type": "array", "maxItems": 128, "items": { "type": "string", "maxLength": 128 } },
+        "entryRoot": { "type": "string", "maxLength": 1024 },
+        "sourceExtensions": { "type": "array", "maxItems": 64, "items": { "type": "string", "maxLength": 32 } },
+        "projectName": { "type": "string", "maxLength": 256 },
+        "pid": { "type": "integer", "minimum": 1 }
+      }
+    },
+    "harvestPayload": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["candidates"],
+      "properties": {
+        "candidates": { "type": "array", "maxItems": 4096, "items": { "$ref": "candidate.schema.json" } }
+      }
+    },
+    "slicePayload": { "$ref": "sliced-payload.schema.json" },
+    "operationPayloadLegacyShape": {
+      "type": "object",
+      "additionalProperties": false
+    },
+    "capability": {
+      "type": "object", "additionalProperties": false,
+      "required": ["adapter", "analyzerRevision", "features"],
+      "properties": {
+        "adapter": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "adapterVersion": { "type": "string", "maxLength": 256 },
+        "analyzerRevision": { "type": "string", "minLength": 1, "maxLength": 256 },
+        "features": { "type": "array", "maxItems": 128, "items": { "type": "string", "maxLength": 128 } },
+        "unsupported": { "type": "array", "maxItems": 128, "items": { "type": "string", "maxLength": 128 } }
+      }
+    },
+    "coverage": {
+      "type": "object", "additionalProperties": false,
+      "required": ["includedSourceRoots", "measured"],
+      "properties": {
+        "includedSourceRoots": { "type": "array", "maxItems": 1024, "items": { "type": "string", "maxLength": 1024 } },
+        "excludedReasons": { "type": "array", "maxItems": 1024, "items": { "type": "string", "maxLength": 512 } },
+        "measured": { "const": true }
+      }
+    },
+    "fact": {
+      "type": "object", "additionalProperties": false,
+      "required": ["factId", "kind"],
+      "properties": {
+        "factId": { "type": "string", "minLength": 1, "maxLength": 256 },
+        "kind": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "symbolPath": { "type": "string", "maxLength": 1024 },
+        "path": { "type": "string", "maxLength": 1024 },
+        "evidenceRefs": { "type": "array", "maxItems": 128, "items": { "type": "string", "maxLength": 256 } }
+      }
+    }
+  },
+  "allOf": [
+    {
+      "if": { "properties": { "operation": { "const": "detect" } }, "required": ["operation"] },
+      "then": { "properties": { "payload": { "$ref": "#/$defs/detectPayload" } } }
+    },
+    {
+      "if": { "properties": { "operation": { "const": "harvest_candidates" } }, "required": ["operation"] },
+      "then": { "properties": { "payload": { "$ref": "#/$defs/harvestPayload" } } }
+    },
+    {
+      "if": { "properties": { "operation": { "const": "slice" } }, "required": ["operation"] },
+      "then": { "properties": { "payload": { "$ref": "#/$defs/slicePayload" } } }
+    }
+  ]
+}

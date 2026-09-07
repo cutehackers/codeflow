@@ -6,41 +6,40 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
-	"os"
-	"path/filepath"
 	"sort"
 	"strings"
 
 	"codeflow/internal/contractharness"
 	"codeflow/internal/detect"
 	"codeflow/internal/fusion"
-	"codeflow/internal/slicing"
 	"codeflow/internal/secret"
+	"codeflow/internal/slicing"
 	"codeflow/internal/storage"
+	"codeflow/internal/workspace"
 )
 
 const maxCoreArtifactBytes = 512 * 1024 // 512 KiB per spec §5.2
 
 // coreArtifact mirrors schemas/core-artifact.schema.json for MCP input.
 type coreArtifact struct {
-	FlowID          string     `json:"flowId,omitempty"`
-	EntrySymbolPath string     `json:"entrySymbolPath"`
-	Title           string     `json:"title"`
-	Description     string     `json:"description,omitempty"`
-	Layers          []string   `json:"layers,omitempty"`
-	Steps           []coreStep `json:"steps"`
-	Edges           []coreEdge `json:"edges,omitempty"`
+	FlowID          string           `json:"flowId,omitempty"`
+	EntrySymbolPath string           `json:"entrySymbolPath"`
+	Title           string           `json:"title"`
+	Description     string           `json:"description,omitempty"`
+	Layers          []string         `json:"layers,omitempty"`
+	Steps           []coreStep       `json:"steps"`
+	Edges           []coreEdge       `json:"edges,omitempty"`
 	Unknowns        []fusion.Unknown `json:"unknowns,omitempty"`
 }
 
 type coreStep struct {
-	Ordinal    int            `json:"ordinal"`
-	Name       string         `json:"name"`
-	Layer      string         `json:"layer"`
-	Kind       string         `json:"kind"`
-	Description string        `json:"description,omitempty"`
-	Anchor     slicing.Anchor `json:"anchor"`
-	StateDelta *struct {
+	Ordinal     int            `json:"ordinal"`
+	Name        string         `json:"name"`
+	Layer       string         `json:"layer"`
+	Kind        string         `json:"kind"`
+	Description string         `json:"description,omitempty"`
+	Anchor      slicing.Anchor `json:"anchor"`
+	StateDelta  *struct {
 		Before string `json:"before"`
 		After  string `json:"after"`
 	} `json:"stateDelta,omitempty"`
@@ -59,21 +58,41 @@ type coreEdge struct {
 
 // structured error payload per spec §7
 type coreFlowErrorPayload struct {
-	Code      string         `json:"code"`
-	Message   string         `json:"message"`
+	Code      string           `json:"code"`
+	Message   string           `json:"message"`
 	Details   []map[string]any `json:"details,omitempty"`
-	Retryable bool           `json:"retryable"`
+	Retryable bool             `json:"retryable"`
 }
 
 func coreFlowError(code, message string, details []map[string]any, retryable bool) error {
+	message = boundedDiagnostic(message, 512)
+	safeDetails := make([]map[string]any, 0, len(details))
+	for _, detail := range details {
+		safe, _ := secret.RedactAndClip(detail, 512, 64).(map[string]any)
+		if safe == nil {
+			safe = map[string]any{}
+		}
+		safeDetails = append(safeDetails, safe)
+		if len(safeDetails) >= 64 {
+			break
+		}
+	}
 	payload := coreFlowErrorPayload{
 		Code:      code,
 		Message:   message,
-		Details:   details,
+		Details:   safeDetails,
 		Retryable: retryable,
 	}
 	b, _ := json.Marshal(payload)
 	return fmt.Errorf("%s", string(b))
+}
+
+func boundedDiagnostic(value string, max int) string {
+	clean := secret.Redact(value).Text
+	if max > 0 && len(clean) > max {
+		return clean[:max]
+	}
+	return clean
 }
 
 func (s *Server) handlePublishCoreFlow(ctx context.Context, args map[string]any) (any, error) {
@@ -81,6 +100,12 @@ func (s *Server) handlePublishCoreFlow(ctx context.Context, args map[string]any)
 		return nil, coreFlowError("unauthorized", err.Error(), nil, false)
 	}
 	targetRoot := s.resolveTarget(args["target"])
+	snapshot, releaseSnapshot, err := s.captureAnalysisSnapshot(ctx, targetRoot)
+	if err != nil {
+		return nil, coreFlowError("snapshot_error", fmt.Sprintf("capture workspace snapshot: %v", err), nil, true)
+	}
+	defer releaseSnapshot()
+	snapshotFiles := snapshotContentBytes(snapshot)
 	st, err := s.getStorage(targetRoot)
 	if err != nil {
 		return nil, coreFlowError("storage_commit_failed", fmt.Sprintf("init storage layout: %v", err), nil, false)
@@ -136,19 +161,23 @@ func (s *Server) handlePublishCoreFlow(ctx context.Context, args map[string]any)
 
 	// 6. Anchor verification per step (in ordinal order) — first error aborts without persisting.
 	for _, stStep := range artifact.Steps {
-		if err := verifyAnchor(targetRoot, stStep.Anchor, stStep.Ordinal); err != nil {
+		if err := verifyAnchor(snapshotFiles, stStep.Anchor, stStep.Ordinal); err != nil {
 			return nil, err
 		}
 	}
 
 	// 7. Load and apply codeflow.layers.yaml (D6 B)
-	layersCfg, err := fusion.LoadLayersConfig(targetRoot)
+	var layersConfigBytes []byte
+	if config, ok := snapshot.Files["codeflow.layers.yaml"]; ok {
+		layersConfigBytes = []byte(config)
+	}
+	layersCfg, err := fusion.LoadLayersConfigFromBytes(layersConfigBytes)
 	if err != nil {
 		return nil, coreFlowError("layers_config_invalid", fmt.Sprintf("codeflow.layers.yaml invalid: %v", err), []map[string]any{{"reason": "layers_config_invalid", "details": err.Error()}}, false)
 	}
 	var warnings []string
 	// Detect missing file fallback as warning (when default config was used but file exists? Actually Load returns default when absent; we warn when absent)
-	if _, statErr := os.Stat(filepath.Join(targetRoot, "codeflow.layers.yaml")); os.IsNotExist(statErr) {
+	if _, present := snapshot.Files["codeflow.layers.yaml"]; !present {
 		warnings = append(warnings, "codeflow.layers.yaml not found — using built-in 8 canonical layers")
 	}
 
@@ -243,7 +272,7 @@ func (s *Server) handlePublishCoreFlow(ctx context.Context, args map[string]any)
 	} else {
 		uniqueFiles[artifact.EntrySymbolPath] = true
 	}
-	if _, err := os.Stat(filepath.Join(targetRoot, "codeflow.layers.yaml")); err == nil {
+	if _, present := snapshot.Files["codeflow.layers.yaml"]; present {
 		uniqueFiles["codeflow.layers.yaml"] = true
 	}
 	relPaths := make([]string, 0, len(uniqueFiles))
@@ -251,10 +280,7 @@ func (s *Server) handlePublishCoreFlow(ctx context.Context, args map[string]any)
 		relPaths = append(relPaths, p)
 	}
 	sort.Strings(relPaths)
-	basisSha, err := storage.ComputeWorktreeFingerprint(targetRoot, relPaths)
-	if err != nil {
-		return nil, coreFlowError("storage_commit_failed", fmt.Sprintf("compute basisSha: %v", err), nil, true)
-	}
+	basisSha := snapshotFingerprint(snapshot.Files, relPaths)
 
 	// 11. Build slicing.SlicedPayload in-memory (no adapter call)
 	lang := detect.DetectByExtension(artifact.EntrySymbolPath)
@@ -262,7 +288,7 @@ func (s *Server) handlePublishCoreFlow(ctx context.Context, args map[string]any)
 		lang = detect.DetectByExtension(artifact.Steps[0].Anchor.RepoRelativePath)
 	}
 	if lang == "unknown" {
-		det := detect.Detect(targetRoot)
+		det := detect.DetectSnapshot(snapshot.Files)
 		if det.Confident && det.Language != "" && det.Language != "unknown" {
 			lang = det.Language
 		} else {
@@ -345,7 +371,7 @@ func (s *Server) handlePublishCoreFlow(ctx context.Context, args map[string]any)
 
 	// 12. Fuse
 	spec, err := fusion.Fuse(sliced, fusion.FuseOptions{
-		RepoRoot:          targetRoot,
+		SnapshotFiles:     snapshotFiles,
 		CustomTitle:       artifact.Title,
 		CustomDescription: artifact.Description,
 		BasisSha:          basisSha,
@@ -427,22 +453,22 @@ func (s *Server) handlePublishCoreFlow(ctx context.Context, args map[string]any)
 	}, nil
 }
 
-func verifyAnchor(repoRoot string, anchor slicing.Anchor, ordinal int) error {
+func verifyAnchor(snapshotFiles map[string][]byte, anchor slicing.Anchor, ordinal int) error {
 	if anchor.RepoRelativePath == "" {
 		return coreFlowError("anchor_verification_failed", fmt.Sprintf("anchor verification failed at ordinal %d", ordinal), []map[string]any{
 			{"ordinal": ordinal, "field": "anchor.repoRelativePath", "reason": "file_not_found", "path": anchor.RepoRelativePath},
 		}, true)
 	}
-	fullPath := filepath.Join(repoRoot, anchor.RepoRelativePath)
-	data, err := os.ReadFile(fullPath)
-	if err != nil {
-		if os.IsNotExist(err) {
-			return coreFlowError("anchor_verification_failed", fmt.Sprintf("anchor verification failed at ordinal %d", ordinal), []map[string]any{
-				{"ordinal": ordinal, "field": "anchor.repoRelativePath", "reason": "file_not_found", "path": anchor.RepoRelativePath, "hint": "file does not exist"},
-			}, true)
-		}
+	rel, pathErr := workspace.NormalizeRepositoryPath(anchor.RepoRelativePath)
+	if pathErr != nil {
 		return coreFlowError("anchor_verification_failed", fmt.Sprintf("anchor verification failed at ordinal %d", ordinal), []map[string]any{
-			{"ordinal": ordinal, "field": "anchor.repoRelativePath", "reason": "file_not_found", "details": err.Error()},
+			{"ordinal": ordinal, "field": "anchor.repoRelativePath", "reason": "path_traversal", "path": anchor.RepoRelativePath},
+		}, true)
+	}
+	data, ok := snapshotFiles[rel]
+	if !ok {
+		return coreFlowError("anchor_verification_failed", fmt.Sprintf("anchor verification failed at ordinal %d", ordinal), []map[string]any{
+			{"ordinal": ordinal, "field": "anchor.repoRelativePath", "reason": "file_not_found", "path": anchor.RepoRelativePath, "hint": "file is not in selected snapshot"},
 		}, true)
 	}
 	// b. fileHash check is not an error — just compute but continue (stale is handled later via freshness)
@@ -488,6 +514,30 @@ func verifyAnchor(repoRoot string, anchor slicing.Anchor, ordinal int) error {
 	}
 	// Optionally also check full dotted chain exists? Simple scan for last segment is sufficient per spec.
 	return nil
+}
+
+func snapshotContentBytes(snapshot interface{ Params() map[string]any }) map[string][]byte {
+	params := snapshot.Params()
+	files := map[string][]byte{}
+	snapshotMap, _ := params["snapshot"].(map[string]any)
+	fileMap, _ := snapshotMap["files"].(map[string]string)
+	for path, content := range fileMap {
+		files[path] = []byte(content)
+	}
+	return files
+}
+
+func snapshotFingerprint(files map[string]string, paths []string) string {
+	h := sha256.New()
+	for _, path := range paths {
+		content, ok := files[path]
+		if !ok {
+			continue
+		}
+		fileHash := sha256.Sum256([]byte(content))
+		_, _ = fmt.Fprintf(h, "%s:%s\n", path, hex.EncodeToString(fileHash[:]))
+	}
+	return hex.EncodeToString(h.Sum(nil))
 }
 
 func lastSegment(dotted string) string {

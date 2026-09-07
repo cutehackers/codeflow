@@ -18,11 +18,11 @@ func TestComputeRequirementAlignment_Matrix(t *testing.T) {
 		},
 		Evidence: []SemanticEvidence{
 			{
-				EvidenceID:       "ev-retry-test",
+				EvidenceID: "ev-retry-test", SourceAuthority: "code", ComputedBasisID: "wsnap-test-1",
 				ValidationStatus: "verified",
 			},
 			{
-				EvidenceID:       "ev-stale-test",
+				EvidenceID: "ev-stale-test", SourceAuthority: "code", ComputedBasisID: "wsnap-test-1",
 				ValidationStatus: "stale", // VS05-A7: stale evidence
 			},
 		},
@@ -60,10 +60,10 @@ func TestComputeRequirementAlignment_Matrix(t *testing.T) {
 		byID[a.CriterionID] = a
 	}
 
-	// 1. AC-1: Confirmed with verified evidence (VS05-A5)
+	// 1. AC-1: Basis evidence without VS-03 current proof stays partial (VS04-A7)
 	ac1 := byID["AC-1"]
-	if ac1.Status != "confirmed" {
-		t.Errorf("AC-1 status = %s, want confirmed", ac1.Status)
+	if ac1.Status != "partial" || ac1.Reason != "awaiting_current_proof" {
+		t.Errorf("AC-1 status = %s reason=%s, want partial/awaiting_current_proof", ac1.Status, ac1.Reason)
 	}
 	if len(ac1.CoveredStepRefs) == 0 || len(ac1.EvidenceRefs) == 0 {
 		t.Errorf("AC-1 missing covered steps or evidence: %+v", ac1)

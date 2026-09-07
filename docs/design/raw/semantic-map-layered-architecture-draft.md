@@ -1971,8 +1971,8 @@ CodeFlow의 다음 원칙은 그대로 유지한다.
 - `HOME/workspace/codeflow/internal/slicing/slice.go`
 - `HOME/workspace/codeflow/internal/fusion/fusion.go`
 - `HOME/workspace/codeflow/internal/fusion/eventlog.go`
-- `HOME/workspace/codeflow/docs/design-v2.md`
-- `HOME/workspace/codeflow/docs/codeflow-production-design-ko.md`
+- `HOME/workspace/codeflow/docs/design/specs/design-v2.md`
+- `HOME/workspace/codeflow/docs/design/specs/codeflow-production-design-ko.md`
 - `HOME/workspace/codeflow/docs/PROJECT-ko.md`
 
 ## 18. MVP 기술 스펙 결정
@@ -2867,8 +2867,8 @@ Evidence Pack은 deterministic graph query로 생성할 수 있으므로 embeddi
 - `HOME/workspace/codeflow/AGENTS.md`
 - `HOME/workspace/codeflow/codeflow.layers.yaml`
 - `HOME/workspace/codeflow/docs/PROJECT-ko.md`
-- `HOME/workspace/codeflow/docs/design-v2.md`
-- `HOME/workspace/codeflow/docs/codeflow-production-design-ko.md`
+- `HOME/workspace/codeflow/docs/design/specs/design-v2.md`
+- `HOME/workspace/codeflow/docs/design/specs/codeflow-production-design-ko.md`
 - `HOME/workspace/codeflow/internal/slicing/slice.go`
 - `HOME/workspace/codeflow/internal/fusion/fusion.go`
 - `HOME/workspace/codeflow/internal/fusion/eventlog.go`

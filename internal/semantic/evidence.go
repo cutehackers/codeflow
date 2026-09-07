@@ -1,97 +1,141 @@
 package semantic
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
-	"os"
-	"path/filepath"
 	"strings"
 
 	"codeflow/internal/fusion"
-	"codeflow/internal/secret"
+	"codeflow/internal/protocol"
+	"codeflow/internal/rflscvs02"
 	"codeflow/internal/slicing"
 )
 
-// EvidenceRecord represents a validated, secret-redacted source or test evidence item.
-type EvidenceRecord struct {
-	EvidenceID       string           `json:"evidenceId"`
-	Kind             string           `json:"kind"` // source | compiler | test | runtime
-	SourceAuthority  string           `json:"sourceAuthority"` // code | test | contract | runtime
-	Anchor           slicing.Anchor   `json:"anchor"`
-	CodeLens         *fusion.CodeLens `json:"codeLens,omitempty"`
-	Snippet          string           `json:"snippet,omitempty"`
-	ValidationStatus string           `json:"validationStatus"`
-	RedactionStatus  string           `json:"redactionStatus"`
+// EvidenceIDForAnchor is the shared namespace for compiler and evidence
+// extraction. It is content-anchor based, not ordinal based.
+func EvidenceIDForAnchor(flowID string, anchor slicing.Anchor) string {
+	raw := strings.Join([]string{flowID, anchor.RepoRelativePath, anchor.EnclosingSymbolPath, anchor.CanonicalAstFingerprint, anchor.FileHash, anchor.SpanHash, fmt.Sprint(anchor.ByteRange[0]), fmt.Sprint(anchor.ByteRange[1])}, "\x00")
+	h := sha256.Sum256([]byte(raw))
+	return "evidence-" + hex.EncodeToString(h[:])[:24]
 }
 
-// ExtractAndRedactEvidence extracts code evidence anchors and CodeLens for each step
-// while strictly maintaining read-only access to product source and enforcing secret redaction
-// (VS02-A5, VS02-A8).
+// EvidenceRecord represents a validated, secret-redacted source or test evidence item.
+type EvidenceRecord struct {
+	EvidenceID         string           `json:"evidenceId"`
+	Kind               string           `json:"kind"`            // source | compiler | test | runtime
+	SourceAuthority    string           `json:"sourceAuthority"` // code | test | contract | runtime
+	SnapshotID         string           `json:"snapshotId,omitempty"`
+	ComputedBasisID    string           `json:"computedBasisId,omitempty"`
+	DocumentRevisionID string           `json:"documentRevisionId,omitempty"`
+	Anchor             slicing.Anchor   `json:"anchor"`
+	CodeLens           *fusion.CodeLens `json:"codeLens,omitempty"`
+	Snippet            string           `json:"snippet,omitempty"`
+	ValidationStatus   string           `json:"validationStatus"`
+	RedactionStatus    string           `json:"redactionStatus"`
+}
+
+// ExtractAndRedactEvidence extracts code evidence through one captured
+// snapshot. It is retained as a compatibility boundary for callers that have
+// not yet threaded a snapshot through their whole request. Production callers
+// should use ExtractAndRedactEvidenceFromSnapshot so harvest, slicing, and
+// evidence all share the same immutable bytes.
 func ExtractAndRedactEvidence(target *ResolvedTarget, payload *slicing.SlicedPayload, repoRoot string) ([]EvidenceRecord, error) {
+	if repoRoot == "" {
+		return nil, fmt.Errorf("repoRoot is required only for the compatibility snapshot boundary")
+	}
+	snapshot, err := protocol.CaptureSnapshot(repoRoot, 0)
+	if err != nil {
+		return nil, fmt.Errorf("capture evidence snapshot: %w", err)
+	}
+	input, err := snapshot.AnalyzerInput()
+	if err != nil {
+		return nil, fmt.Errorf("build evidence snapshot input: %w", err)
+	}
+	return ExtractAndRedactEvidenceFromSnapshot(target, payload, input)
+}
+
+// ExtractAndRedactEvidenceFromSnapshot promotes only evidence ranges that
+// were validated against the supplied immutable snapshot bytes. Missing
+// documents, stale revisions, invalid ranges, and traversal paths are typed
+// failures from rflscvs02.ExtractEvidence. Descriptions are never used as
+// source evidence.
+func ExtractAndRedactEvidenceFromSnapshot(target *ResolvedTarget, payload *slicing.SlicedPayload, snapshot rflscvs02.SnapshotInput) ([]EvidenceRecord, error) {
+	if target == nil {
+		return nil, fmt.Errorf("target cannot be nil")
+	}
 	if payload == nil {
 		return nil, fmt.Errorf("payload cannot be nil")
 	}
 
-	var records []EvidenceRecord
-
-	for _, s := range payload.Steps {
-		evID := fmt.Sprintf("ev-%s-%02d", target.FlowID, s.Ordinal)
-
-		// Read file read-only if within repoRoot
-		relPath := s.Anchor.RepoRelativePath
-		fullPath := filepath.Join(repoRoot, relPath)
-
-		var snippet string
-		startLine := 1
-		endLine := 1
-
-		if data, err := os.ReadFile(fullPath); err == nil {
-			content := string(data)
-			startByte := s.Anchor.ByteRange[0]
-			endByte := s.Anchor.ByteRange[1]
-
-			if startByte >= 0 && endByte <= len(content) && startByte <= endByte {
-				rawSnippet := content[startByte:endByte]
-				// Centralized secret redaction
-				snippet = secret.Redact(rawSnippet).Text
-			}
-
-			// Calculate line numbers
-			linesBefore := strings.Count(content[:startByte], "\n")
-			linesSpan := strings.Count(content[startByte:endByte], "\n")
-			startLine = linesBefore + 1
-			endLine = startLine + linesSpan
-		} else {
-			// Fallback if file not on disk
-			snippet = secret.Redact(s.Description).Text
+	anchors := make([]rflscvs02.EvidenceAnchor, 0, len(payload.Steps))
+	for _, step := range payload.Steps {
+		relPath := step.Anchor.RepoRelativePath
+		doc, ok := snapshot.Document(relPath)
+		if !ok {
+			return nil, &rflscvs02.EvidenceError{Code: "unknown_file", Path: relPath, Detail: "file is not in selected snapshot"}
 		}
+		if strings.TrimSpace(step.Anchor.FileHash) == "" || strings.TrimSpace(step.Anchor.SpanHash) == "" {
+			return nil, &rflscvs02.EvidenceError{Code: "invalid_anchor", Path: relPath, Detail: "fileHash and spanHash are required for verified evidence"}
+		}
+		anchors = append(anchors, rflscvs02.EvidenceAnchor{
+			EvidenceID: EvidenceIDForAnchor(target.FlowID, step.Anchor),
+			Path:       relPath,
+			RevisionID: doc.RevisionID,
+			FileHash:   step.Anchor.FileHash,
+			SpanHash:   step.Anchor.SpanHash,
+			StartByte:  step.Anchor.ByteRange[0],
+			EndByte:    step.Anchor.ByteRange[1],
+		})
+	}
 
-		viewStart := startLine - 4
+	validated, err := rflscvs02.ExtractEvidence(snapshot, anchors)
+	if err != nil {
+		return nil, err
+	}
+	records := make([]EvidenceRecord, 0, len(validated))
+	for i, evidence := range validated {
+		step := payload.Steps[i]
+		viewStart := evidence.LineRange[0] - 4
 		if viewStart < 1 {
 			viewStart = 1
 		}
-		viewEnd := endLine + 10
-
-		cLens := &fusion.CodeLens{
-			Path:          relPath,
-			StartLine:     startLine,
-			EndLine:       endLine,
-			ViewStartLine: viewStart,
-			ViewEndLine:   viewEnd,
+		redactionStatus := evidence.RedactionStatus
+		if redactionStatus == "clean" || redactionStatus == "redacted" {
+			// Preserve the legacy semantic response value while the v2
+			// evidence contract retains its typed clean/redacted status.
+			redactionStatus = "passed"
 		}
-
-		rec := EvidenceRecord{
-			EvidenceID:       evID,
-			Kind:             "source",
-			SourceAuthority:  "code",
-			Anchor:           s.Anchor,
-			CodeLens:         cLens,
-			Snippet:          snippet,
-			ValidationStatus: "verified",
-			RedactionStatus:  "passed",
-		}
-
-		records = append(records, rec)
+		records = append(records, EvidenceRecord{
+			EvidenceID:         evidence.EvidenceID,
+			Kind:               "source",
+			SourceAuthority:    "code",
+			SnapshotID:         evidence.SnapshotID,
+			ComputedBasisID:    evidence.ComputedBasisID,
+			DocumentRevisionID: evidence.DocumentRevisionID,
+			Anchor:             step.Anchor,
+			CodeLens: &fusion.CodeLens{
+				Path:          evidence.Path,
+				StartLine:     evidence.LineRange[0],
+				EndLine:       evidence.LineRange[1],
+				ViewStartLine: viewStart,
+				ViewEndLine:   evidence.LineRange[1] + 10,
+			},
+			Snippet:          evidence.Snippet,
+			ValidationStatus: evidence.ValidationStatus,
+			RedactionStatus:  redactionStatus,
+		})
 	}
-
 	return records, nil
+}
+
+// ExtractAndRedactEvidenceFromProtocolSnapshot is a small adapter for the
+// protocol snapshot used by Core orchestration. Conversion copies the already
+// captured bytes and performs no filesystem reads.
+func ExtractAndRedactEvidenceFromProtocolSnapshot(target *ResolvedTarget, payload *slicing.SlicedPayload, snapshot protocol.Snapshot) ([]EvidenceRecord, error) {
+	input, err := snapshot.AnalyzerInput()
+	if err != nil {
+		return nil, fmt.Errorf("build evidence snapshot input: %w", err)
+	}
+	return ExtractAndRedactEvidenceFromSnapshot(target, payload, input)
 }

@@ -1,0 +1,52 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://codeflow.local/schemas/rflsc.approval-outbox.v1.schema.json",
+  "title": "RFL-SC Approval Outbox v1",
+  "description": "A committed approval event pending post-commit publication.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaId",
+    "schemaVersion",
+    "outboxId",
+    "eventId",
+    "aggregateId",
+    "aggregateVersion",
+    "workspaceId",
+    "payloadDigest",
+    "committedAt",
+    "deliveryState",
+    "committedEvent"
+  ],
+  "properties": {
+    "schemaId": { "const": "https://codeflow.local/schemas/rflsc.approval-outbox.v1.schema.json" },
+    "schemaVersion": { "const": 1 },
+    "outboxId": { "type": "string", "minLength": 1, "maxLength": 256 },
+    "eventId": { "type": "string", "minLength": 1, "maxLength": 256 },
+    "aggregateId": { "type": "string", "minLength": 1, "maxLength": 256 },
+    "aggregateVersion": { "type": "integer", "minimum": 1, "maximum": 1000000000 },
+    "workspaceId": { "type": "string", "maxLength": 256 },
+    "payloadDigest": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
+    "committedAt": { "type": "string", "minLength": 1, "maxLength": 128 },
+    "deliveryState": { "enum": ["pending", "published", "failed"] },
+    "publishedAt": { "type": "string", "maxLength": 128 },
+    "failureReason": { "type": "string", "maxLength": 1024 },
+    "committedEvent": { "$ref": "#/$defs/event" }
+  },
+  "$defs": {
+    "event": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["eventId", "approvalId", "aggregateId", "aggregateVersion", "workspaceId", "decision", "payloadDigest"],
+      "properties": {
+        "eventId": { "type": "string", "minLength": 1, "maxLength": 256 },
+        "approvalId": { "type": "string", "minLength": 1, "maxLength": 256 },
+        "aggregateId": { "type": "string", "minLength": 1, "maxLength": 256 },
+        "aggregateVersion": { "type": "integer", "minimum": 1, "maximum": 1000000000 },
+        "workspaceId": { "type": "string", "maxLength": 256 },
+        "decision": { "enum": ["approve", "edit_then_approve", "reject", "revoke", "supersede"] },
+        "payloadDigest": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" }
+      }
+    }
+  }
+}

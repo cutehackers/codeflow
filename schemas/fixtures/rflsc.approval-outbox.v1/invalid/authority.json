@@ -1,0 +1,21 @@
+{
+  "schemaId": "https://codeflow.local/schemas/rflsc.approval-outbox.v1.schema.json",
+  "schemaVersion": 1,
+  "outboxId": "outbox-1",
+  "eventId": "event-1",
+  "aggregateId": "aggregate-1",
+  "aggregateVersion": 1,
+  "workspaceId": "",
+  "payloadDigest": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+  "committedAt": "2026-09-06T00:00:00Z",
+  "deliveryState": "pending",
+  "committedEvent": {
+    "eventId": "event-1",
+    "approvalId": "approval-1",
+    "aggregateId": "aggregate-1",
+    "aggregateVersion": 1,
+    "workspaceId": "workspace-1",
+    "decision": "approve",
+    "payloadDigest": "sha256:0000000000000000000000000000000000000000000000000000000000000000"
+  }
+}

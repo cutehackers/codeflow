@@ -1,10 +1,55 @@
 package semantic
 
 import (
-	"codeflow/internal/slicing"
 	"errors"
+	"fmt"
 	"testing"
+
+	"codeflow/internal/slicing"
 )
+
+func prepareComparableDeltaMaps(maps ...*SemanticMapIR) {
+	for _, m := range maps {
+		if m.ComputedBasisID == "" {
+			m.ComputedBasisID = "basis-" + m.MapID
+		}
+		if m.GenerationID == "" {
+			m.GenerationID = "generation-" + m.MapID
+		}
+		m.SchemaID = "codeflow.semantic-map-ir"
+		m.Basis.RepositoryID = "repo-test"
+		m.Basis.ComputedWorkspaceSnapshotID = "snapshot-" + m.MapID
+		m.Basis.SnapshotTreeID = "tree-test"
+		m.Basis.DependencyFingerprint = "deps-test"
+		m.Basis.WorkspaceEpoch = 100
+		m.ValidatedAgainstSnapshotID = m.Basis.ComputedWorkspaceSnapshotID
+		if m.Task.TaskID == "" {
+			m.Task.TaskID = "task-delta-test"
+		}
+		if m.Task.Mode == "" {
+			m.Task.Mode = "feature"
+		}
+		for i := range m.Steps {
+			if m.Steps[i].StructuralIdentity == "" {
+				m.Steps[i].StructuralIdentity = fmt.Sprintf("%s\x00%s\x00%s\x00%s", m.Steps[i].Anchor.RepoRelativePath, m.Steps[i].Anchor.EnclosingSymbolPath, m.Steps[i].TechnicalName, m.Steps[i].Kind)
+			}
+		}
+	}
+}
+
+func TestValidateComparableBasesRequiresSharedLogicalScope(t *testing.T) {
+	base := &SemanticMapIR{MapID: "base", GenerationID: "g1", ComputedBasisID: "b1", SchemaVersion: 1, Task: MapTaskContext{TaskID: "task-a", Mode: "feature"}}
+	curr := &SemanticMapIR{MapID: "current", GenerationID: "g2", ComputedBasisID: "b2", SchemaVersion: 1, Task: MapTaskContext{TaskID: "task-b", Mode: "feature"}}
+	prepareComparableDeltaMaps(base, curr)
+	if err := ValidateComparableBases(base, curr); !errors.Is(err, ErrIncomparableBasis) {
+		t.Fatalf("expected unrelated task scopes to be incomparable, got %v", err)
+	}
+	base.Task.TaskID = ""
+	curr.Task.TaskID = ""
+	if err := ValidateComparableBases(base, curr); !errors.Is(err, ErrMissingPrecondition) {
+		t.Fatalf("expected missing task scope to be rejected, got %v", err)
+	}
+}
 
 func TestComputeSemanticDelta_BasisCompatibility(t *testing.T) {
 	// VS05-A2: Missing precondition when baseline or current is nil
@@ -29,6 +74,8 @@ func TestComputeSemanticDelta_BasisCompatibility(t *testing.T) {
 		SchemaVersion: 1,
 		Basis:         MapBasisContext{WorkspaceEpoch: 200},
 	}
+	prepareComparableDeltaMaps(base, curr)
+	curr.Basis.WorkspaceEpoch = 200
 	_, err = ComputeSemanticDelta("comp-1", base, curr)
 	if !errors.Is(err, ErrIncomparableBasis) {
 		t.Errorf("expected ErrIncomparableBasis for epoch mismatch, got %v", err)
@@ -36,6 +83,8 @@ func TestComputeSemanticDelta_BasisCompatibility(t *testing.T) {
 
 	// Incomparable basis when schema versions differ
 	curr.Basis.WorkspaceEpoch = 100
+	curr.SchemaVersion = 2
+	prepareComparableDeltaMaps(base, curr)
 	curr.SchemaVersion = 2
 	_, err = ComputeSemanticDelta("comp-1", base, curr)
 	if !errors.Is(err, ErrIncomparableBasis) {
@@ -100,6 +149,7 @@ func TestComputeSemanticDelta_AddedChangedRemovedAndEvidence(t *testing.T) {
 		},
 	}
 
+	prepareComparableDeltaMaps(base, curr)
 	delta, err := ComputeSemanticDelta("comp-1", base, curr)
 	if err != nil {
 		t.Fatalf("ComputeSemanticDelta failed: %v", err)
@@ -180,16 +230,21 @@ func TestComputeSemanticDelta_EvidenceUpdatedAndStructuralMove(t *testing.T) {
 		},
 	}
 
+	prepareComparableDeltaMaps(base, curr)
 	delta, err := ComputeSemanticDelta("comp-2", base, curr)
 	if err != nil {
 		t.Fatalf("ComputeSemanticDelta failed: %v", err)
 	}
 
-	if len(delta.Changes) != 1 {
-		t.Fatalf("expected exactly 1 semantic change (evidence_updated), got %d", len(delta.Changes))
+	if len(delta.Changes) != 2 {
+		t.Fatalf("expected exactly 2 semantic changes (evidence_updated + structural_only), got %d", len(delta.Changes))
 	}
-	if delta.Changes[0].Kind != "evidence_updated" {
-		t.Errorf("change kind = %s, want evidence_updated", delta.Changes[0].Kind)
+	kinds := map[string]bool{}
+	for _, change := range delta.Changes {
+		kinds[change.Kind] = true
+	}
+	if !kinds["evidence_updated"] || !kinds["structural_only"] {
+		t.Errorf("change kinds = %v, want evidence_updated and structural_only", kinds)
 	}
 	if delta.StructuralSummary.CollapsedStructuralCount != 1 {
 		t.Errorf("collapsed structural count = %d, want 1", delta.StructuralSummary.CollapsedStructuralCount)
@@ -230,6 +285,7 @@ func TestComputeSemanticDelta_RenameMoveStableIdentity(t *testing.T) {
 		},
 	}
 
+	prepareComparableDeltaMaps(base, curr)
 	delta, err := ComputeSemanticDelta("comp-3", base, curr)
 	if err != nil {
 		t.Fatalf("ComputeSemanticDelta failed: %v", err)

@@ -1,0 +1,147 @@
+{
+  "schemaId": "https://codeflow.local/schemas/rflsc.change-impact-graph.v2.schema.json",
+  "schemaVersion": 2,
+  "impactGraphId": "impact-payment-service-basis-impact",
+  "target": { "symbolId": "PaymentService.process" },
+  "computedBasisId": "basis-impact",
+  "generationId": "generation-impact",
+  "validatedAgainstSnapshotId": "snapshot-impact",
+  "freshness": "historical",
+  "directImpact": {
+    "callers": [
+      {
+        "symbolPath": "OrderController.checkout",
+        "name": "OrderController.checkout",
+        "relationKind": "calls",
+        "filePath": "src/controller.go",
+        "depth": 1,
+        "path": ["PaymentService.process", "OrderController.checkout"],
+        "evidenceRefs": ["ev-caller"]
+      }
+    ],
+    "stateMutations": [
+      {
+        "targetState": "cart → paid",
+        "mutationKind": "transition",
+        "terminalSymbolPath": "PaymentState.markPaid",
+        "depth": 1,
+        "path": ["PaymentService.process", "PaymentState.markPaid"],
+        "evidenceRefs": ["ev-mutation"]
+      }
+    ],
+    "externalEffects": [],
+    "relatedFlows": [],
+    "tests": []
+  },
+  "indirectImpact": {
+    "callers": [
+      {
+        "symbolPath": "WebRoute.postOrder",
+        "name": "WebRoute.postOrder",
+        "relationKind": "calls",
+        "filePath": "src/route.go",
+        "depth": 2,
+        "path": ["PaymentService.process", "OrderController.checkout", "WebRoute.postOrder"],
+        "evidenceRefs": ["ev-route"]
+      }
+    ],
+    "stateMutations": [],
+    "externalEffects": [
+      {
+        "effectKind": "api",
+        "target": "Stripe.charge",
+        "terminalSymbolPath": "PaymentGateway.charge",
+        "depth": 2,
+        "path": ["PaymentService.process", "PaymentState.markPaid", "PaymentGateway.charge"],
+        "evidenceRefs": ["ev-effect"]
+      }
+    ],
+    "relatedFlows": [],
+    "tests": [
+      {
+        "testSymbolPath": "test:PaymentFlowTest.success",
+        "testFile": "test/payment_test.go",
+        "terminalSymbolPath": "PaymentFlowTest.success",
+        "depth": 3,
+        "path": ["PaymentService.process", "PaymentState.markPaid", "PaymentGateway.charge", "PaymentFlowTest.success"],
+        "evidenceRefs": ["ev-test"]
+      }
+    ],
+    "maxDepth": 3,
+    "maxNodes": 50,
+    "exploredDepth": 3,
+    "totalNodeCount": 5,
+    "bounded": true,
+    "completedWithinCoverage": true
+  },
+  "frontiers": [],
+  "unresolvedBoundaries": [],
+  "additionalExplorationAvailable": false,
+  "unknownCount": 0,
+  "coverageBoundary": {
+    "includedSourceRoots": ["src", "test"],
+    "excludedReasons": []
+  },
+  "evidence": [
+    {
+      "evidenceId": "ev-caller",
+      "kind": "source",
+      "sourceAuthority": "code",
+      "computedBasisId": "basis-impact",
+      "snapshotId": "snapshot-impact",
+      "validationStatus": "verified",
+      "redactionStatus": "clean",
+      "anchor": { "repoRelativePath": "src/controller.go", "enclosingSymbolPath": "OrderController.checkout", "byteRange": [0, 10] },
+      "byteRange": [0, 10],
+      "lineRange": [1, 1]
+    },
+    {
+      "evidenceId": "ev-mutation",
+      "kind": "source",
+      "sourceAuthority": "code",
+      "computedBasisId": "basis-impact",
+      "snapshotId": "snapshot-impact",
+      "validationStatus": "verified",
+      "redactionStatus": "clean",
+      "anchor": { "repoRelativePath": "src/state.go", "enclosingSymbolPath": "PaymentState.markPaid", "byteRange": [0, 12] },
+      "byteRange": [0, 12],
+      "lineRange": [1, 1]
+    },
+    {
+      "evidenceId": "ev-route",
+      "kind": "source",
+      "sourceAuthority": "code",
+      "computedBasisId": "basis-impact",
+      "snapshotId": "snapshot-impact",
+      "validationStatus": "verified",
+      "redactionStatus": "clean",
+      "anchor": { "repoRelativePath": "src/route.go", "enclosingSymbolPath": "WebRoute.postOrder", "byteRange": [0, 11] },
+      "byteRange": [0, 11],
+      "lineRange": [1, 1]
+    },
+    {
+      "evidenceId": "ev-effect",
+      "kind": "source",
+      "sourceAuthority": "code",
+      "computedBasisId": "basis-impact",
+      "snapshotId": "snapshot-impact",
+      "validationStatus": "verified",
+      "redactionStatus": "clean",
+      "anchor": { "repoRelativePath": "src/gateway.go", "enclosingSymbolPath": "PaymentGateway.charge", "byteRange": [0, 13] },
+      "byteRange": [0, 13],
+      "lineRange": [1, 1]
+    },
+    {
+      "evidenceId": "ev-test",
+      "kind": "test",
+      "sourceAuthority": "test",
+      "computedBasisId": "basis-impact",
+      "snapshotId": "snapshot-impact",
+      "validationStatus": "verified",
+      "redactionStatus": "clean",
+      "anchor": { "repoRelativePath": "test/payment_test.go", "enclosingSymbolPath": "PaymentFlowTest.success", "byteRange": [0, 14] },
+      "byteRange": [0, 14],
+      "lineRange": [1, 1]
+    }
+  ]
+}

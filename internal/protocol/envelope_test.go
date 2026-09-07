@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"strings"
 	"testing"
 )
 
@@ -169,6 +170,25 @@ func TestErrorWireShape(t *testing.T) {
 	}
 	if back.Code != ECancelled || back.Message != "m" || back.Detail != nil {
 		t.Fatalf("bad decode: %+v", &back)
+	}
+}
+
+func TestErrorDiagnosticsRedactBeforeBound(t *testing.T) {
+	secretValue := strings.Repeat("long-secret-value-", 80)
+	e := &Error{
+		Code:    EAdapterInternal,
+		Message: `databasePassword: "` + secretValue + `"`,
+		Detail:  map[string]any{"databasePassword": secretValue, "safe": "visible diagnostic"},
+	}
+	wire, err := json.Marshal(e)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(wire), secretValue[:24]) {
+		t.Fatalf("diagnostic secret leaked before clipping: %s", wire)
+	}
+	if got := e.Error(); strings.Contains(got, secretValue[:24]) {
+		t.Fatalf("Error() leaked diagnostic secret: %s", got)
 	}
 }
 

@@ -11,6 +11,7 @@ library;
 import 'dart:convert';
 import 'dart:io';
 
+import 'analysis_tracker.dart';
 import 'humanize.dart';
 import 'scanner.dart';
 import 'sha256.dart';
@@ -198,12 +199,14 @@ class _ResolverContext {
     required this.packageName,
     required this.boundarySuffixes,
     this.overlay,
+    this.tracker,
   });
 
   final String repoRoot;
   final String packageName;
   final List<String> boundarySuffixes;
   final Map<String, String>? overlay;
+  final AnalysisObservationTracker? tracker;
 
   final Map<String, String> _fileCache = {};
   final Map<String, ScanResult> _scanCache = {};
@@ -211,6 +214,11 @@ class _ResolverContext {
   String? readFile(String repoRelPath) {
     if (_fileCache.containsKey(repoRelPath)) {
       return _fileCache[repoRelPath];
+    }
+    if (tracker != null) {
+      final content = tracker!.read(repoRelPath);
+      if (content != null) _fileCache[repoRelPath] = content;
+      return content;
     }
     if (overlay != null) {
       final content = overlay![repoRelPath];
@@ -545,13 +553,19 @@ Map<String, Object?> sliceCandidate({
   required String entrySymbolPath,
   Map<String, Object?> opts = const {},
   Map<String, String>? contentOverlay,
+  AnalysisObservationTracker? tracker,
 }) {
   final posixRoot = _toPosix(repoRoot);
   final pubspecFile = File('$posixRoot/pubspec.yaml');
   var packageName = '';
-  final pubspecContent = contentOverlay != null
-      ? contentOverlay['pubspec.yaml']
-      : (pubspecFile.existsSync() ? pubspecFile.readAsStringSync() : null);
+  final pubspecContent = tracker != null
+      ? tracker.read('pubspec.yaml')
+      : contentOverlay != null
+          ? contentOverlay['pubspec.yaml']
+          : (pubspecFile.existsSync() ? pubspecFile.readAsStringSync() : null);
+  if (tracker != null && pubspecContent != null) {
+    tracker.recordDependency('pubspec.yaml');
+  }
   if (pubspecContent != null) {
     final match = RegExp(r'^name:\s*([a-zA-Z0-9_]+)', multiLine: true)
         .firstMatch(pubspecContent);
@@ -607,6 +621,7 @@ Map<String, Object?> sliceCandidate({
     packageName: effectivePackageName,
     boundarySuffixes: boundarySuffixes,
     overlay: contentOverlay,
+    tracker: tracker,
   );
 
   final steps = <_SliceStep>[];

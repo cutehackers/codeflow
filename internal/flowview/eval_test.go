@@ -20,14 +20,14 @@ type evalCase struct {
 }
 
 var evalGroundTruth = []evalCase{
-	{"Panel.show", LayerPresentation, false},    // published entry point
+	{"Panel.show", LayerPresentation, false},      // published entry point
 	{"AdminSheet.show", LayerPresentation, false}, // second published entry point
-	{"Dispatcher.run", LayerUsecase, false},     // structural middle, unnamed
-	{"Ledger.commit", LayerData, false},         // pure propagation: caller=middle, callee=persist
-	{"Vault.put", LayerData, false},             // /persist/ path segment
-	{"Gateway.send", LayerExternal, false},      // observed side effect
-	{"Keeper.watch", LayerState, false},         // observed state delta
-	{"Util.doIt", LayerUsecase, true},          // nothing known: honest uncertainty
+	{"Dispatcher.run", LayerUsecase, false},       // structural middle, unnamed
+	{"Ledger.commit", LayerData, false},           // pure propagation: caller=middle, callee=persist
+	{"Vault.put", LayerData, false},               // /persist/ path segment
+	{"Gateway.send", LayerExternal, false},        // observed side effect
+	{"Keeper.watch", LayerState, false},           // observed state delta
+	{"Util.doIt", LayerUsecase, true},             // nothing known: honest uncertainty
 }
 
 func evalDocA() []byte {

@@ -162,8 +162,8 @@ func TestVS02A7_MCPSemanticTools(t *testing.T) {
 	}
 
 	// Verify required sections in result
-	if _, ok := payload["currentAnswer"]; !ok {
-		t.Errorf("missing currentAnswer in query_task_view response: %s", resText)
+	if _, ok := payload["candidateAnswer"]; !ok {
+		t.Errorf("missing candidateAnswer in query_task_view response: %s", resText)
 	}
 	if _, ok := payload["semanticMap"]; !ok {
 		t.Errorf("missing semanticMap in query_task_view response: %s", resText)
@@ -190,7 +190,7 @@ func TestVS02A7_MCPSemanticTools(t *testing.T) {
 	if err := json.Unmarshal([]byte(ansText), &ansPayload); err != nil {
 		t.Fatalf("failed to parse answer JSON: %v, raw: %s", err, ansText)
 	}
-	if _, ok := ansPayload["current"]; !ok {
-		t.Errorf("missing 'current' field in get_current_answer response: %s", ansText)
+	if ansPayload["code"] != "no_current_proof" {
+		t.Errorf("expected typed no_current_proof response, got: %s", ansText)
 	}
 }

@@ -1,0 +1,670 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://codeflow.local/schemas/rflsc.semantic-map-ir.v2.schema.json",
+  "title": "RFL-SC Semantic Map IR v2",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaId",
+    "schemaVersion",
+    "mapId",
+    "generationId",
+    "computedBasisId",
+    "validatedAgainstSnapshotId",
+    "publicationKind",
+    "freshness",
+    "settlement",
+    "enrichmentStatus",
+    "authority",
+    "quality",
+    "task",
+    "basis",
+    "summary",
+    "steps",
+    "edges",
+    "unknowns",
+    "coverage"
+  ],
+  "properties": {
+    "schemaId": {
+      "const": "https://codeflow.local/schemas/rflsc.semantic-map-ir.v2.schema.json"
+    },
+    "schemaVersion": {
+      "const": 2
+    },
+    "mapId": {
+      "type": "string",
+      "minLength": 1
+    },
+    "generationId": {
+      "type": "string",
+      "minLength": 1
+    },
+    "computedBasisId": {
+      "type": "string",
+      "minLength": 1
+    },
+    "validatedAgainstSnapshotId": {
+      "type": "string",
+      "minLength": 1
+    },
+    "generationSequence": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "derivationParent": {
+      "type": "string"
+    },
+    "supersedes": {
+      "type": "string"
+    },
+    "publicationKind": {
+      "enum": [
+        "initial",
+        "checkpoint",
+        "refinement"
+      ]
+    },
+    "freshness": {
+      "enum": [
+        "current",
+        "historical",
+        "invalid"
+      ]
+    },
+    "settlement": {
+      "enum": [
+        "pending",
+        "passed",
+        "failed"
+      ]
+    },
+    "enrichmentStatus": {
+      "enum": [
+        "not_requested",
+        "pending",
+        "available",
+        "timed_out",
+        "unavailable"
+      ]
+    },
+    "authority": {
+      "enum": [
+        "candidate",
+        "historical"
+      ]
+    },
+    "quality": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "stage",
+        "unresolvedCriticalCount",
+        "conflictingCriticalCount"
+      ],
+      "properties": {
+        "stage": {
+          "enum": [
+            "Q1",
+            "Q2",
+            "Q3",
+            "Q4"
+          ]
+        },
+        "criticalObligations": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "obligationId",
+              "kind",
+              "required",
+              "status"
+            ],
+            "properties": {
+              "obligationId": {
+                "type": "string",
+                "minLength": 1
+              },
+              "kind": {
+                "type": "string"
+              },
+              "required": {
+                "type": "boolean"
+              },
+              "targetRef": {
+                "type": "string"
+              },
+              "status": {
+                "enum": [
+                  "pending",
+                  "verified",
+                  "unknown",
+                  "conflicting",
+                  "invalid"
+                ]
+              },
+              "evidenceRefs": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        },
+        "criticalCoverageSummary": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "required": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "verified": {
+              "type": "integer",
+              "minimum": 0
+            }
+          }
+        },
+        "unresolvedCriticalCount": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "conflictingCriticalCount": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "degradations": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "code",
+              "impact",
+              "recoveryCondition"
+            ],
+            "properties": {
+              "code": {
+                "type": "string"
+              },
+              "scopeRefs": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "impact": {
+                "type": "string"
+              },
+              "recoveryCondition": {
+                "type": "string"
+              }
+            }
+          }
+        }
+      }
+    },
+    "task": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "taskId",
+        "intentRevision",
+        "mode"
+      ],
+      "properties": {
+        "taskId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "intentRevision": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "intentStatus": {
+          "type": "string"
+        },
+        "mode": {
+          "type": "string"
+        }
+      }
+    },
+    "basis": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "repositoryId",
+        "workspaceEpoch",
+        "computedWorkspaceSnapshotId",
+        "computedBasisId",
+        "snapshotTreeId",
+        "dependencyFingerprint",
+        "analysisReadSetId",
+        "causalObservationClosureId"
+      ],
+      "properties": {
+        "repositoryId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "worktreeId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "workspaceEpoch": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "computedWorkspaceSnapshotId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "computedBasisId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "snapshotTreeId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "dependencyFingerprint": {
+          "type": "string",
+          "minLength": 1
+        },
+        "configurationFingerprint": {
+          "type": "string"
+        },
+        "analysisReadSetId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "causalObservationClosureId": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "summary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "requested",
+        "current"
+      ],
+      "properties": {
+        "requested": {
+          "type": "string"
+        },
+        "current": {
+          "type": "string"
+        }
+      }
+    },
+    "steps": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "stepId",
+          "structuralIdentity",
+          "ordinal",
+          "name",
+          "anchor",
+          "evidenceRefs"
+        ],
+        "properties": {
+          "stepId": {
+            "type": "string",
+            "minLength": 1
+          },
+          "structuralIdentity": {
+            "type": "string",
+            "minLength": 1
+          },
+          "ordinal": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "name": {
+            "type": "string"
+          },
+          "technicalName": {
+            "type": "string"
+          },
+          "layer": {
+            "type": "string"
+          },
+          "kind": {
+            "type": "string"
+          },
+          "anchor": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "repoRelativePath",
+              "byteRange",
+              "fileHash",
+              "spanHash",
+              "enclosingSymbolPath",
+              "canonicalAstFingerprint"
+            ],
+            "properties": {
+              "repoRelativePath": {
+                "type": "string",
+                "minLength": 1
+              },
+              "byteRange": {
+                "type": "array",
+                "prefixItems": [
+                  {
+                    "type": "integer",
+                    "minimum": 0
+                  },
+                  {
+                    "type": "integer",
+                    "minimum": 0
+                  }
+                ],
+                "minItems": 2,
+                "maxItems": 2
+              },
+              "fileHash": {
+                "type": "string",
+                "minLength": 1
+              },
+              "spanHash": {
+                "type": "string",
+                "minLength": 1
+              },
+              "enclosingSymbolPath": {
+                "type": "string"
+              },
+              "canonicalAstFingerprint": {
+                "type": "string"
+              },
+              "symbolRange": {
+                "type": "array",
+                "prefixItems": [
+                  {
+                    "type": "integer",
+                    "minimum": 0
+                  },
+                  {
+                    "type": "integer",
+                    "minimum": 0
+                  }
+                ],
+                "minItems": 2,
+                "maxItems": 2
+              }
+            }
+          },
+          "codeLens": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "path",
+              "startLine",
+              "endLine"
+            ],
+            "properties": {
+              "path": {
+                "type": "string"
+              },
+              "startLine": {
+                "type": "integer",
+                "minimum": 1
+              },
+              "endLine": {
+                "type": "integer",
+                "minimum": 1
+              },
+              "viewStartLine": {
+                "type": "integer",
+                "minimum": 1
+              },
+              "viewEndLine": {
+                "type": "integer",
+                "minimum": 1
+              }
+            }
+          },
+          "stateDelta": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "before",
+              "after"
+            ],
+            "properties": {
+              "before": {
+                "type": "string"
+              },
+              "after": {
+                "type": "string"
+              }
+            }
+          },
+          "sideEffect": {
+            "type": "string"
+          },
+          "branch": {
+            "type": "string"
+          },
+          "rules": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "evidenceRefs": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1
+            }
+          }
+        }
+      }
+    },
+    "edges": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "fromStepId",
+          "toStepId",
+          "toSymbolPath",
+          "kind",
+          "resolutionStatus"
+        ],
+        "properties": {
+          "fromStepId": {
+            "type": "string",
+            "minLength": 1
+          },
+          "toStepId": {
+            "type": "string",
+            "minLength": 1
+          },
+          "toSymbolPath": {
+            "type": "string",
+            "minLength": 1
+          },
+          "kind": {
+            "type": "string",
+            "minLength": 1
+          },
+          "resolutionStatus": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      }
+    },
+    "boundaryTargets": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    },
+    "requirementAlignment": {
+      "type": "array",
+      "items": {
+        "type": "object"
+      }
+    },
+    "evidence": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "evidenceId",
+          "kind",
+          "sourceAuthority",
+          "anchor",
+          "validationStatus",
+          "snapshotId",
+          "byteRange",
+          "lineRange"
+        ],
+        "properties": {
+          "evidenceId": {
+            "type": "string",
+            "minLength": 1
+          },
+          "kind": {
+            "type": "string"
+          },
+          "sourceAuthority": {
+            "enum": [
+              "code",
+              "test",
+              "contract",
+              "runtime"
+            ]
+          },
+          "computedBasisId": {
+            "type": "string"
+          },
+          "documentRevisionId": {
+            "type": "string",
+            "minLength": 1
+          },
+          "anchor": {
+            "type": "object"
+          },
+          "producer": {
+            "type": "object"
+          },
+          "validationStatus": {
+            "enum": [
+              "verified",
+              "unknown",
+              "invalid",
+              "stale",
+              "orphaned"
+            ]
+          },
+          "redactionStatus": {
+            "type": "string"
+          },
+          "snapshotId": {
+            "type": "string",
+            "minLength": 1
+          },
+          "byteRange": {
+            "type": "array",
+            "minItems": 2,
+            "maxItems": 2,
+            "items": {
+              "type": "integer",
+              "minimum": 0
+            }
+          },
+          "lineRange": {
+            "type": "array",
+            "minItems": 2,
+            "maxItems": 2,
+            "items": {
+              "type": "integer",
+              "minimum": 1
+            }
+          }
+        }
+      }
+    },
+    "unknowns": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "subject",
+          "reason"
+        ],
+        "properties": {
+          "subject": {
+            "type": "string"
+          },
+          "reason": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "coverage": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "includedSourceRoots": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "excludedReasons": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      }
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "required": ["settlement"],
+        "properties": { "settlement": { "const": "passed" } }
+      },
+      "then": {
+        "properties": {
+          "quality": {
+            "properties": {
+              "stage": { "enum": ["Q3", "Q4"] },
+              "unresolvedCriticalCount": { "const": 0 },
+              "conflictingCriticalCount": { "const": 0 },
+              "criticalObligations": {
+                "items": {
+                  "if": {
+                    "required": ["required"],
+                    "properties": { "required": { "const": true } }
+                  },
+                  "then": { "properties": { "status": { "const": "verified" } } }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  ]
+}

@@ -125,3 +125,55 @@ func TestTypeScriptSlicingIntegration(t *testing.T) {
 		t.Errorf("expected boundary_call edge in slice payload, got: %+v", payload.Edges)
 	}
 }
+
+func TestSliceCacheHitIsSnapshotAndBasisBound(t *testing.T) {
+	root := t.TempDir()
+	bin := filepath.Join(t.TempDir(), "mockadapter")
+	build := exec.Command("go", "build", "-o", bin, "./internal/mockadapter")
+	build.Dir = moduleRoot(t)
+	if output, err := build.CombinedOutput(); err != nil {
+		t.Fatalf("build mock adapter: %v\n%s", err, output)
+	}
+
+	snapshot, err := protocol.NewSnapshot(4, map[string]string{
+		"mock.dart": "class Mock { void run() {} }\n",
+	}, "slice-cache-basis-a")
+	if err != nil {
+		t.Fatal(err)
+	}
+	const candidateID = "cand-cache0001"
+	const entry = "mock.dart#Mock.run"
+	p := protocol.NewPool(protocol.Config{BinPath: bin}, 1)
+	runner := slicing.NewRunner(p)
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	first, err := runner.SliceWithSnapshot(ctx, root, candidateID, entry, nil, snapshot)
+	if err != nil {
+		t.Fatalf("first slice: %v", err)
+	}
+	if first.CandidateID != candidateID || first.EntrySymbolPath != entry {
+		t.Fatalf("first slice identity = %q/%q", first.CandidateID, first.EntrySymbolPath)
+	}
+
+	// Closing the pool makes any adapter call fail. A successful second call
+	// therefore proves the cache hit returns the v2 operation payload directly.
+	p.Close()
+	second, err := runner.SliceWithSnapshot(ctx, root, candidateID, entry, nil, snapshot)
+	if err != nil {
+		t.Fatalf("cache hit after adapter pool close: %v", err)
+	}
+	if second.CandidateID != first.CandidateID || second.EntrySymbolPath != first.EntrySymbolPath {
+		t.Fatalf("cache hit changed payload identity: first=%+v second=%+v", first, second)
+	}
+
+	wrongBasis, err := protocol.NewSnapshot(4, map[string]string{
+		"mock.dart": "class Mock { void run() {} }\n",
+	}, "slice-cache-basis-b")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := runner.SliceWithSnapshot(ctx, root, candidateID, entry, nil, wrongBasis); err == nil {
+		t.Fatal("cache entry from a different snapshot basis was reused")
+	}
+}

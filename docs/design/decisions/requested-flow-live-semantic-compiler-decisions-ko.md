@@ -2,9 +2,10 @@
 
 - Record Status: Accepted
 - Created: 2026-09-02
+- Last Amended: 2026-09-04
 - Parent Contract: `docs/design/specs/2026-09-02-requested-flow-live-semantic-compiler-ko.md`
-- Source: `docs/design/raw/requested-flow-live-semantic-compiler-architecture-draft-ko.md` Section 4
-- Approval Basis: 사용자가 D1–D32를 승인된 권위로 지정함
+- Source: `docs/design/raw/requested-flow-live-semantic-compiler-architecture-draft-ko.md` Section 4; user-provided Review No.1–No.3
+- Approval Basis: 사용자가 D1–D32를 승인된 권위로 지정하고 2026-09-04 D33–D34 권고안을 승인함
 - Open Decisions: 없음
 
 이 파일은 사용자가 지정한 project-specific consolidated decision log다. 각 항목은 최신 Raw Spec의 결정 의미를 변경하지 않고 context, rejected alternative, rationale, consequence와 contract trace를 명시한다. 이전 `SMAP`과 `ADAPTER-PROTOCOL-V2-MIGRATION`의 결정은 historical이며 이 기록과 Parent Contract가 현재 권위다.
@@ -425,10 +426,62 @@
 - Contract Trace: INV-25, A2.
 - Follow-up: hidden-critical rejection과 budget overflow fixture를 작성한다.
 
+<a id="d33"></a>
+## D33 · workspaceEpoch 정규 타입 통일
+
+- Status: Accepted
+- Context: workspace, adapter, semantic map과 active pointer 계약이 같은 epoch를 string과 integer로 다르게 표현하여 cross-artifact 비교와 stale-result 차단이 불가능하거나 우회될 수 있다.
+- Decision: 모든 canonical payload의 `workspaceEpoch`를 0 이상의 durable integer로 통일하고 같은 repository/worktree lineage에서 단조 증가시킨다. 이 값은 호환 가능한 workspace lineage를 식별하며 snapshot, generation, event 또는 document sequence와 혼용하지 않는다.
+- Rejected Alternative: opaque string epoch를 유지하거나 boundary별 변환으로 두 타입을 계속 지원한다.
+- Rationale: Raw의 numeric epoch 예시와 adapter·SemanticMap 계약을 하나로 정규화하고 equality, schema validation과 incompatible-workspace 거절을 결정론적으로 만든다.
+- Consequences: incompatible string epoch schema는 새 version으로 교체한다. 기존 payload는 silent coercion하지 않고 원본을 historical로 보존하며 새 integer epoch의 live state를 재생성한다.
+- Source / Evidence: Raw §7.7, §10.2–§10.11, §12.8, §13.2; Review No.2 Q1/F18; 사용자 결정 2026-09-04.
+- Contract Trace: HINV-05–HINV-06, HINV-22, FA-05, FA-25–FA-26.
+- Follow-up: migration 전에 persisted string epoch artifact의 retention과 history 조회 사용처를 조사한다.
+
+<a id="d34"></a>
+## D34 · 로컬 Semantic Approval 인증과 영속성 경계
+
+- Status: Accepted
+- Context: 현재 approval handler는 실제 proposal과 Evidence Pack을 확인하지 않고 합성 객체를 승인할 수 있으며 승인 상태가 재시작 후 사라질 수 있다. Review No.3은 cryptographic signature를 제안했지만 Raw는 로컬 사용자 의미 승인과 별도 authority log를 요구한다.
+- Decision: Semantic Approval은 인증된 로컬 actor, 실제 저장된 proposal, verified Evidence Pack, current basis, Task Intent revision과 idempotency key를 검증하고 append-only log에 영속화한다. approve, edit-then-approve, reject, revoke와 supersede를 지원한다.
+- Rejected Alternative: actor name 문자열만으로 승인하거나 Ed25519 같은 cryptographic non-repudiation을 현재 계약에 필수화한다.
+- Rationale: 실제 승인과 재시도·stale 요청의 무결성을 보장하면서 Raw에 없는 원격 신뢰 모델을 추가하지 않는다.
+- Consequences: 승인은 의미 표현에만 권위를 부여하고 Fact, Evidence, Requirement Alignment, freshness와 settlement를 변경하지 않는다. 원격 다중 사용자 또는 법적 감사 요구가 생기면 별도 보안 amendment가 필요하다.
+- Source / Evidence: Raw D3, D5, D20, §10.7–§10.9, §11, §21.7; Review No.1 F7, Review No.2 F16, Review No.3 §2; 사용자 결정 2026-09-04.
+- Contract Trace: HINV-32–HINV-34, FA-23–FA-24.
+- Follow-up: remote multi-user와 non-repudiation 요구가 생기는 시점에 signature와 key lifecycle을 결정한다.
+
+<a id="d35"></a>
+## D35 · 기존 Vertical Slice 완료 상태 무효화
+
+- Status: Accepted
+- Context: VS-01~10은 구현·검증 완료로 표시됐지만 세 차례 리뷰가 공통 snapshot, closure, publication, Evidence, graph, approval와 release 전제의 위반을 확인했다.
+- Decision: 기존 slice의 production code 존재와 일반 테스트 통과는 보존하되 계약 완료 증거로 인정하지 않는다. 모든 slice를 Proposed, conformance not established, Independent Review Pending으로 되돌린다.
+- Rejected Alternative: 문서상 Implemented 상태를 유지한 채 결함만 후속 backlog로 관리한다.
+- Rationale: hard invariant가 실패한 상태에서 완료 표시는 Raw D1, D24, D28과 capability truthfulness를 위반한다.
+- Consequences: 각 slice는 amended parent trace, adversarial acceptance와 Verification Plan을 다시 갖추고 complete slice set 독립 review 및 사용자 승인을 받아야 한다.
+- Source / Evidence: Review No.1–No.3; Codify amendment lifecycle; parent Implementation Conformance audit.
+- Contract Trace: Parent §13–§14, FA-29–FA-32.
+- Follow-up: Slice 단계에서 기존 계약을 Codify 표준 `.tasks/` 위치로 amend 또는 재발행한다.
+
+<a id="d36"></a>
+## D36 · release gate의 evidence-only 판정
+
+- Status: Accepted
+- Context: 현재 evaluator는 비어 있는 입력을 315ms, precision 0.93, recall 0.90으로 채우고 Raw에 없는 500ms와 0.85 threshold로 스스로 통과할 수 있다. 기존 VS-10에는 Raw가 승인하지 않은 95% critical semantic closure 기준도 기록돼 있다.
+- Decision: release evaluator는 versioned corpus, declared environment profile과 실행에서 나온 immutable report만 소비한다. 필수 입력 또는 승인된 threshold가 없으면 evaluation은 incomplete이고 `releaseReady=false`다.
+- Rejected Alternative: default passing metric, 단일 정상 경로 테스트 또는 임의 threshold로 capability를 GA 처리한다.
+- Rationale: Raw의 P95 3초 end-to-end UX SLO와 correctness hard invariant를 유지하고 측정하지 않은 품질을 성공으로 표현하지 않는다.
+- Consequences: precision, recall, comprehension, critical closure와 resource threshold는 실제 분포를 수집한 뒤 release profile decision으로 승인해야 한다.
+- Source / Evidence: Raw D9, D24, D28, §16–§18, A23–A28; Review No.1 F3, Review No.2 F7, Review No.3 DEF-01.
+- Contract Trace: HINV-35–HINV-36, FA-29–FA-30.
+- Follow-up: approved benchmark profile이 생길 때 별도 decision entry를 추가한다.
+
 ## Decision Set Completion
 
-- Accepted decisions: D1–D32
+- Accepted decisions: D1–D36
 - Missing decision records: 0
 - Blocking Open Decisions: 0
-- Parent acceptance trace: A1–A28 → the corresponding Vertical Slice acceptance and evidence records
+- Parent acceptance trace: Raw A1–A28 and amended FA-01–FA-33 → R2 Vertical Slice acceptance and evidence records
 - Superseded predecessor decision authority: `SMAP`, `ADAPTER-PROTOCOL-V2-MIGRATION`

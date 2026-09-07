@@ -1,0 +1,131 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://codeflow.local/schemas/rflsc.adapter-capability-matrix.v1.schema.json",
+  "title": "CodeFlow R2 Adapter Capability Matrix",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaId", "schemaVersion", "measurements"],
+  "properties": {
+    "schemaId": { "const": "https://codeflow.local/schemas/rflsc.adapter-capability-matrix.v1.schema.json" },
+    "schemaVersion": { "const": 1 },
+    "measurements": { "type": "array", "minItems": 3, "maxItems": 3, "items": { "$ref": "#/$defs/measurement" } },
+    "generatedAt": { "type": "string", "maxLength": 64 },
+    "expiresAt": { "type": "string", "maxLength": 64 },
+    "provenance": {
+      "type": "object",
+      "additionalProperties": { "$ref": "#/$defs/provenance" }
+    }
+  },
+  "$defs": {
+    "provenance": {
+      "type": "object", "additionalProperties": false,
+      "required": ["status"],
+      "properties": {
+        "status": { "enum": ["measured", "unsupported"] },
+        "measuredAt": { "type": "string", "maxLength": 64 },
+        "expiresAt": { "type": "string", "maxLength": 64 },
+        "evidence": { "type": "array", "maxItems": 32, "items": { "type": "string", "maxLength": 256 } }
+      },
+      "allOf": [
+        {
+          "if": { "properties": { "status": { "const": "measured" } } },
+          "then": {
+            "required": ["measuredAt", "expiresAt", "evidence"],
+            "properties": {
+              "measuredAt": { "minLength": 1 },
+              "expiresAt": { "minLength": 1 },
+              "evidence": {
+                "minItems": 10,
+                "contains": { "const": "initialize" },
+                "allOf": [
+                  { "contains": { "const": "protocol_conformance" } },
+                  { "contains": { "pattern": "^probe:.+" } },
+                  { "contains": { "const": "observation:snapshot_bytes" } },
+                  { "contains": { "const": "observation:read_set" } },
+                  { "contains": { "const": "observation:membership" } },
+                  { "contains": { "const": "observation:negative_lookup" } },
+                  { "contains": { "const": "observation:dependency_frontier" } },
+                  { "contains": { "const": "open_on_missing" } },
+                  { "contains": { "const": "read_only_source" } }
+                ]
+              }
+            }
+          }
+        }
+      ]
+    },
+    "measurement": {
+      "type": "object", "additionalProperties": false,
+      "required": ["adapter", "analyzerRevision", "measurementId", "status", "features", "unsupported"],
+      "properties": {
+        "adapter": { "type": "string", "enum": ["dart", "typescript", "go"] },
+        "adapterVersion": { "type": "string", "maxLength": 256 },
+        "protocolVersion": { "type": "integer", "minimum": 1 },
+        "analyzerRevision": { "type": "string", "maxLength": 256 },
+        "measurementId": { "type": "string", "minLength": 1, "maxLength": 256 },
+        "status": { "enum": ["measured", "unsupported"] },
+        "features": { "type": "array", "maxItems": 128, "items": { "type": "string", "maxLength": 128 } },
+        "unsupported": { "type": "array", "maxItems": 128, "items": { "type": "string", "maxLength": 128 } },
+        "evidence": { "type": "array", "maxItems": 32, "items": { "type": "string", "maxLength": 256 } }
+      },
+      "allOf": [
+        {
+          "if": { "properties": { "status": { "const": "measured" } } },
+          "then": {
+            "required": ["adapterVersion", "protocolVersion", "evidence"],
+            "properties": {
+              "adapterVersion": { "minLength": 1 },
+              "protocolVersion": { "minimum": 1 },
+              "analyzerRevision": { "minLength": 1 },
+              "features": { "minItems": 1 },
+              "evidence": {
+                "minItems": 10,
+                "contains": { "const": "initialize" },
+                "allOf": [
+                  { "contains": { "const": "protocol_conformance" } },
+                  { "contains": { "pattern": "^probe:.+" } },
+                  { "contains": { "const": "observation:snapshot_bytes" } },
+                  { "contains": { "const": "observation:read_set" } },
+                  { "contains": { "const": "observation:membership" } },
+                  { "contains": { "const": "observation:negative_lookup" } },
+                  { "contains": { "const": "observation:dependency_frontier" } },
+                  { "contains": { "const": "open_on_missing" } },
+                  { "contains": { "const": "read_only_source" } }
+                ]
+              }
+            }
+          }
+        },
+        {
+          "if": { "properties": { "status": { "const": "unsupported" } } },
+          "then": {
+            "properties": {
+              "features": { "maxItems": 0 }
+            }
+          }
+        }
+      ]
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "measurements": {
+            "contains": { "properties": { "status": { "const": "measured" } } }
+          }
+        }
+      },
+      "then": {
+        "required": ["generatedAt", "expiresAt", "provenance"],
+        "properties": {
+          "generatedAt": { "minLength": 1 },
+          "expiresAt": { "minLength": 1 },
+          "provenance": {
+            "required": ["dart", "typescript", "go"]
+          }
+        }
+      }
+    }
+  ]
+}

@@ -1,0 +1,19 @@
+{
+  "schemaId": "https://codeflow.local/schemas/rflsc.domain-overview.v2.schema.json",
+  "schemaVersion": 2,
+  "repositoryId": "repo-vs07",
+  "computedBasisId": "basis-vs07",
+  "generationId": "generation-vs07",
+  "validatedAgainstSnapshotId": "snapshot-vs07",
+  "freshness": "historical",
+  "domains": [
+    {"domainId": "domain-z", "name": "Zeta", "responsibility": "z", "description": "z", "representativeFlowCount": 1, "entryPoints": ["z#entry"], "rationale": "z", "evidenceRefs": ["ev-z"], "confidence": 0.75, "epistemicState": "candidate", "coverageBoundary": {"includedSourceRoots": ["z"], "excludedReasons": []}, "selectionReason": "candidate", "redactionStatus": "clean"},
+    {"domainId": "domain-a", "name": "Alpha", "responsibility": "a", "description": "a", "representativeFlowCount": 1, "entryPoints": ["a#entry"], "rationale": "a", "evidenceRefs": ["ev-a"], "confidence": 0.75, "epistemicState": "candidate", "coverageBoundary": {"includedSourceRoots": ["a"], "excludedReasons": []}, "selectionReason": "candidate", "redactionStatus": "clean"}
+  ],
+  "unmappedModules": [], "unknowns": [],
+  "coverageBoundary": {"includedSourceRoots": ["a", "z"], "excludedReasons": []},
+  "recoveryGuidance": [],
+  "summary": {"totalDomains": 2, "totalFlows": 2, "coverageRatio": 1},
+  "redactionStatus": "clean",
+  "orderingProbe": true
+}

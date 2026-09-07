@@ -1,0 +1,22 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://codeflow.local/schemas/rflsc.event-envelope.v2.schema.json",
+  "title": "RFL-SC Event Envelope v2",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaId", "schemaVersion", "streamId", "sequence", "eventId", "eventType", "occurredAt"],
+  "properties": {
+    "schemaId": { "const": "https://codeflow.local/schemas/rflsc.event-envelope.v2.schema.json" },
+    "schemaVersion": { "const": 2 },
+    "streamId": { "type": "string", "minLength": 1 },
+    "sequence": { "type": "integer", "minimum": 1 },
+    "eventId": { "type": "string", "minLength": 1 },
+    "eventType": { "enum": ["activity.updated", "generation.published", "generation.gap", "approval.updated", "snapshot_sync"] },
+    "occurredAt": { "type": "string", "format": "date-time" },
+    "computedBasisId": { "type": ["string", "null"], "pattern": "^[a-f0-9]{64}$" },
+    "validatedAgainstSnapshotId": { "type": ["string", "null"], "minLength": 1, "maxLength": 256 },
+    "generationId": { "type": ["string", "null"] },
+    "payloadRef": { "type": ["string", "null"], "minLength": 1 },
+    "data": { "type": "object" }
+  }
+}

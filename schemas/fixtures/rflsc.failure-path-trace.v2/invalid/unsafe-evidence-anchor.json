@@ -1,0 +1,30 @@
+{
+  "schemaId": "https://codeflow.local/schemas/rflsc.failure-path-trace.v2.schema.json",
+  "schemaVersion": 2,
+  "traceId": "trace-vs06",
+  "mode": "debug",
+  "computedBasisId": "basis-vs06",
+  "generationId": "generation-vs06",
+  "validatedAgainstSnapshotId": "snapshot-vs06",
+  "freshness": "historical",
+  "failureTarget": { "error": "PaymentDeclined" },
+  "nodes": [{ "nodeId": "node-throw", "symbolPath": "PaymentGateway.charge", "role": "throw", "status": "static_candidate", "evidenceRefs": ["ev-failure"] }],
+  "relationships": [],
+  "timeline": [],
+  "unknownCount": 0,
+  "hasConflicts": false,
+  "summary": { "description": "invalid", "lastConfirmedState": "unknown" },
+  "staticEvidence": [{
+    "evidenceId": "ev-failure",
+    "kind": "source",
+    "sourceAuthority": "code",
+    "computedBasisId": "basis-vs06",
+    "snapshotId": "snapshot-vs06",
+    "anchor": { "repoRelativePath": "../secret.go", "byteRange": [0, 1], "fileHash": "file", "spanHash": "span", "enclosingSymbolPath": "PaymentGateway.charge" },
+    "validationStatus": "verified",
+    "redactionStatus": "clean"
+  }],
+  "unknownFrontier": [],
+  "recoveryStates": [],
+  "coverage": { "complete": true, "confirmedNodeCount": 1, "confirmedEdgeCount": 0, "unresolvedEdgeCount": 0 }
+}

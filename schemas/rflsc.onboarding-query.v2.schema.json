@@ -1,0 +1,29 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://codeflow.local/schemas/rflsc.onboarding-query.v2.schema.json",
+  "title": "RFL-SC Onboarding Query v2",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaId", "schemaVersion", "repositoryId", "computedBasisId", "generationId", "validatedAgainstSnapshotId", "freshness", "level"],
+  "properties": {
+    "schemaId": { "const": "https://codeflow.local/schemas/rflsc.onboarding-query.v2.schema.json" },
+    "schemaVersion": { "const": 2 },
+    "repositoryId": { "type": "string", "minLength": 1 },
+    "computedBasisId": { "type": "string", "minLength": 1 },
+    "generationId": { "type": "string", "minLength": 1 },
+    "validatedAgainstSnapshotId": { "type": "string", "minLength": 1 },
+    "freshness": { "enum": ["current", "historical"] },
+    "level": { "type": "integer", "enum": [1, 2] },
+    "domain": { "type": "string" },
+    "displayBudget": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["targetMin", "targetMax", "enforcement"],
+      "properties": {
+        "targetMin": { "type": "integer", "minimum": 0 },
+        "targetMax": { "type": "integer", "minimum": 0 },
+        "enforcement": { "const": "soft" }
+      }
+    }
+  }
+}
