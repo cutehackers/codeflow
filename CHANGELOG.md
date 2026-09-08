@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [v0.4.0] - 2026-09-07
+
+### Added
+- Live semantic compiler with evidence-bound current-or-gap publication, semantic approval, failure tracing, impact analysis, and project-domain exploration.
+- `flowmeter` fixed-corpus performance measurement and fail-closed VS-10 release evidence collection.
+- Executable VS-01 through VS-09 acceptance registries and release capability evaluation.
+
+### Changed
+- Core and the actively changed Dart, TypeScript, and Go adapters now report version 0.4.0.
+
 ## [v0.3.6] - 2026-09-01
 
 ### Added

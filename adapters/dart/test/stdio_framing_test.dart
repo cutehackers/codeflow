@@ -90,7 +90,7 @@ void main() {
       expect(responses[0]['id'], 'p1');
       expect(responses[0]['ok'], true);
       expect(responses[0]['result'], {
-        'adapterVersion': '0.1.0',
+        'adapterVersion': '0.4.0',
         'protocolVersion': 1,
       });
 

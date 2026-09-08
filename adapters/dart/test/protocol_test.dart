@@ -103,7 +103,7 @@ void main() {
     expect(r.keys.toSet(), {'id', 'ok', 'result'});
     expect(r['id'], 'abc-1');
     expect(r['ok'], true);
-    expect(r['result'], {'adapterVersion': '0.1.0', 'protocolVersion': 1});
+    expect(r['result'], {'adapterVersion': '0.4.0', 'protocolVersion': 1});
   });
 
   test('missing or non-integer v => E_UNSUPPORTED_VERSION', () {

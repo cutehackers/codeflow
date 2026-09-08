@@ -73,7 +73,7 @@ function run() {
   assert.strictEqual(ping.id, 'req-1');
   assert.strictEqual(ping.ok, true);
   assert.strictEqual(ping.result.protocolVersion, 1);
-  assert.strictEqual(ping.result.adapterVersion, '0.1.0');
+  assert.strictEqual(ping.result.adapterVersion, '0.4.0');
 
   // 2. Unsupported protocol version
   const badVer = handleRequest({ v: 2, id: 'req-2', op: 'ping', params: {} });

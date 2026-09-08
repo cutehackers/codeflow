@@ -27,8 +27,8 @@ import (
 const (
 	jsonRPCVersion          = "2.0"
 	protocolVersion         = 1
-	adapterVersion          = "0.1.0"
-	analyzerVersion         = "go-structural/0.1.0"
+	adapterVersion          = "0.4.0"
+	analyzerVersion         = "go-structural/0.4.0"
 	maxMessageBytes         = int64(1 << 20)
 	maxHeaderBytes          = 8 << 10
 	analysisSchemaID        = "https://codeflow.local/schemas/adapter-analysis.schema.json"

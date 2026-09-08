@@ -9,8 +9,8 @@ const SCHEMA_ID = 'https://codeflow.local/schemas/adapter-analysis.schema.json';
 const READ_SET_SCHEMA_ID = 'https://codeflow.local/schemas/analysis-read-set.schema.json';
 const CLOSURE_SCHEMA_ID = 'https://codeflow.local/schemas/causal-observation-closure.schema.json';
 const PROTOCOL_VERSION = 1;
-const ADAPTER_VERSION = '0.1.0';
-const ANALYZER_VERSION = 'typescript-structural/0.1.0';
+const ADAPTER_VERSION = '0.4.0';
+const ANALYZER_VERSION = 'typescript-structural/0.4.0';
 const MAX_DOCUMENTS = 4096;
 
 function sha256(value) {

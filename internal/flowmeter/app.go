@@ -21,6 +21,9 @@ const helpText = `flowmeter는 고정된 CodeFlow benchmark corpus로 성능을 
   flowmeter run              현재 CodeFlow 빌드의 성능을 측정합니다.
   flowmeter compare          같은 corpus와 환경의 최근 두 결과를 비교합니다.
 
+v0.4.0 release 근거 수집:
+  flowmeter release collect --target-version v0.4.0
+
 VS-10 release evidence 고급 사용법:
   flowmeter prepare --dir <경로>          12개 시나리오의 측정 계획을 준비합니다.
   flowmeter run --dir <경로>              계획의 수집 명령을 실행합니다.
@@ -39,6 +42,9 @@ func Run(ctx context.Context, args []string, stdin io.Reader, stdout io.Writer, 
 	}
 	if args[0] == "prepare" {
 		return runPrepare(ctx, args[1:], stdin, stdout, stderr)
+	}
+	if args[0] == "release" {
+		return runRelease(ctx, args[1:], stdin, stdout, stderr)
 	}
 	if args[0] == "run" {
 		if len(args) == 1 || args[1] != "--dir" {

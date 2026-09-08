@@ -42,16 +42,16 @@ func TestInitCreatesWorkspaceOnDartProject(t *testing.T) {
 	if !res.Created {
 		t.Error("Created = false on fresh repo")
 	}
-	if res.Pins["dart"] != "0.1.0" {
-		t.Errorf("pin dart = %q, want 0.1.0", res.Pins["dart"])
+	if res.Pins["dart"] != "0.4.0" {
+		t.Errorf("pin dart = %q, want 0.4.0", res.Pins["dart"])
 	}
 	raw := readManifestRaw(t, repoRoot)
-	for _, want := range []string{`"schemaVersion": "2.0"`, `"dart": "0.1.0"`} {
+	for _, want := range []string{`"schemaVersion": "2.0"`, `"dart": "0.4.0"`} {
 		if !strings.Contains(raw, want) {
 			t.Errorf("manifest missing %s:\n%s", want, raw)
 		}
 	}
-	for _, want := range []string{"detected dart project", "pins    : dart@0.1.0", "next    : run 'codeflow flows'"} {
+	for _, want := range []string{"detected dart project", "pins    : dart@0.4.0", "next    : run 'codeflow flows'"} {
 		if !strings.Contains(out.String(), want) {
 			t.Errorf("stdout missing %q; got:\n%s", want, out.String())
 		}
@@ -183,14 +183,14 @@ func TestInitUpdatesPinOnlyWhenCompatibilityChanged(t *testing.T) {
 	if !foundDartUpdate {
 		t.Errorf("UpdatedPins = %v, want to include dart", res.UpdatedPins)
 	}
-	if res.Pins["dart"] != "0.1.0" {
-		t.Errorf("pin dart = %q, want refreshed to 0.1.0", res.Pins["dart"])
+	if res.Pins["dart"] != "0.4.0" {
+		t.Errorf("pin dart = %q, want refreshed to 0.4.0", res.Pins["dart"])
 	}
 	raw := readManifestRaw(t, repoRoot)
 	if !strings.Contains(raw, `"createdAt": "2026-01-01T00:00:00Z"`) {
 		t.Errorf("CreatedAt must be preserved across pin updates; got:\n%s", raw)
 	}
-	if !strings.Contains(out.String(), "dart@0.1.0 (pin updated)") {
+	if !strings.Contains(out.String(), "dart@0.4.0 (pin updated)") {
 		t.Errorf("summary should flag the updated pin; got:\n%s", out.String())
 	}
 }

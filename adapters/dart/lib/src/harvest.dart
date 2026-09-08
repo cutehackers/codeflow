@@ -16,7 +16,7 @@ import 'scanner.dart';
 import 'sha256.dart';
 
 /// Adapter version reported by the ping op.
-const String adapterVersion = '0.1.0';
+const String adapterVersion = '0.4.0';
 
 /// Trigger classes (design §4.2, closed enum in candidate.schema.json).
 const String triggerUserAction = 'user_action';

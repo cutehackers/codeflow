@@ -21,7 +21,7 @@ export 'secret.dart'
 /// Protocol major version this adapter speaks.
 const int protocolVersion = 1;
 const String jsonRpcVersion = '2.0';
-const String analyzerVersion = 'dart-structural/0.1.0';
+const String analyzerVersion = 'dart-structural/0.4.0';
 const String analysisSchemaId =
     'https://codeflow.local/schemas/adapter-analysis.schema.json';
 const String analyzerRequestSchemaId =

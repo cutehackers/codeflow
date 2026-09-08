@@ -8,7 +8,7 @@ const { analysisMetadata, overlayFor, createAnalysisTracker, SCHEMA_ID, ANALYZER
 const { redactDiagnostic } = require('./secret');
 
 const PROTOCOL_VERSION = 1;
-const ADAPTER_VERSION = '0.1.0';
+const ADAPTER_VERSION = '0.4.0';
 const ANALYZER_REQUEST_SCHEMA_ID = 'https://codeflow.local/schemas/rflsc.analyzer-request.v2.schema.json';
 const ANALYZER_RESULT_SCHEMA_ID = 'https://codeflow.local/schemas/rflsc.analyzer-result.v2.schema.json';
 const READ_SET_V2_SCHEMA_ID = 'https://codeflow.local/schemas/rflsc.analysis-read-set.v2.schema.json';

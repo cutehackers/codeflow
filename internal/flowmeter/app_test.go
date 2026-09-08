@@ -40,6 +40,28 @@ func TestHelpExplainsTheCompleteRoutineInPlainLanguage(t *testing.T) {
 	}
 }
 
+func TestReleaseHelpShowsTheOneCommandCollectionFlow(t *testing.T) {
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+
+	exitCode := flowmeter.Run(context.Background(), []string{"release", "help"}, strings.NewReader(""), &stdout, &stderr)
+
+	if exitCode != 0 || !strings.Contains(stdout.String(), "flowmeter release collect --target-version vX.Y.Z") {
+		t.Fatalf("exit code = %d, stdout = %q, stderr = %q", exitCode, stdout.String(), stderr.String())
+	}
+}
+
+func TestReleaseCollectRejectsAnInvalidTargetVersionBeforeWriting(t *testing.T) {
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+
+	exitCode := flowmeter.Run(context.Background(), []string{"release", "collect", "--target-version", "0.4"}, strings.NewReader(""), &stdout, &stderr)
+
+	if exitCode != 2 || !strings.Contains(stderr.String(), "vX.Y.Z") {
+		t.Fatalf("exit code = %d, stderr = %q", exitCode, stderr.String())
+	}
+}
+
 func TestRunMeasuresTheBuiltInFixedCorpus(t *testing.T) {
 	root := filepath.Join(t.TempDir(), "runs")
 	var stdout bytes.Buffer
