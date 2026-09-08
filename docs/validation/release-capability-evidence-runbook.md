@@ -1,27 +1,26 @@
-# VS-10 real-environment release evidence execution
+# real-environment release evidence execution (VS-10)
 
 This guide produces the evidence consumed by `EvaluateReleaseCapability`. Repository fixtures under `schemas/fixtures/rflsc.*.v2` and `internal/testfixture` test the evaluator only. They are synthetic and must not be cited as production benchmark evidence.
 
-## 반복 성능 측정용 `flowmeter`
+## v0.4.0 release 근거 자동 수집
 
-CodeFlow 저장소에서 빌드한 뒤 실행합니다.
+CodeFlow 저장소에서 다음 한 명령을 실행합니다.
 
 ```sh
 make build-flowmeter
-./bin/flowmeter run
+./bin/flowmeter release collect --target-version v0.4.0
 ```
 
-`flowmeter`가 내부의 고정된 `live-semantic-compiler-v1` benchmark project를 직접 실행합니다. 외부 collector나 별도 타겟 프로젝트는 필요하지 않습니다. 현재 실행 파일의 digest, 고정 corpus ref, OS, CPU, Go 버전, 24개 trace와 측정값은 `.codeflow/flowmeter/runs/<execution-id>/benchmark-result.json`에 저장됩니다.
+이 명령은 고정된 `live-semantic-compiler-v1` benchmark, VS01~VS09 evidence registry, 전체 Go 회귀 테스트, Dart 테스트와 TypeScript 테스트를 실행합니다. 각 로그와 SHA-256 digest는 `.codeflow/flowmeter/releases/v0.4.0/<execution-id>`에 보존됩니다.
 
-성능을 개선한 뒤 다시 `flowmeter run`을 실행하고 비교합니다.
+자동 수집은 실제 값이 없는 품질·comprehension 결과를 만들지 않습니다. `release-collection.json`의 `remainingEvidence`가 비어 있지 않은 동안 `releaseReady`는 false입니다. 고정 정답 corpus, 실제 comprehension study, 12개 production scenario 및 hard invariant의 trace 연결을 완료한 뒤 승인합니다.
 
 ```sh
-./bin/flowmeter compare
+./bin/flowmeter release approve --dir <수집-디렉터리>
+./bin/flowmeter release finalize --dir <수집-디렉터리>
 ```
 
-비교는 corpus ref와 실행 환경이 정확히 같은 최근 두 결과에만 허용됩니다. 다른 corpus나 환경의 수치를 섞지 않습니다.
-
-이 기본 루틴은 live semantic compiler의 activity latency, current-or-gap latency, 전체 실행 시간, Go runtime system memory를 측정합니다. 이것만으로 VS-10 전체 release 승인을 뜻하지는 않습니다. 아래의 품질 지표, 12개 복구 시나리오, child-slice 실행 근거까지 평가하려면 고급 `prepare`, `run --dir`, `approve`, `finalize`, `compare latest --root` 절차를 사용합니다.
+일반 성능 개선 전후 비교만 필요하면 `./bin/flowmeter run`과 `./bin/flowmeter compare`를 사용합니다.
 
 ## 1. Declare the evaluation before running it
 
@@ -79,16 +78,16 @@ A narrower capability may declare only its owning child subset. A failure in an 
 - one observed acceptance record per required acceptance criterion, with exact test ID, package, run count, pass count, result, and evidence ref;
 - the evaluator-owned per-slice required check IDs below, each with its exact executed command, observed result, and evidence ref.
 
-| Slice | Required check IDs |
-|---|---|
-| VS-01 | `registry`, `acceptance`, `protocol`, `static`, `build`, `regression`, `security`, `migration`, `concurrency` |
-| VS-02 | `registry`, `acceptance`, `dart`, `typescript`, `go`, `static`, `build`, `security`, `concurrency_reliability`, `regression` |
-| VS-03 | `registry`, `acceptance`, `contract`, `static`, `build`, `concurrency`, `reliability`, `browser`, `a11y`, `regression` |
-| VS-04 | `registry`, `acceptance`, `contract`, `static`, `build`, `regression`, `browser`, `a11y`, `security` |
-| VS-05 | `registry`, `acceptance`, `full_slice`, `static`, `build`, `security`, `regression` |
-| VS-06 | `registry`, `acceptance`, `full_slice`, `static`, `build`, `security`, `concurrency_reliability`, `regression` |
-| VS-07 | `registry`, `acceptance`, `full_slice`, `static`, `build`, `security`, `browser`, `a11y`, `regression` |
-| VS-08 | `registry`, `acceptance`, `full_slice`, `static`, `build`, `security`, `concurrency_reliability`, `browser`, `a11y`, `regression` |
+| Slice | Required check IDs                                                                                                                                         |
+| ----- | ---------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| VS-01 | `registry`, `acceptance`, `protocol`, `static`, `build`, `regression`, `security`, `migration`, `concurrency`                                              |
+| VS-02 | `registry`, `acceptance`, `dart`, `typescript`, `go`, `static`, `build`, `security`, `concurrency_reliability`, `regression`                               |
+| VS-03 | `registry`, `acceptance`, `contract`, `static`, `build`, `concurrency`, `reliability`, `browser`, `a11y`, `regression`                                     |
+| VS-04 | `registry`, `acceptance`, `contract`, `static`, `build`, `regression`, `browser`, `a11y`, `security`                                                       |
+| VS-05 | `registry`, `acceptance`, `full_slice`, `static`, `build`, `security`, `regression`                                                                        |
+| VS-06 | `registry`, `acceptance`, `full_slice`, `static`, `build`, `security`, `concurrency_reliability`, `regression`                                             |
+| VS-07 | `registry`, `acceptance`, `full_slice`, `static`, `build`, `security`, `browser`, `a11y`, `regression`                                                     |
+| VS-08 | `registry`, `acceptance`, `full_slice`, `static`, `build`, `security`, `concurrency_reliability`, `browser`, `a11y`, `regression`                          |
 | VS-09 | `registry`, `acceptance`, `full_slice`, `static`, `build`, `security`, `migration_persistence`, `concurrency_reliability`, `browser`, `a11y`, `regression` |
 
 Missing, duplicate, or unexpected acceptance/check identities make the evidence incomplete.
