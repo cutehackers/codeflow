@@ -5,9 +5,125 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"runtime"
 	"testing"
 )
+
+func TestSnapshotSkipsSymlinkToDirectory(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("symlink creation requires additional privileges on Windows")
+	}
+	root := t.TempDir()
+	target := filepath.Join(root, "generated-resources")
+	if err := os.MkdirAll(target, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(target, "asset.txt"), []byte("asset"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(target, filepath.Join(root, "Resources")); err != nil {
+		t.Fatal(err)
+	}
+
+	engine, err := NewSnapshotEngine(root, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	snapshot, err := engine.Reconcile(context.Background(), nil)
+	if err != nil {
+		t.Fatalf("Reconcile should skip directory symlinks: %v", err)
+	}
+	if _, exists := snapshot.Entries["Resources"]; exists {
+		t.Fatal("directory symlink must not be captured as a file")
+	}
+}
+
+func TestSnapshotSkipsSymlinkOutsideRepository(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("symlink creation requires additional privileges on Windows")
+	}
+	root := t.TempDir()
+	external := filepath.Join(t.TempDir(), "dependency.dart")
+	if err := os.WriteFile(external, []byte("external dependency"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(external, filepath.Join(root, "dependency.dart")); err != nil {
+		t.Fatal(err)
+	}
+
+	engine, err := NewSnapshotEngine(root, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	snapshot, err := engine.Reconcile(context.Background(), nil)
+	if err != nil {
+		t.Fatalf("Reconcile should skip external symlinks: %v", err)
+	}
+	if _, exists := snapshot.Entries["dependency.dart"]; exists {
+		t.Fatal("external symlink must not be captured")
+	}
+}
+
+func TestSnapshotHonorsGitIgnoredDirectories(t *testing.T) {
+	root := t.TempDir()
+	if out, err := exec.Command("git", "-C", root, "init", "--quiet").CombinedOutput(); err != nil {
+		t.Skipf("git is unavailable: %v (%s)", err, out)
+	}
+	if err := os.WriteFile(filepath.Join(root, ".gitignore"), []byte("build/\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "main.dart"), []byte("void main() {}"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(root, "build", "generated"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "build", "generated", "asset.bin"), []byte("generated"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	engine, err := NewSnapshotEngine(root, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	snapshot, err := engine.Reconcile(context.Background(), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, exists := snapshot.Entries["main.dart"]; !exists {
+		t.Fatal("non-ignored source file was not captured")
+	}
+	if _, exists := snapshot.Entries["build/generated/asset.bin"]; exists {
+		t.Fatal("git-ignored generated file must not be captured")
+	}
+}
+
+func TestSnapshotSkipsBinaryFiles(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "main.dart"), []byte("void main() {}"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "icon.png"), []byte{0x89, 0x50, 0x4e, 0x47, 0x00, 0xff}, 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	engine, err := NewSnapshotEngine(root, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	snapshot, err := engine.Reconcile(context.Background(), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, exists := snapshot.Entries["main.dart"]; !exists {
+		t.Fatal("text source file was not captured")
+	}
+	if _, exists := snapshot.Entries["icon.png"]; exists {
+		t.Fatal("binary file must not be captured")
+	}
+}
 
 func TestVS03A1_A2_DocumentRevisionAndLiveHead(t *testing.T) {
 	tempDir, err := os.MkdirTemp("", "codeflow-workspace-test-*")

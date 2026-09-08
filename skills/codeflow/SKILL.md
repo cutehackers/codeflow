@@ -1,27 +1,37 @@
 ---
 name: codeflow
-description: Turn a requested core flow / 핵심 흐름 / 아키텍처 흐름 / 코드 흐름 / business flow / 레이어 흐름 / implementation flow into a verified, evidence-backed FlowView via the installed CodeFlow MCP.
+description: Use CodeFlow MCP for verified core-flow publication and FlowView, edit-driven live semantic current-or-gap tracking, and evidence-bound semantic review, impact, failure, approval, onboarding, or release evaluation.
 ---
 
-# CodeFlow Core Flow
+# CodeFlow MCP Operating Contract
 
-Use this skill when the user asks to understand, explain, or visualize a code/business/core flow, architecture layer flow, or any implementation flow they want to understand.
+Operate the installed CodeFlow MCP using the smallest workflow that satisfies the request. Preserve CodeFlow's evidence, identity, freshness, and authority boundaries when translating tool results into an answer.
 
-## Workflow
+## Preconditions
 
-1. **Explore**: Locate the entry-layer initial event for the user's intent and trace its layer traversal to completion. If `codeflow.layers.yaml` exists, read it first and honor its `layers`/`aliases`/`pathPatterns`. If absent, inspect the repo architecture and create `codeflow.layers.yaml` following `docs/guides/llm-usage.md §0.1`. Prefer repo structure and DI/provider graph over class-name suffixes.
-2. **Build & Publish**: Construct the intermediate artifact and call `publish_core_flow`.
-   - Every step MUST carry `layer`, `kind` (`guard|mutation|call|branch`), `name`, and a 6-field `anchor` (`repoRelativePath`, `byteRange` [start, end], `fileHash`, `spanHash`, `enclosingSymbolPath`, `canonicalAstFingerprint`).
-   - Use canonical English layer values (`presentation, controller, usecase, domain, data, infra, external`).
-   - Backward layer hops (e.g. error handling return) MUST use `kind: "branch"` to pass layer order validation.
-3. **Error Recovery**:
-   - On `anchor_verification_failed`: re-read the cited file, recompute `byteRange`/`fileHash`/`spanHash`, and retry `publish_core_flow` once.
-   - On `artifact_too_large`: do not retry the same payload; split the flow into smaller subflows.
-4. **Explain**: Call `get_flow_payload` with the returned `flowId` and explain in layer order:
-   - **Business summary** in the first sentence.
-   - **Steps by layer** (`presentation → controller → usecase → data ...`).
-   - **State delta & delegations** (`edges[].toLayer`).
-   - **Unknowns & uncertainties** explicitly (never invent/guess missing logic; call `report_unknowns` if needed).
-5. **View**: When the user requested a visual FlowView, call `open_review` with `flowId` and provide the returned URL (contains `?token=`). Do not open FlowView speculatively.
+- This skill is explicit-only. Use it only when the user invokes `$codeflow`; do not activate CodeFlow MCP for an untagged request.
+- Use the project root as `target`, not a feature subdirectory. Project identity and adapter detection depend on root files such as `pubspec.yaml` or `package.json`.
+- If CodeFlow MCP or its language adapter is unavailable, report that installation or adapter resolution is required. Do not claim live behavior from a CLI-only substitute.
+- Keep every related live operation on the same MCP server and exact target. `open_review` then points to that coordinator's FlowView.
 
-Triggers: `core flow, 핵심 흐름, 아키텍처 흐름, 코드 흐름, business flow, 레이어 흐름, implementation flow`.
+## Route the User Request
+
+- When the user asks how an existing feature works or wants to see its code path, read [references/static-flowview.md](references/static-flowview.md).
+- When the user wants the explanation to follow ongoing code edits or asks whether the latest result is current, read [references/live-semantic-map.md](references/live-semantic-map.md).
+- When the user asks what changed, what is affected, why something failed, whether requirements are met, whether an explanation should be approved, how an unfamiliar project is organized, or whether a release is ready, read [references/semantic-operations.md](references/semantic-operations.md).
+
+Read only the references required by the request. Do not start the live edit loop for a static flow request or load specialized semantic operations for ordinary flow visualization.
+
+## Shared Authority Rules
+
+- Treat verified anchors, analyzer results, Evidence Packs, and proof manifests as evidence. Never fill missing behavior with inference.
+- Say a result is `current` only when CodeFlow returns a valid current answer and Generation Proof for the same target, generation, basis, snapshot, intent revision, and query. Otherwise report `historical`, `candidate`, `unknown`, or the returned Verified Gap.
+- Keep these states separate: implementation Fact, freshness, settlement, Requirement Alignment, model enrichment, Semantic Approval, and runtime observation. One state never upgrades another.
+- A model proposal is display-only until separately grounded and approved. Approval does not change implementation facts, freshness, settlement, or alignment.
+- Runtime behavior is `observed` only when CodeFlow returns trusted runtime evidence. Static reachability is not runtime evidence.
+- Preserve exact IDs returned by CodeFlow. Do not invent or rewrite repository, worktree, epoch, snapshot, basis, generation, intent, proposal, evidence-pack, approval, or event identities.
+- On ambiguous targets, present CodeFlow's candidates and ask the user to select. On incomplete closure or proof, preserve the gap instead of retrying into a success claim.
+
+## Response Contract
+
+Lead with the business behavior. Then state the relevant code path or semantic change, its evidence/freshness, and any unknown or blocking gap. Provide a FlowView URL only when the user requested a visual review.

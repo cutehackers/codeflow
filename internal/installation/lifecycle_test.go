@@ -4,6 +4,9 @@
 package installation
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -151,6 +154,13 @@ func assertInstalled(t *testing.T, s *sandbox) {
 	if _, err := os.Stat(s.binary); err != nil {
 		t.Fatalf("installed binary missing: %v", err)
 	}
+	versionOutput, err := s.run(t, s.binary, "version")
+	if err != nil {
+		t.Fatalf("installed binary version failed: %v\n%s", err, versionOutput)
+	}
+	if !strings.Contains(versionOutput, "v0.4.0") {
+		t.Fatalf("installed binary has wrong version: %s", versionOutput)
+	}
 	if _, err := os.Stat(filepath.Join(s.skillDest, "SKILL.md")); err != nil {
 		t.Fatalf("installed skill missing: %v", err)
 	}
@@ -210,6 +220,77 @@ func TestInstallThenUninstallLifecycle(t *testing.T) {
 	}
 	if _, serr := os.Stat(filepath.Join(s.home, ".gemini", "antigravity-cli", "skills", "codeflow")); !os.IsNotExist(serr) {
 		t.Fatalf("Antigravity skill survived uninstall: %v", serr)
+	}
+}
+
+func TestReinstallUpdatesPreviouslyOwnedSkill(t *testing.T) {
+	s := newSandbox(t)
+	s.installFromCheckout(t)
+
+	skillFile := filepath.Join(s.skillDest, "SKILL.md")
+	oldSkill := []byte("previous installer-owned skill\n")
+	if err := os.WriteFile(skillFile, oldSkill, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	sum := sha256.Sum256(oldSkill)
+	statePath := filepath.Join(s.home, ".codeflow", "install-state.json")
+	stateBytes, err := os.ReadFile(statePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var state map[string]any
+	if err := json.Unmarshal(stateBytes, &state); err != nil {
+		t.Fatal(err)
+	}
+	state["skillSHA256"] = hex.EncodeToString(sum[:])
+	stateBytes, err = json.MarshalIndent(state, "", "  ")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(statePath, append(stateBytes, '\n'), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	s.installFromCheckout(t)
+	sourceSkill, err := os.ReadFile(filepath.Join("..", "..", "skills", "codeflow", "SKILL.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	installedSkill, err := os.ReadFile(skillFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(installedSkill) != string(sourceSkill) {
+		t.Fatal("reinstall did not update the previously installer-owned skill")
+	}
+}
+
+func TestReinstallRejectsUserModifiedSkill(t *testing.T) {
+	s := newSandbox(t)
+	s.installFromCheckout(t)
+
+	skillFile := filepath.Join(s.skillDest, "SKILL.md")
+	f, err := os.OpenFile(skillFile, os.O_APPEND|os.O_WRONLY, 0o644)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.WriteString("\nuser edit\n"); err != nil {
+		t.Fatal(err)
+	}
+	if err := f.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	script, err := filepath.Abs(filepath.Join("..", "..", "scripts", "install.sh"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	out, err := s.run(t, "bash", script)
+	if err == nil {
+		t.Fatalf("reinstall should reject a user-modified skill:\n%s", out)
+	}
+	if !strings.Contains(out, "was changed; refusing to overwrite") {
+		t.Fatalf("reinstall did not explain the skill conflict:\n%s", out)
 	}
 }
 

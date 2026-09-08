@@ -3,15 +3,18 @@
 package doctor
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"codeflow/internal/contractharness"
 	"codeflow/internal/detect"
 	"codeflow/internal/harvest"
+	"codeflow/internal/protocol"
 	"codeflow/internal/storage"
 	"codeflow/internal/workspace"
 )
@@ -21,6 +24,29 @@ type CheckResult struct {
 	Name    string
 	Passed  bool
 	Message string
+}
+
+// DiagnoseAdapter verifies that an adapter can complete CORE's protocol
+// initialization. Resolving a binary path alone does not prove compatibility.
+func DiagnoseAdapter(name string, cfg protocol.Config) CheckResult {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	conn, err := protocol.Spawn(ctx, cfg)
+	if err != nil {
+		return CheckResult{
+			Name:    name,
+			Passed:  false,
+			Message: fmt.Sprintf("Adapter protocol check failed: %v", err),
+		}
+	}
+	version := conn.Version()
+	_ = conn.Close()
+	return CheckResult{
+		Name:    name,
+		Passed:  true,
+		Message: fmt.Sprintf("Adapter ready (%s, protocol v%d)", filepath.Base(cfg.BinPath), version.ProtocolVersion),
+	}
 }
 
 // Diagnose runs all health checks against repoRoot.
@@ -68,11 +94,7 @@ func Diagnose(repoRoot string, dartAdapterSpec string) []CheckResult {
 		// TypeScript adapter check
 		cfg, err := harvest.ResolveAdapter("typescript", "")
 		if err == nil {
-			results = append(results, CheckResult{
-				Name:    "TypeScript adapter",
-				Passed:  true,
-				Message: fmt.Sprintf("Adapter ready (%s)", filepath.Base(cfg.BinPath)),
-			})
+			results = append(results, DiagnoseAdapter("TypeScript adapter", cfg))
 		} else {
 			results = append(results, CheckResult{
 				Name:    "TypeScript adapter",
@@ -119,11 +141,7 @@ func Diagnose(repoRoot string, dartAdapterSpec string) []CheckResult {
 		}
 		cfg, err := harvest.ResolveAdapter("kotlin", "")
 		if err == nil {
-			results = append(results, CheckResult{
-				Name:    "Kotlin adapter",
-				Passed:  true,
-				Message: fmt.Sprintf("Adapter ready (%s)", filepath.Base(cfg.BinPath)),
-			})
+			results = append(results, DiagnoseAdapter("Kotlin adapter", cfg))
 		} else {
 			results = append(results, CheckResult{
 				Name:    "Kotlin adapter",
@@ -148,11 +166,7 @@ func Diagnose(repoRoot string, dartAdapterSpec string) []CheckResult {
 		}
 		cfg, err := harvest.ResolveAdapter("swift", "")
 		if err == nil {
-			results = append(results, CheckResult{
-				Name:    "Swift adapter",
-				Passed:  true,
-				Message: fmt.Sprintf("Adapter ready (%s)", filepath.Base(cfg.BinPath)),
-			})
+			results = append(results, DiagnoseAdapter("Swift adapter", cfg))
 		} else {
 			results = append(results, CheckResult{
 				Name:    "Swift adapter",
@@ -181,11 +195,7 @@ func Diagnose(repoRoot string, dartAdapterSpec string) []CheckResult {
 		}
 		cfg, err := harvest.ResolveAdapter("python", "")
 		if err == nil {
-			results = append(results, CheckResult{
-				Name:    "Python adapter",
-				Passed:  true,
-				Message: fmt.Sprintf("Adapter ready (%s)", filepath.Base(cfg.BinPath)),
-			})
+			results = append(results, DiagnoseAdapter("Python adapter", cfg))
 		} else {
 			results = append(results, CheckResult{
 				Name:    "Python adapter",
@@ -242,11 +252,7 @@ func Diagnose(repoRoot string, dartAdapterSpec string) []CheckResult {
 		// Dart adapter check
 		cfg, err := harvest.ResolveDartAdapter(dartAdapterSpec)
 		if err == nil {
-			results = append(results, CheckResult{
-				Name:    "Dart adapter",
-				Passed:  true,
-				Message: fmt.Sprintf("Adapter ready (%s)", filepath.Base(cfg.BinPath)),
-			})
+			results = append(results, DiagnoseAdapter("Dart adapter", cfg))
 		} else {
 			results = append(results, CheckResult{
 				Name:    "Dart adapter",

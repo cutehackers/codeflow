@@ -13,6 +13,7 @@ CODEFLOW_REPO="${CODEFLOW_REPO:-cutehackers/codeflow}"
 CODEFLOW_VERSION="${CODEFLOW_VERSION:-v0.4.0}"
 OWNED_SOURCE=false
 SRC_DIR="${CODEFLOW_SRC_DIR:-}"
+SKILL_DEST="$CODEX_HOME_DIR/skills/codeflow"
 
 info() { echo "› $*"; }
 die() { echo "✗ $*" >&2; exit 1; }
@@ -24,6 +25,27 @@ calc_sha256() {
     sha256sum "$1" | awk '{print $1}'
   else
     echo ""
+  fi
+}
+
+recorded_skill_sha256() {
+  local state_path="$HOME/.codeflow/install-state.json"
+  if [ -f "$state_path" ]; then
+    sed -n 's/.*"skillSHA256"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "$state_path" | head -1
+  fi
+}
+
+preflight_skill_update() {
+  local source="$1"
+  if [ ! -e "$SKILL_DEST" ] || [ ! -f "$source/SKILL.md" ] || cmp -s "$source/SKILL.md" "$SKILL_DEST/SKILL.md"; then
+    return 0
+  fi
+
+  local installed_sha recorded_sha
+  installed_sha="$(calc_sha256 "$SKILL_DEST/SKILL.md")"
+  recorded_sha="$(recorded_skill_sha256)"
+  if [ -z "$installed_sha" ] || [ "$installed_sha" != "$recorded_sha" ]; then
+    die "Codex skill at $SKILL_DEST was changed; refusing to overwrite it"
   fi
 }
 
@@ -54,8 +76,12 @@ if [ "$IS_CHECKOUT" = true ]; then
   info "Installing CodeFlow from local checkout: $SRC_DIR"
   command -v go >/dev/null 2>&1 || die "Go is required to build from source checkout"
 
+  SKILL_SOURCE="$SRC_DIR/skills/codeflow"
+  preflight_skill_update "$SKILL_SOURCE"
+
   info "Building CodeFlow binaries"
-  (cd "$SRC_DIR" && go build -o "$INSTALL_PATH" ./cmd/codeflow)
+  BUILD_DATE="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+  (cd "$SRC_DIR" && go build -ldflags "-X main.version=$CODEFLOW_VERSION -X main.date=$BUILD_DATE" -o "$INSTALL_PATH" ./cmd/codeflow)
   chmod 755 "$INSTALL_PATH"
 
   ADAPTER_BIN="$INSTALL_DIR/dart-adapter"
@@ -109,8 +135,6 @@ WRAPPER
   if [ -f "$ADAPTER_BIN" ]; then
     ln -sf "$ADAPTER_BIN" "$INSTALL_DIR/codeflow_dart_adapter" 2>/dev/null || cp -f "$ADAPTER_BIN" "$INSTALL_DIR/codeflow_dart_adapter"
   fi
-
-  SKILL_SOURCE="$SRC_DIR/skills/codeflow"
 else
   info "Installing CodeFlow pre-compiled binary ($CODEFLOW_VERSION)..."
 
@@ -149,6 +173,9 @@ else
   fi
 
   tar -xzf "$TMP_DIR/$TARBALL_NAME" -C "$TMP_DIR"
+
+  SKILL_SOURCE="$TMP_DIR/skills/codeflow"
+  preflight_skill_update "$SKILL_SOURCE"
 
   cp -f "$TMP_DIR/bin/codeflow" "$INSTALL_PATH"
   chmod 755 "$INSTALL_PATH"
@@ -194,11 +221,14 @@ WRAPPER
     chmod 755 "$INSTALL_DIR/codeflow_ts_adapter"
     ln -sf "$INSTALL_DIR/codeflow_ts_adapter" "$INSTALL_DIR/codeflow_typescript_adapter" 2>/dev/null || cp -f "$INSTALL_DIR/codeflow_ts_adapter" "$INSTALL_DIR/codeflow_typescript_adapter"
   fi
-
-  SKILL_SOURCE="$TMP_DIR/skills/codeflow"
 fi
 
-SKILL_DEST="$CODEX_HOME_DIR/skills/codeflow"
+# A copied executable is not enough: reject stale or incompatible adapters
+# before changing any agent configuration or recording installation success.
+if [ -n "$ADAPTER_SPEC" ]; then
+  info "Verifying installed Dart adapter protocol"
+  "$INSTALL_PATH" install-check-adapter --language dart --adapter-spec "$ADAPTER_SPEC"
+fi
 
 # Collect robust runtime PATH for GUI desktop clients
 collect_runtime_path() {
@@ -316,9 +346,6 @@ if command -v codex >/dev/null 2>&1; then
       die "Codex MCP '$MCP_NAME' already belongs to another command; use CODEFLOW_MCP_NAME to choose a new name"
     fi
   fi
-  if [ -e "$SKILL_DEST" ] && [ -f "$SKILL_SOURCE/SKILL.md" ] && ! cmp -s "$SKILL_SOURCE/SKILL.md" "$SKILL_DEST/SKILL.md"; then
-    die "Codex skill at $SKILL_DEST was changed; refusing to overwrite it"
-  fi
 fi
 
 if [ -d "$SKILL_SOURCE" ]; then
@@ -326,6 +353,10 @@ if [ -d "$SKILL_SOURCE" ]; then
   if [ ! -e "$SKILL_DEST" ]; then
     cp -R "$SKILL_SOURCE" "$SKILL_DEST"
     info "Installed CodeFlow skill for Codex"
+  elif ! cmp -s "$SKILL_SOURCE/SKILL.md" "$SKILL_DEST/SKILL.md"; then
+    rm -rf "$SKILL_DEST"
+    cp -R "$SKILL_SOURCE" "$SKILL_DEST"
+    info "Updated CodeFlow skill for Codex"
   fi
 fi
 
@@ -395,8 +426,6 @@ fi
   --skill-sha256 "$SKILL_SHA256" \
   --mcp-name "$MCP_NAME"
 
-"$INSTALL_PATH" doctor . || true
-
 cat <<EOF
 
 ✓ CodeFlow installation complete!
@@ -426,4 +455,3 @@ case ":$PATH:" in
 EOF
     ;;
 esac
-

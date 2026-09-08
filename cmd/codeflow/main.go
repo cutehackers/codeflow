@@ -95,6 +95,8 @@ func main() {
 		runUninstall(args)
 	case "install-record":
 		runInstallRecord(args)
+	case "install-check-adapter":
+		runInstallCheckAdapter(args)
 	case "version":
 		fmt.Println(formatVersion(version, date))
 	default:
@@ -613,6 +615,27 @@ func runInstallRecord(args []string) {
 		fmt.Fprintf(os.Stderr, "record installation: %v\n", err)
 		os.Exit(1)
 	}
+}
+
+func runInstallCheckAdapter(args []string) {
+	fs := flag.NewFlagSet("install-check-adapter", flag.ContinueOnError)
+	language := fs.String("language", "dart", "adapter language")
+	adapterSpec := fs.String("adapter-spec", "", "adapter binary or runtime specification")
+	if err := fs.Parse(reorderFlags(fs, args)); err != nil {
+		os.Exit(2)
+	}
+
+	cfg, err := harvest.ResolveAdapter(*language, *adapterSpec)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "installed adapter resolution failed: %v\n", err)
+		os.Exit(1)
+	}
+	result := doctor.DiagnoseAdapter("Installed "+*language+" adapter", cfg)
+	if !result.Passed {
+		fmt.Fprintln(os.Stderr, result.Message)
+		os.Exit(1)
+	}
+	fmt.Println(result.Message)
 }
 
 func runUninstall(args []string) {

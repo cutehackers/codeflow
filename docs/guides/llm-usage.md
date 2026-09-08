@@ -1,464 +1,326 @@
-# CodeFlow LLM usage — v3 (Core Flow · 핵심 흐름)
+# CodeFlow v0.4.0 LLM·에이전트 사용 계약
 
-이 문서는 LLM/코딩 에이전트가 CodeFlow v3 결과를 읽고 **핵심 흐름(아키텍처 레이어 관통)** 으로 설명하기 위한 계약. CodeFlow는 코드 근거를 만들고 LLM은 사용자 언어로 설명한다 — `unknown`을 추론으로 메우지 않는다.
+이 문서는 AI 에이전트가 CodeFlow v0.4.0을 사용할 때 따라야 하는 실행 및 설명 기준이다. CodeFlow가 반환한 코드 근거, 식별자와 검증 상태만 사실로 사용한다. 확인되지 않은 내용을 추론으로 채우지 않는다.
 
-## 0. 설치 — one-shot (이것만 실행)
+사용자가 실제로 요청할 수 있는 기능과 프롬프트 예시는 [기능 및 프롬프트 가이드](feature.md)를 참고한다.
 
-> 단 한 줄의 명령으로 Core 바이너리, 다중 언어 어댑터(Dart & TypeScript), 멀티 에이전트(Codex, Claude Desktop, Cursor, Antigravity) MCP 연동 및 CodeFlow 스킬까지 100% 전자동으로 설치합니다. 셸 rc와 분석 대상 저장소는 일체 수정하지 않습니다.
+## 0. 설치와 실행 전 확인
+
+### 원격 설치
 
 ```sh
-# 원격 1줄 설치 (Go/Dart/Node SDK 없이도 사전 빌드 바이너리 자동 다운로드 및 설정)
 curl -fsSL https://raw.githubusercontent.com/cutehackers/codeflow/main/scripts/install.sh | bash
-
-# 또는 소스 체크아웃 내에서 직접 설치 (Go Core, Dart & TypeScript 어댑터 빌드)
-bash scripts/install.sh
 ```
 
-`scripts/install.sh`가 자동으로 수행하는 일:
-1. `codeflow` 코어 바이너리와 언어 어댑터(`dart-adapter`, `codeflow_ts_adapter`)를 `$HOME/.local/bin`에 자동 빌드/설치합니다.
-2. 시스템에 설치된 멀티 에이전트(**Codex, Claude Desktop, Cursor IDE, Antigravity**)를 자동 감지하여 `codeflow mcp`를 등록하고 필요한 런타임 환경을 원스톱 구성합니다.
-3. 각 에이전트의 스킬 디렉터리에 CodeFlow 스킬을 자동 배포합니다.
-4. Dart/Flutter 및 TypeScript/React/Node.js 프로젝트를 자동 판별하여 에이전트가 바로 핵심 흐름을 추출할 수 있게 합니다.
-
-다중 언어 환경 지원:
-- **자동 언어 감지**: 프로젝트 루트의 매니페스트(`package.json`, `pubspec.yaml`, `build.gradle.kts`, `Package.swift` 등)와 파일 확장자를 통해 언어를 자동 판별합니다.
-- **다중 어댑터 프로세스 풀**: 언어별 독립 프로세스 풀(`AdapterRegistry`)을 통해 무중단 분기 처리합니다.
-- **FlowView UI 일관성**: 언어에 관계없이 동일한 7대 표준 계층 레인(`presentation`, `controller`, `usecase`, `domain`, `data`, `infra`, `external`)과 타임라인 인터랙션을 유지합니다.
-
-설치 직후 확인 (LLM이 그대로 실행):
+설치 프로그램은 릴리즈에 포함된 CodeFlow Core와 어댑터를 설치하고 지원하는 에이전트의 MCP 설정 및 CodeFlow skill 배포를 시도한다. 설치 결과는 환경에 따라 달라질 수 있으므로 반드시 확인한다.
 
 ```sh
 $HOME/.local/bin/codeflow version
-$HOME/.local/bin/codeflow doctor .
+$HOME/.local/bin/codeflow doctor <프로젝트-루트>
 ```
 
-### 언어 어댑터 수동/별도 구성 (선택 사항)
+- TypeScript/JavaScript 어댑터 실행에는 Node.js가 필요하다.
+- 릴리즈에 Dart 실행 파일이 없고 소스 어댑터를 사용하는 경우 Dart SDK가 필요하다.
+- 소스 체크아웃에서 `bash scripts/install.sh`로 빌드하려면 Go가 필요하다.
+- MCP나 어댑터가 준비되지 않았다면 설치 또는 어댑터 설정이 필요하다고 보고한다. CLI 결과를 Live MCP 결과처럼 설명하지 않는다.
+- 설치 후 에이전트 앱을 재시작하거나 새 task를 열어 MCP와 skill을 다시 로드한다.
 
-필요에 따라 특정 언어 어댑터를 별도로 지정할 때 환경 변수를 활용할 수 있습니다:
-- Dart: `export CODEFLOW_ADAPTER_DART_BIN="$HOME/.local/bin/dart-adapter"` (또는 `dartrun:<dir>`)
-- TypeScript / JS: `export CODEFLOW_ADAPTER_TYPESCRIPT_BIN="$HOME/.local/bin/codeflow_ts_adapter"` (또는 `noderun:<dir>`)
-- Kotlin / JVM: `export CODEFLOW_ADAPTER_KOTLIN_BIN="$HOME/.local/bin/codeflow_kotlin_adapter"`
-- Swift: `export CODEFLOW_ADAPTER_SWIFT_BIN="$HOME/.local/bin/codeflow_swift_adapter"`
+프로젝트가 아직 초기화되지 않았다면 한 번 실행한다.
 
-### 삭제
+```sh
+$HOME/.local/bin/codeflow init <프로젝트-루트>
+```
 
-설치 상태 파일이 CodeFlow가 만든 멀티 에이전트 MCP 등록(Codex, Claude Desktop, Cursor, Antigravity), 스킬, 바이너리, 어댑터를 완벽하게 추적하므로 다음 한 명령으로 깨끗하게 되돌릴 수 있다.
+삭제는 다음 명령으로 수행한다. 설치기가 소유하지 않은 파일이나 사용자가 수정한 설정은 보존될 수 있다.
 
 ```sh
 $HOME/.local/bin/codeflow uninstall
 ```
 
-수정된 스킬, 다른 명령을 가리키는 동명 MCP, 설치기가 소유하지 않은 소스 체크아웃은 삭제하지 않고 남긴 이유를 출력한다.
-
 ## 0.1 프로젝트 아키텍처 분석 및 `codeflow.layers.yaml` 작성 가이드
 
-CodeFlow는 핵심 흐름(Core Flow)을 검증할 때 대상 프로젝트 루트의 `codeflow.layers.yaml`을 기준으로 레이어 정규화, 단조 증가 순서 검증(monotonic layer progression), 파일 경로 패턴(`pathPatterns`) 매칭을 수행한다.
+항상 `pubspec.yaml`, `package.json`, `go.mod`처럼 프로젝트 종류를 식별할 수 있는 파일이 있는 **프로젝트 루트**를 `target`으로 사용한다. 특정 feature 디렉터리를 `target`으로 전달하지 않는다. 분석 범위는 질의나 entry symbol로 좁힌다.
 
-> **설치/초기화 시 LLM 핵심 지침**: 대상 프로젝트가 특정 언어나 프레임워크에 국한되지 않고 어떤 아키텍처 패턴(Feature-first, Layer-first, Clean, Hexagonal/Ports & Adapters, FSD, CQRS, MVC/MVVM, Monorepo 등)을 채택하고 있더라도, 에이전트는 **프로젝트의 구조와 역할을 범용적으로 분석하여 최적화된 `codeflow.layers.yaml`을 생성**해야 한다.
+`codeflow.layers.yaml`이 있으면 먼저 읽고 그대로 따른다. 없고 Core Flow의 레이어 분류가 필요하면 다음 순서로 작성한다.
 
-### 1) YAML 스키마 및 규격 (`schemas/layers-config.schema.json`)
+1. 매니페스트와 주요 프레임워크를 확인한다.
+2. feature-first, layer-first, FSD, MVC/MVVM, Clean/Hexagonal 또는 monorepo 구조인지 파악한다.
+3. 디렉터리 이름보다 실제 책임과 호출 방향을 우선해 레이어를 분류한다.
+4. 프로젝트에 실제로 존재하는 레이어만 진입점에서 말단 순서로 선언한다.
+5. 실제 저장소 상대 경로에 맞는 `pathPatterns`와 프로젝트 용어를 `aliases`에 기록한다.
 
-```yaml
-version: 1 # (필수) 항상 1
-strictOrder: true # (기본값: true) 레이어 역행 시 에러 처리. false면 warning + unknowns[] 기록
-allowUnknownLayer: false # (기본값: false) 미정의 레이어는 에러 처리. true면 unknown으로 매핑 후 경고
-layers: # (필수) 프로젝트 아키텍처에 존재하는 레이어 목록 (진입점 -> 말단 순서로 배치)
-  - name: presentation # (필수) 7대 표준 Canonical 레이어 명칭 중 하나
-    aliases: [ui, view, widget, screen, page] # 프로젝트에서 쓰이는 관용적 별칭/개념명 (소문자 정규화)
-    pathPatterns: ["**/presentation/**", "**/ui/**"] # glob 패턴 목록 (anchor.repoRelativePath 검증)
-```
+지원하는 canonical layer는 다음 7개다.
 
-### 2) 7대 표준 Canonical 레이어 범용 매핑 매트릭스
+| 레이어 | 책임 예시 |
+|---|---|
+| `presentation` | 화면, 컴포넌트, 사용자 이벤트 |
+| `controller` | 요청 수신, 상태 관리, ViewModel, handler |
+| `usecase` | 애플리케이션 작업 조율 |
+| `domain` | 핵심 규칙, entity, value object |
+| `data` | repository 구현, DAO, 데이터 변환 |
+| `infra` | 저장소·플랫폼·메시징 같은 기반 기능 |
+| `external` | 외부 API, 원격 client, 제3자 SDK |
 
-CodeFlow는 아키텍처 스타일과 언어에 관계없이 모든 계층을 7대 Canonical 레이어로 정규화하여 검증 및 시각화(FlowView Lane)한다. `name`은 반드시 아래 7개 중 하나를 선택한다.
+`unknown`은 분석 결과에서 확인되지 않은 레이어를 나타내는 상태이며 `layers[].name`으로 선언하는 canonical layer가 아니다.
 
-| Canonical `name` | 본질적 책임 (Core Responsibility) | 프론트엔드/모바일 (Flutter, React, iOS/Android 등) | 백엔드/마이크로서비스 (Go, NestJS, Spring, FastAPI 등) | 관용적 별칭 (`aliases`) |
-|---|---|---|---|---|
-| `presentation` | 사용자 인터페이스 렌더링, 뷰 이벤트 수신, 화면 전환 | View, Screen, Page, Widget, Component, Dialog | Template (SSR), CLI View, Swagger/OpenAPI | `ui`, `view`, `widget`, `screen`, `page`, `component` |
-| `controller` | UI 이벤트/HTTP 요청 수신, 상태 관리, 뷰모델, 입력 바인딩 | ViewModel, Notifier, BLoC, Cubit, Store, Hook, Reducer | HTTP Controller, Router, GraphQL Resolver, gRPC Handler | `controller`, `notifier`, `bloc`, `cubit`, `viewmodel`, `store`, `handler`, `resolver` |
-| `usecase` | 애플리케이션 비즈니스 유스케이스 조율, 트랜잭션/워크플로우 실행 | UseCase, Interactor, AppService, Workflow | Application Service, UseCase, Command/Query Handler, Orchestrator | `usecase`, `use_case`, `service`, `application`, `interactor`, `command`, `query` |
-| `domain` | 핵심 엔티티, 도메인 비즈니스 규칙, 값 객체(VO), 순수 계산 | Entity, Model, ValueObject, Policy, Rule | Domain Entity, Aggregate Root, Domain Service, Domain Event | `domain`, `entity`, `model`, `aggregate`, `vo` |
-| `data` | 데이터 영속성 처리, DB/캐시 연동, DTO 변환, 리포지토리 구현 | Repository, DataSource, LocalCache, DAO, DTO | Repository Impl, DAO, ORM Mapper, DataSource, Cache | `data`, `repository`, `datasource`, `data_source`, `dao`, `mapper` |
-| `infra` | OS/플랫폼 연동, 하드웨어 장치 제어, 시스템 보안/스토리지 | SecureStorage, Device/Sensors, Platform Channel | Config, Message Queue, Log/Metrics, Database Driver, OS | `infra`, `infrastructure`, `platform`, `storage`, `system` |
-| `external` | 외부 타사 서비스 연동, 원격 REST/gRPC 통신, 3rd party SDK | HTTP Client, Remote API, Payment SDK, OAuth | Remote REST Client, 3rd-party Gateway, Webhook Sender | `external`, `api`, `remote`, `client`, `gateway`, `network` |
+최소 예제:
 
-### 3) 범용 아키텍처 분석 4단계 프로세스 (LLM 에이전트 행동 지침)
-
-에이전트는 대상 저장소 분석 시 다음 4단계를 체계적으로 밟는다:
-
-#### Step 1: 프로젝트 프로파일링 (Manifest & Framework 파악)
-- 루트 매니페스트 파일(`package.json`, `pubspec.yaml`, `go.mod`, `pom.xml`, `build.gradle`, `Cargo.toml`, `pyproject.toml` 등)을 확인하여 언어, 런타임, 주요 프레임워크/라이브러리를 파악한다.
-- 모노레포/멀티패키지 구조(`apps/*`, `packages/*`, `modules/*`)인지 단일 프로젝트인지 확인한다.
-
-#### Step 2: 디렉터리 조직 전략 (Organization Strategy) 판별
-- **Feature-Driven / Vertical Slice**: 기능별로 디렉터리가 나뉘고 내부에 계층이 포함된 구조 (`features/<name>/presentation/...`, `modules/<name>/domain/...`)
-- **Layer-Driven / Horizontal**: 최상위에 계층이 나뉘어 있는 구조 (`controllers/`, `services/`, `repositories/`, `views/` 등)
-- **Feature-Sliced Design (FSD)**: 슬라이스 계층 구조 (`app/`, `pages/`, `widgets/`, `features/`, `entities/`, `shared/`)
-- **Hexagonal / Ports & Adapters / Onion**: 내부 도메인과 외부 어댑터가 분리된 구조 (`core/`, `domain/`, `application/`, `adapters/inbound`, `adapters/outbound`, `ports/`)
-
-#### Step 3: 레이어 선별 및 단조 증가 순서 결정 (Layer Pruning & Ordering)
-- **필요한 레이어만 선별**: 프로젝트에 존재하지 않는 레이어는 과감히 생략한다. (예: Usecase 없이 Controller에서 바로 Repository를 호출하는 단순 구조면 `presentation → controller → data`만 선언)
-- **단조 증가 순서 배치**: 이벤트/요청 진입(최상단)부터 데이터/외부(최하단) 방향으로 순서를 구성한다.
-
-#### Step 4: `pathPatterns` 및 `aliases` 추출 및 `codeflow.layers.yaml` 작성
-- 프로젝트의 실제 폴더 구조를 커버하는 doublestar glob 패턴(`**`)을 작성한다.
-- 팀/프로젝트 고유의 명칭(예: `bloc`, `resolver`, `command`, `saga`, `dao` 등)을 `aliases`에 등록한다.
-- 대상 프로젝트 루트 경로(`codeflow.layers.yaml`)에 저장한다.
-
-### 4) 5대 주요 아키텍처 패턴별 작성 템플릿
-
-#### 템플릿 1: Feature-First Clean Architecture (Flutter, React, 모바일/웹 공통)
 ```yaml
 version: 1
 strictOrder: true
 allowUnknownLayer: false
 layers:
   - name: presentation
-    aliases: [ui, view, widget, screen, page, component, dialog]
-    pathPatterns:
-      - "**/features/**/presentation/views/**"
-      - "**/features/**/presentation/widgets/**"
-      - "**/features/**/presentation/components/**"
-      - "**/core/widgets/**"
+    aliases: [ui, view, page]
+    pathPatterns: ["**/presentation/**", "**/ui/**"]
   - name: controller
-    aliases: [notifier, provider, controller, bloc, cubit, viewmodel, store]
-    pathPatterns:
-      - "**/features/**/presentation/controllers/**"
-      - "**/features/**/presentation/notifiers/**"
-      - "**/features/**/presentation/blocs/**"
-      - "**/features/**/presentation/viewmodels/**"
+    aliases: [controller, handler, viewmodel]
+    pathPatterns: ["**/controllers/**", "**/handlers/**"]
   - name: usecase
-    aliases: [usecase, use_case, application, interactor, workflow]
-    pathPatterns:
-      - "**/features/**/domain/usecases/**"
-      - "**/features/**/domain/interactors/**"
-  - name: domain
-    aliases: [domain, entity, model, aggregate, value_object]
-    pathPatterns:
-      - "**/features/**/domain/entities/**"
-      - "**/features/**/domain/models/**"
+    aliases: [usecase, application, service]
+    pathPatterns: ["**/usecases/**", "**/application/**"]
   - name: data
-    aliases: [repository, datasource, data_source, local_source, dao]
-    pathPatterns:
-      - "**/features/**/data/repositories/**"
-      - "**/features/**/data/datasources/**"
-  - name: infra
-    aliases: [infra, infrastructure, platform, storage, device]
-    pathPatterns:
-      - "**/core/platform/**"
-      - "**/core/storage/**"
-      - "**/infrastructure/**"
+    aliases: [repository, datasource, dao]
+    pathPatterns: ["**/repositories/**", "**/datasources/**"]
   - name: external
-    aliases: [api, remote, client, gateway, network]
-    pathPatterns:
-      - "**/core/network/**"
-      - "**/features/**/data/datasources/remote/**"
-      - "**/external/**"
+    aliases: [api, client, gateway]
+    pathPatterns: ["**/clients/**", "**/external/**"]
 ```
 
-#### 템플릿 2: Hexagonal / Ports & Adapters Architecture (Go, Java/Spring, NestJS, FastAPI 등 백엔드)
-```yaml
-version: 1
-strictOrder: true
-allowUnknownLayer: false
-layers:
-  - name: controller
-    aliases: [adapter_in, inbound_adapter, http, rest, grpc_handler, resolver, router]
-    pathPatterns:
-      - "**/adapters/inbound/**"
-      - "**/internal/delivery/http/**"
-      - "**/internal/delivery/grpc/**"
-      - "**/interfaces/controllers/**"
-  - name: usecase
-    aliases: [application, app_service, command_handler, query_handler, usecase]
-    pathPatterns:
-      - "**/application/usecases/**"
-      - "**/application/services/**"
-      - "**/application/commands/**"
-      - "**/application/queries/**"
-  - name: domain
-    aliases: [domain, entity, aggregate, domain_service, event]
-    pathPatterns:
-      - "**/domain/entities/**"
-      - "**/domain/models/**"
-      - "**/domain/services/**"
-  - name: data
-    aliases: [adapter_out, outbound_adapter, repository_impl, persistence, dao]
-    pathPatterns:
-      - "**/adapters/outbound/persistence/**"
-      - "**/infrastructure/persistence/**"
-      - "**/internal/repository/**"
-  - name: infra
-    aliases: [infrastructure, config, database, messaging, telemetry]
-    pathPatterns:
-      - "**/infrastructure/config/**"
-      - "**/infrastructure/database/**"
-      - "**/pkg/**"
-  - name: external
-    aliases: [external_client, remote_adapter, 3rd_party, gateway]
-    pathPatterns:
-      - "**/adapters/outbound/clients/**"
-      - "**/infrastructure/external/**"
+역방향 또는 오류 전이는 레이어 순서를 깨뜨리지 말고 branch로 표현한다. `strictOrder: false`나 `allowUnknownLayer: true`는 불확실성을 숨기지 않으며 경고와 unknown을 남긴다.
+
+## 1. 요청에 맞는 작업 경로 선택
+
+CodeFlow skill은 자동 호출되지 않는다. 사용자가 `$codeflow`를 명시했을 때 사용하며, 요청에 필요한 경로만 선택한다.
+
+### 1.1 기존 기능의 정적 Core Flow
+
+현재 캡처한 코드에서 기능의 시작부터 완료까지 경로를 알고 싶을 때 사용한다.
+
+```text
+harvest_flows 또는 analyze_flow
+→ 필요한 경우 publish_core_flow
+→ get_flow_payload
+→ report_unknowns
+→ 사용자가 화면을 요청한 경우 open_review
 ```
 
-#### 템플릿 3: Feature-Sliced Design (FSD - 모던 프론트엔드 / Next.js, React, Vue)
-```yaml
-version: 1
-strictOrder: true
-allowUnknownLayer: false
-layers:
-  - name: presentation
-    aliases: [app, pages, widgets, views, ui]
-    pathPatterns:
-      - "src/app/**"
-      - "src/pages/**"
-      - "src/widgets/**"
-      - "src/features/**/ui/**"
-      - "src/entities/**/ui/**"
-      - "src/shared/ui/**"
-  - name: controller
-    aliases: [feature_model, entity_model, hook, store]
-    pathPatterns:
-      - "src/features/**/model/**"
-      - "src/entities/**/model/**"
-      - "src/shared/lib/hooks/**"
-  - name: usecase
-    aliases: [lib, actions, logic, workflow]
-    pathPatterns:
-      - "src/features/**/lib/**"
-      - "src/entities/**/lib/**"
-  - name: domain
-    aliases: [types, contracts, schemas]
-    pathPatterns:
-      - "src/entities/**/types/**"
-      - "src/shared/types/**"
-  - name: external
-    aliases: [api, client, queries, mutations]
-    pathPatterns:
-      - "src/features/**/api/**"
-      - "src/entities/**/api/**"
-      - "src/shared/api/**"
+- `harvest_flows`: 자연어 질의로 후보 진입점을 찾는다.
+- `analyze_flow`: 정확한 entry symbol을 어댑터로 분석하고 발행한다.
+- `publish_core_flow`: 에이전트가 전체 레이어 흐름을 구성해야 할 때 검증된 artifact를 발행한다.
+- 모든 단계의 anchor는 현재 캡처한 파일 내용과 일치해야 한다.
+- `anchor_verification_failed`이면 해당 파일을 다시 읽고 현재 내용으로 anchor를 다시 계산해 한 번 재시도한다.
+- `artifact_too_large`이면 의미 있는 하위 흐름으로 나눈다.
+- Static FlowView는 캡처 시점의 구조를 보여줄 뿐 이후 편집까지 최신임을 증명하지 않는다.
+
+### 1.2 편집을 따라가는 Live Semantic Map
+
+사용자가 코드 변경 이후에도 설명이 최신인지 확인하고 싶을 때 사용한다.
+
+```text
+query_task_view(feature)
+→ 실제 코드 수정
+→ submit_versioned_edit(변경된 각 파일)
+→ get_workspace_activity
+→ get_current_answer
+→ get_generation_proof 또는 get_verified_gap
 ```
 
-#### 템플릿 4: 경량 Layered MVC / MVVM 아키텍처
-```yaml
-version: 1
-strictOrder: true
-allowUnknownLayer: false
-layers:
-  - name: presentation
-    aliases: [view, ui, screen, pages, template]
-    pathPatterns: ["views/**", "screens/**", "ui/**", "pages/**"]
-  - name: controller
-    aliases: [controller, viewmodel, handler]
-    pathPatterns: ["controllers/**", "viewmodels/**", "handlers/**"]
-  - name: usecase
-    aliases: [service, manager, logic]
-    pathPatterns: ["services/**", "managers/**", "logic/**"]
-  - name: domain
-    aliases: [model, entity, schema]
-    pathPatterns: ["models/**", "entities/**", "schemas/**"]
-  - name: data
-    aliases: [repository, datasource, db, dao]
-    pathPatterns: ["repositories/**", "datasources/**", "db/**", "dao/**"]
-  - name: external
-    aliases: [client, api, remote, network]
-    pathPatterns: ["api/**", "clients/**", "network/**"]
+`submit_versioned_edit`에는 저장소 상대 경로, 수정 후 파일 전체 내용, 증가한 `documentVersion`과 변경 출처를 전달한다. 이 호출은 semantic snapshot에 변경을 제출하며 실제 파일 수정을 대신하지 않는다.
+
+현재 일반 편집기의 파일 저장은 자동으로 Live Compiler에 전달되지 않는다. AI 에이전트, IDE 연동 또는 watcher 연동이 `submit_versioned_edit`를 호출해야 한다. 버전 충돌이 발생하면 반환된 현재 버전보다 1 큰 값으로 같은 내용을 한 번 재시도한다.
+
+상태 확인은 다음 순서를 따른다.
+
+1. `get_workspace_activity`에서 `editing` 또는 `reconciling`, `analyzing`, 최종 상태를 확인한다.
+2. 기본 편집 병합 구간인 약 2초 동안 과도하게 반복 조회하지 않는다.
+3. `get_current_answer`가 current를 반환해도 `get_generation_proof`가 동일한 식별자를 검증해야만 “현재 코드까지 검증됨”이라고 설명한다.
+4. current proof가 없으면 `get_verified_gap`의 영향 범위, 지연, 대기 중인 revision과 원인을 설명한다.
+
+Live 작업은 같은 MCP 서버와 같은 프로젝트 루트에서 계속 수행한다. 별도의 `codeflow view` 프로세스는 MCP가 관리하는 Live 상태를 공유하지 않는다.
+
+### 1.3 변경 검토, 요구사항, 영향과 실패 분석
+
+- 동작 변경 비교: `query_task_view`의 review mode 또는 `get_semantic_delta`
+- 요구사항 충족 여부: `get_requirement_alignment`
+- 특정 symbol 또는 change batch 영향: `get_change_impact`
+- 실패 가능 경로와 incident 조사: `investigate_failure` 또는 strict debug/incident query
+
+Semantic Delta에서는 추가·변경·제거된 동작과 근거만 바뀐 항목을 구분한다. 서로 다른 `workspaceEpoch`의 결과는 하나의 연속된 current 이력처럼 비교하지 않는다.
+
+Requirement Alignment는 CodeFlow가 근거로 확인한 항목만 `confirmed`로 취급한다. `partial`, `not_observed`, `conflicting`, `unknown`을 완료로 바꾸지 않는다.
+
+Change Impact의 `maxDepth`와 `maxNodes`는 조사 범위다. 결과에 없다는 이유로 영향이 없다고 단정하지 않는다.
+
+Failure 조사에서는 다음 상태를 구분한다.
+
+- 정적 코드에서 도달 가능한 경로
+- 결정적으로 재현한 결과
+- 신뢰된 runtime evidence에서 실제로 관찰한 결과
+
+사용자가 제공한 로그는 조사 단서이며 그 자체로 신뢰된 runtime evidence가 아니다. 로컬 실행은 사용자가 정확한 실행 작업을 승인하고 CodeFlow가 consent 계약을 수락한 경우에만 수행한다.
+
+### 1.4 선택적 Semantic Enrichment와 Semantic Approval
+
+`request_semantic_enrichment`는 사용자가 모델 기반 제목, 요약 또는 설명을 요청한 경우에만 사용한다. 모델이 없거나 실패하거나 시간이 초과되어도 결정적 분석 결과를 유지한다.
+
+현재 v0.4.0 배포 CLI에는 Model Host 설치·설정 명령이 없다. 별도 개발자 설정이 없으면 `Semantic Enrichment: unavailable`은 정상이다. 설정 범위와 모델 후보는 [Semantic Enrichment 가이드](semantic-enrichment.md)를 따른다.
+
+Semantic Approval은 **저장된 모델 설명 후보를 사람이 검토한 뒤 그 문구에 대한 결정을 기록할 때** 사용한다.
+
+```text
+request_semantic_enrichment
+→ get_evidence_pack
+→ 사용자의 명시적 결정
+→ submit_semantic_approval
+→ 필요한 경우 get_semantic_approval_history
 ```
 
-#### 템플릿 5: Monorepo / Multi-Package 아키텍처
-```yaml
-version: 1
-strictOrder: true
-allowUnknownLayer: false
-layers:
-  - name: presentation
-    aliases: [ui_package, app_ui, widgets]
-    pathPatterns:
-      - "apps/**/presentation/**"
-      - "packages/ui/**"
-      - "packages/feature_*/presentation/**"
-  - name: controller
-    aliases: [state, notifiers, controllers]
-    pathPatterns:
-      - "apps/**/controllers/**"
-      - "packages/feature_*/controllers/**"
-      - "packages/state/**"
-  - name: usecase
-    aliases: [domain_services, usecases]
-    pathPatterns:
-      - "packages/domain/**/usecases/**"
-      - "packages/feature_*/domain/usecases/**"
-  - name: domain
-    aliases: [core_domain, entities, models]
-    pathPatterns:
-      - "packages/domain/**/entities/**"
-      - "packages/models/**"
-  - name: data
-    aliases: [data_package, repositories]
-    pathPatterns:
-      - "packages/data/**"
-      - "packages/repositories/**"
-  - name: infra
-    aliases: [core_package, platform]
-    pathPatterns:
-      - "packages/core/**"
-      - "packages/platform/**"
-  - name: external
-    aliases: [api_client, network_package]
-    pathPatterns:
-      - "packages/network/**"
-      - "packages/api_client/**"
+- 단순한 긍정 표현을 승인 요청으로 해석하지 않는다.
+- 정확한 proposal, Evidence Pack, basis, generation, intent revision, 예상 승인 버전과 상태를 보존한다.
+- Approval은 설명 문구에 대한 신뢰 기록이다.
+- Approval은 구현 사실, current 여부, settlement, 요구사항 충족 상태나 runtime evidence를 변경하지 않는다.
+
+### 1.5 프로젝트 탐색
+
+처음 보는 프로젝트의 업무 영역과 대표 흐름을 알고 싶을 때 `explore_project_domains`를 사용한다. current 탐색에는 current proof가 필요하다. 과거 상태에는 정확한 basis, generation과 snapshot을 사용한다. 확인하지 못한 범위를 프로젝트 전체를 이해한 것처럼 설명하지 않는다.
+
+### 1.6 릴리즈 capability 평가
+
+`validate_release_capability`는 이미 수집된 immutable 평가 자료, 실행 보고서와 승인된 threshold를 평가한다. benchmark를 실행하거나 누락된 수치를 생성하거나 릴리즈를 승인하지 않는다.
+
+- 근거가 빠지면 `incomplete`다.
+- hard invariant가 실패하면 해당 capability가 차단된다.
+- 실제 근거 수집과 측정은 `flowmeter`와 [릴리즈 근거 실행 가이드](../validation/release-capability-evidence-runbook.md)를 사용한다.
+
+## 2. MCP 도구 대응표
+
+v0.4.0은 다음 24개 MCP 도구를 제공한다. 호출 인자는 MCP가 등록한 현재 `inputSchema`를 따른다.
+
+| 목적 | MCP 도구 |
+|---|---|
+| 검증된 Core Flow 발행 | `publish_core_flow` |
+| 후보 흐름 탐색 | `harvest_flows` |
+| 발행된 흐름 조회 | `get_flow_payload` |
+| 정확한 진입점 즉시 분석 | `analyze_flow` |
+| 구조화된 session draft 제출 | `submit_flow_draft` |
+| Static FlowView 단계 이름·규칙 승인 | `approve_step` |
+| 확인되지 않은 경계 조회 | `report_unknowns` |
+| FlowView 열기 | `open_review` |
+| 기능·review·impact·debug·incident 질의 | `query_task_view` |
+| 현재 답 확인 | `get_current_answer` |
+| Live 분석 진행상태 확인 | `get_workspace_activity` |
+| versioned edit 제출 | `submit_versioned_edit` |
+| current Generation Proof 확인 | `get_generation_proof` |
+| 최신 코드와 마지막 검증 결과의 차이 확인 | `get_verified_gap` |
+| generation 간 의미 변화 비교 | `get_semantic_delta` |
+| 요구사항 충족 상태 확인 | `get_requirement_alignment` |
+| 직접·간접 변경 영향 분석 | `get_change_impact` |
+| failure와 incident 경로 조사 | `investigate_failure` |
+| 선택적 모델 설명 요청 | `request_semantic_enrichment` |
+| 검증되고 비밀 값이 제거된 근거 조회 | `get_evidence_pack` |
+| Semantic Approval 상태 변경 | `submit_semantic_approval` |
+| Semantic Approval 이력 조회 | `get_semantic_approval_history` |
+| 프로젝트 domain과 대표 흐름 탐색 | `explore_project_domains` |
+| 수집된 릴리즈 근거 평가 | `validate_release_capability` |
+
+`approve_step`은 기존 Static FlowView 단계의 이름과 규칙을 승인한다. `submit_semantic_approval`은 exact proposal과 Evidence Pack에 연결된 Live Semantic Approval lifecycle을 기록한다. 서로 대체하지 않는다.
+
+## 3. 결과 신뢰 상태
+
+### 핵심 용어
+
+| 용어 | 의미 |
+|---|---|
+| `workspaceEpoch` | 같은 작업 공간의 연속된 분석 이력을 구분하는 번호. 초기화나 기준 재설정으로 값이 바뀌면 이전 generation은 historical이다. |
+| `snapshotId` | 분석기가 실제로 읽은 파일 상태의 식별자 |
+| `computedBasisId` | 분석 입력과 설정을 묶은 계산 기준 식별자 |
+| `generationId` | 그 기준으로 생성된 semantic 결과의 식별자 |
+| `current` | 현재 live snapshot과 정확히 일치하며 proof 검증을 통과한 결과 |
+| `historical` | 정확한 과거 generation에 속한 결과 |
+| `candidate` | 검증 또는 publication authority가 아직 없는 결과 |
+| `Verified Gap` | 최신 변경은 관찰했지만 현재 결과로 승격할 수 없는 상태와 그 원인 |
+| `settlement=pending` | 현재 코드를 설명할 수 있으나 요구된 검증 작업이 아직 끝나지 않은 상태 |
+| `unknown` | 근거나 관찰 범위가 부족해 판단할 수 없는 상태 |
+
+다음 조건을 모두 만족할 때만 current라고 설명한다.
+
+- 같은 프로젝트 target
+- 같은 workspace epoch
+- 같은 snapshot
+- 같은 computed basis
+- 같은 generation
+- 같은 task intent revision과 query
+- 유효한 current answer와 Generation Proof
+
+하나라도 확인되지 않으면 CodeFlow가 반환한 `historical`, `candidate`, `unknown` 또는 Verified Gap을 유지한다.
+
+모델 proposal, 사용자 Approval 또는 에이전트의 완료 보고는 다른 상태를 `current`, `confirmed`, `settled` 또는 runtime `observed`로 승격하지 않는다.
+
+## 4. FlowSpec과 Core Flow 설명 규칙
+
+정적 FlowSpec은 먼저 `flowId`, `title`, `description`, `basisSha`, `generatedAt`을 확인한 뒤 `steps`, `edges`, `truncated`, `unknowns`를 읽는다.
+
+각 단계에서는 다음 정보를 우선한다.
+
+1. `ordinal`과 `layer`에 따른 실행 순서
+2. `kind`: mutation, call, guard 또는 branch
+3. `provenance`: approved, session, derived 또는 unknown
+4. `freshness`: fresh, stale 또는 orphaned
+5. `anchor`와 `codeLens`
+6. 상태 변화, 외부 효과, 분기와 edge resolution
+
+- `stale`은 코드 변경으로 재검증이 필요하다.
+- `orphaned`는 기존 symbol이 사라진 상태다. 다른 symbol로 임의 대체하지 않는다.
+- `unresolved_dynamic`, `unresolved_type` 또는 `truncated` 경계를 추측으로 연결하지 않는다.
+- `codeLens` 줄 번호를 만들지 말고 반환된 anchor를 그대로 사용한다.
+- `unknowns`가 있으면 원인과 다음 확인 대상을 설명한다.
+- Core Flow는 사용자 이벤트나 요청에서 시작해 처리가 끝날 때까지 아키텍처 레이어를 통과하는 단계만 포함한다.
+
+사용자 응답은 다음 순서로 작성한다.
+
+```text
+1. 사용자가 요청한 기능의 결과
+2. 시작점부터 완료까지의 코드 경로
+3. 상태 변화, 조건, 외부 효과
+4. 근거와 current/historical/candidate 상태
+5. 확인되지 않은 범위 또는 Verified Gap
+6. 사용자가 요청한 경우에만 FlowView URL
 ```
 
-## 1. 가장 짧은 사용 흐름
+FlowView URL의 token이나 `.codeflow` 내부 포인터, 비밀 값은 로그나 일반 설명에 노출하지 않는다. `open_review`가 사용자에게 반환하도록 설계된 URL은 사용자가 화면을 요청했을 때 그대로 제공한다.
 
-사용자 프롬프트 예: "이메일 회원가입 핵심 흐름을 FlowView로 만들어줘" / "회원가입 핵심 흐름 보여줘" / "core flow for email signup"
+## 5. CLI 사용 범위
 
-에이전트는 설치된 CodeFlow 스킬(`skills/codeflow/SKILL.md` v3)을 따른다:
-
-```
-explore (진입 레이어 이벤트 + 레이어 관통 추적) → publish_core_flow (중간 산출물 검증 게시) → get_flow_payload + unknowns 확인 → 요청한 경우 open_review
-```
-
-alternative (탐색·브라우징, 핵심 흐름 아님):
-
-```
-harvest_flows (후보 탐색) → get_flow_payload → open_review
-```
-
-`harvest_flows`는 `discovery (browsing, not core)`로 레이블되며 핵심 흐름 발행에는 쓰지 않는다. 핵심 흐름은 반드시 `publish_core_flow`로 발행한다.
+MCP가 없는 환경에서는 정적 탐색과 1회성 candidate 분석에 CLI를 사용할 수 있다.
 
 ```sh
-# MCP가 없는 환경의 CLI 대체 (설치 후에는 env 없이도 동작) — discovery 트랙
-codeflow flows --json ./testdata/example_app
-codeflow publish ./testdata/example_app
-codeflow show flow-7232d63b96bd6efa --json | python3 -m json.tool
+codeflow flows --json <프로젝트-루트>
+codeflow publish <프로젝트-루트>
+codeflow show <flow-id> <프로젝트-루트> --json
+codeflow query <프로젝트-루트> --mode feature --request "<기능 질문>" --json
+codeflow status <프로젝트-루트> --json
+codeflow view <프로젝트-루트>
 ```
 
-MCP가 있으면 기존 Core 재사용 — 매번 `init/serve` 불필요. 핵심 흐름은 MCP 전용 `publish_core_flow`로 게시한다 (CLI 없음).
+- `publish_core_flow`는 MCP 전용이다.
+- `codeflow query` 결과는 1회성 candidate 분석이며 MCP Live session의 current proof를 대신하지 않는다.
+- `codeflow status`는 해당 호출에서 연 작업 공간 상태를 보여준다. 별도 MCP 프로세스의 메모리 상태를 공유한다고 가정하지 않는다.
+- `refresh` 명령은 없다. 정적 결과를 다시 만들려면 `publish`를 사용하고, Live 결과는 versioned edit 제출 후 current-or-gap 흐름으로 확인한다.
+- Semantic Enrichment용 `codeflow model install`, 설정 또는 상태 명령은 v0.4.0에 없다.
 
-## 2. MCP 도구 선택 (v3 8종)
+## 6. 에이전트 최소 체크리스트
 
-항상 정확한 `flowId` 또는 `entrySymbolPath`를 전달 — 기본값에 의존 금지. 모든 도구는 `target` 매개변수를 지원하여 특정 하위 디렉터리나 모노레포 패키지를 격리 분석할 수 있습니다.
-
-| 목적 | 도구 | 입력 | 사용 시점 |
-|---|---|---|---|
-| 핵심 흐름 발행 | `publish_core_flow` | `artifact{entrySymbolPath,title,description?,layers?,steps[anchor+layer],edges?,unknowns?}`, `target?`, `token?` | 사용자 요청 핵심 흐름 — 앵커/레이어 검증 후 원자적 게시 (`codeflow.layers.yaml` 있으면 그에 맞춰 검증) |
-| 후보 탐색 | `harvest_flows` | `target?`, `query?` (예: "이메일 회원가입") | 브라우징·탐색 — `intentSignals{derivedName, docLine, className}`으로 NL 매칭. 핵심 흐름 발행에는 사용 금지 |
-| 단일 흐름 읽기 | `get_flow_payload` | `flowId?`, `entrySymbolPath?`, `target?` | 후보 1개 상세 조회 |
-| 임의 진입점 분석 | `analyze_flow` | `entrySymbolPath` (예: `lib/features/auth/email_signup_notifier.dart#EmailSignupNotifier.submit`), `target?` | `harvest`에 없는 진입점 — 즉시 slice+fuse+게시 (기존 generation에 병합) |
-| 세션 근거 제출 | `submit_flow_draft` | `artifact` (anchor 필수), `target?`, `token?` | 에이전트가 여정 근거를 보강할 때 — `repoRelativePath+byteRange+fileHash+spanHash+enclosingSymbolPath+canonicalAstFingerprint` 전체 필요 |
-| 단계 승인 | `approve_step` | `flowId`, `symbolPath`, `name`, `rules?`, `target?`, `token?` | 사용자가 이름·규칙 승인 시 (E3, provenance=approved) |
-| 미확정 확인 | `report_unknowns` | `flowId?`, `target?` | 설명이 추론에 의존하는 즉시 |
-| FlowView 열기 | `open_review` | `flowId?`, `target?` | 사용자가 화면 확인 요청 시만 — MCP가 FlowView를 지연 기동하고 `?token=&flow=` 포함 URL 반환 |
-
-### 동적 타겟 라우팅 (Dynamic Target Routing & Zero Pollution)
-
-* **글로벌 실행 지원**: 에이전트는 `codeflow mcp`가 임의의 CWD(예: 홈 디렉터리 등)에서 시작되었더라도 충돌 없이 안전하게 연결됩니다.
-* **온디맨드 분석**: 도구 호출 시 `target: "path/to/repo"`를 넘기면, 해당 디렉터리의 언어(`Dart` 또는 `TypeScript`)를 동적으로 판별하고 해당 대상 저장소의 `.codeflow/`에만 격리하여 분석을 수행합니다. CWD는 절대 오염되지 않습니다.
-
-`query` 예: `harvest_flows {"query":"이메일 회원가입"}` → `candidates[].intentSignals.derivedName="이메일을 회원가입한다"`와 부분일치.
-
-`analyze_flow`는 파괴적이지 않음 — 기존 generation을 읽어 병합 후 게시.
-
-`publish_core_flow` 입력 `artifact`는 `schemas/core-artifact.schema.json`을 따른다. `steps[].layer`는 `presentation, controller, usecase, domain, data, infra, external` 중 하나 (canonical English, CORE가 `codeflow.layers.yaml` aliases로 정규화). `layers[]`가 있으면 스텝 순서가 그 트래버설에 단조 증가해야 한다 (branch 제외). 초과 시 `artifact_too_large` → 분할 발행.
-
-`codeflow.layers.yaml`가 있으면 모든 layer/alias/pathPatterns는 그 파일을 따른다. 에이전트는 탐색 전 이 파일을 먼저 읽는다. 없으면 CORE는 8 canonical 레이어와 내장 alias 테이블로 검증한다.
-
-Discovery publish는 비즈니스 흐름만 발행한다 — UseCase 단독 진입(`use_case_invocation`) 흐름은 제외되며, 유스케이스 내부는 상위 비즈니스 흐름의 call 단계와 `edges[]` 위임으로 드러난다. UseCase 단독 분석이 필요하면 `analyze_flow`로 해당 진입점을 직접 요청한다.
-
-## 3. 응답을 읽는 순서
-
-FlowSpec envelope:
-```
-flowId → title → description → basisSha(64hex) → generatedAt → steps[] → edges[] → truncated? → unknowns[] + view URL
-```
-`steps[]` 각 원소:
-```
-ordinal → name → layer(presentation|controller|usecase|domain|data|infra|external|unknown) → kind(mutation|call|guard|branch) → provenance(approved|session|derived|unknown) → freshness(fresh|stale|orphaned) → confidence → basisSha → anchor → rules/stateDelta/sideEffect/branch/codeLens
-```
-`edges[]` 각 원소 (레이어 간 위임):
-```
-stepOrdinal → toSymbolPath → kind(resolved_cross_file|boundary_call|unknown_edge) → resolutionStatus(resolved|unresolved_dynamic|unresolved_type|truncated) → toLayer?
+```text
+[ ] 사용자가 $codeflow를 명시했는가?
+[ ] target을 feature 폴더가 아닌 프로젝트 루트로 지정했는가?
+[ ] 요청에 맞는 정적, Live 또는 semantic operation 경로 하나를 선택했는가?
+[ ] 정확한 flow, entry symbol, generation, basis와 snapshot 식별자를 보존했는가?
+[ ] current를 말하기 전에 current answer와 같은 Generation Proof를 확인했는가?
+[ ] Verified Gap, unknown, incomplete를 성공이나 완료로 바꾸지 않았는가?
+[ ] 모델 proposal, Approval, 구현 사실과 runtime observation을 구분했는가?
+[ ] anchor와 coverage 범위를 넘어 추론하지 않았는가?
+[ ] 사용자가 화면을 요청한 경우에만 같은 MCP session에서 FlowView를 열었는가?
 ```
 
-LLM 읽기 순서:
-1. `basisSha`·`generatedAt`으로 어떤 스냅샷인지 확인.
-2. `description`(진입점 docLine 융합)으로 비즈니스 목적 첫 문장을 만든다.
-3. `steps`를 `layer`의 canonical 순서 `presentation→controller→usecase→domain→data→infra→external→unknown` (`codeflow.layers.yaml`가 있으면 그 순서) 로, 같은 layer 내에서는 `ordinal` 순으로 — `provenance` 권위 `approved>session>derived>unknown`, `freshness`가 `stale/orphaned`면 승인 큐로 안내. `kind`로 핵심(mutation/call)과 보조(guard/branch)를 구분해 설명 밀도를 조절. `resolutionStatus=unresolved_dynamic`이면 추론하지 않는다.
-4. `stateDelta {before→after}`, `sideEffect`, `branch`, `edges[]`로 인과와 위임 연결 — `resolutionStatus=unresolved_dynamic`인 엣지는 "동적 호출로 끊긴 곳"이라고 정직하게 말한다. `edges[].toLayer`로 레인 홉을 설명.
-5. `truncated=true`면 잘린 하위 흐름이 있음을 함께 안내한다.
-6. `codeLens {path,startLine,endLine}`로 코드 근거 제시 — 줄 번호를 만들지 말고 anchor 그대로 사용.
-7. `unknowns[]`는 반드시 언급 — 비어 있어도 "확인되지 않은 부분 없음"으로 명시.
-8. `open_review`의 `url`은 `?token=` 포함 — 그대로 제공. FlowView는 레이어별 Architecture Map(핵심 흐름은 명시적 `layer`로 레인 렌더, 레거시는 InferLayer 폴백)과 핵심 타임라인(전체 보기 토글 포함)을 보여준다.
-
-`codeflow.layers.yaml`가 있으면 모든 layer/alias/pathPatterns는 그 파일을 따른다. 에이전트는 탐색 전 이 파일을 먼저 읽는다.
-
-## 4. 신뢰 상태 규칙
-
-| 상태 | 말할 수 있는 것 | 금지 |
-|---|---|---|
-| `fresh + derived/session` | 코드 근거로 확인됐다고 설명 | 런타임에 반드시 실행됐다고 단정 |
-| `stale` | 코드가 바뀌어 재승인 필요, `refresh`/`publish` 안내 | 이전 anchor를 현재 근거로 사용 |
-| `orphaned` | 심볼이 사라짐, 승인 철회 필요 | 다른 심볼로 대체 |
-| `unknown` | 어디까지 확인됐고 무엇이 빠졌는지 설명 | 그럴듯한 대상·상태를 선택 |
-
-## 5. 사용자에게 설명하는 형식
-
-```
-비즈니스 여정 요약
-이메일을 이용한 회원가입 — 사용자가 이메일을 제출해 가입을 완료하는 경로
-
-현재 코드 흐름 (EmailSignupNotifier.submit) — presentation→controller→usecase→data
-1. [presentation] 입력 규칙을 검증한다 [derived, fresh] — lib/features/auth/email_signup_notifier.dart:37
-2. [controller] 진행 상태로 갱신한다 — :38
-3. [usecase] 외부 서비스에 작업을 요청한다: SignupService.call [derived, fresh] — :39
-4. [data] 성공 상태로 갱신한다 — :40
-
-상태 변화
-idle → submitting → done / failed(error: 'signup failed')
-
-레이어 위임
-presentation → controller → usecase(SignupService.call, 3단계에서 위임) → data
-
-확인되지 않은 부분
-없음 (stale 0, unknowns 0)
-
-FlowView에서 코드 렌즈(심볼 단위 함수 본문 + 단계 포커스 강조)와 함께 시각 검증 가능 — URL: http://127.0.0.1:4567/?token=...&flow=flow-7232d63b96bd6efa
-```
-
-원칙: **비즈니스 목적을 첫 문장에**, 원인 순서로, `unknowns`가 있으면 “왜 남았는지/다음에 확인할 코드”로. 핵심 흐름은 `layer` 순서로 설명한다.
-
-## 6. 변경 후 재확인
-
-코드 변경 시 이전 결과 재사용 금지 — `watch`가 500ms 폴링+mtime 필터로 감지하나 즉시 필요하면:
-```sh
-codeflow publish <repo>
-codeflow show <flowId> --json
-```
-`basisSha`가 바뀌었는지 확인 후 다시 설명.
-
-## 7. 금지 사항
-
-- CodeFlow와 별개 스캐너를 즉석 구현하지 않는다.
-- product source를 CodeFlow 사용을 위해 수정하지 않는다.
-- `unknown`을 `observed`로 승격하지 않는다.
-- `token`, `.codeflow/pointer.json`, 비밀 값을 노출하지 않는다.
-- 사용자가 요청하지 않았는데 FlowView를 열거나 외부에 게시하지 않는다.
-
-## 8. LLM 최소 체크리스트
-
-```
-[ ] 핵심 흐름 요청이면 publish_core_flow로 발행했는가? (harvest_flows는 탐색 전용)
-[ ] publish_core_flow artifact의 모든 앵커가 검증됐는가? layer가 codeflow.layers.yaml에 정의된 값인가? layer 순서가 단조 증가하는가 (branch 제외)?
-[ ] query로 harvest_flows 후 candidateId/flowId를 정확히 사용했는가? (탐색 트랙)
-[ ] freshness가 stale/orphaned면 승인 큐로 안내했는가?
-[ ] steps를 layer 순서(presentation→…→external) + ordinal 순, provenance 권위 순으로 읽었는가?
-[ ] edges[]의 위임(toLayer)과 unresolved_dynamic 끊김을 추측 없이 설명했는가?
-[ ] unknowns를 추측 없이 설명했는가?
-[ ] 코드는 anchor/codeLens 그대로 인용했는가?
-[ ] FlowView는 요청 시에만 open_review URL(token 포함)로 제공했는가?
-```
-
-로컬 실행·캐시 관리는 `docs/guides/development.md`, 전체 설계는 `docs/design/specs/design-v2.md` 참조.
+개발 환경과 캐시 관리는 [개발 가이드](development.md), 전체 기능 예시는 [기능 및 프롬프트 가이드](feature.md), SLM 관련 제한은 [Semantic Enrichment 가이드](semantic-enrichment.md)를 참고한다.

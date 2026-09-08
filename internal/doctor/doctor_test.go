@@ -125,7 +125,7 @@ func TestDiagnoseWithPublishedGeneration(t *testing.T) {
 	}
 }
 
-func TestDiagnoseDartProjectWithAdapterSpec(t *testing.T) {
+func TestDiagnoseRejectsNonCommunicatingDartAdapter(t *testing.T) {
 	dir := t.TempDir()
 
 	// Create pubspec.yaml
@@ -150,8 +150,10 @@ func TestDiagnoseDartProjectWithAdapterSpec(t *testing.T) {
 		names[r.Name] = r
 	}
 
-	if adapterCheck, ok := names["Dart adapter"]; !ok || !adapterCheck.Passed {
-		t.Errorf("Dart adapter should pass with valid spec: %+v", adapterCheck)
+	if adapterCheck, ok := names["Dart adapter"]; !ok || adapterCheck.Passed {
+		t.Errorf("Dart adapter should fail when the executable cannot initialize the protocol: %+v", adapterCheck)
+	} else if !strings.Contains(adapterCheck.Message, "protocol check failed") {
+		t.Errorf("expected protocol failure detail, got: %+v", adapterCheck)
 	}
 }
 

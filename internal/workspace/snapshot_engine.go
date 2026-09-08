@@ -10,11 +10,13 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"sort"
 	"strings"
 	"sync"
 	"time"
+	"unicode/utf8"
 )
 
 const (
@@ -619,6 +621,7 @@ func (e *SnapshotEngine) captureCompleteTreeOnceLocked(ctx context.Context, over
 	versions := make(map[string]int)
 	capturedContent := make(map[string]string)
 	previousEntries := e.liveHeadEntries()
+	gitFiles := loadGitCaptureSet(e.canonicalRoot)
 	err := filepath.WalkDir(e.canonicalRoot, func(fullPath string, dirEntry os.DirEntry, walkErr error) error {
 		if walkErr != nil {
 			return walkErr
@@ -638,18 +641,21 @@ func (e *SnapshotEngine) captureCompleteTreeOnceLocked(ctx context.Context, over
 			}
 			return nil
 		}
+		if gitFiles != nil {
+			if dirEntry.IsDir() && !gitFiles.hasDescendant(rel) {
+				return filepath.SkipDir
+			}
+			if !dirEntry.IsDir() && !gitFiles.contains(rel) {
+				return nil
+			}
+		}
 		if dirEntry.IsDir() {
 			return nil
 		}
 		if _, overridden := overlays[rel]; overridden {
 			return nil
 		}
-		if dirEntry.Type()&os.ModeSymlink != 0 {
-			if _, err := validateRepositoryPath(e.canonicalRoot, rel, false); err != nil {
-				return err
-			}
-		}
-		if !dirEntry.Type().IsRegular() && dirEntry.Type()&os.ModeSymlink == 0 {
+		if !snapshotEntryIsReadableFile(dirEntry) {
 			return nil
 		}
 		if err := contextErr(ctx); err != nil {
@@ -661,6 +667,9 @@ func (e *SnapshotEngine) captureCompleteTreeOnceLocked(ctx context.Context, over
 				return fmt.Errorf("%w: capture %s: %v", ErrCaptureConflict, rel, err)
 			}
 			return fmt.Errorf("capture %s: %w", rel, err)
+		}
+		if !isSnapshotText(data) {
+			return nil
 		}
 		contentID := hashBytes(data)
 		capturedContent[rel] = contentID
@@ -732,6 +741,7 @@ func (e *SnapshotEngine) captureCompleteTreeOnceLocked(ctx context.Context, over
 
 func (e *SnapshotEngine) validateCapturedTreeLocked(ctx context.Context, expected map[string]string, overlays map[string]EditRequest, removals map[string]bool) error {
 	seen := make(map[string]bool, len(expected))
+	gitFiles := loadGitCaptureSet(e.canonicalRoot)
 	err := filepath.WalkDir(e.canonicalRoot, func(fullPath string, dirEntry os.DirEntry, walkErr error) error {
 		if walkErr != nil {
 			return walkErr
@@ -751,18 +761,21 @@ func (e *SnapshotEngine) validateCapturedTreeLocked(ctx context.Context, expecte
 			}
 			return nil
 		}
+		if gitFiles != nil {
+			if dirEntry.IsDir() && !gitFiles.hasDescendant(rel) {
+				return filepath.SkipDir
+			}
+			if !dirEntry.IsDir() && !gitFiles.contains(rel) {
+				return nil
+			}
+		}
 		if dirEntry.IsDir() {
 			return nil
 		}
 		if _, overridden := overlays[rel]; overridden {
 			return nil
 		}
-		if dirEntry.Type()&os.ModeSymlink != 0 {
-			if _, err := validateRepositoryPath(e.canonicalRoot, rel, false); err != nil {
-				return err
-			}
-		}
-		if !dirEntry.Type().IsRegular() && dirEntry.Type()&os.ModeSymlink == 0 {
+		if !snapshotEntryIsReadableFile(dirEntry) {
 			return nil
 		}
 		if err := contextErr(ctx); err != nil {
@@ -774,6 +787,9 @@ func (e *SnapshotEngine) validateCapturedTreeLocked(ctx context.Context, expecte
 				return fmt.Errorf("%w: validate %s: %v", ErrCaptureConflict, rel, err)
 			}
 			return err
+		}
+		if !isSnapshotText(data) {
+			return nil
 		}
 		contentID := hashBytes(data)
 		want, ok := expected[rel]
@@ -792,6 +808,49 @@ func (e *SnapshotEngine) validateCapturedTreeLocked(ctx context.Context, expecte
 		}
 	}
 	return nil
+}
+
+func snapshotEntryIsReadableFile(entry os.DirEntry) bool {
+	return entry.Type()&os.ModeSymlink == 0 && entry.Type().IsRegular()
+}
+
+func isSnapshotText(data []byte) bool {
+	return utf8.Valid(data) && !bytes.ContainsRune(data, '\x00')
+}
+
+type gitCaptureSet struct {
+	files map[string]struct{}
+	paths []string
+}
+
+func loadGitCaptureSet(root string) *gitCaptureSet {
+	cmd := exec.Command("git", "-C", root, "ls-files", "--cached", "--others", "--exclude-standard", "-z")
+	out, err := cmd.Output()
+	if err != nil {
+		return nil
+	}
+	set := &gitCaptureSet{files: make(map[string]struct{})}
+	for _, raw := range bytes.Split(out, []byte{0}) {
+		path := filepath.ToSlash(string(raw))
+		if path == "" {
+			continue
+		}
+		set.files[path] = struct{}{}
+		set.paths = append(set.paths, path)
+	}
+	sort.Strings(set.paths)
+	return set
+}
+
+func (s *gitCaptureSet) contains(path string) bool {
+	_, ok := s.files[path]
+	return ok
+}
+
+func (s *gitCaptureSet) hasDescendant(dir string) bool {
+	prefix := strings.TrimSuffix(dir, "/") + "/"
+	i := sort.SearchStrings(s.paths, prefix)
+	return i < len(s.paths) && strings.HasPrefix(s.paths[i], prefix)
 }
 
 func (e *SnapshotEngine) isLegitimateUnsavedOverlayLocked(entry SnapshotEntry) bool {
