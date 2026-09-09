@@ -58,6 +58,7 @@ type ArtifactRefs struct {
 	AnalysisReadSet    string `json:"analysisReadSet,omitempty"`
 	ObservationClosure string `json:"observationClosure,omitempty"`
 	AnalyzerResult     string `json:"analyzerResult,omitempty"`
+	LiveView           string `json:"liveView,omitempty"`
 }
 
 // ActivePointer represents the atomic active generation pointer in storage (Raw §10.11).

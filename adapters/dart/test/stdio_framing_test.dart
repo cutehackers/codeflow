@@ -4,6 +4,9 @@ import 'dart:io';
 
 import 'package:test/test.dart';
 
+import 'package:codeflow_dart_adapter/src/protocol.dart'
+    show defaultMaxMessageBytes;
+
 import 'helpers.dart';
 
 /// Spawns the real adapter binary and feeds NDJSON lines through the stdin
@@ -20,9 +23,9 @@ void main() {
 			all.addAll(chunk);
 			return all;
 		});
-		final body = List<int>.filled((1 << 20) + 1, 0x78);
-		final header = utf8.encode('Content-Length: ${body.length}\r\n\r\n');
-		process.stdin.add(<int>[...header, ...body]);
+		final header = utf8.encode(
+			'Content-Length: ${defaultMaxMessageBytes + 1}\r\n\r\n');
+		process.stdin.add(header);
 		await process.stdin.flush();
 		await process.stdin.close();
 		final output = await outputFuture;

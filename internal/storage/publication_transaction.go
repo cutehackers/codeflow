@@ -593,7 +593,7 @@ func (s *Storage) publishGenerationLocked(tx PublicationTransaction) (Publicatio
 		}
 		artifactPaths[path] = exists
 	}
-	for _, ref := range []string{tx.Manifest.ArtifactRefs.SemanticMap, tx.Manifest.ArtifactRefs.SemanticDelta, tx.Manifest.ArtifactRefs.EvidenceIndex, tx.Manifest.ArtifactRefs.Projection} {
+	for _, ref := range []string{tx.Manifest.ArtifactRefs.SemanticMap, tx.Manifest.ArtifactRefs.SemanticDelta, tx.Manifest.ArtifactRefs.EvidenceIndex, tx.Manifest.ArtifactRefs.Projection, tx.Manifest.ArtifactRefs.LiveView} {
 		if ref == "" {
 			continue
 		}

@@ -7,7 +7,7 @@ import 'dart:io';
 
 import 'package:codeflow_dart_adapter/src/protocol.dart';
 
-const int _maxMessageBytes = 1 << 20;
+const int _maxMessageBytes = defaultMaxMessageBytes;
 const int _maxHeaderBytes = 8 << 10;
 const int _maxBufferBytes = _maxMessageBytes + _maxHeaderBytes;
 

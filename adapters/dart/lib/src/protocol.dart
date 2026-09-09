@@ -13,6 +13,7 @@ import 'dart:io';
 import 'analysis_tracker.dart';
 import 'harvest.dart';
 import 'secret.dart';
+import 'sha256.dart';
 import 'slice.dart';
 
 export 'secret.dart'
@@ -21,7 +22,7 @@ export 'secret.dart'
 /// Protocol major version this adapter speaks.
 const int protocolVersion = 1;
 const String jsonRpcVersion = '2.0';
-const String analyzerVersion = 'dart-structural/0.4.0';
+const String analyzerVersion = 'dart-ast/0.4.0';
 const String analysisSchemaId =
     'https://codeflow.local/schemas/adapter-analysis.schema.json';
 const String analyzerRequestSchemaId =
@@ -32,21 +33,24 @@ const String _readSetV2SchemaId =
     'https://codeflow.local/schemas/rflsc.analysis-read-set.v2.schema.json';
 const String _closureV2SchemaId =
     'https://codeflow.local/schemas/rflsc.observation-closure.v2.schema.json';
+const int defaultMaxMessageBytes = 128 * 1024 * 1024;
 const Map<String, Object?> capabilities = {
   'cancellation': true,
   'progress': true,
   'batchAck': true,
   'snapshotOverlay': true,
   'analysisMetadata': true,
-  'maxMessageBytes': 1048576,
+  'flowContext': true,
+  'maxMessageBytes': defaultMaxMessageBytes,
   'maxInFlight': 64,
 };
 
 /// Encodes one outbound response and enforces the common negotiated body
 /// bound before a Content-Length frame is written. An oversized value is
 /// replaced by one small typed error without recursively invoking the writer.
-List<int>? encodeBoundedResponse(Object? value, {int maxBytes = 1 << 20}) {
-  final limit = maxBytes > 0 ? maxBytes : 1 << 20;
+List<int>? encodeBoundedResponse(Object? value,
+    {int maxBytes = defaultMaxMessageBytes}) {
+  final limit = maxBytes > 0 ? maxBytes : defaultMaxMessageBytes;
   List<int>? body;
   try {
     body = utf8.encode(jsonEncode(value));
@@ -379,6 +383,8 @@ class AdapterServer {
 
   static Map<String, Object?> _defaultSlice(Map<Object?, Object?> params) {
     final tracker = params['_analysisTracker'];
+    final snapshotId = (params['snapshotId'] ??
+        (params['snapshot'] as Map?)?['snapshotId']) as String?;
     return sliceCandidate(
       repoRoot: params['repoRoot'] as String,
       candidateId: params['candidateId'] as String,
@@ -386,6 +392,7 @@ class AdapterServer {
       opts: (params['opts'] as Map?)?.cast<String, Object?>() ?? const {},
       contentOverlay: _overlayFromParams(params),
       tracker: tracker is AnalysisObservationTracker ? tracker : null,
+      snapshotId: snapshotId,
     );
   }
 
@@ -524,6 +531,8 @@ class AdapterServer {
       'measuredObservations': listValue(oldClosure['measuredObservations']),
       'incompleteReasons': listValue(oldClosure['incompleteReasons']),
     };
+    closure['closureDigest'] =
+        sha256Hex(jsonEncode({'readSet': readSet, 'closure': closure}));
     final features = oldCapability['features'] is List &&
             (oldCapability['features'] as List).isNotEmpty
         ? listValue(oldCapability['features'])

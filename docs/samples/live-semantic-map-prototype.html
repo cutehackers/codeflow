@@ -1,0 +1,227 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>CodeFlow · Live Semantic Map</title>
+<style>
+:root{color-scheme:light;--ink:#171717;--muted:#666;--line:#ddd;--soft:#f5f5f5;--paper:#fff}
+*{box-sizing:border-box}body{margin:0;background:#fafafa;color:var(--ink);font:14px/1.6 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}button,input,a{font:inherit}button{cursor:pointer;color:inherit;border:1px solid #ccc;background:white;padding:6px 10px;border-radius:5px}button:hover{background:#eee;border-color:#888}button:disabled{opacity:.45;cursor:default}button:focus-visible,a:focus-visible,input:focus-visible,summary:focus-visible{outline:2px solid #111;outline-offset:3px}button[aria-pressed=true]{background:#171717;color:white;border-color:#171717}a{color:inherit}h1,h2,h3,p{margin:0}code,pre,.mono{font-family:ui-monospace,SFMono-Regular,Menlo,monospace}.muted{color:var(--muted)}.eyebrow{font-size:10px;letter-spacing:1.4px;font-weight:750}.tag{font-size:10px;border:1px solid #ccc;padding:2px 6px;border-radius:4px;white-space:nowrap}.bar{display:flex;gap:16px;align-items:center;height:60px;padding:0 30px;border-bottom:1px solid var(--line);background:white}.brand{font-size:16px;font-weight:750;display:flex;gap:9px;align-items:center}.brand b{background:#171717;color:white;display:grid;place-items:center;width:27px;height:27px;border-radius:5px;font-size:12px}.mode{border-left:1px solid #ddd;padding-left:16px;font-size:12px;font-weight:650}.bar a{margin-left:auto;font-size:11px;color:#555;text-decoration:none}.intro{padding:24px 30px 18px}.intro h1{font-size:27px;letter-spacing:-.8px;margin:6px 0}.intro p{font-size:12px;color:#666}.request{display:flex;gap:8px;max-width:850px;margin-top:15px}.request input{width:100%;min-width:0;padding:9px 12px;border:1px solid #ccc;border-radius:5px;background:white;font-size:12px}.request button{white-space:nowrap;font-size:12px;background:#171717;color:white;border-color:#171717}.notice{margin:0 30px 19px;border:1px solid #ddd;background:white;border-radius:6px;padding:9px 13px;display:flex;align-items:center;gap:14px;font-size:11px;min-height:44px}.notice .controls{margin-left:auto;display:flex;gap:6px;flex-shrink:0}.notice button{font-size:10px;padding:4px 8px}.layout{display:grid;grid-template-columns:210px minmax(0,1fr) 240px;margin:0 30px;border-top:1px solid #ddd;gap:24px;align-items:start}.rail{position:sticky;top:15px;padding-top:20px;max-height:calc(100vh - 30px);overflow:auto}.rail h2{font-size:11px;letter-spacing:.6px;margin-bottom:12px}.step-link{width:100%;display:flex;text-align:left;gap:10px;border-color:transparent;background:transparent;margin-bottom:4px;padding:10px 8px;font-size:11px}.step-link .idx{font:10px/1.9 ui-monospace,monospace;color:#777}.step-link strong{display:block;font-size:11px;font-weight:600}.step-link small{display:block;font-size:10px;color:#666}.step-link[aria-pressed=true]{background:#eee;border-color:#ccc;color:#171717}.step-link[aria-pressed=true] small{color:#444}.rail-note{font-size:10px;color:#666;padding:14px 8px;border-top:1px solid #ddd;margin-top:16px;line-height:1.8}.center{min-width:0;border-left:1px solid #ddd;border-right:1px solid #ddd;padding:19px 24px 28px}.center-head{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:17px}.center-head h2{font-size:14px}.center-head span{font-size:10px;color:#666}.code-card{border:1px solid #d4d4d4;border-radius:7px;background:white;margin-bottom:18px;overflow:hidden;scroll-margin-top:18px}.code-card.selected{border:2px solid #171717}.card-head{padding:12px 15px;border-bottom:1px solid #ddd;display:flex;align-items:start;gap:10px}.card-ordinal{font:11px/1.8 ui-monospace,monospace;color:#777;min-width:20px}.card-head h3{font-size:13px;font-weight:650}.card-head .path{font:10px/1.8 ui-monospace,monospace;color:#666;overflow-wrap:anywhere}.card-head .tag{margin-left:auto}.source{margin:0;padding:10px 0;background:#fff;font-size:12px;line-height:1.9;overflow-x:auto;tab-size:2}.source .line{display:flex;min-width:max-content;min-height:23px;padding-right:17px}.source .ln{color:#777;flex:0 0 44px;width:44px;text-align:right;padding-right:14px;user-select:none;font-size:10px;border-left:3px solid transparent}.source .txt{white-space:pre}.source .hit{background:#eee}.source .hit .ln{border-left-color:#171717;color:#171717}.source mark{background:#ddd;color:#111;font-weight:700}.source .struct .txt{font-weight:600}.code-tools{padding:7px 12px;border-top:1px solid #eee;display:flex;gap:6px;flex-wrap:wrap;align-items:center}.code-tools button{font-size:10px;padding:3px 7px}.code-tools .precision{font-size:10px;color:#666;margin-left:auto}.relation{padding:10px 13px;border-top:1px solid #ddd;background:#fafafa;font-size:11px;display:flex;align-items:center;gap:7px;flex-wrap:wrap}.relation button{font-size:10px;padding:3px 7px;background:white}.relation .unresolved{color:#666}.source-empty{padding:16px;color:#666;font-size:12px}.code-note{padding:7px 14px;font-size:10px;color:#666;border-top:1px solid #eee}.compare-grid{display:grid;grid-template-columns:1fr 1fr}.compare-grid>div{min-width:0}.compare-grid>div+div{border-left:1px solid #ccc}.compare-title{font-size:10px;padding:5px 13px;background:#f4f4f4;border-bottom:1px solid #ddd}.context{padding-top:20px;position:sticky;top:15px;min-width:0}.context h2{font-size:13px;margin:12px 0}.context-section{border-top:1px solid #ddd;padding:16px 0;margin-top:15px}.context-section h3{font-size:11px;margin-bottom:8px}.context p{font-size:11px;line-height:1.85;overflow-wrap:anywhere}.context code{font-size:11px}.context button{font-size:10px;text-align:left;margin-top:7px}.context details{font-size:11px;margin-top:13px}.context details p{margin-top:8px}.context .caption{font-size:10px;color:#666}.empty{padding:55px 15px;text-align:center;color:#666;font-size:13px}.boundaries{margin-top:18px;padding-top:15px;border-top:1px solid #ddd;font-size:11px;color:#666}.boundaries p{margin-top:6px}.choices{margin:0 30px 18px;padding:15px;border:1px solid #bbb;background:white}.choices button{margin:6px;font-size:11px}.footer{padding:22px 30px;font-size:10px;color:#666;display:flex;justify-content:space-between}.sample-controls{margin:20px 30px;padding:16px;border:1px solid #ccc;background:white;border-radius:6px}.sample-controls h2{font-size:13px;margin-bottom:8px}.sample-controls p{font-size:11px;color:#666}.sample-controls button{margin:10px 6px 0 0;font-size:11px}[hidden]{display:none!important}
+@media(min-width:1600px){.intro,.notice,.layout,.footer,.sample-controls{max-width:1540px;margin-left:auto;margin-right:auto}.layout{grid-template-columns:220px minmax(0,1fr) 255px}}
+@media(max-width:1150px){.layout{grid-template-columns:175px minmax(0,1fr);gap:18px}.context{grid-column:2;position:static;border-top:1px solid #ddd;padding:15px 18px}.center{border-right:0;padding-right:0}.source{font-size:11px}.rail{grid-row:1/3}.context-section{display:inline-block;vertical-align:top;width:48%;padding-right:20px}}
+@media(max-width:650px){.bar{padding:0 15px;gap:10px}.mode{font-size:10px;padding-left:10px}.bar a{font-size:9px}.intro{padding:20px 15px}.intro h1{font-size:23px}.notice,.layout,.sample-controls{margin-left:15px;margin-right:15px}.notice{flex-wrap:wrap}.layout{display:block}.rail{position:static;max-height:none}.rail #step-nav{display:flex;overflow-x:auto}.step-link{min-width:140px}.rail-note{display:none}.center{border-left:0;padding-left:0}.context{padding:16px 0}.context-section{width:100%}.compare-grid{grid-template-columns:1fr}.compare-grid>div+div{border-left:0;border-top:1px solid #ccc}.footer{padding:20px 15px;gap:15px}.card-head{padding:10px}.card-head .tag{font-size:8px}.source .ln{flex-basis:36px;width:36px;padding-right:9px}}
+.step-link .idx,.card-ordinal,.source .ln{color:#666}
+.view-toolbar{margin:0 30px 16px;display:flex;gap:12px;align-items:center;flex-wrap:wrap}.view-toolbar button{font-size:12px}.view-toolbar p{font-size:11px;color:#666}.view-stage{height:660px;height:clamp(480px,calc(100vh - 330px),850px)}.flow-panel{height:100%;overflow:auto;scrollbar-gutter:stable;padding:2px 6px 2px 2px}.flow-panel.entering{animation:appear 120ms ease-out}.condition-bar{margin-bottom:15px;font-size:11px}.condition-bar select{font:inherit;background:white;color:#171717;border:1px solid #bbb;padding:6px;max-width:100%}.condition-bar p{font-size:10px;color:#666;margin-top:5px}.process-card{border:1px solid #ccc;border-radius:7px;margin-bottom:18px;background:white;overflow:hidden}.process-card.selected{border:2px solid #171717}.process-select{display:flex;gap:12px;width:100%;border:0;border-radius:0;text-align:left;padding:16px;align-items:start}.process-select strong{display:block;font-size:14px}.process-select small{display:block;font-size:10px;color:#666;overflow-wrap:anywhere}.process-select .tag{margin-left:auto}.process-condition{margin:0 15px 12px;padding:9px 12px;border-left:3px solid #171717;background:#f3f3f3;font:11px/1.8 ui-monospace,monospace;overflow-wrap:anywhere}.process-effect{padding:0 15px 12px;font-size:11px}.outside-focus{border-style:dashed}.outside-focus .card-head,.outside-focus .process-select{background:#f5f5f5}.condition-match{box-shadow:inset 4px 0 #171717}@keyframes appear{from{opacity:.65}to{opacity:1}}@media(prefers-reduced-motion:reduce){.flow-panel.entering{animation:none}}@media(max-width:650px){.view-toolbar{margin-left:15px;margin-right:15px}.view-stage{height:600px}.process-select{padding:12px;gap:8px}}
+@media(min-width:1600px){.view-toolbar{max-width:1540px;margin-left:auto;margin-right:auto}}
+.view-stage{height:auto}.flow-panel{height:auto;overflow:visible;scrollbar-gutter:auto}.view-toolbar{position:sticky;top:0;z-index:5;background:#fafafa;padding:10px 0;border-bottom:1px solid #ddd}.rail,.context{top:70px;max-height:calc(100vh - 85px);overflow:auto}.flow-summary{font-size:12px;color:#555;margin-top:10px}.flow-summary p+p{margin-top:4px}.sample-controls summary{cursor:pointer;font-size:12px;font-weight:600}.code-card,.process-card{scroll-margin-top:75px}@media(max-width:650px){.rail,.context{position:static;max-height:none;overflow:visible}}
+.change-pulse{margin:0 30px 18px;padding:13px;border:1px solid #bbb;background:#fff;border-radius:6px}.change-pulse h2{font-size:11px;letter-spacing:.6px;margin-bottom:8px}.pulse-list{display:flex;gap:7px;flex-wrap:wrap}.pulse-item{font-size:10px;text-align:left}.pulse-item b{margin-right:5px}.pulse-item[data-kind="removed_behavior"],.pulse-item[data-kind="ambiguous_move"]{border-style:dashed}.pulse-empty{font-size:11px;color:#666}@media(min-width:1600px){.change-pulse{max-width:1540px;margin-left:auto;margin-right:auto}}@media(max-width:650px){.change-pulse{margin-left:15px;margin-right:15px}}
+</style>
+</head>
+<body data-view="live-semantic-map">
+<header class="bar"><div class="brand"><b aria-hidden="true">cf</b>CodeFlow</div><span class="mode">Live Semantic Map</span><a id="static-link" href="/">Static FlowView 열기 ↗</a></header>
+<section class="intro" aria-label="Live 흐름 요청"><div class="eyebrow">LIVE / CODE COMPREHENSION</div><h1 id="flow-title">코드의 흐름을 따라 이해하기</h1><p id="intro-note">호출한 코드에서 다음 구현까지. 조건과 변경을 같은 위치에서 확인합니다.</p><form class="request" id="request-form"><label for="query-input" hidden>이해할 코드 흐름</label><input id="query-input" aria-label="이해할 코드 흐름" placeholder="어떤 흐름을 이해하고 싶나요?" required><button id="query-submit">흐름 보기</button></form></section>
+<section class="notice" aria-label="코드 갱신 안내"><span id="live-notice" role="status" aria-live="polite">요청한 흐름을 입력하세요.</span><div class="controls"><button id="compare" aria-pressed="false" disabled>이전 코드 비교</button><button id="pause" aria-pressed="false">읽기 고정</button><button id="apply" hidden>새 변경 적용</button></div></section>
+<section id="change-pulse" class="change-pulse" aria-label="검증된 의미 변경" hidden><h2>CHANGE PULSE · 검증된 의미 변경</h2><div id="pulse-list" class="pulse-list"></div></section>
+<section id="choices" class="choices" hidden aria-label="흐름 선택"></section>
+<section class="view-toolbar" aria-label="흐름 보기 선택"><div role="group" aria-label="중앙 보기"><button id="view-code" aria-pressed="true" aria-controls="code-flow">코드 흐름</button> <button id="view-process" aria-pressed="false" aria-controls="process-flow">처리 흐름</button></div><p>같은 흐름 · 같은 선택 · 다른 보기</p></section>
+<main class="layout"><nav class="rail" aria-label="흐름의 처리 단계"><h2>처리 순서</h2><div id="step-nav"></div><p class="rail-note">단계를 선택하면 중앙의 해당 코드로 이동합니다.<br><br>연결은 분석에서 확인한 관계만 표시합니다.</p></nav><section class="center" aria-label="연결된 코드 흐름"><div class="center-head"><h2>코드 흐름</h2><span>선택 문장 · 조건 · 호출 연결</span></div><div id="code-flow"><p class="empty">요청을 선택하면 관련 코드가 여기에 이어집니다.</p></div><div id="boundaries" class="boundaries" hidden></div></section><aside class="context" id="context" aria-label="선택한 코드의 맥락"><p class="caption">단계를 선택해 조건과 다음 처리를 확인하세요.</p></aside></main>
+<footer class="footer"><span>소스 근거 기반 · 실행 기록 없음</span><span>Static FlowView와 분리된 Live 화면</span></footer>
+<script>
+'use strict';
+const params=new URLSearchParams(location.search),token=params.get('token')||'';
+const $=id=>document.getElementById(id);
+const esc=value=>String(value??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const state={data:null,baseline:null,pending:null,selected:null,paused:false,compare:false,request:params.get('request')||'',entry:params.get('entrySymbol')||'',requestId:0,expanded:new Map(),stream:null,editSerial:0,dirty:false};
+const layers={presentation:'UI',page:'UI',ui:'UI',controller:'Controller',usecase:'UseCase',application:'UseCase',domain:'Domain',data:'Repository',repository:'Repository',infra:'Infrastructure',external:'External'};
+const edgeNames={call:'호출',calls:'호출',successor:'다음 처리',return:'반환',branch:'분기',error:'오류',failure:'실패',async:'비동기 호출'};
+const deltaNames={added_behavior:'행동 추가',changed_rule:'행동·조건 변경',removed_behavior:'행동 제거',evidence_updated:'근거 갱신',structural_only:'호출·위치 변경',ambiguous_move:'이동 판단 보류'};
+state.view='code';state.condition=null;
+const center=document.querySelector('.center');
+center.setAttribute('aria-label','선택한 흐름');
+document.querySelector('.rail-note').innerHTML='단계를 선택하면 중앙의 같은 단계로 이동합니다.<br><br>연결은 분석에서 확인한 관계만 표시합니다.';
+const stage=document.createElement('div');stage.className='view-stage';
+$('code-flow').before(stage);stage.append($('code-flow'));
+$('code-flow').className='flow-panel';
+const processPanel=document.createElement('div');processPanel.id='process-flow';processPanel.className='flow-panel';processPanel.hidden=true;stage.append(processPanel);
+const conditionBar=document.createElement('div');conditionBar.className='condition-bar';conditionBar.innerHTML='<label for="condition-focus">조건 위치 </label><select id="condition-focus"><option value="">전체 흐름</option></select><p>조건과 직접 연결된 단계를 강조합니다. 실행 경로를 가정하지 않습니다.</p>';stage.before(conditionBar);
+const flowSummary=document.createElement('div');flowSummary.className='flow-summary';flowSummary.setAttribute('aria-label','현재 흐름 요약');flowSummary.innerHTML='<p id="flow-scope"></p><p id="flow-change"></p>';$('intro-note').after(flowSummary);
+function readingPosition(){const card=Array.from(activePanel().children).find(item=>item.getBoundingClientRect().bottom>80);return card?{id:card.dataset.card||card.dataset.process,top:card.getBoundingClientRect().top}:null;}
+function restoreReading(position){if(!position)return;const card=Array.from(activePanel().children).find(item=>(item.dataset.card||item.dataset.process)===position.id);if(card)window.scrollBy(0,card.getBoundingClientRect().top-position.top);}
+function activePanel(){return $(state.view==='code'?'code-flow':'process-flow');}
+function applyCondition(){const branch=steps().find(s=>stepKey(s)===state.condition),ids=new Set(branch?[branch.stepId]:[]);if(branch)for(const edge of state.data.semanticMap.edges||[]){if(edge.resolutionStatus==='resolved'&&(edge.fromStepId===branch.stepId||edge.toStepId===branch.stepId)){ids.add(edge.fromStepId);ids.add(edge.toStepId);}}document.querySelectorAll('[data-card],[data-process]').forEach(card=>{const id=card.dataset.card||card.dataset.process;card.classList.toggle('outside-focus',!!branch&&!ids.has(id));card.classList.toggle('condition-match',!!branch&&ids.has(id));});}
+function setView(view){if(!['code','process'].includes(view)||view===state.view)return;const reading=window.scrollY>stage.offsetTop?readingPosition():null;state.view=view;$('code-flow').hidden=view!=='code';$('process-flow').hidden=view!=='process';$('view-code').setAttribute('aria-pressed',view==='code');$('view-process').setAttribute('aria-pressed',view==='process');document.querySelector('.center-head h2').textContent=view==='code'?'코드 흐름':'처리 흐름';document.querySelector('.center-head span').textContent=view==='code'?'선택 문장 · 조건 · 호출 연결':'처리 단계 · 조건 · 확인된 연결';activePanel().classList.remove('entering');void activePanel().offsetWidth;activePanel().classList.add('entering');renderContext();restoreReading(reading);}
+function renderProcess(step){return '<article class="process-card '+(state.selected===step.stepId?'selected':'')+'" data-process="'+esc(step.stepId)+'"><button class="process-select" data-select="'+esc(step.stepId)+'"><span class="card-ordinal">'+String(step.ordinal||1).padStart(2,'0')+'</span><span><strong>'+esc(step.name)+'</strong><small>'+esc(step.technicalName||'')+'</small></span><span class="tag">'+esc(layers[step.layer]||step.layer||'계층 미확인')+'</span></button>'+(step.branch?'<div class="process-condition">조건 · '+esc(step.branch)+'</div>':'')+(step.sideEffect?'<p class="process-effect">'+esc(step.sideEffect)+'</p>':'')+relationHTML(step)+'</article>';}
+$('view-code').onclick=()=>setView('code');$('view-process').onclick=()=>setView('process');
+$('condition-focus').onchange=event=>{state.condition=event.target.value||null;applyCondition();};
+function say(text){$('live-notice').textContent=text;}
+function renderPulse(data=state.data){const changes=(data?.semanticDelta?.changes||[]).filter(change=>deltaNames[change.kind]);$('change-pulse').hidden=!changes.length;$('pulse-list').innerHTML=changes.length?changes.map(change=>'<button class="pulse-item" data-delta-step="'+esc(change.targetStepId)+'" data-kind="'+esc(change.kind)+'"><b>'+esc(deltaNames[change.kind])+'</b>'+esc(change.summary)+'</button>').join(''):'<p class="pulse-empty">검증된 의미 변경이 없습니다.</p>';}
+function steps(data=state.data){return data?.semanticMap?.steps||[];}
+function stepKey(step){return step?.structuralIdentity||null;}
+function matchStep(step,data){const key=stepKey(step);if(!key)return null;const matches=steps(data).filter(item=>stepKey(item)===key);return matches.length===1?matches[0]:null;}
+function contextFor(step,data=state.data){
+ const map=data?.semanticMap;if(!map)return null;
+ const context=data.flowContexts?.[step.stepId];
+ const snapshot=map.basis?.computedWorkspaceSnapshotId||map.validatedAgainstSnapshotId;
+ // Source from a different analysis must never be rendered under this step.
+ return context&&snapshot&&context.snapshotId===snapshot&&context.generationId===map.generationId&&context.stepId===step.stepId?context:null;
+}
+function sourceText(step,data){return (contextFor(step,data)?.displayedLines||[]).map(line=>line.text).join('\n');}
+function changed(step){const previous=matchStep(step,state.baseline);return previous&&contextFor(previous,state.baseline)&&contextFor(step)&&sourceText(previous,state.baseline)!==sourceText(step,state.data);}
+function lineHTML(line,exact){const hit=exact&&line.isHit,selection=hit&&line.selection;const text=selection?esc(selection.before)+'<mark>'+esc(selection.text)+'</mark>'+esc(selection.after):esc(line.text);return '<span class="line '+(hit?'hit':exact&&line.isStruct?'struct':'')+'"><span class="ln">'+esc(line.lineNumber)+'</span><span class="txt">'+text+'</span></span>';}
+function codeHTML(context,expanded=false){
+ if(!context||!context.displayedLines?.length)return '<p class="source-empty">이 분석에 연결된 소스가 없습니다. 코드 내용을 추정하지 않습니다.</p>';
+ const all=context.displayedLines;let lines=all;
+ if(!expanded&&all.length>16){let hit=all.findIndex(line=>line.isHit);const start=Math.max(0,(hit<0?0:hit)-4);lines=all.slice(start,start+16);}
+ let html='<pre class="source" tabindex="0" aria-label="소스 코드"><code>'+lines.map(line=>lineHTML(line,context.precision==='exact')).join('')+'</code></pre>';
+ if(lines.length<all.length)html+='<p class="code-note">관련 코드 '+lines.length+'줄 표시 · 코드 더 보기로 전체 문맥 확인</p>';
+ return html;
+}
+function relations(step){return (state.data?.semanticMap?.edges||[]).filter(edge=>edge.fromStepId===step.stepId);}
+function relationHTML(step){const edges=relations(step);if(!edges.length)return '<div class="relation"><span class="unresolved">분석에서 확인한 다음 연결 없음</span></div>';return '<div class="relation">'+edges.map(edge=>{const target=steps().find(item=>item.stepId===edge.toStepId),label=edgeNames[edge.kind]||'연결';return target&&edge.resolutionStatus==='resolved'?'<span>'+esc(label)+' →</span><button data-select="'+esc(target.stepId)+'">'+esc(target.technicalName||target.name)+'</button>':'<span class="unresolved">'+esc(label)+': '+esc(edge.toSymbolPath||target?.technicalName||'대상')+' · 연결 미확인</span>';}).join('')+'</div>';}
+function renderCard(step){
+ const context=state.expanded.get(step.stepId)||contextFor(step),previous=matchStep(step,state.baseline),different=changed(step),isExpanded=state.expanded.has(step.stepId),path=context?.canonicalPath||step.anchor?.repoRelativePath||'';
+ const before=state.compare&&different?contextFor(previous,state.baseline):null;
+ return '<article class="code-card '+(state.selected===step.stepId?'selected':'')+'" data-card="'+esc(step.stepId)+'"><header class="card-head"><span class="card-ordinal">'+String(step.ordinal||1).padStart(2,'0')+'</span><div><h3>'+esc(step.name)+'</h3><div class="path">'+esc(path)+' · '+esc(step.technicalName||step.anchor?.enclosingSymbolPath||'')+'</div></div><span class="tag">'+esc(layers[step.layer]||step.layer||'계층 미확인')+(different?' · 코드 변경':'')+'</span></header>'+(before?'<div class="compare-grid"><div><div class="compare-title">이전 · 최초 표시 코드</div>'+codeHTML(before,isExpanded)+'</div><div><div class="compare-title">현재 코드</div>'+codeHTML(context,isExpanded)+'</div></div>':codeHTML(context,isExpanded))+'<div class="code-tools"><button data-expand="'+esc(step.stepId)+'">'+(isExpanded?'코드 접기':'코드 더 보기')+'</button><button data-callable="'+esc(step.stepId)+'">함수 전체</button><span class="precision">'+(context?.precision==='exact'?'선택 문장 강조':'주변 코드 · 정확한 문장 범위 미확인')+'</span></div>'+relationHTML(step)+'</article>';
+}
+function renderContext(){
+ const step=steps().find(item=>item.stepId===state.selected);if(!step){$('context').innerHTML='<p class="caption">선택했던 단계가 새 결과에서 확인되지 않습니다. 처리 목록에서 선택하세요.</p>';return;}
+ const c=contextFor(step),incoming=(state.data.semanticMap.edges||[]).filter(edge=>edge.toStepId===step.stepId&&edge.resolutionStatus==='resolved'&&['call','calls'].includes(edge.kind));
+ if(state.view==='process'){$('context').innerHTML='<div class="eyebrow muted">선택한 처리</div><h2>'+esc(step.name)+'</h2><p class="caption">'+esc(layers[step.layer]||step.layer||'계층 미확인')+'</p>'+(step.branch?'<section class="context-section"><h3>판단 조건</h3><p>'+esc(step.branch)+'</p></section>':'')+(step.stateDelta?'<section class="context-section"><h3>상태 변화</h3><p>'+esc(step.stateDelta.before)+' → '+esc(step.stateDelta.after)+'</p></section>':'')+(step.sideEffect?'<section class="context-section"><h3>외부 처리</h3><p>'+esc(step.sideEffect)+'</p></section>':'')+'<section class="context-section"><h3>이어지는 연결</h3>'+relationHTML(step)+'</section><section class="context-section"><h3>구현 확인</h3><p class="caption mono">'+esc(c?.canonicalPath||step.anchor?.repoRelativePath||'소스 위치 미확인')+'</p><button id="inspect-code">이 단계의 코드 보기 →</button></section><p class="caption">소스에서 확인한 관계입니다. 실제 실행 순서와 결과는 확인하지 않았습니다.</p>';$('inspect-code').onclick=()=>{setView('code');select(step.stepId);};return;}
+ $('context').innerHTML='<div class="eyebrow muted">선택한 코드</div><h2>'+esc(step.name)+'</h2><p class="caption mono">'+esc(step.technicalName||'')+'</p>'+(step.branch?'<section class="context-section"><h3>분기 조건</h3><p>'+esc(step.branch)+'</p></section>':'')+(step.sideEffect?'<section class="context-section"><h3>외부 처리</h3><p>'+esc(step.sideEffect)+'</p></section>':'')+(step.stateDelta?'<section class="context-section"><h3>코드에 나타난 상태 변경</h3><p>'+esc(step.stateDelta.before)+' → '+esc(step.stateDelta.after)+'</p></section>':'')+'<section class="context-section"><h3>이곳을 호출한 코드</h3>'+incoming.map(edge=>{const from=steps().find(item=>item.stepId===edge.fromStepId);return from?'<button data-select="'+esc(from.stepId)+'">← '+esc(from.technicalName||from.name)+'</button>':'';}).join('')+(incoming.length?'':'<p class="caption">분석에서 확인한 선행 연결 없음</p>')+'</section><details><summary>소스 범위와 설명</summary><p>'+esc(c?.sourceLimitation||'선택한 분석과 같은 시점의 소스입니다. 실제 실행 여부와 결과는 확인하지 않았습니다.')+'</p></details>';
+}
+function updateControls(){$('pause').textContent=state.paused?'갱신 재개':'읽기 고정';$('pause').setAttribute('aria-pressed',state.paused);$('apply').hidden=!state.pending;$('compare').disabled=!state.baseline||state.baseline===state.data;$('compare').setAttribute('aria-pressed',state.compare);}
+function render(){
+ const focused=document.activeElement,attr=['data-select','data-expand','data-callable'].find(a=>focused?.hasAttribute?.(a)),value=attr&&focused.getAttribute(attr);
+ const list=steps();$('flow-title').textContent=state.data.semanticMap.summary?.requested||state.request||'요청한 코드 흐름';
+ const layerList=[...new Set(list.map(step=>layers[step.layer]||step.layer||'계층 미확인'))];$('flow-scope').textContent=list.length?list.length+'개 처리 단계 · 포함 계층: '+layerList.join(' · '):'확인된 처리 단계 없음';
+ const modified=list.filter(changed);$('flow-change').textContent=modified.length?'최초 표시 대비 코드 변경: '+modified.map(step=>step.name).join(', '):'소스 기반 흐름 · 실제 실행 결과는 확인하지 않았습니다.';
+ $('step-nav').innerHTML=list.map(step=>'<button class="step-link" data-select="'+esc(step.stepId)+'" aria-pressed="'+(state.selected===step.stepId)+'"><span class="idx">'+String(step.ordinal||1).padStart(2,'0')+'</span><span><strong>'+esc(step.name)+'</strong><small>'+esc(layers[step.layer]||step.layer||'계층 미확인')+'</small></span></button>').join('');
+ $('code-flow').innerHTML=list.length?list.map(renderCard).join(''):'<p class="empty">이 요청에서 확인된 처리 단계가 없습니다.</p>';
+ $('process-flow').innerHTML=list.length?list.map(renderProcess).join(''):'<p class="empty">이 요청에서 확인된 처리 단계가 없습니다.</p>';
+ const branches=list.filter(step=>step.branch&&stepKey(step));if(!branches.some(step=>stepKey(step)===state.condition))state.condition=null;
+ $('condition-focus').innerHTML='<option value="">전체 흐름</option>'+branches.map(step=>'<option value="'+esc(stepKey(step))+'">'+esc(step.branch)+'</option>').join('');$('condition-focus').value=state.condition||'';$('condition-focus').disabled=!branches.length;applyCondition();
+ const unknowns=state.data.unknowns||state.data.semanticMap.unknowns||[];$('boundaries').hidden=!unknowns.length;$('boundaries').innerHTML='<b>확인하지 못한 처리</b>'+unknowns.map(u=>'<p>'+esc(typeof u==='string'?u:u.reason||u.subject||'처리 경계 미확인')+'</p>').join('');
+ renderContext();updateControls();
+ if(attr&&!document.contains(focused))Array.from(document.querySelectorAll('['+attr+']')).find(e=>e.getAttribute(attr)===value)?.focus({preventScroll:true});
+}
+function select(id,scroll=true){state.selected=id;document.querySelectorAll('[data-card],[data-process]').forEach(card=>card.classList.toggle('selected',(card.dataset.card||card.dataset.process)===id));document.querySelectorAll('.step-link').forEach(button=>button.setAttribute('aria-pressed',button.dataset.select===id));renderContext();if(scroll){const card=Array.from(activePanel().children).find(card=>(card.dataset.card||card.dataset.process)===id);card?.scrollIntoView({block:'start'});}}
+function adopt(data,force=false){
+ const current=steps().find(step=>step.stepId===state.selected),match=matchStep(current,data);
+ const reading=readingPosition(),visibleStep=steps().find(step=>step.stepId===reading?.id),visibleMatch=matchStep(visibleStep,data);
+ if(current&&!match&&!force){state.pending=data;renderPulse(data);updateControls();say('선택한 단계가 새 흐름에서 제거되었습니다. 이전 흐름을 유지합니다.');return false;}
+ if(!state.baseline)state.baseline=data;
+ state.data=data;state.pending=null;state.expanded.clear();state.selected=current?(match?.stepId||null):(steps()[0]?.stepId||null);render();
+ renderPulse(data);
+ if(visibleMatch)restoreReading({id:visibleMatch.stepId,top:reading.top});
+ state.dirty=false;say(data.semanticDelta?.changes?.length?'검증된 의미 변경 '+data.semanticDelta.changes.length+'건을 반영했습니다.':state.paused?'읽기 고정 · 도착한 변경을 적용했습니다.':'검증된 흐름을 표시합니다.');return true;
+}
+function receive(data){if(!data?.semanticMap||!Array.isArray(data.semanticMap.steps))throw Error('요청한 흐름의 분석 결과가 없습니다.');if(state.paused&&state.data){state.pending=data;renderPulse(data);updateControls();say('검증된 변경이 도착했습니다. 읽기 고정 중이라 이전 흐름을 유지합니다.');}else adopt(data);}
+async function api(path){const url=new URL(path,location.origin);url.searchParams.set('token',token);return fetch(url,{headers:{'X-CodeFlow-Token':token}});}
+async function query(reset=false){
+ const id=++state.requestId,editSerial=state.editSerial;
+ if(reset){state.data=null;state.baseline=null;state.pending=null;state.selected=null;state.expanded.clear();state.paused=false;state.compare=false;state.dirty=false;$('step-nav').replaceChildren();$('code-flow').innerHTML='<p class="empty">요청한 코드를 확인하고 있습니다.</p>';$('context').replaceChildren();$('boundaries').hidden=true;$('change-pulse').hidden=true;$('pulse-list').replaceChildren();updateControls();}
+ say(state.data?'변경된 코드 확인 중 · 읽는 내용 유지':'요청한 코드 확인 중');$('choices').hidden=true;
+ if(reset){state.condition=null;$('flow-scope').textContent='';$('flow-change').textContent='';$('condition-focus').innerHTML='<option value="">전체 흐름</option>';$('condition-focus').disabled=true;$('process-flow').innerHTML='<p class="empty">요청한 처리를 확인하고 있습니다.</p>';}
+ try{
+  const url='/api/task/view?mode=feature&query='+encodeURIComponent(state.request)+(state.entry?'&entrySymbol='+encodeURIComponent(state.entry):'');const response=await api(url);if(id!==state.requestId)return;
+  const data=await response.json().catch(()=>null);if(id!==state.requestId)return;
+  if(!response.ok){if(data?.code==='ambiguous_target'&&data.candidateTargets){$('choices').hidden=false;$('choices').innerHTML='<p>어떤 흐름인지 선택하세요.</p>'+data.candidateTargets.map(candidate=>'<button data-entry="'+esc(candidate)+'">'+esc(candidate)+'</button>').join('');say('여러 흐름이 있습니다. 시작점을 선택하세요.');return;}throw Error('코드를 확인하지 못했습니다. 요청과 분석 가능한 범위를 확인하세요.');}
+  if(editSerial!==state.editSerial){say('새 편집이 도착했습니다. 이전 코드를 유지합니다.');return;}
+  state.dirty=false;
+  if(!state.entry)state.entry=data.semanticMap?.steps?.[0]?.technicalName||'';
+  receive(data);
+ }catch(error){if(id===state.requestId)say(state.data?'새 코드를 확인하지 못했습니다. 이전 코드 표시 중.':error.message);}
+}
+async function expand(id,callable){
+ const step=steps().find(item=>item.stepId===id);if(!step)return;
+ state.paused=true;updateControls();
+ if(!callable&&state.expanded.has(id)){state.expanded.delete(id);render();return;}
+ if(!callable){const c=contextFor(step);if(c)state.expanded.set(id,c);render();return;}
+ const data=state.data;
+ try{const response=await api('/api/flow/context?generationId='+encodeURIComponent(data.semanticMap.generationId)+'&stepId='+encodeURIComponent(id)+'&expand=callable');if(!response.ok)throw Error();const context=await response.json();if(data!==state.data)return;const checked=contextFor(step,{...data,flowContexts:{...data.flowContexts,[id]:context}});if(!checked)throw Error();state.expanded.set(id,checked);render();say('함수 코드를 읽는 동안 화면을 고정했습니다.');}catch(_){say('해당 분석의 함수 전체를 가져오지 못했습니다. 기존 코드를 유지합니다.');}
+}
+function handleLiveEvent(type,event){
+ if(type==='activity.updated'){let data;try{data=JSON.parse(event.data);data=data.data||data;}catch(_){return;}if(['editing','analyzing','reconciling'].includes(data.activity)){state.editSerial++;state.dirty=true;state.pending=null;updateControls();say('코드 수정 감지 · 읽는 내용은 유지합니다.');}return;}
+ if(type==='generation.gap'){state.editSerial++;state.dirty=true;state.pending=null;updateControls();say('최신 변경을 확인하지 못했습니다. 이전 코드 표시 중.');return;}
+ if(type==='generation.published'){void receivePublishedGeneration(event);return;}
+ if(type==='snapshot_sync'){let envelope;try{envelope=JSON.parse(event.data);}catch(_){say('연결 복구 정보를 확인하지 못했습니다. 이전 흐름을 유지합니다.');return;}const manifest=envelope.data?.activeManifest;if(manifest)void receiveGenerationIdentity(manifest.generationId,manifest.computedBasisId,manifest.validatedAgainstSnapshotId);else if(envelope.data?.verifiedGap)say('연결 복구 후에도 최신 변경을 확인하지 못했습니다. 이전 흐름을 유지합니다.');}
+}
+async function receivePublishedGeneration(event){let envelope;try{envelope=JSON.parse(event.data);}catch(_){say('검증된 변경 알림을 읽지 못했습니다. 이전 흐름을 유지합니다.');return;}await receiveGenerationIdentity(envelope.generationId,envelope.computedBasisId,envelope.validatedAgainstSnapshotId);}
+async function receiveGenerationIdentity(generationId,computedBasisId,snapshotId){if(!generationId||!computedBasisId||!snapshotId){say('검증된 변경의 식별 정보가 없습니다. 이전 흐름을 유지합니다.');return;}try{const path='/api/live/generation?generationId='+encodeURIComponent(generationId)+'&computedBasisId='+encodeURIComponent(computedBasisId)+'&snapshotId='+encodeURIComponent(snapshotId),response=await api(path),data=await response.json().catch(()=>null);if(!response.ok||!data)throw Error(data?.code||'generation_unavailable');receive(data);}catch(_){say('알림과 일치하는 검증된 변경을 가져오지 못했습니다. 이전 흐름을 유지합니다.');}}
+function startLive(){
+ if(typeof EventSource==='undefined'){say('실시간 연결을 사용할 수 없습니다. 흐름 보기로 다시 확인하세요.');return;}
+ state.stream=new EventSource('/api/workspace/stream?token='+encodeURIComponent(token));
+ for(const type of ['activity.updated','generation.published','generation.gap','snapshot_sync'])state.stream.addEventListener(type,event=>handleLiveEvent(type,event));
+ state.stream.onerror=()=>{state.editSerial++;state.dirty=true;state.pending=null;updateControls();say('연결 끊김 · 최신 변경을 확인할 수 없습니다.');};
+}
+$('request-form').addEventListener('submit',event=>{event.preventDefault();state.request=$('query-input').value.trim();state.entry='';const url=new URL(location.href);url.searchParams.set('request',state.request);url.searchParams.delete('entrySymbol');history.replaceState(null,'',url);query(true);});
+$('pause').onclick=()=>{state.paused=!state.paused;if(!state.paused&&state.pending)adopt(state.pending);else say(state.paused?'읽기 고정 · 새 코드는 도착 알림으로 표시합니다.':'화면 갱신을 재개했습니다.');updateControls();};
+$('apply').onclick=()=>{if(state.pending)adopt(state.pending,true);};
+$('compare').onclick=()=>{state.compare=!state.compare;state.paused=true;render();say('최초 표시 코드와 비교 · 읽기 고정');};
+document.addEventListener('click',event=>{const button=event.target.closest('button');if(!button)return;if(button.dataset.deltaStep){const target=steps().find(step=>step.stepId===button.dataset.deltaStep);if(target)select(target.stepId);else say('변경된 단계가 새 흐름에서 제거되었습니다. 이전 흐름을 유지합니다.');}if(button.dataset.select)select(button.dataset.select);if(button.dataset.expand)expand(button.dataset.expand,false);if(button.dataset.callable)expand(button.dataset.callable,true);if(button.dataset.entry){state.entry=button.dataset.entry;const url=new URL(location.href);url.searchParams.set('entrySymbol',state.entry);history.replaceState(null,'',url);query(true);}});
+document.addEventListener('pointerup',()=>{if(String(window.getSelection())&&document.activeElement?.closest?.('.source')){state.paused=true;updateControls();say('코드 선택 중 · 읽기 고정');}});
+window.addEventListener('beforeunload',()=>state.stream?.close());
+function boot(){const staticURL=new URL('/',location.origin);staticURL.searchParams.set('token',token);$('static-link').href=staticURL.toString();$('query-input').value=state.request||state.entry;if(state.request||state.entry)query(true);startLive();}
+// SAMPLE_BOOTSTRAP
+
+function samplePayload(version){
+ const generationId='sample-'+version,snapshotId='sample-source-'+version;
+ const source=[
+  {id:'submit',name:'결제 요청과 결과 처리',symbol:'CheckoutPage.submit',layer:'presentation',path:'ui/checkout_page.ts',start:18,hit:20,lines:[
+   'async submit(items: CartItem[]) {',
+   '  try {',
+   '    const order = await checkout.execute(items);',
+   '    this.showSuccess(order);',
+   '  } catch (error) {',
+   '    this.showError(error.message);',
+   '  }',
+   '}']},
+  {id:'execute',name:'재고 확인 후 주문 생성',symbol:'CheckoutService.execute',layer:'usecase',path:'application/checkout_service.ts',start:30,hit:32,branch:version===2?'availableQty < requestedQty → OutOfStock 발생':'재고 부족 차단 없음',lines:version===2?[
+   'async execute(items: CartItem[]) {',
+   '  const { availableQty, requestedQty } = inventory.check(items);',
+   '  if (availableQty < requestedQty) {',
+   '    throw new OutOfStock("재고가 부족합니다");',
+   '  }',
+   '  const reservation = await reservations.reserve(items);',
+   '  return await orders.create(items, reservation.id);',
+   '}']:[
+   'async execute(items: CartItem[]) {',
+   '  const { availableQty, requestedQty } = inventory.check(items);',
+   '  const reservation = await reservations.reserve(items);',
+   '  return await orders.create(items, reservation.id);',
+   '}']},
+  {id:'check',name:'가용 수량과 요청 수량 조회',symbol:'Inventory.check',layer:'domain',path:'domain/inventory.ts',start:42,hit:44,lines:[
+   'check(items: CartItem[]) {',
+   '  const requestedQty = sumQuantity(items);',
+   '  const availableQty = this.stock.available(items);',
+   '  return { availableQty, requestedQty };',
+   '}']},
+  {id:'reserve',name:'외부 재고 예약 요청',symbol:'Reservations.reserve',layer:'external',path:'data/reservations.ts',start:12,hit:13,sideEffect:'재고 API에 예약 요청',lines:[
+   'async reserve(items: CartItem[]) {',
+   '  return await inventoryApi.reserve({ items });',
+   '}']},
+  {id:'create',name:'예약 정보로 주문 저장',symbol:'Orders.create',layer:'data',path:'data/orders.ts',start:24,hit:25,sideEffect:'주문 DB에 저장 요청',lines:[
+   'async create(items: CartItem[], reservationId: string) {',
+   '  return await database.orders.insert({ items, reservationId });',
+   '}']}
+ ];
+ const steps=source.map((s,i)=>({stepId:s.id,structuralIdentity:s.id,ordinal:i+1,name:s.name,technicalName:s.symbol,layer:s.layer,branch:s.branch,sideEffect:s.sideEffect,anchor:{repoRelativePath:s.path,enclosingSymbolPath:s.symbol}}));
+ const edge=(from,to,kind='call')=>({fromStepId:from,toStepId:to,kind,resolutionStatus:'resolved'});
+ return {semanticMap:{generationId,validatedAgainstSnapshotId:snapshotId,summary:{requested:'결제 요청에서 주문 저장까지'},steps,edges:[edge('submit','execute'),edge('execute','check'),edge('check','execute','return'),edge('execute','reserve'),edge('reserve','execute','return'),edge('execute','create'),edge('create','execute','return'),edge('execute','submit','return'),...(version===2?[edge('execute','submit','error')]:[])]},flowContexts:Object.fromEntries(source.map(s=>[s.id,{stepId:s.id,generationId,snapshotId,canonicalPath:s.path,precision:'exact',sourceLimitation:'설명용 예시 소스입니다. 실제 프로젝트 분석 결과가 아닙니다.',displayedLines:s.lines.map((text,i)=>({lineNumber:s.start+i,text,isHit:s.start+i===s.hit,isStruct:s.id==='execute'&&text.includes('if (')}))}])),unknowns:[{reason:'이 샘플은 외부 API와 DB 내부 처리를 설명하지 않습니다. 실행 성공 여부는 관측하지 않았습니다.'}]};
+}
+function sampleReset(){state.data=null;state.baseline=null;state.pending=null;state.expanded.clear();state.paused=false;state.compare=false;state.selected=null;state.dirty=false;receive(samplePayload(1));select('execute',false);say('예시 · 수정 전 코드. 아래 버튼으로 재고 부족 조건을 추가해 보세요.');}
+function sampleEdit(){state.dirty=false;receive(samplePayload(2));}
+function samplePending(){sampleReset();state.paused=true;updateControls();sampleEdit();}
+function sampleGap(){handleLiveEvent('generation.gap',new MessageEvent('generation.gap',{data:'{}'}));}
+api=async()=>{throw Error('샘플에서는 제품 API를 호출하지 않습니다.');};
+expand=async(id,callable)=>{const step=steps().find(s=>s.stepId===id);if(!step)return;state.paused=true;if(state.expanded.has(id))state.expanded.delete(id);else state.expanded.set(id,contextFor(step));render();say('예시 함수 전체 · 읽기 고정');};
+$('request-form').hidden=true;
+$('intro-note').textContent='독립 샘플 · 제품과 같은 코드 흐름 렌더러 · 아래 코드는 설명용 예시입니다.';
+$('static-link').textContent='설계 문서 ↗';$('static-link').href='../design/specs/live-semantic-map-ux.md';
+document.querySelector('.notice').insertAdjacentHTML('afterend','<details class="sample-controls" aria-label="샘플 체험"><summary>샘플 시나리오</summary><p>설명용 데이터의 변경 상태를 전환합니다. 실제 코드를 수정하지 않습니다.</p><button onclick="sampleReset()">수정 전 코드</button><button onclick="sampleEdit()">재고 부족 조건 추가</button><button onclick="samplePending()">읽는 동안 변경 도착</button><button onclick="sampleGap()">분석 미완료</button></details>');
+sampleReset();sampleEdit();select('execute',false);
+say('예시 · 재고 부족 조건 추가. 중앙 코드에서 변경된 조건과 호출을 확인하세요.');
+
+</script>
+</body>
+</html>

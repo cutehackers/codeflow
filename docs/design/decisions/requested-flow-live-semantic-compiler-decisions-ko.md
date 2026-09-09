@@ -2,7 +2,7 @@
 
 - Record Status: Accepted
 - Created: 2026-09-02
-- Last Amended: 2026-09-04
+- Last Amended: 2026-09-08
 - Parent Contract: `docs/design/specs/2026-09-02-requested-flow-live-semantic-compiler-ko.md`
 - Source: `docs/design/raw/requested-flow-live-semantic-compiler-architecture-draft-ko.md` Section 4; user-provided Review No.1–No.3
 - Approval Basis: 사용자가 D1–D32를 승인된 권위로 지정하고 2026-09-04 D33–D34 권고안을 승인함
@@ -478,10 +478,75 @@
 - Contract Trace: HINV-35–HINV-36, FA-29–FA-30.
 - Follow-up: approved benchmark profile이 생길 때 별도 decision entry를 추가한다.
 
+<a id="d37"></a>
+## D37 · Semantic Map 기본 code view의 Flow Context
+
+- Status: Accepted
+- Context: Semantic Map에서 `SettingsPage`의 메뉴 row를 선택해도 code view가 1–183줄 전체를 선택 step처럼 표시했다. 사용자는 실제 실행 지점, 그 지점을 감싸는 callback 또는 condition, 이 callback이 속한 함수와 다음 흐름의 관계를 함께 봐야 코드를 이해할 수 있다.
+- Decision: 기본 code view는 같은 snapshot에서 adapter가 statement node임을 검증한 선택 step Evidence, 존재할 때 이를 감싸는 condition·callback·builder, enclosing callable signature와 직접 predecessor/successor 또는 call relation을 구분해 표시한다. 직접 enclosing 구조가 없으면 그 부재를 표시한다. 전체 callable 또는 file source는 명시적 확장 후에만 표시한다. statement node를 증명할 수 없거나 anchor가 callback·condition·builder·function·class 전체만큼 넓으면 `unavailable` 또는 `unknown` precision과 bounded context를 표시하고, 그 범위를 선택 step Evidence나 `verified`로 표시하지 않는다.
+- Rejected Alternative: 한 줄만 표시한다. 또는 function/class 전체를 기본으로 열고 모두를 선택 step Evidence로 강조한다.
+- Rationale: 사용자는 실행 지점 하나만이 아니라 그 지점이 어느 제어 구조와 함수 안에서 호출되는지 알아야 흐름을 인지할 수 있다. 넓은 source 범위를 정확한 근거처럼 보이면 실제 실행 지점에 대한 신뢰가 깨진다.
+- Consequences: adapter는 statement node kind, statement anchor, enclosing structural context와 callable signature를 같은 immutable snapshot identity와 source hash에 결합해 제공해야 한다. 해당 capability가 없는 adapter는 명시적 fallback을 반환한다. FlowView는 source 범위와 흐름 관계를 별도 표현한다. nested callback, condition, builder와 broad-only anchor를 검증 fixture에 포함한다.
+- Source / Evidence: FlowView screenshot과 사용자 결정 2026-09-08.
+- Contract Trace: `INT-01`, `GOAL-01`, `HINV-37`–`HINV-39`, `FA-34`–`FA-35`.
+- Follow-up: independent review를 통과한 `VS-11`의 사용자 명시 승인을 받은 뒤에 구현한다.
+
+<a id="d38"></a>
+## D38 · Static FlowView와 Live Semantic View의 갱신 책임 분리
+
+- Status: Accepted
+- Context: Static FlowView는 사용자가 요청한 흐름을 특정 snapshot에서 읽는 화면이다. Live Semantic View의 변경 알림과 자동 갱신을 Static FlowView에 섞으면 사용자는 언제 화면이 바뀌는지 알 수 없고, 정적 요청 결과도 읽는 중 바뀐다.
+- Decision: Static FlowView는 workspace stream을 구독하거나 자동 generation을 교체하지 않는다. 변경 감지, current-or-gap 상태, Semantic Delta 알림과 generation 반영은 `/live` Live Semantic View만 수행한다.
+- Rejected Alternative: 두 화면이 같은 SSE와 자동 갱신 로직을 공유한다.
+- Rationale: 사용자가 요청 당시의 흐름을 읽는 일과 구현 변화가 계속 반영되는 일을 별도 화면 계약으로 유지한다.
+- Consequences: backend는 정적 query 응답과 generation-bound Live view 응답을 구분하고, browser tests는 Static FlowView에 live subscription이 없음을 검증해야 한다.
+- Source / Evidence: 사용자 결정 2026-09-09; `internal/flowview/server.go`의 `/`와 `/live` renderer 분리; `internal/flowview/live_semantic.html`의 stream subscription.
+- Contract Trace: `INT-01`, `INT-02`, `GOAL-01`, `GOAL-05`, `HINV-40`, `FA-36`.
+- Follow-up: VS-03 amendment에서 public seam과 browser acceptance를 갱신한다.
+
+<a id="d39"></a>
+## D39 · IDE와 coding agent의 공통 workspace change ingress
+
+- Status: Accepted
+- Context: 현재 Live pipeline은 `submit_versioned_edit`가 호출될 때만 시작한다. 일반 filesystem save와 서로 다른 IDE·agent의 직접 수정은 자동으로 같은 snapshot lineage에 들어오지 않는다.
+- Decision: VS Code, Codex, Claude Code와 future producer는 하나의 versioned workspace change ingress를 사용한다. ingress는 source, batch identity, repository-relative path, upsert/delete/rename과 stable post-change bytes 또는 검증된 삭제 사실을 수락한다.
+- Rejected Alternative: IDE와 agent마다 별도 watcher, scheduler 또는 snapshot engine을 둔다.
+- Rationale: producer가 달라도 한 coordinator가 revision ordering, snapshot identity, cancellation, publication과 replay를 소유해야 한다.
+- Consequences: VS Code integration은 첫 producer adapter이며, coding agent는 MCP submit helper를 사용한다. producer가 직접 제출하지 못해도 watcher fallback이 같은 ingress로 복구한다.
+- Source / Evidence: 사용자 결정 2026-09-09; `internal/flowview/server.go`의 shared `SubmitVersionedEdit`; `docs/guides/llm-usage.md`의 manual ingress requirement.
+- Contract Trace: `INT-02`, `GOAL-04`, `GOAL-05`, `HINV-41`–`HINV-42`, `FA-37`.
+- Follow-up: ingress schema, duplicate semantics와 multi-file batch behavior를 VS-03 amendment에서 검토한다.
+
+<a id="d40"></a>
+## D40 · coordinator-owned watcher fallback의 stable capture
+
+- Status: Accepted
+- Context: IDE·agent integration은 누락, crash 또는 직접 filesystem write를 놓칠 수 있다. 현재 watcher utilities는 존재하지만 Live coordinator에 연결되지 않았고 file event만으로는 read 중 변경, rename, delete, overflow와 branch transition을 안전하게 표현할 수 없다.
+- Decision: coordinator는 filesystem watcher fallback을 소유한다. watcher event는 capture signal로만 사용하고 stat-read-stat capture 또는 bounded whole-workspace reconciliation을 통과한 결과만 공통 ingress에 제출한다.
+- Rejected Alternative: watcher event의 path와 mtime을 revision 또는 source Fact로 즉시 발행한다.
+- Rationale: 파일 변경 신호와 immutable analysis input을 분리해야 mixed-version snapshot과 rename/delete 추측을 막을 수 있다.
+- Consequences: overflow, rename 불명과 lineage transition은 reconciliation으로 전환한다. watcher는 IDE·agent의 직접 제출과 content identity로 중복 제거된다.
+- Source / Evidence: 사용자 결정 2026-09-09; `internal/watch/capture.go`; `internal/workspace/watcher.go`; `internal/watch/watch.go`이 coordinator에 연결되지 않은 현재 상태.
+- Contract Trace: `INT-02`, `GOAL-04`, `GOAL-05`, `HINV-42`–`HINV-43`, `FA-38`.
+- Follow-up: supported filesystem event matrix와 ignored path policy를 VS-03 amendment에서 명시한다.
+
+<a id="d41"></a>
+## D41 · proof-backed Live update와 Semantic Delta 알림
+
+- Status: Accepted
+- Context: Live 화면은 현재 `generation.published`를 받으면 `/api/task/view`를 다시 호출한다. 이 요청은 event가 가리킨 generation 대신 현재 filesystem을 재분석한 candidate를 반환할 수 있어 published proof와 표시 결과가 달라질 수 있다. 또한 화면은 code text 비교를 제공하지만 Semantic Delta의 변경 종류와 영향을 알림으로 직접 표시하지 않는다.
+- Decision: `generation.published`는 immutable generation identity를 전달하고 Live Semantic View는 동일 generation, basis, snapshot과 proof를 가진 저장된 view만 읽는다. Live View는 변경 감지, 검증된 semantic update, gap과 stream disconnect를 구분하고, verified Semantic Delta의 사용자 의미가 있는 변화만 Change Pulse와 step navigation으로 알린다.
+- Rejected Alternative: event 수신 뒤 현재 task query를 다시 실행하거나 raw file diff를 변경 알림으로 사용한다.
+- Rationale: 사용자가 읽는 화면의 모든 Fact가 하나의 검증된 generation에 속해야 하며, file-level 변화보다 행동과 관계의 변화를 먼저 이해해야 한다.
+- Consequences: 읽기 고정 중에는 새 generation을 보류하고 적용 action을 제공한다. compatible update는 stable step identity로 selection과 읽기 위치를 복원한다. gap과 disconnect는 기존 generation을 유지한다.
+- Source / Evidence: 사용자 결정 2026-09-09; `internal/flowview/live_semantic.html`; `internal/flowview/live_pipeline.go`; `internal/semantic/delta.go`.
+- Contract Trace: `INT-01`, `INT-02`, `GOAL-01`, `GOAL-05`, `HINV-44`–`HINV-46`, `FA-39`–`FA-40`.
+- Follow-up: VS-03 amendment에서 immutable generation view API와 browser corpus를 설계한다.
+
 ## Decision Set Completion
 
-- Accepted decisions: D1–D36
+- Accepted decisions: D1–D41
 - Missing decision records: 0
 - Blocking Open Decisions: 0
-- Parent acceptance trace: Raw A1–A28 and amended FA-01–FA-33 → R2 Vertical Slice acceptance and evidence records
+- Parent acceptance trace: Raw A1–A28 and amended FA-01–FA-40 → R2 Vertical Slice acceptance and evidence records
 - Superseded predecessor decision authority: `SMAP`, `ADAPTER-PROTOCOL-V2-MIGRATION`

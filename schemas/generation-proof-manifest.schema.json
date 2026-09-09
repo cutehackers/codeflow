@@ -91,6 +91,7 @@
         "semanticMap": { "type": "string", "minLength": 1 },
         "semanticDelta": { "type": "string" },
         "evidenceIndex": { "type": "string" },
+        "liveView": { "type": "string" },
         "projection": { "type": "string" }
       }
     },

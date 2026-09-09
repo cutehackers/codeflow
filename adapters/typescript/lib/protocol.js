@@ -2,6 +2,7 @@
 
 const fs = require('fs');
 const path = require('path');
+const crypto = require('crypto');
 const { harvestCandidates } = require('./harvest');
 const { sliceFlow } = require('./slice');
 const { analysisMetadata, overlayFor, createAnalysisTracker, SCHEMA_ID, ANALYZER_VERSION } = require('./analysis');
@@ -19,7 +20,7 @@ const CAPABILITIES = Object.freeze({
   batchAck: true,
   snapshotOverlay: true,
   analysisMetadata: true,
-  maxMessageBytes: 1024 * 1024,
+	maxMessageBytes: 128 * 1024 * 1024,
   maxInFlight: 64,
 });
 
@@ -228,6 +229,8 @@ function analyzerResultV2(id, operation, params, payload, metadata) {
     measuredObservations: Array.isArray(oldClosure.measuredObservations) ? oldClosure.measuredObservations : [],
     incompleteReasons: Array.isArray(oldClosure.incompleteReasons) ? oldClosure.incompleteReasons : [],
   };
+  closure.closureDigest = crypto.createHash('sha256')
+    .update(JSON.stringify({ readSet, closure })).digest('hex');
   const features = Array.isArray(oldCapability.features) && oldCapability.features.length > 0
     ? oldCapability.features : ['snapshot_bytes'];
   return {

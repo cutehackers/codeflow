@@ -104,6 +104,7 @@ void main() {
     expect(r['id'], 'abc-1');
     expect(r['ok'], true);
     expect(r['result'], {'adapterVersion': '0.4.0', 'protocolVersion': 1});
+		expect(capabilities['maxMessageBytes'], 128 * 1024 * 1024);
   });
 
   test('missing or non-integer v => E_UNSUPPORTED_VERSION', () {
@@ -353,6 +354,9 @@ void main() {
           ['negative_lookup', 'membership', 'dependency_frontier']),
     });
     expect(detect['error'], isNull);
+    final unsignedClosure = Map<String, dynamic>.from(_rpcClosure(detect));
+    final digest = unsignedClosure.remove('closureDigest');
+    expect(digest, sha256Hex(jsonEncode({'readSet': _rpcReadSet(detect), 'closure': unsignedClosure})));
     expect(_rpcObjects(_rpcReadSet(detect)['documents']), isEmpty);
     final detectNegative =
         _rpcObjects(_rpcReadSet(detect)['negativeObservations']);
@@ -429,10 +433,10 @@ void main() {
     final slicePaths =
         _rpcObjects(sliceRead['documents']).map((doc) => doc['path']).toList();
     expect(slicePaths, ['lib/main.dart', 'pubspec.yaml']);
-    expect(_rpcObjects(sliceRead['membershipObservations']), isEmpty);
+    expect(_rpcObjects(sliceRead['membershipObservations']), hasLength(1));
     expect(_rpcObjects(sliceRead['dependencyFrontiers']).single['path'],
         'pubspec.yaml');
-    expect(_rpcClosure(slice)['closureStatus'], 'open');
+    expect(_rpcClosure(slice)['closureStatus'], 'closed');
 
     final unsupported = server.handleRpcRequest({
       'jsonrpc': '2.0',

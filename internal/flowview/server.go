@@ -5,6 +5,7 @@ package flowview
 import (
 	"context"
 	"crypto/rand"
+	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -26,6 +27,7 @@ import (
 	"codeflow/internal/harvest"
 	"codeflow/internal/protocol"
 	"codeflow/internal/rflscvs06"
+	"codeflow/internal/secret"
 	"codeflow/internal/semantic"
 	"codeflow/internal/slicing"
 	"codeflow/internal/storage"
@@ -54,6 +56,7 @@ type Server struct {
 	gate                *semantic.PublicationGate
 	scheduler           *semantic.CoalescingScheduler
 	mapCache            map[string]*semantic.SemanticMapIR
+	flowContextMetadata map[string]flowContextGeneration
 	modelHostFactory    protocol.ModelHostFactory
 	modelHostMu         sync.Mutex
 	// modelHostSpawnMu serializes the complete request-scoped factory
@@ -86,6 +89,7 @@ type Server struct {
 	analysisMu                 sync.Mutex
 	analysisCancel             context.CancelFunc
 	compileCandidate           candidateCompiler
+	watchInterval              time.Duration
 	pipelineErrMu              sync.Mutex
 	lastPipelineErr            error
 	liveWG                     sync.WaitGroup
@@ -193,6 +197,9 @@ type Config struct {
 	// ModelHostFactory creates one Core-supervised host per enrichment request.
 	// The returned host is owned and closed by that request.
 	ModelHostFactory protocol.ModelHostFactory
+	// WorkspaceWatchInterval controls the coordinator-owned fallback watcher.
+	// Values at or below zero use the production default.
+	WorkspaceWatchInterval time.Duration
 }
 
 // NewServer initializes a FlowView server instance.
@@ -278,6 +285,7 @@ func NewServer(cfg Config) (*Server, error) {
 		runtimeExecutionSpec:       cfg.RuntimeExecutionSpec,
 		runtimeConsent:             cloneRuntimeConsent(cfg.RuntimeConsent),
 		releaseThresholdDecisions:  cfg.ReleaseThresholdDecisions,
+		watchInterval:              cfg.WorkspaceWatchInterval,
 	}
 	if err := recoverPendingApprovalOutboxDeliveries(context.Background(), s.approvalService, s.hub); err != nil {
 		return nil, fmt.Errorf("recover approval outbox: %w", err)
@@ -287,6 +295,7 @@ func NewServer(cfg Config) (*Server, error) {
 	mux.HandleFunc("/", s.handleIndex)
 	mux.HandleFunc("/api/flows", s.handleListFlows)
 	mux.HandleFunc("/api/flow", s.handleGetFlow)
+	mux.HandleFunc("/api/flow/context", s.handleFlowContext)
 	mux.HandleFunc("/api/source", s.handleGetSource)
 	mux.HandleFunc("/api/approve", s.handleApprove)
 	mux.HandleFunc("/api/map", s.handleGetMap)
@@ -306,6 +315,7 @@ func NewServer(cfg Config) (*Server, error) {
 	mux.HandleFunc("/api/workspace/edit", s.handleWorkspaceEdit)
 	mux.HandleFunc("/api/workspace/stream", s.handleWorkspaceStream)
 	mux.HandleFunc("/api/workspace/proof", s.handleWorkspaceProof)
+	mux.HandleFunc("/api/live/generation", s.handleLiveGeneration)
 
 	port := cfg.Port
 	ln, err := net.Listen("tcp", fmt.Sprintf("127.0.0.1:%d", port))
@@ -375,12 +385,47 @@ func (s *Server) RememberTaskQuery(query *semantic.TaskViewQuery, requestText st
 // snapshot, scheduler notification, durable activity event, and UX
 // acknowledgement all use this server's one live coordinator.
 func (s *Server) SubmitVersionedEdit(ctx context.Context, edit workspace.EditRequest) (*workspace.DocumentRevision, *workspace.WorkspaceSnapshot, error) {
-	if s == nil || s.engine == nil || s.scheduler == nil || s.hub == nil {
-		return nil, nil, fmt.Errorf("live coordinator is unavailable")
+	if edit.Source == "" {
+		edit.Source = workspace.SourceIDEVersioned
 	}
-	rev, snap, err := s.engine.ApplyVersionedEdit(ctx, edit)
+	digest := sha256.Sum256(append(append([]byte(edit.Source+"\x00"+edit.Path+"\x00"+strconv.Itoa(edit.DocumentVersion)+"\x00"), edit.Content...), byte(0)))
+	result, err := s.SubmitVersionedChanges(ctx, workspace.VersionedChangeRequest{
+		BatchID: "single-" + hex.EncodeToString(digest[:16]),
+		Source:  edit.Source,
+		Changes: []workspace.VersionedChange{{Kind: workspace.ChangeUpsert, Path: edit.Path, Content: edit.Content, DocumentVersion: edit.DocumentVersion}},
+	})
 	if err != nil {
 		return nil, nil, err
+	}
+	if len(result.Revisions) == 0 {
+		return nil, nil, fmt.Errorf("accepted edit has no document revision")
+	}
+	return result.Revisions[0], result.Snapshot, nil
+}
+
+// SubmitVersionedChanges is the one coordinator ingress used by IDE, agent,
+// and watcher producers. Duplicate captures return the existing identity and
+// do not schedule or notify a second change.
+func (s *Server) SubmitVersionedChanges(ctx context.Context, request workspace.VersionedChangeRequest) (*workspace.VersionedChangeResult, error) {
+	if s == nil || s.engine == nil || s.scheduler == nil || s.hub == nil {
+		return nil, fmt.Errorf("live coordinator is unavailable")
+	}
+	result, err := s.engine.ApplyVersionedChanges(ctx, request)
+	if err != nil {
+		return nil, err
+	}
+	if result.Duplicate {
+		return result, nil
+	}
+	if err := s.notifyAcceptedSnapshot(result.Snapshot); err != nil {
+		return result, err
+	}
+	return result, nil
+}
+
+func (s *Server) notifyAcceptedSnapshot(snap *workspace.WorkspaceSnapshot) error {
+	if snap == nil {
+		return fmt.Errorf("accepted workspace snapshot is missing")
 	}
 	// A newly accepted edit supersedes any checkpoint still compiling. The
 	// cancellation happens before notification so an extremely short timer
@@ -391,7 +436,7 @@ func (s *Server) SubmitVersionedEdit(ctx context.Context, edit workspace.EditReq
 	s.scheduler.NotifyEdit(snap)
 	act := s.engine.CurrentActivity()
 	if _, err := s.hub.PublishChecked("activity.updated", act, &snap.ComputedBasisID, &snap.SnapshotID, nil); err != nil {
-		return rev, snap, fmt.Errorf("persist activity event: %w", err)
+		return fmt.Errorf("persist activity event: %w", err)
 	}
 	// Acknowledgement is recorded only after the edit activity has a durable
 	// event. Publish the post-ack state as a second bounded event so observers
@@ -399,9 +444,9 @@ func (s *Server) SubmitVersionedEdit(ctx context.Context, edit workspace.EditReq
 	// evidence.
 	s.engine.AcknowledgeEdit(snap.SnapshotID)
 	if _, err := s.hub.PublishChecked("activity.updated", s.engine.CurrentActivity(), &snap.ComputedBasisID, &snap.SnapshotID, nil); err != nil {
-		return rev, snap, fmt.Errorf("persist activity acknowledgement: %w", err)
+		return fmt.Errorf("persist activity acknowledgement: %w", err)
 	}
-	return rev, snap, nil
+	return nil
 }
 
 // Start runs the HTTP server in the background.
@@ -534,12 +579,16 @@ func (s *Server) securityMiddleware(next http.Handler) http.Handler {
 }
 
 func (s *Server) handleIndex(w http.ResponseWriter, r *http.Request) {
-	if r.URL.Path != "/" {
+	if r.URL.Path != "/" && r.URL.Path != "/live" {
 		http.NotFound(w, r)
 		return
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	_, _ = w.Write([]byte(IndexHTML))
+	if r.URL.Path == "/live" || r.URL.Query().Get("live") == "1" {
+		_, _ = w.Write([]byte(LiveViewHTML))
+		return
+	}
+	_, _ = w.Write([]byte(FlowViewHTML))
 }
 
 func (s *Server) handleListFlows(w http.ResponseWriter, r *http.Request) {
@@ -800,6 +849,7 @@ func (s *Server) handleGetSource(w http.ResponseWriter, r *http.Request) {
 		if totalLines > maxFileLines {
 			content = strings.Join(lines[:maxFileLines], "\n")
 		}
+		content = secret.Redact(content).Text
 		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 		_, _ = w.Write([]byte(content))
 		return
@@ -858,8 +908,80 @@ func (s *Server) handleGetSource(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	content = secret.Redact(content).Text
 	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 	_, _ = w.Write([]byte(content))
+}
+
+func (s *Server) handleFlowContext(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	stepID := r.URL.Query().Get("stepId")
+	if stepID == "" {
+		http.Error(w, "missing required query parameter: stepId", http.StatusBadRequest)
+		return
+	}
+
+	genID := r.URL.Query().Get("generationId")
+	expandStr := r.URL.Query().Get("expand")
+	expansion := FlowExpansionScope(expandStr)
+	if expansion == "" {
+		expansion = ExpansionFlowContext
+	}
+
+	s.mu.Lock()
+	var mapIR *semantic.SemanticMapIR
+	mapIR = s.mapCache[genID]
+	metadata := s.flowContextMetadata[genID]
+	s.mu.Unlock()
+	if genID == "" || (expansion != ExpansionFlowContext && expansion != ExpansionCallable && expansion != ExpansionFile) {
+		http.Error(w, "generationId and valid expansion scope are required", http.StatusBadRequest)
+		return
+	}
+
+	if mapIR == nil || mapIR.GenerationID != genID {
+		http.Error(w, "no semantic map available", http.StatusNotFound)
+		return
+	}
+
+	var targetStep *semantic.SemanticStep
+	for i := range mapIR.Steps {
+		if mapIR.Steps[i].StepID == stepID {
+			targetStep = &mapIR.Steps[i]
+			break
+		}
+	}
+	if targetStep == nil {
+		http.Error(w, fmt.Sprintf("step %q not found", stepID), http.StatusNotFound)
+		return
+	}
+
+	// Selection and expansion read the generation's original source, never
+	// reconcile or silently substitute the live workspace head.
+	snapshotID := flowSourceSnapshotID(mapIR)
+	files := map[string][]byte{}
+	if lease, err := s.engine.SnapshotVFS(snapshotID); err == nil {
+		defer lease.Close()
+		if data, err := lease.ReadFile(targetStep.Anchor.RepoRelativePath); err == nil {
+			files[targetStep.Anchor.RepoRelativePath] = data
+		}
+	}
+
+	flowCtx := DeriveFlowContext(DeriveFlowContextParams{
+		Step:                  *targetStep,
+		SemanticMap:           mapIR,
+		SnapshotFiles:         files,
+		SourceSnapshotID:      snapshotID,
+		AdapterHasFlowContext: metadata.Capability && metadata.SnapshotID == snapshotID,
+		Metadata:              metadata.Steps[stepID],
+		Expansion:             expansion,
+	})
+
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(flowCtx)
 }
 
 func (s *Server) handleApprove(w http.ResponseWriter, r *http.Request) {
@@ -1114,6 +1236,26 @@ func (s *Server) handleTaskView(w http.ResponseWriter, r *http.Request) {
 
 	evidenceRecords, _ := semantic.ExtractAndRedactEvidenceFromProtocolSnapshot(resolved, slicePayload, snapshot)
 
+	adapterHasFlowContext := false
+	if conn, connErr := pool.Get(ctx); connErr == nil {
+		adapterHasFlowContext = conn.Version().Capabilities.FlowContext
+		pool.Put(conn)
+	}
+	metadata := s.rememberFlowContexts(mapIR, slicePayload, adapterHasFlowContext)
+	flowContexts := make(map[string]*FlowContextProjection, len(mapIR.Steps))
+	sourceBytes := snapshotSourceBytes(snapshot)
+	for _, step := range mapIR.Steps {
+		flowContexts[step.StepID] = DeriveFlowContext(DeriveFlowContextParams{
+			Step:                  step,
+			SemanticMap:           mapIR,
+			SnapshotFiles:         sourceBytes,
+			SourceSnapshotID:      snapshot.SnapshotID,
+			Metadata:              metadata.Steps[step.StepID],
+			AdapterHasFlowContext: adapterHasFlowContext,
+			Expansion:             ExpansionFlowContext,
+		})
+	}
+
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(map[string]any{
 		"workspaceId": s.approvalWorkspaceID,
@@ -1129,6 +1271,7 @@ func (s *Server) handleTaskView(w http.ResponseWriter, r *http.Request) {
 		"semanticMap":         mapIR,
 		"projection":          proj,
 		"evidence":            evidenceRecords,
+		"flowContexts":        flowContexts,
 		"unknowns":            mapIR.Unknowns,
 		"publicationGate":     map[string]any{"eligibility": "not_evaluated", "reason": "VS03 current proof required"},
 		"proofManifest":       nil,
@@ -1156,6 +1299,17 @@ func (s *Server) handleWorkspaceEdit(w http.ResponseWriter, r *http.Request) {
 		Content         string `json:"content"`
 		DocumentVersion int    `json:"documentVersion"`
 		Source          string `json:"source"`
+		BatchID         string `json:"batchId"`
+		Kind            string `json:"kind"`
+		OldPath         string `json:"oldPath"`
+		Changes         []struct {
+			Kind            string `json:"kind"`
+			Path            string `json:"path"`
+			OldPath         string `json:"oldPath"`
+			Content         string `json:"content"`
+			ContentID       string `json:"contentId"`
+			DocumentVersion int    `json:"documentVersion"`
+		} `json:"changes"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
@@ -1164,21 +1318,38 @@ func (s *Server) handleWorkspaceEdit(w http.ResponseWriter, r *http.Request) {
 	if req.Source == "" {
 		req.Source = workspace.SourceAgentTransaction
 	}
-	rev, snap, err := s.SubmitVersionedEdit(r.Context(), workspace.EditRequest{
-		Path:            req.Path,
-		Content:         []byte(req.Content),
-		DocumentVersion: req.DocumentVersion,
-		Source:          req.Source,
-	})
+	changes := make([]workspace.VersionedChange, 0, len(req.Changes))
+	for _, change := range req.Changes {
+		changes = append(changes, workspace.VersionedChange{Kind: workspace.ChangeKind(change.Kind), Path: change.Path, OldPath: change.OldPath, Content: []byte(change.Content), ContentID: change.ContentID, DocumentVersion: change.DocumentVersion})
+	}
+	if len(changes) == 0 {
+		kind := workspace.ChangeKind(req.Kind)
+		if kind == "" {
+			kind = workspace.ChangeUpsert
+		}
+		changes = append(changes, workspace.VersionedChange{Kind: kind, Path: req.Path, OldPath: req.OldPath, Content: []byte(req.Content), DocumentVersion: req.DocumentVersion})
+	}
+	if req.BatchID == "" {
+		digest := sha256.Sum256([]byte(req.Source + "\x00" + req.Path + "\x00" + strconv.Itoa(req.DocumentVersion) + "\x00" + req.Content))
+		req.BatchID = "http-" + hex.EncodeToString(digest[:16])
+	}
+	result, err := s.SubmitVersionedChanges(r.Context(), workspace.VersionedChangeRequest{BatchID: req.BatchID, Source: req.Source, Changes: changes})
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
 
+	var revision *workspace.DocumentRevision
+	if len(result.Revisions) > 0 {
+		revision = result.Revisions[0]
+	}
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(map[string]any{
-		"revision": rev,
-		"snapshot": snap,
+		"revision":  revision,
+		"revisions": result.Revisions,
+		"batch":     result.Batch,
+		"snapshot":  result.Snapshot,
+		"duplicate": result.Duplicate,
 	})
 }
 

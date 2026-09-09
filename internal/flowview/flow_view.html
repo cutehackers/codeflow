@@ -1,9 +1,4 @@
-package flowview
-
-// IndexHTML is the embedded single-page FlowView — flow-first review surface:
-// business flow explanations, 5-lane architecture map, execution timeline,
-// symbol-scoped code evidence, causal impact and honest unknowns.
-const IndexHTML = `<!doctype html>
+<!doctype html>
 <html lang="ko">
 <head>
   <meta charset="utf-8">
@@ -50,22 +45,35 @@ const IndexHTML = `<!doctype html>
     .flow-tab .tab-meta .badge{font-size:10px;min-height:18px;padding:0 6px}
     .flow-tab.active .tab-meta .badge{border-color:#fff;color:#fff}
     
-    /* ---- 5-Lane Architecture Map ---- */
-    .map-panel{margin:20px 0 0;border:1px solid var(--ink);border-radius:10px;overflow:hidden}
-    .map-head{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px;padding:12px 16px;border-bottom:1px solid var(--ink);background:var(--soft)}
-    .map-head h2{margin:0;font-size:15px;font-weight:800}
-    .map-head p{margin:2px 0 0;color:var(--muted);font-size:12px}
-    .legend{display:flex;align-items:center;flex-wrap:wrap;gap:8px 14px;color:var(--muted);font-size:11px;font-weight:700}
+    /* ---- Architecture Map (Side-by-side 7-Canonical-Lanes Strip) ---- */
+    .map-panel{margin:14px 0 0;border:1px solid var(--ink);border-radius:8px;overflow:hidden;background:var(--paper)}
+    .map-head{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px;padding:8px 14px;border-bottom:1px solid var(--line);background:var(--soft)}
+    .map-head h2{margin:0;font-size:12px;font-weight:800;letter-spacing:.05em;text-transform:uppercase;color:var(--ink)}
+    .map-head p{margin:0;color:var(--muted);font-size:11px}
+    .legend{display:flex;align-items:center;flex-wrap:wrap;gap:8px 12px;color:var(--muted);font-size:10px;font-weight:700}
+    .legend-item::before{content:"●";margin-right:4px}
+    .legend-item.active-item{color:var(--ink);font-weight:800}
     .legend .status::before{content:"○";margin-right:4px}
     .legend .status[data-status="fresh"]::before{content:"●"}
     .legend .status[data-status="stale"]::before{content:"◐"}
     .legend .status[data-status="orphaned"]::before{content:"?";font-weight:900}
-    .map-scroll{overflow-x:auto;overscroll-behavior-x:contain;background:var(--paper)}
+    .map-scroll{overflow-x:auto;overscroll-behavior-x:contain;background:var(--paper);position:relative;padding:10px 12px}
+    #map-lanes{display:flex;gap:10px;align-items:stretch;min-width:max-content;min-height:130px;position:relative}
+    .lane-col{display:flex;flex-direction:column;gap:6px;width:160px;min-width:150px;flex:1 1 0;border:1px solid #e2e2de;border-radius:6px;padding:8px;background:#fafafa}
+    .lane-title{font-size:10px;font-weight:800;text-transform:uppercase;color:var(--muted);padding-bottom:4px;border-bottom:1px solid #e0e0dc;display:flex;justify-content:space-between;align-items:center}
+    .lane-nodes{display:flex;flex-direction:column;gap:4px;overflow-y:auto;flex:1;max-height:115px}
+    .map-node{padding:6px 8px;border:1px solid var(--line);border-radius:5px;background:var(--paper);font-size:11px;text-align:left;cursor:pointer;display:flex;justify-content:space-between;align-items:center;transition:all .15s;color:var(--ink)}
+    .map-node:hover:not(.active):not([aria-pressed="true"]){border-color:var(--ink)}
+    .map-node.active,.map-node[aria-pressed="true"]{background:var(--ink);color:var(--paper);border-color:var(--ink);font-weight:700}
+    .map-node .node-seq{font-size:9px;font-family:ui-monospace,monospace;opacity:0.7}
+    .map-node.active .node-seq,.map-node[aria-pressed="true"] .node-seq{color:#ddd}
+    .lane-empty{font-size:10px;color:var(--muted);font-style:italic;padding:14px 4px;text-align:center}
+    /* Legacy lane fallback if in project mode */
     .lane{display:grid;grid-template-columns:160px minmax(max-content,1fr);min-width:max-content;border-bottom:1px solid var(--line)}
     .lane:last-child{border-bottom:0}
     .lane-label{position:sticky;left:0;z-index:2;display:grid;align-content:center;width:160px;padding:12px 14px;border-right:1px solid var(--ink);background:var(--paper);color:var(--muted);font-size:11px;font-weight:800}
     .lane-track{display:grid;grid-template-columns:repeat(var(--cols),minmax(152px,1fr));gap:8px;min-width:calc(var(--cols) * 160px);padding:10px;background-image:linear-gradient(to right,transparent calc(100% - 1px),#ebebea 0);background-size:160px 100%}
-    .node{display:grid;align-content:start;gap:3px;min-height:62px;padding:8px 10px;border:1px solid var(--ink);border-radius:7px;background:var(--paper);text-align:left;cursor:pointer;font-size:11px;transition:transform .1s,box-shadow .1s}
+    .node{display:grid;align-content:start;gap:3px;min-height:50px;padding:6px 8px;border:1px solid var(--ink);border-radius:6px;background:var(--paper);text-align:left;cursor:pointer;font-size:11px;transition:transform .1s,box-shadow .1s}
     .node:hover:not([aria-pressed="true"]){transform:translateY(-1px);box-shadow:2px 2px 0 var(--line)}
     .node strong{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:11px}
     .node small{color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:10px}
@@ -146,7 +154,17 @@ const IndexHTML = `<!doctype html>
     .gut .marker[aria-pressed="true"]{background:var(--ink);color:var(--paper)}
     .src{padding:0 12px;white-space:pre}
     .line.hit{background:#e9e9e4;box-shadow:inset 3px 0 var(--ink)}
+    .line.hit .selected-source{background:#e9e9e4;box-shadow:inset 0 -2px var(--ink);color:inherit}
+    .line.struct{background:#f0f4f8;box-shadow:inset 3px 0 #1a73e8}
+    .line.sig{background:#f8f9fa;font-weight:600}
     .line.peer{background:#f3f3f0}
+    .flow-badge{padding:2px 6px;border-radius:4px;font-size:10px;font-weight:700;display:inline-flex;align-items:center}
+    .badge-exact{background:#e6f4ea;color:#137333;border:1px solid #ceead6}
+    .badge-unavailable{background:#fce8e6;color:#c5221f;border:1px solid #fad2cf}
+    .badge-unknown{background:#fef7e0;color:#b06000;border:1px solid #feefc3}
+    .flow-context-header{display:flex;flex-direction:column;gap:4px;padding:6px 12px;border-bottom:1px solid var(--line);background:#f8f9fa;font-size:11px}
+    .flow-context-row{display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap}
+    .flow-relation-box{padding:3px 8px;border-radius:4px;background:var(--paper);border:1px solid var(--line);font-size:11px}
     .evidence{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;padding:8px 12px;border-top:1px solid var(--line);font-size:11px;color:var(--muted)}
     .vscode{display:inline-flex;padding:4px 9px;border:1px solid var(--ink);border-radius:5px;background:var(--ink);color:var(--paper);text-decoration:none;font-weight:800;font-size:11px}
     .vscode:hover{background:var(--paper);color:var(--ink)}
@@ -219,15 +237,15 @@ const IndexHTML = `<!doctype html>
 <main class="shell" id="flowview">
   <!-- 1. Header & Business Flow Explanation (Above Map) -->
   <header class="top-header">
-    <div class="brand-line">
-      <span class="brand-eyebrow">CODEFLOW · FLOWVIEW</span>
-      <span class="badge" id="flow-badge">—</span>
-      <span class="badge" id="workspace-activity-badge" style="background:var(--soft);color:var(--ink)" title="현재 작업공간 상태">idle</span>
-      <span id="workspace-epoch-tag" style="font-size:11px;color:var(--muted)"></span>
-      <span id="workspace-pending-count" class="badge" style="font-size:11px" title="대기 중인 변경">0 pending</span>
-      <span id="workspace-analysis-lag" style="font-size:11px;color:var(--muted)" title="분석 지연">0ms lag</span>
-      <span id="workspace-scope-tag" style="font-size:11px;color:var(--muted)" title="영향 가능 범위">전체</span>
-      <span id="truncated-chip" class="badge warn-badge" style="display:none" title="조건이 복잡하거나 호출 깊이가 깊어 일부 구간만 추적했습니다.">일부 구간만 추적됨</span>
+    <div class="brand-line" style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px">
+      <div style="display:flex;align-items:center;gap:8px">
+        <span class="brand-eyebrow">CODEFLOW · FLOWVIEW</span>
+        <span class="badge" id="flow-badge">—</span>
+        <span id="truncated-chip" class="badge warn-badge" style="display:none" title="조건이 복잡하거나 호출 깊이가 깊어 일부 구간만 추적했습니다.">일부 구간만 추적됨</span>
+      </div>
+      <div style="display:flex;align-items:center;gap:8px">
+        <a href="#advanced-analysis-section" class="btn-sm" style="text-decoration:none;font-size:11px" title="보조 분석 및 시스템 진단 도구로 이동">보조 도구 ↓</a>
+      </div>
     </div>
     <h1 id="flow-title" class="flow-title">흐름을 불러오는 중…</h1>
     <p id="flow-desc" class="flow-desc"></p>
@@ -289,6 +307,189 @@ const IndexHTML = `<!doctype html>
     </div>
   </section>
 
+  <div id="queue-banner" class="queue-banner" style="display:none">
+    <span><b>승인 큐:</b> <span id="queue-count">0</span>개 단계 재승인 필요</span>
+    <button class="btn" onclick="scrollToFirstStale()">검토</button>
+  </div>
+
+  <!-- Business Flow Tabs (비즈니스 흐름 전환 및 설명) -->
+  <section class="flow-tabs-section" id="flow-tabs-section" aria-label="비즈니스 흐름 목록">
+    <div class="section-subhead">
+      <span class="subhead-title">비즈니스 흐름 목록</span>
+      <span class="subhead-count" id="flows-count" style="font-size:11px;color:var(--muted)"></span>
+    </div>
+    <nav class="flow-tabs" id="flow-tabs"></nav>
+  </section>
+
+  <!-- 2. Architecture Map (flow view / project view) -->
+  <section class="map-panel" data-region="map" aria-label="아키텍처 맵">
+    <div class="map-head">
+      <div style="display:flex;align-items:center;gap:10px">
+        <h2 id="map-title" style="margin:0;font-size:12px;font-weight:800;letter-spacing:.05em;text-transform:uppercase">ARCHITECTURE MAP (계층 관통 맵)</h2>
+        <p id="map-sub" style="display:none"></p>
+      </div>
+      <div class="map-modes" role="group" aria-label="맵 모드">
+        <button id="mode-flow-map" aria-pressed="true" onclick="setMapMode('flow')">흐름 맵</button>
+        <button id="mode-project-map" aria-pressed="false" onclick="setMapMode('project')">전체 보기</button>
+      </div>
+      <div class="legend" aria-label="신뢰 범례">
+        <span class="legend-item active-item">현재 선택된 단계</span>
+        <span class="legend-item">연결된 계층 심볼</span>
+        <span class="status" data-status="fresh" style="display:none">확인됨</span>
+        <span class="status" data-status="stale" style="display:none">재확인 필요</span>
+        <span class="status" data-status="orphaned" style="display:none">찾을 수 없음</span>
+        <span class="status" data-status="uncertain" style="display:none">판단 보류</span>
+      </div>
+    </div>
+    <div class="map-scroll" id="map-scroll"><div id="map-lanes"></div></div>
+  </section>
+
+  <!-- 3. Business Flow Timeline & Workbench -->
+  <section class="workbench" aria-label="비즈니스 흐름 실행 타임라인 및 상세 근거">
+    <!-- 좌측: 비즈니스 흐름 실행 타임라인 -->
+    <aside class="timeline-pane">
+      <div class="timeline-head">
+        <div style="display:flex;align-items:baseline;gap:6px">
+          <h2>실행 타임라인</h2>
+          <span id="count" style="font-size:11px;font-family:monospace;color:var(--muted)">—</span>
+          <p class="timeline-sub" style="display:none">비즈니스 흐름의 순차적 실행 단계</p>
+        </div>
+        <div class="timeline-controls">
+          <span class="timeline-note" id="timeline-note"></span>
+          <span class="timeline-note" id="projection-summary" style="display:none">Projection: unknown · folds: 0 · unknown boundaries: 0</span>
+          <span class="timeline-note" id="view-state-status" style="display:none">Selection: not measured</span>
+          <button class="btn-sm" id="timeline-toggle" onclick="toggleTimelineFilter()" style="display:none">전체 보기</button>
+        </div>
+      </div>
+      <ol class="timeline-list" id="timeline-list"></ol>
+    </aside>
+
+    <!-- 우측: 선택된 단계의 상세 증거 및 코드 -->
+    <section class="detail-pane" data-region="detail">
+      <div class="detail-nav">
+        <div class="nav-pos">
+          <span class="pos-badge" id="position">—</span>
+          <h3 id="detail-title" class="pos-title">—</h3>
+        </div>
+        <div class="nav-actions">
+          <button class="btn" id="prev" onclick="prevStep()" title="이전 단계 (↑ 또는 ←)">← 이전</button>
+          <button class="btn" id="next" onclick="nextStep()" title="다음 단계 (↓ 또는 →)">다음 →</button>
+          <span class="badge" id="step-trust" style="font-size:10px;font-weight:700">● VERIFIED PROOF</span>
+          <button class="btn" onclick="openSwitcher()">⌘K</button>
+        </div>
+      </div>
+
+      <!-- Detail Card -->
+      <article class="card" aria-live="polite">
+        <div class="card-chips" id="detail-chips"></div>
+
+        <!-- Causal Impact Box -->
+        <div class="impact" aria-label="코드에서 상태와 화면 결과까지의 영향">
+          <div class="cell" data-kind="code">
+            <small>CODE Δ (실행 동작)</small>
+            <strong id="impact-code">—</strong>
+          </div>
+          <div class="arr" aria-hidden="true">→</div>
+          <div class="cell" data-kind="state" id="impact-state-cell">
+            <small>STATE Δ (상태 변화)</small>
+            <strong id="impact-state">—</strong>
+          </div>
+          <div class="arr" aria-hidden="true">→</div>
+          <div class="cell" data-kind="result">
+            <small>VISIBLE RESULT (결과)</small>
+            <strong id="impact-result">—</strong>
+          </div>
+        </div>
+
+        <!-- Business Rules Row -->
+        <div id="rules-row" class="chain-box" style="display:none"></div>
+
+        <!-- Cross-layer Delegation Edges Row -->
+        <div id="edges-row" class="chain-box" style="display:none"></div>
+
+        <!-- Code Panel -->
+        <section class="code-panel" aria-label="선택 단계 코드 근거">
+          <div class="code-toolbar">
+            <span class="path" id="code-path">—</span>
+            <span id="flow-context-precision" role="status" aria-label="정확도 상태" class="flow-badge badge-unavailable">문맥 제한 (unavailable)</span>
+            <div class="modes" role="group" aria-label="코드 뷰 범위">
+              <button id="btn-flow-context-default" class="btn-expand" aria-pressed="true" onclick="setFlowExpansion('flow_context')">흐름 문맥</button>
+              <button id="btn-expand-callable" class="btn-expand" aria-pressed="false" onclick="setFlowExpansion('callable')">함수 전체</button>
+              <button id="btn-expand-file" class="btn-expand" aria-pressed="false" onclick="setFlowExpansion('file')">파일 전체</button>
+            </div>
+          </div>
+          <div id="flow-context-meta" class="flow-context-header">
+            <div class="flow-context-row">
+              <span id="flow-callable-signature" style="font-weight:600;color:var(--ink)">—</span>
+              <span id="flow-structural-context" style="color:var(--muted)">—</span>
+            </div>
+            <div id="flow-relation-header" class="flow-relation-box">—</div>
+          </div>
+          <div class="code-note" id="code-note" hidden>주변 코드 · 심볼 범위 미확정 — 문장 주변 근거만 표시합니다.</div>
+          <div class="code-note" id="flow-source-limitation" style="background:#fce8e6;color:#c5221f" hidden></div>
+          <div class="code-wrap"><div class="code" id="code">—</div></div>
+          <div class="evidence">
+            <span class="mono" id="code-range">—</span>
+            <a class="vscode" id="vscode-link" href="#">↗ VS Code에서 열기</a>
+          </div>
+        </section>
+
+        <!-- Inline Approval -->
+        <div class="approval-bar">
+          <button class="btn" onclick="toggleEdit()">인라인 승인</button>
+        </div>
+        <div id="edit-form" style="display:none" class="edit-form">
+          <input id="edit-name" class="input-text" placeholder="단계 이름">
+          <input id="edit-rules" class="input-text" placeholder="비즈니스 규칙 (쉼표 구분)">
+          <button class="btn btn-primary" onclick="submitApproval()">승인 완료</button>
+        </div>
+
+        <!-- Evidence Dock (VS-05, Raw §9.11) -->
+        <section id="evidence-dock-section" class="evidence-dock-panel" style="margin-top:16px;border-top:1px solid var(--line);padding-top:12px">
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
+            <span style="font-weight:800;font-size:12px;text-transform:uppercase;letter-spacing:.05em">Evidence Dock</span>
+            <div class="modes" role="tablist" aria-label="Evidence Dock 탭" style="display:flex;gap:4px">
+              <button id="dock-tab-why" class="btn-sm active" role="tab" aria-selected="true" onclick="switchEvidenceDockTab('why')">Why</button>
+              <button id="dock-tab-code" class="btn-sm" role="tab" aria-selected="false" onclick="switchEvidenceDockTab('code')">Code</button>
+              <button id="dock-tab-test" class="btn-sm" role="tab" aria-selected="false" onclick="switchEvidenceDockTab('test')">Test</button>
+              <button id="dock-tab-history" class="btn-sm" role="tab" aria-selected="false" onclick="switchEvidenceDockTab('history')">History</button>
+            </div>
+          </div>
+          <div id="dock-pane-why" class="dock-pane" role="tabpanel" aria-labelledby="dock-tab-why" style="font-size:13px;line-height:1.5;color:var(--ink)">
+            <div id="dock-why-text">—</div>
+          </div>
+          <div id="dock-pane-code" class="dock-pane" role="tabpanel" aria-labelledby="dock-tab-code" style="display:none;font-size:12px">
+            <div id="dock-code-anchor" class="mono" style="color:var(--muted)">—</div>
+          </div>
+          <div id="dock-pane-test" class="dock-pane" role="tabpanel" aria-labelledby="dock-tab-test" style="display:none;font-size:12px">
+            <ul id="dock-test-list" style="margin:0;padding-left:16px;color:var(--ink)"><li>연결된 테스트 근거가 없습니다.</li></ul>
+          </div>
+          <div id="dock-pane-history" class="dock-pane" role="tabpanel" aria-labelledby="dock-tab-history" style="display:none;font-size:12px">
+            <div id="dock-history-text" style="color:var(--muted)">이전 세대 대비 변경 사항 없음 (baseline 일치)</div>
+          </div>
+        </section>
+      </article>
+    </section>
+  </section>
+
+  <!-- Unknowns Panel -->
+  <section class="unknowns-panel" id="unknowns-panel" hidden aria-label="아직 타임라인에 연결되지 않은 동작">
+    <h2>아직 타임라인에 연결되지 않은 동작</h2>
+    <p>현재 코드에서 확인된 내용과 빠진 연결을 함께 표시합니다.</p>
+    <ul id="unknowns-list"></ul>
+  </section>
+  <!-- 4. 보조 분석 및 실시간 진단 (Advanced Analysis & Diagnostics) -->
+  <section id="advanced-analysis-section" class="advanced-analysis-container" aria-label="보조 분석 및 실시간 진단 도구" style="margin-top:40px;border-top:2px solid var(--ink);padding-top:20px">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;flex-wrap:wrap;gap:10px">
+      <div>
+        <h2 style="margin:0;font-size:15px;font-weight:800;letter-spacing:-.01em">보조 분석 및 실시간 진단 (Advanced Analysis &amp; Diagnostics)</h2>
+        <p style="margin:3px 0 0;font-size:12px;color:var(--muted)">변경 영향도, 요구사항 정렬, 장애 역추적 및 의미 승인 워크플로우</p>
+      </div>
+      <!-- Workspace Engine Status (Isolated from primary code comprehension view) -->
+      <div id="workspace-telemetry-bar" style="display:flex;align-items:center;flex-wrap:wrap;gap:6px;font-size:11px;color:var(--muted)">
+        <span style="font-weight:700;color:var(--ink);font-size:10px;text-transform:uppercase">엔진 상태:</span>
+      </div>
+    </div>
   <!-- Change Pulse Section (VS-05, Raw §9.9) -->
   <section id="change-pulse-section" class="flow-tabs-section" aria-label="Change Pulse 변경 감지" style="margin-top:14px;border:1px solid var(--line);border-radius:8px;padding:12px 16px;background:var(--paper)">
     <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
@@ -550,162 +751,6 @@ const IndexHTML = `<!doctype html>
     </div>
   </section>
 
-  <div id="queue-banner" class="queue-banner" style="display:none">
-    <span><b>승인 큐:</b> <span id="queue-count">0</span>개 단계 재승인 필요</span>
-    <button class="btn" onclick="scrollToFirstStale()">검토</button>
-  </div>
-
-  <!-- Business Flow Tabs (비즈니스 흐름 전환 및 설명) -->
-  <section class="flow-tabs-section" id="flow-tabs-section" aria-label="비즈니스 흐름 목록">
-    <div class="section-subhead">
-      <span class="subhead-title">비즈니스 흐름 목록</span>
-      <span class="subhead-count" id="flows-count" style="font-size:11px;color:var(--muted)"></span>
-    </div>
-    <nav class="flow-tabs" id="flow-tabs"></nav>
-  </section>
-
-  <!-- 2. Architecture Map (flow view / project view) -->
-  <section class="map-panel" data-region="map" aria-label="아키텍처 맵">
-    <div class="map-head">
-      <div>
-        <h2 id="map-title">Architecture Map</h2>
-        <p id="map-sub">비즈니스 흐름이 화면에서 외부 연동까지 전달되는 계층 구조입니다.</p>
-      </div>
-      <div class="map-modes" role="group" aria-label="맵 모드">
-        <button id="mode-flow-map" aria-pressed="true" onclick="setMapMode('flow')">흐름 맵</button>
-        <button id="mode-project-map" aria-pressed="false" onclick="setMapMode('project')">전체 보기</button>
-      </div>
-      <div class="legend" aria-label="신뢰 범례">
-        <span class="status" data-status="fresh">확인됨</span>
-        <span class="status" data-status="stale">재확인 필요</span>
-        <span class="status" data-status="orphaned">찾을 수 없음</span>
-        <span class="status" data-status="uncertain" title="계층 판단 근거가 약한 심볼 — 추측이 아닌 불확실 표시">판단 보류</span>
-      </div>
-    </div>
-    <div class="map-scroll" id="map-scroll"><div id="map-lanes"></div></div>
-  </section>
-
-  <!-- 3. Business Flow Timeline & Workbench -->
-  <section class="workbench" aria-label="비즈니스 흐름 실행 타임라인 및 상세 근거">
-    <!-- 좌측: 비즈니스 흐름 실행 타임라인 -->
-    <aside class="timeline-pane">
-      <div class="timeline-head">
-        <div>
-          <h2>실행 타임라인</h2>
-          <p class="timeline-sub">비즈니스 흐름의 순차적 실행 단계</p>
-        </div>
-        <div class="timeline-controls">
-          <span class="timeline-note" id="timeline-note"></span>
-          <span class="timeline-note" id="projection-summary">Projection: unknown · folds: 0 · unknown boundaries: 0</span>
-          <span class="timeline-note" id="view-state-status">Selection: not measured</span>
-          <button class="btn-sm" id="timeline-toggle" onclick="toggleTimelineFilter()" style="display:none">전체 보기</button>
-        </div>
-      </div>
-      <ol class="timeline-list" id="timeline-list"></ol>
-    </aside>
-
-    <!-- 우측: 선택된 단계의 상세 증거 및 코드 -->
-    <section class="detail-pane" data-region="detail">
-      <div class="detail-nav">
-        <div class="nav-pos">
-          <span class="pos-badge" id="position">—</span>
-          <h3 id="detail-title" class="pos-title">—</h3>
-        </div>
-        <div class="nav-actions">
-          <button class="btn" id="prev" onclick="prevStep()">← 이전</button>
-          <button class="btn" id="next" onclick="nextStep()">다음 →</button>
-          <button class="btn" onclick="openSwitcher()">⌘K</button>
-        </div>
-      </div>
-
-      <!-- Detail Card -->
-      <article class="card" aria-live="polite">
-        <div class="card-chips" id="detail-chips"></div>
-
-        <!-- Causal Impact Box -->
-        <div class="impact" aria-label="코드에서 상태와 화면 결과까지의 영향">
-          <div class="cell" data-kind="code">
-            <small>CODE Δ (실행 동작)</small>
-            <strong id="impact-code">—</strong>
-          </div>
-          <div class="arr" aria-hidden="true">→</div>
-          <div class="cell" data-kind="state" id="impact-state-cell">
-            <small>STATE Δ (상태 변화)</small>
-            <strong id="impact-state">—</strong>
-          </div>
-          <div class="arr" aria-hidden="true">→</div>
-          <div class="cell" data-kind="result">
-            <small>VISIBLE RESULT (결과)</small>
-            <strong id="impact-result">—</strong>
-          </div>
-        </div>
-
-        <!-- Business Rules Row -->
-        <div id="rules-row" class="chain-box" style="display:none"></div>
-
-        <!-- Cross-layer Delegation Edges Row -->
-        <div id="edges-row" class="chain-box" style="display:none"></div>
-
-        <!-- Code Panel -->
-        <section class="code-panel" aria-label="선택 단계 코드 근거">
-          <div class="code-toolbar">
-            <span class="path" id="code-path">—</span>
-            <div class="modes" role="group" aria-label="코드 뷰 범위">
-              <button id="mode-symbol" aria-pressed="true" onclick="setViewMode('symbol')">함수 단위</button>
-              <button id="mode-focus" aria-pressed="false" onclick="setViewMode('focus')">단계 근거만</button>
-            </div>
-          </div>
-          <div class="code-note" id="code-note" hidden>주변 코드 · 심볼 범위 미확정 — 문장 주변 근거만 표시합니다.</div>
-          <div class="code-wrap"><div class="code" id="code">—</div></div>
-          <div class="evidence">
-            <span class="mono" id="code-range">—</span>
-            <a class="vscode" id="vscode-link" href="#">↗ VS Code에서 열기</a>
-          </div>
-        </section>
-
-        <!-- Inline Approval -->
-        <div class="approval-bar">
-          <button class="btn" onclick="toggleEdit()">인라인 승인</button>
-        </div>
-        <div id="edit-form" style="display:none" class="edit-form">
-          <input id="edit-name" class="input-text" placeholder="단계 이름">
-          <input id="edit-rules" class="input-text" placeholder="비즈니스 규칙 (쉼표 구분)">
-          <button class="btn btn-primary" onclick="submitApproval()">승인 완료</button>
-        </div>
-
-        <!-- Evidence Dock (VS-05, Raw §9.11) -->
-        <section id="evidence-dock-section" class="evidence-dock-panel" style="margin-top:16px;border-top:1px solid var(--line);padding-top:12px">
-          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
-            <span style="font-weight:800;font-size:12px;text-transform:uppercase;letter-spacing:.05em">Evidence Dock</span>
-            <div class="modes" role="tablist" aria-label="Evidence Dock 탭" style="display:flex;gap:4px">
-              <button id="dock-tab-why" class="btn-sm active" role="tab" aria-selected="true" onclick="switchEvidenceDockTab('why')">Why</button>
-              <button id="dock-tab-code" class="btn-sm" role="tab" aria-selected="false" onclick="switchEvidenceDockTab('code')">Code</button>
-              <button id="dock-tab-test" class="btn-sm" role="tab" aria-selected="false" onclick="switchEvidenceDockTab('test')">Test</button>
-              <button id="dock-tab-history" class="btn-sm" role="tab" aria-selected="false" onclick="switchEvidenceDockTab('history')">History</button>
-            </div>
-          </div>
-          <div id="dock-pane-why" class="dock-pane" role="tabpanel" aria-labelledby="dock-tab-why" style="font-size:13px;line-height:1.5;color:var(--ink)">
-            <div id="dock-why-text">—</div>
-          </div>
-          <div id="dock-pane-code" class="dock-pane" role="tabpanel" aria-labelledby="dock-tab-code" style="display:none;font-size:12px">
-            <div id="dock-code-anchor" class="mono" style="color:var(--muted)">—</div>
-          </div>
-          <div id="dock-pane-test" class="dock-pane" role="tabpanel" aria-labelledby="dock-tab-test" style="display:none;font-size:12px">
-            <ul id="dock-test-list" style="margin:0;padding-left:16px;color:var(--ink)"><li>연결된 테스트 근거가 없습니다.</li></ul>
-          </div>
-          <div id="dock-pane-history" class="dock-pane" role="tabpanel" aria-labelledby="dock-tab-history" style="display:none;font-size:12px">
-            <div id="dock-history-text" style="color:var(--muted)">이전 세대 대비 변경 사항 없음 (baseline 일치)</div>
-          </div>
-        </section>
-      </article>
-    </section>
-  </section>
-
-  <!-- Unknowns Panel -->
-  <section class="unknowns-panel" id="unknowns-panel" hidden aria-label="아직 타임라인에 연결되지 않은 동작">
-    <h2>아직 타임라인에 연결되지 않은 동작</h2>
-    <p>현재 코드에서 확인된 내용과 빠진 연결을 함께 표시합니다.</p>
-    <ul id="unknowns-list"></ul>
   </section>
 </main>
 
@@ -735,6 +780,7 @@ const IndexHTML = `<!doctype html>
 <script>
 const params=new URLSearchParams(location.search),token=params.get('token')||'';
 let currentFlowId=params.get('flow')||'',cachedFlows=[],currentSpec=null,selected=0,viewMode='symbol';
+let activeEntrySymbol=params.get('entrySymbol')||'';
 // View state is measured from the rendered DOM and keyed by semantic structural
 // identity. A generated step id is not a preservation key because it may change
 // when a compatible generation is rebuilt.
@@ -1380,23 +1426,34 @@ async function loadWorkspaceActivity(){
 }
 
 async function init(){
-  loadWorkspaceActivity();
-  initLiveStream();
+  const reqParam=params.get('request');
+  const liveParam=params.get('live');
+  if(reqParam){
+    const qi=document.getElementById('query-input');
+    if(qi)qi.value=reqParam;
+  }
+  if(liveParam==='1'&&reqParam){
+    await handleSemanticQuery(null,false);
+  }
   try{
     const r=await api('/api/flows');
     const d=await r.json();
     cachedFlows=d.flows||[];
     if(!cachedFlows.length){
-      document.getElementById('flow-title').textContent='발행된 비즈니스 흐름 없음';
-      document.getElementById('flow-desc').textContent='codeflow publish를 실행하여 비즈니스 흐름을 발행하세요.';
+      if(!reqParam){
+        document.getElementById('flow-title').textContent='발행된 비즈니스 흐름 없음';
+        document.getElementById('flow-desc').textContent='codeflow publish를 실행하여 비즈니스 흐름을 발행하세요.';
+      }
       return;
     }
     if(!currentFlowId||!cachedFlows.some(f=>f.flowId===currentFlowId)){
       currentFlowId=cachedFlows[0].flowId;
     }
-    await loadFlow(currentFlowId);
+    if(!reqParam){
+      await loadFlow(currentFlowId);
+    }
   }catch(e){
-    document.getElementById('flow-title').textContent='오류: '+e.message;
+    if(!reqParam)document.getElementById('flow-title').textContent='오류: '+e.message;
   }
 }
 
@@ -1618,7 +1675,9 @@ async function handleSemanticQuery(event,preserveSelection=false){
   if(dialog)dialog.style.display='none';
 
   try{
-    const r=await api('/api/task/view?query='+encodeURIComponent(query)+'&mode=feature',{allowErrors:true});
+    const entrySymbol=(typeof activeEntrySymbol!=='undefined'&&activeEntrySymbol)?activeEntrySymbol:'';
+    const entryQs=entrySymbol?'&entrySymbol='+encodeURIComponent(entrySymbol):'';
+    const r=await api('/api/task/view?query='+encodeURIComponent(query)+entryQs+'&mode=feature',{allowErrors:true});
 	if(!isLatestSemanticRequest(requestGeneration))return;
     if(!r.ok){
       const err=await r.json().catch(()=>({}));
@@ -1666,11 +1725,15 @@ function showDisambiguation(candidates){
 }
 
 async function selectSpecificEntry(entrySymbol){
+  if(typeof activeEntrySymbol!=='undefined')activeEntrySymbol=entrySymbol;
   const dialog=document.getElementById('disambiguation-dialog');
   if(dialog)dialog.style.display='none';
 	const requestGeneration=beginSemanticRequest();
   try{
-    const r=await api('/api/task/view?entrySymbol='+encodeURIComponent(entrySymbol)+'&mode=feature',{allowErrors:true});
+    const input=document.getElementById('query-input');
+    const query=(input?input.value:'').trim();
+    const queryQs=query?'&query='+encodeURIComponent(query):'';
+    const r=await api('/api/task/view?entrySymbol='+encodeURIComponent(entrySymbol)+queryQs+'&mode=feature',{allowErrors:true});
 	if(!isLatestSemanticRequest(requestGeneration))return;
     if(r.ok){
       const d=await r.json();
@@ -1854,7 +1917,9 @@ function renderSemanticTaskView(data,preserveSelection=false){
         freshness:s.freshness||data.semanticMap.freshness||'unknown',
         isVisible:projVisible.size===0||projVisible.has(s.stepId),
         isPreserved:projPreserved.has(s.stepId),
+        flowContext:s.flowContext||null,
       })),
+      flowContexts:(data.semanticMap&&data.semanticMap.flowContexts)||data.flowContexts||null,
       unknowns:(data.semanticMap.unknowns||[]).concat((data.projection&&data.projection.unknownBoundaryRefs||[]).map(ref=>({subject:ref,reason:'unknown boundary preserved by projection'}))),
       projection:data.projection||null
     };
@@ -2057,7 +2122,7 @@ function renderHeader(){
   if(!s)return;
   const idx=cachedFlows.find(x=>x.flowId===s.flowId)||{};
   const entry=s.entrySymbolPath||idx.entrySymbolPath||'';
-  
+
   document.getElementById('flow-title').textContent=s.title||idx.title||'(제목 없는 흐름)';
   const desc=s.description||idx.description||'';
   const de=document.getElementById('flow-desc');
@@ -2111,28 +2176,53 @@ function renderFlowTabs(){
   }).join('');
 }
 
+const CANONICAL_7_LAYERS=[
+  {id:'presentation',num:'1',title:'PRESENTATION (UI)'},
+  {id:'controller',num:'2',title:'CONTROLLER / HANDLER'},
+  {id:'usecase',num:'3',title:'USECASE / FLOW'},
+  {id:'domain',num:'4',title:'DOMAIN / POLICY'},
+  {id:'data',num:'5',title:'DATA / STORAGE'},
+  {id:'infra',num:'6',title:'INFRASTRUCTURE'},
+  {id:'external',num:'7',title:'EXTERNAL I/O'}
+];
+
 function renderMap(){
   const el=document.getElementById('map-lanes');
   if(!currentSpec){
     el.innerHTML='<div class="proj-empty">발행된 흐름이 없어 흐름 맵이 비어 있습니다.</div>';
     return;
   }
-  const lanes=(Array.isArray(currentSpec.lanes)&&currentSpec.lanes.length?currentSpec.lanes:LAYER_ORDER.filter(l=>currentSpec.steps.some(st=>normLayer(st.layer||'usecase')===l)).map(l=>({id:l,label:LAYER_LABELS[l]})));
-  document.getElementById('map-title').textContent='Architecture Map — '+((cachedFlows.find(x=>x.flowId===currentFlowId)||{}).title||'현재 흐름');
-  document.getElementById('map-sub').textContent='레인은 Page → Controller → UseCase → Repository → API 순서로 코드가 외부로 전달되는 경로입니다.';
-  el.innerHTML='<svg id="map-arcs"></svg>'+lanes.map(l=>{
+  const activeFlowTitle=((cachedFlows.find(x=>x.flowId===currentFlowId)||{}).title||'현재 흐름');
+  document.getElementById('map-title').textContent='Architecture Map — '+activeFlowTitle;
+  const mapSub=document.getElementById('map-sub');
+  if(mapSub)mapSub.textContent='화면에서 외부 연동까지 7개 계층을 관통하는 실행 구조입니다.';
+
+  const hasUnknown=currentSpec.steps.some(st=>normLayer(st.layer||'usecase')==='unknown');
+  const layers=hasUnknown
+    ?[...CANONICAL_7_LAYERS,{id:'unknown',num:'?',title:'UNKNOWN'}]
+    :CANONICAL_7_LAYERS;
+
+  el.innerHTML='<svg id="map-arcs"></svg>'+layers.map(l=>{
     const inLayer=currentSpec.steps.map((st,i)=>({st,i})).filter(x=>{
       const lid=normLayer(x.st.layer||'usecase');
       return lid===l.id;
     });
-    return '<div class="lane"><div class="lane-label">'+esc(l.label)+'</div><div class="lane-track" style="--cols:'+currentSpec.steps.length+'">'+
-      inLayer.map(x=>{
-        const conf=(x.st.layerConfidence!=null)?Math.round(x.st.layerConfidence*100)+'%':'';
-        const sym=symbolName(x.st.anchor.enclosingSymbolPath)||x.st.name;
-        const domain=x.st.name;
-        return '<button class="node" style="grid-column:'+(x.i+1)+'" data-map-step="'+x.i+'" data-symbol="'+esc(x.st.anchor.enclosingSymbolPath||'')+'" '+(x.st.layerUncertain?'data-uncertain="1" title="계층 판단 근거가 약합니다"':'')+' data-status="'+esc(x.st.freshness)+'" aria-pressed="false"><strong>'+esc(sym)+'</strong><small>'+esc(domain)+'</small>'+(conf?'<span class="conf">'+conf+'</span>':'')+'</button>';
-      }).join('')+
-    '</div></div>';
+    const nodesHtml=inLayer.length>0
+      ?inLayer.map(x=>{
+          const isActive=x.i===selected;
+          const conf=(x.st.layerConfidence!=null)?Math.round(x.st.layerConfidence*100)+'%':'';
+          const sym=symbolName(x.st.anchor.enclosingSymbolPath)||x.st.name;
+          return '<button class="map-node'+(isActive?' active':'')+'" data-map-step="'+x.i+'" data-symbol="'+esc(x.st.anchor.enclosingSymbolPath||'')+'" '+(x.st.layerUncertain?'data-uncertain="1" title="계층 판단 근거가 약합니다"':'')+' data-status="'+esc(x.st.freshness)+'" aria-pressed="'+(isActive?'true':'false')+'">'+
+            '<span>'+esc(sym)+'</span>'+
+            '<span class="node-seq">#'+String(x.i+1).padStart(2,'0')+'</span>'+
+          '</button>';
+        }).join('')
+      :'<div class="lane-empty">(단계 없음)</div>';
+
+    return '<div class="lane-col">'+
+      '<div class="lane-title"><span>'+l.num+'. '+l.title+'</span><span style="font-size:9px;opacity:0.7">'+(inLayer.length?inLayer.length+' steps':'')+'</span></div>'+
+      '<div class="lane-nodes">'+nodesHtml+'</div>'+
+    '</div>';
   }).join('');
   document.querySelectorAll('[data-map-step]').forEach(n=>n.addEventListener('click',()=>selectStep(Number(n.dataset.mapStep))));
   drawArcs();
@@ -3463,6 +3553,7 @@ function prevStep(){
   const c=coreIndices();
   const idx=c.indexOf(selected);
   if(idx>0)selectStep(c[idx-1]);
+  else if(selected>0)selectStep(selected-1);
   else if(c.length)selectStep(c[0]);
 }
 
@@ -3470,13 +3561,29 @@ function nextStep(){
   const c=coreIndices();
   const idx=c.indexOf(selected);
   if(idx>=0&&idx<c.length-1)selectStep(c[idx+1]);
+  else if(selected<currentSpec.steps.length-1)selectStep(selected+1);
   else if(idx===-1&&c.length)selectStep(c[0]);
+}
+
+let flowExpansion='flow_context';
+function setFlowExpansion(scope){
+  flowExpansion=scope;
+  const defEl=document.getElementById('btn-flow-context-default');
+  const callEl=document.getElementById('btn-expand-callable');
+  const fileEl=document.getElementById('btn-expand-file');
+  if(defEl)defEl.setAttribute('aria-pressed',String(scope==='flow_context'));
+  if(callEl)callEl.setAttribute('aria-pressed',String(scope==='callable'));
+  if(fileEl)fileEl.setAttribute('aria-pressed',String(scope==='file'));
+  renderCode();
 }
 
 function setViewMode(m){
   viewMode=m;
+  if(m==='focus')setFlowExpansion('flow_context');
+  else if(m==='symbol')setFlowExpansion('callable');
   ['symbol','focus'].forEach(k=>{
-    document.getElementById('mode-'+k).setAttribute('aria-pressed',String(k===m));
+    const el=document.getElementById('mode-'+k);
+    if(el)el.setAttribute('aria-pressed',String(k===m));
   });
   renderCode();
 }
@@ -3492,14 +3599,24 @@ function selectStep(i,scroll=true){
   if(!currentSpec)return;
   selected=Math.max(0,Math.min(currentSpec.steps.length-1,i));
   
-  document.querySelectorAll('[data-map-step]').forEach(n=>n.setAttribute('aria-pressed',String(Number(n.dataset.mapStep)===selected)));
-  document.querySelectorAll('[data-hstep]').forEach(n=>n.setAttribute('aria-current',Number(n.dataset.hstep)===selected?'step':'false'));
+  document.querySelectorAll('[data-map-step]').forEach(n=>{
+    const isAct=Number(n.dataset.mapStep)===selected;
+    n.setAttribute('aria-pressed',String(isAct));
+    n.classList.toggle('active',isAct);
+  });
+  document.querySelectorAll('[data-hstep]').forEach(n=>{
+    const isAct=Number(n.dataset.hstep)===selected;
+    n.setAttribute('aria-current',isAct?'step':'false');
+    n.classList.toggle('active',isAct);
+  });
   
   const c=coreIndices();
   const p=c.indexOf(selected);
   const atFirstCore=p===0, atLastCore=p===c.length-1, isNonCore=p===-1;
-  document.getElementById('prev').disabled=c.length? (isNonCore? false : atFirstCore) : selected===0;
-  document.getElementById('next').disabled=c.length? (isNonCore? c.length===0 : atLastCore) : selected===currentSpec.steps.length-1;
+  const prevBtn=document.getElementById('prev');
+  const nextBtn=document.getElementById('next');
+  if(prevBtn)prevBtn.disabled=c.length? (isNonCore? false : atFirstCore) : selected===0;
+  if(nextBtn)nextBtn.disabled=c.length? (isNonCore? c.length===0 : atLastCore) : selected===currentSpec.steps.length-1;
   
   renderDetail();
   renderCode();
@@ -3528,6 +3645,136 @@ async function renderCode(){
   document.getElementById('code-note').hidden=!note;
   
   try{
+    let fc=null;
+    try{
+      const genId=(currentSpec&&currentSpec.generationId)||'';
+      const cr=await api('/api/flow/context?stepId='+encodeURIComponent(st.stepId)+'&generationId='+encodeURIComponent(genId)+'&expand='+encodeURIComponent(flowExpansion)+'&expansion='+encodeURIComponent(flowExpansion));
+      if(cr&&cr.ok){
+        fc=await cr.json();
+      }
+    }catch(err){}
+
+    // If server context API was unavailable, fallback to step.flowContext or currentSpec.flowContexts
+    if(!fc&&flowExpansion==='flow_context'){
+      fc=(currentSpec.flowContexts&&currentSpec.flowContexts[st.stepId])||st.flowContext||null;
+    }
+    if(!fc){
+      const cached=(currentSpec.flowContexts&&currentSpec.flowContexts[st.stepId])||st.flowContext;
+      if(cached&&Array.isArray(cached.displayedLines)){
+        fc={...cached,sourceLimitation:'요청한 확장 소스를 사용할 수 없습니다. 기존 흐름 문맥을 유지합니다.'};
+      }else if(currentSpec.flowContexts||st.flowContext||currentSpec.semanticMap||(document.body&&document.body.dataset.view==='live-semantic-map')){
+        fc={precision:'unavailable',displayedLines:[],sourceLimitation:'선택한 단계의 스냅샷 코드 문맥을 사용할 수 없습니다.'};
+      }
+    }
+    if(fc){
+      const displayedLines=Array.isArray(fc.displayedLines)?fc.displayedLines:[];
+      const repoPath=fc.repoRelativePath||(st.anchor&&st.anchor.repoRelativePath)||'';
+      document.getElementById('code-path').innerHTML='<b>'+esc(repoPath)+'</b>';
+
+      const precEl=document.getElementById('flow-context-precision');
+      const precision=fc.precision||'unknown';
+      if(precEl){
+        precEl.className='flow-badge badge-'+precision;
+        if(precision==='exact'){
+          precEl.textContent='정확한 문장 (exact)';
+          precEl.setAttribute('aria-label','정확도 상태: 정확한 문장 (exact)');
+        }else if(precision==='unavailable'){
+          precEl.textContent='문맥 제한 (unavailable)';
+          precEl.setAttribute('aria-label','정확도 상태: 문맥 제한 (unavailable) - 정확한 실행 문장을 특정할 수 없어 주변 문맥 또는 선언부로 대체 표시합니다');
+        }else{
+          precEl.textContent='알 수 없음 (unknown)';
+          precEl.setAttribute('aria-label','정확도 상태: 알 수 없음 (unknown) - 정확한 실행 문장을 특정할 수 없어 주변 문맥 또는 선언부로 대체 표시합니다');
+        }
+      }
+
+      const sigEl=document.getElementById('flow-callable-signature');
+      if(sigEl){
+        const sigText=(fc.callableSignature&&(fc.callableSignature.text||fc.callableSignature.signature))||(st.anchor&&st.anchor.enclosingSymbolPath)||'';
+        sigEl.textContent=sigText||'호출 단위: 미확정';
+      }
+
+      const structEl=document.getElementById('flow-structural-context');
+      if(structEl){
+        const stKind=fc.structuralContext&&(fc.structuralContext.nodeKind||fc.structuralContext.kind);
+        if(fc.structuralContext&&fc.structuralContext.status==='present'&&stKind){
+          const stLabel=fc.structuralContext.label?' ('+fc.structuralContext.label+')':'';
+          structEl.textContent='감싸는 문맥: '+stKind+stLabel;
+        }else if(stKind&&stKind!=='none'){
+          structEl.textContent='감싸는 문맥: '+stKind+(fc.structuralContext.label?' ('+fc.structuralContext.label+')':'');
+        }else if(fc.structuralContext&&fc.structuralContext.status==='none'){
+          structEl.textContent='직접 감싸는 제어/콜백 문맥 없음 (none)';
+        }else{
+          structEl.textContent='감싸는 문맥: 확인할 수 없음';
+        }
+      }
+
+      const relEl=document.getElementById('flow-relation-header');
+      if(relEl){
+        if(fc.directRelation&&fc.directRelation.description){
+          relEl.textContent='[연결 관계] '+fc.directRelation.description;
+        }else if(fc.directRelation&&(fc.directRelation.predecessorStepId||fc.directRelation.successorStepId||fc.directRelation.callTargetSymbol)){
+          const parts=[];
+          if(fc.directRelation.predecessorStepId)parts.push('직전: '+fc.directRelation.predecessorStepId);
+          else parts.push('직전: 없음');
+          if(fc.directRelation.successorStepId)parts.push('직후: '+fc.directRelation.successorStepId);
+          else parts.push('직후: 없음');
+          if(fc.directRelation.callTargetSymbol)parts.push('호출 대상: '+fc.directRelation.callTargetSymbol);
+          if(fc.directRelation.relationKind)parts.push('관계: '+fc.directRelation.relationKind);
+          relEl.textContent='[연결 관계] '+parts.join(' · ');
+        }else{
+          relEl.textContent='[연결 관계] 직접 선행/후행 단계 없음 (none)';
+        }
+      }
+
+      const limEl=document.getElementById('flow-source-limitation');
+      if(limEl){
+        if(fc.sourceLimitation){
+          limEl.textContent=fc.sourceLimitation;
+          limEl.hidden=false;
+        }else if(precision!=='exact'){
+          limEl.textContent='정확한 실행 문장을 특정할 수 없어 주변 문맥 또는 선언부로 대체 표시합니다.';
+          limEl.hidden=false;
+        }else{
+          limEl.hidden=true;
+        }
+      }
+
+      const noteEl=document.getElementById('code-note');
+      if(noteEl)noteEl.hidden=true;
+
+      const html=displayedLines.map(line=>{
+        let cls='';
+        let gutter='';
+        if(precision==='exact'&&(line.isHit||line.role==='statement')){
+          cls='hit';
+          gutter='<span class="gut"><button class="marker" data-marker="'+selected+'" aria-pressed="true" title="'+esc(st.name)+'">'+String(selected+1).padStart(2,'0')+'</button></span>';
+        }else if(line.isStruct||line.role==='structural_context'){
+          cls='struct';
+        }else if(line.isSig||line.role==='callable_signature'){
+          cls='sig';
+        }else if(line.role==='fallback'){
+          cls='fallback';
+        }
+        const source=line.selection&&precision==='exact'
+          ? esc(line.selection.before)+'<mark class="selected-source">'+esc(line.selection.text)+'</mark>'+esc(line.selection.after)
+          : esc(line.text);
+        return '<div class="line '+cls+'"><span class="num">'+line.lineNumber+'</span>'+(gutter||'<span class="gut"></span>')+'<span class="src">'+source+'</span></div>';
+      }).join('');
+
+      document.getElementById('code').innerHTML=html||'<div class="code-note">표시할 수 있는 스냅샷 소스가 없습니다.</div>';
+      document.querySelectorAll('[data-marker]').forEach(n=>n.addEventListener('click',()=>selectStep(Number(n.dataset.marker))));
+
+      const firstLine=displayedLines.length?displayedLines[0].lineNumber:0;
+      const lastLine=displayedLines.length?displayedLines[displayedLines.length-1].lineNumber:0;
+      const sym=(fc.callableSignature&&(fc.callableSignature.text||fc.callableSignature.name))||(st.anchor&&st.anchor.enclosingSymbolPath)||'';
+      document.getElementById('code-range').textContent=sym+' · '+firstLine+'-'+lastLine;
+
+      const vLine=(fc.statement&&(fc.statement.lineRange?fc.statement.lineRange[0]:fc.statement.startLine))||firstLine||1;
+      const vsLink=document.getElementById('vscode-link');
+      if(vsLink)vsLink.href='vscode://file/'+encodeURIComponent(repoPath)+':'+vLine;
+      return;
+    }
+
     const r=await api('/api/source?token='+encodeURIComponent(token)+'&'+qs);
     const text=await r.text();
     if(token!==codeToken)return;
@@ -3553,6 +3800,21 @@ async function renderCode(){
     }).join('');
     document.getElementById('code').innerHTML=html;
     document.querySelectorAll('[data-marker]').forEach(n=>n.addEventListener('click',()=>selectStep(Number(n.dataset.marker))));
+
+    const precEl=document.getElementById('flow-context-precision');
+    if(precEl){
+      precEl.className='flow-badge badge-exact';
+      precEl.textContent='정확한 문장 (exact)';
+      precEl.setAttribute('aria-label','정확도 상태: 정확한 문장 (exact)');
+    }
+    const limEl=document.getElementById('flow-source-limitation');
+    if(limEl)limEl.hidden=true;
+    const sigEl=document.getElementById('flow-callable-signature');
+    if(sigEl)sigEl.textContent=(st.anchor&&st.anchor.enclosingSymbolPath)||'호출 단위: 미확정';
+    const structEl=document.getElementById('flow-structural-context');
+    if(structEl)structEl.textContent='계층: '+(st.layer||'presentation')+' · 종류: '+(st.kind||'call');
+    const vsLink=document.getElementById('vscode-link');
+    if(vsLink&&st.anchor)vsLink.href='vscode://file/'+encodeURIComponent(st.anchor.repoRelativePath)+':'+focusStart(st);
   }catch(e){
     if(token===codeToken)document.getElementById('code').textContent='코드 로드 실패: '+e.message;
   }
@@ -3612,13 +3874,16 @@ document.addEventListener('keydown',e=>{
     openSwitcher();
   }
   if(e.key==='Escape'){closeSwitcher();closeExcerpt();}
-  if(e.key==='ArrowLeft'&&document.activeElement.tagName!=='INPUT'){
-    e.preventDefault();
-    prevStep();
-  }
-  if(e.key==='ArrowRight'&&document.activeElement.tagName!=='INPUT'){
-    e.preventDefault();
-    nextStep();
+  const isInput=document.activeElement&&(document.activeElement.tagName==='INPUT'||document.activeElement.tagName==='TEXTAREA');
+  if(!isInput){
+    if(e.key==='ArrowLeft'||e.key==='ArrowUp'){
+      e.preventDefault();
+      prevStep();
+    }
+    if(e.key==='ArrowRight'||e.key==='ArrowDown'){
+      e.preventDefault();
+      nextStep();
+    }
   }
 });
 
@@ -3630,4 +3895,3 @@ init();
 </script>
 </body>
 </html>
-`

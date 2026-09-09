@@ -81,6 +81,7 @@ type ArtifactRefs struct {
 	AnalysisReadSet    string `json:"analysisReadSet,omitempty"`
 	ObservationClosure string `json:"observationClosure,omitempty"`
 	AnalyzerResult     string `json:"analyzerResult,omitempty"`
+	LiveView           string `json:"liveView,omitempty"`
 }
 
 // ActivePointer represents the atomic active pointer with CAS fields (Raw §10.11).
@@ -603,6 +604,9 @@ func validateOptionalArtifactIdentity(name string, data []byte, manifest *Genera
 	if identity.CurrentValidatedSnapshotID != "" && identity.CurrentValidatedSnapshotID != manifest.ValidatedAgainstSnapshotID {
 		return fmt.Errorf("active %s artifact validated snapshot identity does not match proof", name)
 	}
+	if identity.SnapshotID != "" && identity.SnapshotID != manifest.ComputedSnapshotID {
+		return fmt.Errorf("active %s artifact snapshot identity does not match proof", name)
+	}
 	return nil
 }
 
@@ -1034,6 +1038,7 @@ func (s *Storage) readValidatedActiveProofManifestUnlocked() (*GenerationProofMa
 	for name, ref := range map[string]string{
 		"semanticDelta": manifest.ArtifactRefs.SemanticDelta,
 		"evidenceIndex": manifest.ArtifactRefs.EvidenceIndex,
+		"liveView":      manifest.ArtifactRefs.LiveView,
 	} {
 		if ref == "" {
 			continue
@@ -1105,6 +1110,8 @@ type ValidatedActiveProofBundle struct {
 	ManifestBytes  []byte
 	Pointer        *ActivePointer
 	SemanticMap    []byte
+	Projection     []byte
+	LiveView       []byte
 	AnalyzerResult []byte
 	SemanticDelta  []byte
 }
@@ -1131,6 +1138,17 @@ func (s *Storage) ReadValidatedActiveProofBundle() (*ValidatedActiveProofBundle,
 	if err != nil {
 		return nil, fmt.Errorf("read validated analyzer-result artifact: %w", err)
 	}
+	projectionBytes, err := s.readArtifactCASUnlocked(manifest.ArtifactRefs.Projection)
+	if err != nil {
+		return nil, fmt.Errorf("read validated projection artifact: %w", err)
+	}
+	var liveViewBytes []byte
+	if manifest.ArtifactRefs.LiveView != "" {
+		liveViewBytes, err = s.readArtifactCASUnlocked(manifest.ArtifactRefs.LiveView)
+		if err != nil {
+			return nil, fmt.Errorf("read validated Live view artifact: %w", err)
+		}
+	}
 	var deltaBytes []byte
 	if manifest.ArtifactRefs.SemanticDelta != "" {
 		deltaBytes, err = s.readArtifactCASUnlocked(manifest.ArtifactRefs.SemanticDelta)
@@ -1143,6 +1161,8 @@ func (s *Storage) ReadValidatedActiveProofBundle() (*ValidatedActiveProofBundle,
 		ManifestBytes:  append([]byte(nil), manifestBytes...),
 		Pointer:        pointer,
 		SemanticMap:    append([]byte(nil), mapBytes...),
+		Projection:     append([]byte(nil), projectionBytes...),
+		LiveView:       append([]byte(nil), liveViewBytes...),
 		AnalyzerResult: append([]byte(nil), resultBytes...),
 		SemanticDelta:  append([]byte(nil), deltaBytes...),
 	}, nil

@@ -47,7 +47,7 @@ let input='';process.stdin.on('data',x=>input+=x);process.stdin.on('end',async()
  const f=JSON.parse(input);const browser=await chromium.launch({headless:true});
  try {
   const page=await browser.newPage();await page.goto(f.url);
-  await page.evaluate(x=>renderSemanticTaskView(x),f.payload);
+  await page.evaluate(x=>{renderSemanticTaskView(x);initLiveStream();},f.payload);
   await expect(page.locator('#approval-history-status')).toHaveText('No durable approval history');
   await expect(page.locator('#badge-connection')).toHaveText('SSE: connected');
   const endpoint=path=>{const u=new URL(path,f.url);u.search=new URL(f.url).search;return u.toString();};

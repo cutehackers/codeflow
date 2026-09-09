@@ -27,7 +27,7 @@ const (
 	protocolVersion = 1
 	adapterVersion  = "mock-1.0"
 	analyzerVersion = "mock-analyzer/1"
-	maxMessageBytes = int64(1 << 20)
+	maxMessageBytes = int64(128 << 20)
 )
 
 type crashState struct {

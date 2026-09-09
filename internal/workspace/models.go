@@ -93,6 +93,45 @@ type EditRequest struct {
 	Source          string
 }
 
+// ChangeKind identifies one producer-observed workspace operation.
+type ChangeKind string
+
+const (
+	ChangeCreate ChangeKind = "create"
+	ChangeUpsert ChangeKind = "upsert"
+	ChangeDelete ChangeKind = "delete"
+	ChangeRename ChangeKind = "rename"
+)
+
+// VersionedChange is one operation in the shared IDE, agent, and watcher
+// ingress. Content contains the complete post-change bytes for create,
+// upsert, and rename.
+type VersionedChange struct {
+	Kind            ChangeKind `json:"kind"`
+	Path            string     `json:"path"`
+	OldPath         string     `json:"oldPath,omitempty"`
+	Content         []byte     `json:"content,omitempty"`
+	ContentID       string     `json:"contentId,omitempty"`
+	DocumentVersion int        `json:"documentVersion"`
+}
+
+// VersionedChangeRequest preserves one producer batch through the shared
+// workspace ingress.
+type VersionedChangeRequest struct {
+	BatchID string            `json:"batchId"`
+	Source  string            `json:"source"`
+	Changes []VersionedChange `json:"changes"`
+}
+
+// VersionedChangeResult reports either the accepted immutable snapshot or
+// the existing revision identity for an idempotent duplicate.
+type VersionedChangeResult struct {
+	Batch     *ChangeBatch        `json:"batch,omitempty"`
+	Revisions []*DocumentRevision `json:"revisions"`
+	Snapshot  *WorkspaceSnapshot  `json:"snapshot"`
+	Duplicate bool                `json:"duplicate"`
+}
+
 // ActivityStatus represents the activity state of the workspace.
 type ActivityStatus struct {
 	SchemaID              string    `json:"schemaId,omitempty"`

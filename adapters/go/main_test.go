@@ -68,8 +68,7 @@ func TestProductionFramingRejectsOversizedBeforeAllocation(t *testing.T) {
 	if out, err := build.CombinedOutput(); err != nil {
 		t.Fatalf("build adapter: %v\n%s", err, out)
 	}
-	body := bytes.Repeat([]byte("x"), int(maxMessageBytes)+1)
-	frame := append([]byte(fmt.Sprintf("Content-Length: %d\r\n\r\n", len(body))), body...)
+	frame := []byte(fmt.Sprintf("Content-Length: %d\r\n\r\n", maxMessageBytes+1))
 	cmd := exec.Command(bin)
 	cmd.Stdin = bytes.NewReader(frame)
 	out, err := cmd.CombinedOutput()
@@ -106,6 +105,10 @@ func TestProductionDiagnosticRedactionPath(t *testing.T) {
 }
 
 func TestProductionResponseWriterEnforcesExactAndOversizedBounds(t *testing.T) {
+	const testMessageBytes = int64(1 << 20)
+	if maxMessageBytes != 128<<20 {
+		t.Fatalf("production maxMessageBytes = %d, want %d", maxMessageBytes, 128<<20)
+	}
 	base := map[string]any{
 		"jsonrpc": "2.0",
 		"id":      "bound-1",
@@ -115,37 +118,37 @@ func TestProductionResponseWriterEnforcesExactAndOversizedBounds(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	base["result"].(map[string]any)["padding"] = strings.Repeat("x", int(maxMessageBytes)-len(baseBody))
-	exactBody := boundedResponseBody(base, maxMessageBytes)
-	if int64(len(exactBody)) != maxMessageBytes {
-		t.Fatalf("exact-bound response length = %d, want %d", len(exactBody), maxMessageBytes)
+	base["result"].(map[string]any)["padding"] = strings.Repeat("x", int(testMessageBytes)-len(baseBody))
+	exactBody := boundedResponseBody(base, testMessageBytes)
+	if int64(len(exactBody)) != testMessageBytes {
+		t.Fatalf("exact-bound response length = %d, want %d", len(exactBody), testMessageBytes)
 	}
 
 	var output bytes.Buffer
 	s := &server{out: bufio.NewWriter(&output)}
-	s.write(base)
-	framedExact, err := readFrame(bufio.NewReader(bytes.NewReader(output.Bytes())), maxMessageBytes)
+	s.writeWithLimit(base, testMessageBytes)
+	framedExact, err := readFrame(bufio.NewReader(bytes.NewReader(output.Bytes())), testMessageBytes)
 	if err != nil {
 		t.Fatalf("read exact response frame: %v", err)
 	}
-	if int64(len(framedExact)) != maxMessageBytes {
-		t.Fatalf("written exact response length = %d, want %d", len(framedExact), maxMessageBytes)
+	if int64(len(framedExact)) != testMessageBytes {
+		t.Fatalf("written exact response length = %d, want %d", len(framedExact), testMessageBytes)
 	}
 
 	oversized := map[string]any{
 		"jsonrpc": "2.0",
 		"id":      "bound-2",
-		"result":  map[string]any{"padding": strings.Repeat("x", int(maxMessageBytes)+1)},
+		"result":  map[string]any{"padding": strings.Repeat("x", int(testMessageBytes)+1)},
 	}
 	output.Reset()
 	s = &server{out: bufio.NewWriter(&output)}
-	s.write(oversized)
-	framedFallback, err := readFrame(bufio.NewReader(bytes.NewReader(output.Bytes())), maxMessageBytes)
+	s.writeWithLimit(oversized, testMessageBytes)
+	framedFallback, err := readFrame(bufio.NewReader(bytes.NewReader(output.Bytes())), testMessageBytes)
 	if err != nil {
 		t.Fatalf("read oversized fallback frame: %v", err)
 	}
-	if int64(len(framedFallback)) > maxMessageBytes {
-		t.Fatalf("oversized fallback length = %d, exceeds %d", len(framedFallback), maxMessageBytes)
+	if int64(len(framedFallback)) > testMessageBytes {
+		t.Fatalf("oversized fallback length = %d, exceeds %d", len(framedFallback), testMessageBytes)
 	}
 	var decoded map[string]any
 	if err := json.Unmarshal(framedFallback, &decoded); err != nil {
@@ -174,12 +177,12 @@ func TestProductionResponseWriterEnforcesExactAndOversizedBounds(t *testing.T) {
 	if minimalDecoded["id"] != "" || minimalDecoded["error"] == nil {
 		t.Fatalf("huge-id fallback = %s, want empty-id typed error", minimalFallback)
 	}
-	productionHugeID := strings.Repeat("i", int(maxMessageBytes)-64)
+	productionHugeID := strings.Repeat("i", int(testMessageBytes)-64)
 	productionFallback := boundedResponseBody(map[string]any{
 		"jsonrpc": "2.0", "id": productionHugeID,
 		"result": map[string]any{"padding": strings.Repeat("x", 256)},
-	}, maxMessageBytes)
-	if productionFallback == nil || int64(len(productionFallback)) > maxMessageBytes {
+	}, testMessageBytes)
+	if productionFallback == nil || int64(len(productionFallback)) > testMessageBytes {
 		t.Fatalf("production huge-id fallback = %d bytes, want bounded response", len(productionFallback))
 	}
 	if tooSmall := boundedResponseBody(map[string]any{"id": "x", "result": strings.Repeat("x", 256)}, 64); tooSmall != nil {
@@ -229,7 +232,20 @@ func v2TrackerResult(t *testing.T, id, operation string, files map[string]string
 	if err != nil {
 		t.Fatalf("analyze %s: %v", operation, err)
 	}
-	return analyzerResultV2(id, operation, params, legacy)
+	result := analyzerResultV2(id, operation, params, legacy)
+	closure := result["causalObservationClosure"].(map[string]any)
+	got := closure["closureDigest"]
+	unsigned := make(map[string]any, len(closure))
+	for key, value := range closure {
+		if key != "closureDigest" {
+			unsigned[key] = value
+		}
+	}
+	encoded, err := json.Marshal(map[string]any{"readSet": result["analysisReadSet"], "closure": unsigned})
+	if err != nil || got != digest(encoded) {
+		t.Fatalf("v2 closure must bind its read set and observations: %v", got)
+	}
+	return result
 }
 
 func mapList(value any) []map[string]any {
@@ -318,11 +334,11 @@ func TestV2ObservationTrackerUsesActualOperationReads(t *testing.T) {
 	if got := mapList(sliceSet["documents"]); len(got) != 2 {
 		t.Fatalf("slice read documents = %v, want go.mod and entry source", got)
 	}
-	if len(mapList(sliceSet["membershipObservations"])) != 0 || len(mapList(sliceSet["dependencyFrontiers"])) != 1 {
+	if len(mapList(sliceSet["membershipObservations"])) != 1 || len(mapList(sliceSet["dependencyFrontiers"])) != 1 {
 		t.Fatalf("slice observations do not match actual reads: %v", sliceSet)
 	}
-	if v2Closure(slice)["closureStatus"] != "open" {
-		t.Fatalf("slice falsely closed without membership measurement: %v", v2Closure(slice))
+	if v2Closure(slice)["closureStatus"] != "closed" {
+		t.Fatalf("slice did not close after entry membership measurement: %v", v2Closure(slice))
 	}
 
 	unsupported := v2TrackerResult(t, "unsupported", "harvest_candidates", harvestFiles, []string{"runtime_observation"}, nil)

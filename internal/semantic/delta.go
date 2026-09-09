@@ -111,7 +111,8 @@ func ComputeSemanticDelta(comparisonID string, baselineMap, currentMap *Semantic
 		}
 		matchedBaseline[previous.StepID] = true
 		if changedBehavior(previous, current) {
-			delta.Changes = append(delta.Changes, DeltaChange{DeltaID: deterministicDeltaID("changed", current.StepID), Kind: "changed_rule", TargetStepID: current.StepID, Summary: fmt.Sprintf("규칙 또는 행동 변경됨: %s", current.Name), RequirementRefs: append([]string(nil), current.Rules...), StructuralChanges: []string{"behavioral fields changed"}, EvidenceRefs: append([]string(nil), current.EvidenceRefs...), EpistemicStatus: "observed", ValidationStatus: "verified", FromStepID: previous.StepID, ToStepID: current.StepID, MoveStatus: moveStatus(previous, current)})
+			facets := behavioralChangeFacets(previous, current)
+			delta.Changes = append(delta.Changes, DeltaChange{DeltaID: deterministicDeltaID("changed", current.StepID), Kind: "changed_rule", TargetStepID: current.StepID, Summary: fmt.Sprintf("%s: %s", behavioralChangeSummary(facets), current.Name), RequirementRefs: append([]string(nil), current.Rules...), StructuralChanges: facets, EvidenceRefs: append([]string(nil), current.EvidenceRefs...), EpistemicStatus: "observed", ValidationStatus: "verified", FromStepID: previous.StepID, ToStepID: current.StepID, MoveStatus: moveStatus(previous, current)})
 			delta.StructuralSummary.ChangedStepsCount++
 			continue
 		}
@@ -131,6 +132,10 @@ func ComputeSemanticDelta(comparisonID string, baselineMap, currentMap *Semantic
 		}
 		delta.Changes = append(delta.Changes, DeltaChange{DeltaID: deterministicDeltaID("removed", previous.StepID), Kind: "removed_behavior", TargetStepID: previous.StepID, Summary: fmt.Sprintf("행동 제거됨: %s (%s)", previous.Name, previous.TechnicalName), RequirementRefs: append([]string(nil), previous.Rules...), StructuralChanges: []string{"structural target removed"}, EvidenceRefs: append([]string(nil), previous.EvidenceRefs...), EpistemicStatus: "observed", ValidationStatus: "verified", FromStepID: previous.StepID, MoveStatus: "not_applicable"})
 		delta.StructuralSummary.RemovedStepsCount++
+	}
+	for _, relation := range callRelationChanges(baselineMap.Edges, currentMap.Edges) {
+		delta.Changes = append(delta.Changes, relation)
+		delta.StructuralSummary.CollapsedStructuralCount++
 	}
 	return delta, nil
 }
@@ -196,6 +201,105 @@ func stepStructuralKey(step SemanticStep) string {
 
 func changedBehavior(previous, current SemanticStep) bool {
 	return !reflect.DeepEqual(previous.Rules, current.Rules) || !reflect.DeepEqual(previous.Branch, current.Branch) || !reflect.DeepEqual(previous.SideEffect, current.SideEffect) || !reflect.DeepEqual(previous.StateDelta, current.StateDelta) || previous.Kind != current.Kind
+}
+
+func behavioralChangeFacets(previous, current SemanticStep) []string {
+	facets := make([]string, 0, 4)
+	if previous.Kind != current.Kind || !reflect.DeepEqual(previous.Rules, current.Rules) {
+		facets = append(facets, "behavior changed")
+	}
+	if !reflect.DeepEqual(previous.Branch, current.Branch) {
+		facets = append(facets, "branch changed")
+	}
+	if !reflect.DeepEqual(previous.StateDelta, current.StateDelta) {
+		facets = append(facets, "state changed")
+	}
+	if !reflect.DeepEqual(previous.SideEffect, current.SideEffect) {
+		facets = append(facets, "external effect changed")
+	}
+	return facets
+}
+
+func behavioralChangeSummary(facets []string) string {
+	labels := make([]string, 0, len(facets))
+	for _, facet := range facets {
+		switch facet {
+		case "behavior changed":
+			labels = append(labels, "행동")
+		case "branch changed":
+			labels = append(labels, "분기")
+		case "state changed":
+			labels = append(labels, "상태")
+		case "external effect changed":
+			labels = append(labels, "외부 효과")
+		}
+	}
+	return strings.Join(labels, "·") + " 변경됨"
+}
+
+func callRelationChanges(baseline, current []SemanticEdge) []DeltaChange {
+	baselineByIdentity := make(map[string]SemanticEdge, len(baseline))
+	currentByIdentity := make(map[string]SemanticEdge, len(current))
+	identities := make(map[string]struct{}, len(baseline)+len(current))
+	for _, edge := range baseline {
+		identity := callRelationIdentity(edge)
+		baselineByIdentity[identity] = edge
+		identities[identity] = struct{}{}
+	}
+	for _, edge := range current {
+		identity := callRelationIdentity(edge)
+		currentByIdentity[identity] = edge
+		identities[identity] = struct{}{}
+	}
+	ordered := make([]string, 0, len(identities))
+	for identity := range identities {
+		ordered = append(ordered, identity)
+	}
+	sort.Strings(ordered)
+
+	changes := make([]DeltaChange, 0)
+	for _, identity := range ordered {
+		previous, hadPrevious := baselineByIdentity[identity]
+		next, hasNext := currentByIdentity[identity]
+		if hadPrevious && hasNext && reflect.DeepEqual(previous, next) {
+			continue
+		}
+		target := next.FromStepID
+		if target == "" {
+			target = previous.FromStepID
+		}
+		change := "changed"
+		summary := "호출 관계 변경됨"
+		fromStepID, toStepID := previous.FromStepID, next.ToStepID
+		if !hadPrevious {
+			change, summary = "added", "호출 관계 추가됨"
+			fromStepID = ""
+		} else if !hasNext {
+			change, summary = "removed", "호출 관계 제거됨"
+			toStepID = ""
+		}
+		changes = append(changes, DeltaChange{
+			DeltaID:           deterministicDeltaID("relation-"+change, identity),
+			Kind:              "structural_only",
+			TargetStepID:      target,
+			Summary:           summary,
+			StructuralChanges: []string{"call relation " + change},
+			EpistemicStatus:   "observed",
+			ValidationStatus:  "verified",
+			FromStepID:        fromStepID,
+			ToStepID:          toStepID,
+			MoveStatus:        "not_applicable",
+		})
+	}
+	return changes
+}
+
+func callRelationIdentity(edge SemanticEdge) string {
+	target := edge.ToStepID
+	if target == "" {
+		target = edge.ToSymbolPath
+	}
+	return edge.FromStepID + "\x00" + target
 }
 
 func structuralChanged(previous, current SemanticStep) bool {

@@ -239,3 +239,16 @@ func TestSettlementGate_Evaluation(t *testing.T) {
 		t.Errorf("expected blocking obligation ob-2, got %v", settleQ3Fail.BlockingObligationRefs)
 	}
 }
+
+func TestPendingSettlementPreservesBlockingObligations(t *testing.T) {
+	for _, stage := range []string{"Q1", "Q2"} {
+		m := createTestMapIR(stage, []semantic.CriticalObligation{
+			{ObligationID: "missing-result", Kind: "result", Required: true, Status: "unknown"},
+			{ObligationID: "entry", Kind: "entry", Required: true, Status: "verified"},
+		}, 1, 0)
+		got := semantic.NewPublicationGate().EvaluateSettlement(m)
+		if got.Gate != "pending" || len(got.BlockingObligationRefs) != 1 || got.BlockingObligationRefs[0] != "missing-result" {
+			t.Fatalf("%s settlement lost the obligations required to reread its publication: %+v", stage, got)
+		}
+	}
+}

@@ -5,9 +5,11 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/url"
 	"strings"
 
 	"codeflow/internal/contractharness"
+	"codeflow/internal/flowview"
 	"codeflow/internal/protocol"
 	"codeflow/internal/semantic"
 )
@@ -96,6 +98,7 @@ func (s *Server) handleQueryTaskView(ctx context.Context, args map[string]any) (
 	if err := json.Unmarshal(queryBytes, &query); err != nil {
 		return nil, coreFlowError(semantic.ErrCodeMissingPrecondition, fmt.Sprintf("unmarshal query: %v", err), nil, false)
 	}
+	var liveReviewURL func(request, entrySymbol string) (string, error)
 	if query.Mode == "feature" && query.Feature != nil {
 		coordinator, err := s.getLiveCoordinator(targetRoot)
 		if err != nil {
@@ -103,6 +106,19 @@ func (s *Server) handleQueryTaskView(ctx context.Context, args map[string]any) (
 		}
 		if err := coordinator.RememberTaskQuery(&query, query.Feature.Request); err != nil {
 			return nil, coreFlowError(semantic.ErrCodeMissingPrecondition, err.Error(), nil, false)
+		}
+		liveReviewURL = func(request, entrySymbol string) (string, error) {
+			viewURL, err := url.Parse(coordinator.URL())
+			if err != nil {
+				return "", fmt.Errorf("build FlowView URL: %w", err)
+			}
+			params := viewURL.Query()
+			viewURL.Path = "/live"
+			params.Set("live", "1")
+			params.Set("request", request)
+			params.Set("entrySymbol", entrySymbol)
+			viewURL.RawQuery = params.Encode()
+			return viewURL.String(), nil
 		}
 	}
 
@@ -313,7 +329,7 @@ func (s *Server) handleQueryTaskView(ctx context.Context, args map[string]any) (
 		evidenceRecords = []semantic.EvidenceRecord{}
 	}
 
-	return map[string]any{
+	response := map[string]any{
 		"candidateAnswer": map[string]string{
 			"requested":  mapIR.Summary.Requested,
 			"candidate":  mapIR.Summary.Current,
@@ -327,7 +343,24 @@ func (s *Server) handleQueryTaskView(ctx context.Context, args map[string]any) (
 		"projection":          proj,
 		"evidence":            evidenceRecords,
 		"unknowns":            mapIR.Unknowns,
-	}, nil
+	}
+	if liveReviewURL != nil {
+		viewURL, err := liveReviewURL(reqText, resolved.EntrySymbolPath)
+		if err != nil {
+			return nil, coreFlowError("live_coordinator_error", err.Error(), nil, false)
+		}
+		// A feature query establishes the Live Semantic Map before edits arrive.
+		// The URL restores that exact request in FlowView, so opening it does not
+		// require a user to repeat the query before live updates are visible.
+		response["flowView"] = map[string]any{
+			"status":   "ready",
+			"mode":     "live_semantic_map",
+			"autoOpen": true,
+			"url":      viewURL,
+			"template": flowview.LiveSemanticTemplate,
+		}
+	}
+	return response, nil
 }
 
 // onboardingQueryObject normalizes JSON-like inputs used by executeTool.  MCP

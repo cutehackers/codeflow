@@ -1,6 +1,6 @@
 ---
 name: codeflow
-description: Use CodeFlow MCP for verified core-flow publication and FlowView, edit-driven live semantic current-or-gap tracking, and evidence-bound semantic review, impact, failure, approval, onboarding, or release evaluation.
+description: Use CodeFlow MCP for verified core-flow publication and FlowView, Live Semantic View/Map creation with the fixed template, edit-driven current-or-gap tracking, and evidence-bound semantic review, impact, failure, approval, onboarding, or release evaluation.
 ---
 
 # CodeFlow MCP Operating Contract
@@ -9,7 +9,7 @@ Operate the installed CodeFlow MCP using the smallest workflow that satisfies th
 
 ## Preconditions
 
-- This skill is explicit-only. Use it only when the user invokes `$codeflow`; do not activate CodeFlow MCP for an untagged request.
+- Use this skill when the user invokes `$codeflow` or clearly requests CodeFlow analysis, live semantic tracking, semantic review, or FlowView.
 - Use the project root as `target`, not a feature subdirectory. Project identity and adapter detection depend on root files such as `pubspec.yaml` or `package.json`.
 - If CodeFlow MCP or its language adapter is unavailable, report that installation or adapter resolution is required. Do not claim live behavior from a CLI-only substitute.
 - Keep every related live operation on the same MCP server and exact target. `open_review` then points to that coordinator's FlowView.
@@ -17,7 +17,7 @@ Operate the installed CodeFlow MCP using the smallest workflow that satisfies th
 ## Route the User Request
 
 - When the user asks how an existing feature works or wants to see its code path, read [references/static-flowview.md](references/static-flowview.md).
-- When the user wants the explanation to follow ongoing code edits or asks whether the latest result is current, read [references/live-semantic-map.md](references/live-semantic-map.md).
+- When the user requests a Live Semantic View or Live Semantic Map, wants the explanation to follow ongoing code edits, or asks whether the latest result is current, read [references/live-semantic-map.md](references/live-semantic-map.md).
 - When the user asks what changed, what is affected, why something failed, whether requirements are met, whether an explanation should be approved, how an unfamiliar project is organized, or whether a release is ready, read [references/semantic-operations.md](references/semantic-operations.md).
 
 Read only the references required by the request. Do not start the live edit loop for a static flow request or load specialized semantic operations for ordinary flow visualization.
@@ -34,4 +34,4 @@ Read only the references required by the request. Do not start the live edit loo
 
 ## Response Contract
 
-Lead with the business behavior. Then state the relevant code path or semantic change, its evidence/freshness, and any unknown or blocking gap. Provide a FlowView URL only when the user requested a visual review.
+Lead with the business behavior. Then state the relevant code path or semantic change, its evidence/freshness, and any unknown or blocking gap. For a Live Semantic Map request, open or present the `flowView.url` returned by `query_task_view` immediately. The returned URL restores the exact request and resolved entry symbol in the same FlowView coordinator.

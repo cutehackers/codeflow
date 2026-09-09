@@ -91,7 +91,7 @@ layers:
 
 ## 1. 요청에 맞는 작업 경로 선택
 
-CodeFlow skill은 자동 호출되지 않는다. 사용자가 `$codeflow`를 명시했을 때 사용하며, 요청에 필요한 경로만 선택한다.
+사용자가 `$codeflow`를 명시하거나 CodeFlow 분석, Live Semantic 추적, semantic review 또는 FlowView를 명확히 요청했을 때 CodeFlow skill을 사용한다. 요청에 필요한 경로만 선택한다.
 
 ### 1.1 기존 기능의 정적 Core Flow
 
@@ -312,7 +312,7 @@ codeflow view <프로젝트-루트>
 ## 6. 에이전트 최소 체크리스트
 
 ```text
-[ ] 사용자가 $codeflow를 명시했는가?
+[ ] 사용자가 $codeflow를 명시했거나 CodeFlow 기능을 명확히 요청했는가?
 [ ] target을 feature 폴더가 아닌 프로젝트 루트로 지정했는가?
 [ ] 요청에 맞는 정적, Live 또는 semantic operation 경로 하나를 선택했는가?
 [ ] 정확한 flow, entry symbol, generation, basis와 snapshot 식별자를 보존했는가?

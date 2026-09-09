@@ -15,7 +15,7 @@
     "taskScope": { "type": "array", "maxItems": 1024, "items": { "type": "string", "minLength": 1, "maxLength": 1024 } },
     "requiredObservations": { "type": "array", "maxItems": 64, "items": { "type": "string", "minLength": 1, "maxLength": 128 } },
     "capabilityRequest": { "type": "array", "maxItems": 128, "items": { "type": "string", "minLength": 1, "maxLength": 128 } },
-    "maxMessageBytes": { "type": "integer", "minimum": 1024, "maximum": 16777216 }
+    "maxMessageBytes": { "type": "integer", "minimum": 1024, "maximum": 134217728 }
   },
   "$defs": {
     "operationPayload": {

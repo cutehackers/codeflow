@@ -105,6 +105,7 @@ test('lost HTTP response keeps the frozen command for exact retry while SSE refr
 
 test('a still-open browser reconnects after server restart and refreshes an external approval decision', async ({ page, approvalFixture, request }) => {
   await approvalFixture.open(page);
+  await page.evaluate(() => eval('initLiveStream()'));
   const firstResponse = page.waitForResponse(response => response.url().includes('/api/semantic/approve') && response.request().method() === 'POST');
   await page.locator('#btn-semantic-approve').click();
   const initial = await (await firstResponse).json();

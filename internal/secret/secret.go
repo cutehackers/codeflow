@@ -52,6 +52,19 @@ func Redact(input string) RedactionResult {
 	}
 }
 
+// RedactSource scans complete source before any range clipping, preserving
+// newline positions so snapshot line numbers stay valid after redaction.
+func RedactSource(input string) RedactionResult {
+	count := 0
+	for _, pattern := range []*regexp.Regexp{broadQuotedSecretPattern, quotedSecretPattern, secretPattern} {
+		input = pattern.ReplaceAllStringFunc(input, func(match string) string {
+			count++
+			return "***REDACTED***" + strings.Repeat("\n", strings.Count(match, "\n"))
+		})
+	}
+	return RedactionResult{Text: input, Count: count}
+}
+
 // RedactJSON parses arbitrary JSON, recursively sanitizes all string fields,
 // and re-encodes the clean JSON.
 func RedactJSON(raw []byte) ([]byte, int, error) {

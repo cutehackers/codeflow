@@ -111,11 +111,7 @@ function run() {
 
   // 8. Production framed entrypoint rejects an oversized body without
   // retaining an unbounded input buffer.
-  const oversized = Buffer.alloc(1024 * 1024 + 1, 0x78);
-  const frame = Buffer.concat([
-    Buffer.from(`Content-Length: ${oversized.length}\r\n\r\n`, 'ascii'),
-    oversized,
-  ]);
+  const frame = Buffer.from(`Content-Length: ${CAPABILITIES.maxMessageBytes + 1}\r\n\r\n`, 'ascii');
   const child = childProcess.spawnSync(process.execPath, [
     path.resolve(__dirname, '../bin/codeflow_ts_adapter.js'),
   ], { input: frame, encoding: 'utf8', maxBuffer: 2 * 1024 * 1024 });
@@ -124,7 +120,8 @@ function run() {
 
   // 8b. The production response writer accepts the exact negotiated bound
   // and converts an oversized response into one bounded typed error.
-  const responseLimit = CAPABILITIES.maxMessageBytes;
+  assert.strictEqual(CAPABILITIES.maxMessageBytes, 128 * 1024 * 1024);
+  const responseLimit = 1024 * 1024;
   const exactResponse = {
     jsonrpc: '2.0', id: 'bound-1', result: { padding: '' },
   };
@@ -162,6 +159,10 @@ function run() {
   }, {}, ['negative_lookup', 'membership', 'dependency_frontier']);
   assert.strictEqual(v2Detect.error, undefined);
   assert.strictEqual(v2Detect.result.requestId, 'v2-detect');
+  const { closureDigest, ...closureWithoutDigest } = v2Detect.result.causalObservationClosure;
+  assert.strictEqual(closureDigest, crypto.createHash('sha256').update(JSON.stringify({
+    readSet: v2Detect.result.analysisReadSet, closure: closureWithoutDigest,
+  })).digest('hex'));
   assert.deepStrictEqual(
     v2Detect.result.analysisReadSet.documents.map((doc) => doc.path),
     ['package.json'],
@@ -225,8 +226,8 @@ function run() {
     slice.result.analysisReadSet.dependencyFrontiers.map((item) => item.path),
     ['tsconfig.json'],
   );
-  assert.strictEqual(slice.result.causalObservationClosure.closureStatus, 'open');
-  assert(slice.result.causalObservationClosure.incompleteReasons.some((reason) => reason.includes('membership')));
+  assert.strictEqual(slice.result.analysisReadSet.membershipObservations.length, 1);
+  assert.strictEqual(slice.result.causalObservationClosure.closureStatus, 'closed');
 
   const unsupported = rpcAnalysis('v2-unsupported', 'harvest_candidates', harvestFiles, {}, ['runtime_observation']);
   assert.strictEqual(unsupported.result.causalObservationClosure.closureStatus, 'open');

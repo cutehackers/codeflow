@@ -25,11 +25,16 @@ import (
 // Transport defaults.
 const (
 	DefaultMaxMessageSizeBytes = int64(1 << 20)
-	DefaultCallTimeout         = 30 * time.Second
-	DefaultMaxInFlight         = 64
-	defaultIdleProbeTimeout    = 2 * time.Second
-	stderrTailBytes            = 8 << 10
-	maxFrameHeaderBytes        = 8 << 10
+	// DefaultAdapterMessageSizeBytes is deliberately separate from the generic
+	// protocol and model-host bounds. Analyzer requests currently carry complete
+	// workspace snapshots, while model-host evidence packs remain bounded by
+	// their own schemas.
+	DefaultAdapterMessageSizeBytes = int64(128 << 20)
+	DefaultCallTimeout             = 30 * time.Second
+	DefaultMaxInFlight             = 64
+	defaultIdleProbeTimeout        = 2 * time.Second
+	stderrTailBytes                = 8 << 10
+	maxFrameHeaderBytes            = 8 << 10
 )
 
 var errFrameTooLarge = errors.New("content-length frame exceeds configured bound")
@@ -58,7 +63,7 @@ type Config struct {
 
 func (c Config) withDefaults() Config {
 	if c.MaxMessageSizeBytes <= 0 {
-		c.MaxMessageSizeBytes = DefaultMaxMessageSizeBytes
+		c.MaxMessageSizeBytes = DefaultAdapterMessageSizeBytes
 	}
 	if c.DefaultTimeout <= 0 {
 		c.DefaultTimeout = DefaultCallTimeout
@@ -1080,7 +1085,7 @@ func analysisContext(params any) (string, int64) {
 func (c *Conn) buildRequest(op string, params any) (*frame, error) {
 	maxMessageBytes := c.cfg.MaxMessageSizeBytes
 	if maxMessageBytes <= 0 {
-		maxMessageBytes = DefaultMaxMessageSizeBytes
+		maxMessageBytes = DefaultAdapterMessageSizeBytes
 	}
 	id := c.ids.next()
 	var raw json.RawMessage

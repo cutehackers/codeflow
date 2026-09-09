@@ -18,7 +18,7 @@ const String trackerReadSetSchemaId =
 const String trackerClosureSchemaId =
     'https://codeflow.local/schemas/causal-observation-closure.schema.json';
 const String trackerAdapterVersion = '0.4.0';
-const String trackerAnalyzerVersion = 'dart-structural/0.4.0';
+const String trackerAnalyzerVersion = 'dart-ast/0.4.0';
 const int trackerProtocolVersion = 1;
 
 /// Tracks only successful reads, failed lookups, and enumerations performed by

@@ -52,6 +52,11 @@ function sliceFlow(params) {
   const overlay = tracker.overlay || overlayFor(params);
 
   const [relPath, initialSymbol] = entrySymbolPath.split('#');
+  // Resolve the entry against the captured source set and retain the membership
+  // observation used by that resolution for edit-driven publication.
+  if (!tracker.enumerateSourceFiles().includes(relPath)) {
+    throw new Error('entry source file is outside the captured source set: ' + relPath);
+  }
   const fileCache = new Map();
   const scanCache = new Map();
   const tsConfig = loadTsConfig(repoRoot, overlay, params.__analysisTracker || tracker);

@@ -111,7 +111,8 @@ func TestRFLSCR2VS03_EvidenceRegistry(t *testing.T) {
 
 	expectedCriteria := []string{
 		"VS03-A1", "VS03-A2", "VS03-A3", "VS03-A4", "VS03-A5", "VS03-A6", "VS03-A7", "VS03-A8",
-		"VS03-A9", "VS03-A10", "VS03-A11", "VS03-A12", "VS03-A13", "VS03-A14", "VS03-A15",
+		"VS03-A9", "VS03-A10", "VS03-A11", "VS03-A12", "VS03-A13", "VS03-A14", "VS03-A15", "VS03-A16",
+		"VS03-A17", "VS03-A18", "VS03-A19", "VS03-A20",
 	}
 	runners := map[string]func(*testing.T) rflscvs03.Evidence{
 		"VS03-A1": rflscvs03.RunA01, "VS03-A2": rflscvs03.RunA02, "VS03-A3": rflscvs03.RunA03,
@@ -119,6 +120,8 @@ func TestRFLSCR2VS03_EvidenceRegistry(t *testing.T) {
 		"VS03-A7": rflscvs03.RunA07, "VS03-A8": rflscvs03.RunA08, "VS03-A9": rflscvs03.RunA09,
 		"VS03-A10": rflscvs03.RunA10, "VS03-A11": rflscvs03.RunA11, "VS03-A12": rflscvs03.RunA12,
 		"VS03-A13": rflscvs03.RunA13, "VS03-A14": rflscvs03.RunA14, "VS03-A15": rflscvs03.RunA15,
+		"VS03-A16": rflscvs03.RunA16, "VS03-A17": rflscvs03.RunA17, "VS03-A18": rflscvs03.RunA18,
+		"VS03-A19": rflscvs03.RunA19, "VS03-A20": rflscvs03.RunA20,
 	}
 	if len(runners) != len(expectedCriteria) {
 		t.Fatalf("VS-03 evidence runner count=%d want=%d", len(runners), len(expectedCriteria))
@@ -186,6 +189,9 @@ func expectedVS03ImplementationIDs() map[string]string {
 		"VS03-A11": "codeflow/internal/rflscvs03.TestRFLSCR2VS03_A11", "VS03-A12": "codeflow/internal/rflscvs03.TestRFLSCR2VS03_A12",
 		"VS03-A13": "codeflow/internal/rflscvs03.TestRFLSCR2VS03_A13", "VS03-A14": "codeflow/internal/rflscvs03.TestRFLSCR2VS03_A14",
 		"VS03-A15": "codeflow/internal/rflscvs03.TestRFLSCR2VS03_A15",
+		"VS03-A16": "codeflow/internal/rflscvs03.TestRFLSCR2VS03_A16", "VS03-A17": "codeflow/internal/rflscvs03.TestRFLSCR2VS03_A17",
+		"VS03-A18": "codeflow/internal/rflscvs03.TestRFLSCR2VS03_A18", "VS03-A19": "codeflow/internal/rflscvs03.TestRFLSCR2VS03_A19",
+		"VS03-A20": "codeflow/internal/rflscvs03.TestRFLSCR2VS03_A20",
 	}
 }
 

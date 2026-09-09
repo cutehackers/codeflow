@@ -364,6 +364,7 @@ type Capabilities struct {
 	BatchAck         bool  `json:"batchAck"`
 	SnapshotOverlay  bool  `json:"snapshotOverlay"`
 	AnalysisMetadata bool  `json:"analysisMetadata"`
+	FlowContext      bool  `json:"flowContext,omitempty"`
 	MaxMessageBytes  int64 `json:"maxMessageBytes"`
 	MaxInFlight      int   `json:"maxInFlight"`
 }

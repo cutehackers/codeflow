@@ -347,6 +347,18 @@ func TestLivePipelinePublishesSemanticDeltaForCommittedBatch(t *testing.T) {
 		t.Fatalf("committed batch identity is not bound to publication: manifest epoch=%d batch=%+v", manifest.WorkspaceEpoch, batch)
 	}
 
+	liveURL := fmt.Sprintf("http://127.0.0.1/api/live/generation?generationId=%s&computedBasisId=%s&snapshotId=%s&token=%s", pointer.GenerationID, pointer.ComputedBasisID, pointer.ValidatedAgainstSnapshotID, srv.AuthToken())
+	liveRecorder := httptest.NewRecorder()
+	srv.httpServer.Handler.ServeHTTP(liveRecorder, httptest.NewRequest(http.MethodGet, liveURL, nil))
+	if liveRecorder.Code != http.StatusOK || !strings.Contains(liveRecorder.Body.String(), `"semanticDelta"`) || !strings.Contains(liveRecorder.Body.String(), `"proofManifest"`) {
+		t.Fatalf("generation-bound Live view did not return persisted proof artifacts: status=%d body=%s", liveRecorder.Code, liveRecorder.Body.String())
+	}
+	mismatchRecorder := httptest.NewRecorder()
+	srv.httpServer.Handler.ServeHTTP(mismatchRecorder, httptest.NewRequest(http.MethodGet, strings.Replace(liveURL, "snapshotId="+pointer.ValidatedAgainstSnapshotID, "snapshotId=snapshot-mismatch", 1), nil))
+	if mismatchRecorder.Code != http.StatusConflict || !strings.Contains(mismatchRecorder.Body.String(), "generation_unavailable") {
+		t.Fatalf("cross-proof Live view request did not fail closed: status=%d body=%s", mismatchRecorder.Code, mismatchRecorder.Body.String())
+	}
+
 	impactURL := fmt.Sprintf("http://127.0.0.1/api/task/impact?changeBatchId=%s&computedBasisId=%s&generationId=%s&freshness=current&maxDepth=3&maxNodes=50&relationKinds=calls&token=%s", batch.BatchID, pointer.ComputedBasisID, pointer.GenerationID, srv.AuthToken())
 	recorder := httptest.NewRecorder()
 	srv.httpServer.Handler.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, impactURL, nil))

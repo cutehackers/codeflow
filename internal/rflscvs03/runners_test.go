@@ -17,3 +17,8 @@ func TestRFLSCR2VS03_A12(t *testing.T) { RunA12(t) }
 func TestRFLSCR2VS03_A13(t *testing.T) { RunA13(t) }
 func TestRFLSCR2VS03_A14(t *testing.T) { RunA14(t) }
 func TestRFLSCR2VS03_A15(t *testing.T) { RunA15(t) }
+func TestRFLSCR2VS03_A16(t *testing.T) { RunA16(t) }
+func TestRFLSCR2VS03_A17(t *testing.T) { RunA17(t) }
+func TestRFLSCR2VS03_A18(t *testing.T) { RunA18(t) }
+func TestRFLSCR2VS03_A19(t *testing.T) { RunA19(t) }
+func TestRFLSCR2VS03_A20(t *testing.T) { RunA20(t) }

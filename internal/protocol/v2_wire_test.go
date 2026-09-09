@@ -2,6 +2,7 @@ package protocol
 
 import (
 	"encoding/json"
+	"strings"
 	"testing"
 
 	"codeflow/internal/contractharness"
@@ -17,7 +18,7 @@ func TestBuildAnalysisRequestUsesCanonicalV2Envelope(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	c := &Conn{cfg: Config{MaxMessageSizeBytes: DefaultMaxMessageSizeBytes}}
+	c := &Conn{cfg: Config{MaxMessageSizeBytes: DefaultAdapterMessageSizeBytes}}
 	fr, err := c.buildRequest(OpDetect, snapshot.Params())
 	if err != nil {
 		t.Fatal(err)
@@ -43,6 +44,20 @@ func TestBuildAnalysisRequestUsesCanonicalV2Envelope(t *testing.T) {
 	}
 	if _, ok := params["snapshot"].(map[string]any); !ok {
 		t.Fatalf("snapshot is not an object: %T", params["snapshot"])
+	}
+}
+
+func TestBuildAnalysisRequestAcceptsTwelveMiBSnapshot(t *testing.T) {
+	snapshot, err := NewSnapshot(7, map[string]string{
+		"go.mod":       "module example.test\n",
+		"src/large.go": strings.Repeat("x", 12<<20),
+	}, "basis-large-wire")
+	if err != nil {
+		t.Fatal(err)
+	}
+	c := &Conn{cfg: Config{MaxMessageSizeBytes: DefaultAdapterMessageSizeBytes}}
+	if _, err := c.buildRequest(OpDetect, snapshot.Params()); err != nil {
+		t.Fatalf("12 MiB analysis request was rejected: %v", err)
 	}
 }
 

@@ -10,8 +10,10 @@ library;
 
 import 'dart:convert';
 import 'dart:io';
+import 'package:analyzer/dart/analysis/utilities.dart';
 
 import 'analysis_tracker.dart';
+import 'flow_context.dart';
 import 'humanize.dart';
 import 'scanner.dart';
 import 'sha256.dart';
@@ -123,6 +125,7 @@ class _SliceStep {
     this.stateBefore,
     this.stateAfter,
     this.effectTarget,
+    this.flowContext,
   });
 
   int ordinal;
@@ -134,6 +137,7 @@ class _SliceStep {
   final String? stateBefore;
   final String? stateAfter;
   final String? effectTarget;
+  final Map<String, Object?>? flowContext;
 
   Map<String, Object?> toJson() {
     final map = <String, Object?>{
@@ -147,6 +151,7 @@ class _SliceStep {
     if (stateBefore != null) map['stateBefore'] = stateBefore;
     if (stateAfter != null) map['stateAfter'] = stateAfter;
     if (effectTarget != null) map['effectTarget'] = effectTarget;
+    if (flowContext != null) map['flowContext'] = flowContext;
     return map;
   }
 }
@@ -554,7 +559,11 @@ Map<String, Object?> sliceCandidate({
   Map<String, Object?> opts = const {},
   Map<String, String>? contentOverlay,
   AnalysisObservationTracker? tracker,
+  String? snapshotId,
 }) {
+  final effectiveSnapshotId = snapshotId ??
+      (opts['snapshotId'] as String?) ??
+      ((opts['snapshot'] as Map?)?['snapshotId'] as String?);
   final posixRoot = _toPosix(repoRoot);
   final pubspecFile = File('$posixRoot/pubspec.yaml');
   var packageName = '';
@@ -583,6 +592,11 @@ Map<String, Object?> sliceCandidate({
   final initialSymbol = entrySymbolPath.substring(hashIndex + 1);
   // Repo-relative path as published (may already carry packages/ prefix).
   final initialRelPath = initialRelPath0;
+  if (tracker != null &&
+      !tracker.enumerateDartSourceFiles(libSubdir: '.').contains(initialRelPath)) {
+    throw ArgumentError(
+        'Entry source file is outside the captured source set: $initialRelPath');
+  }
 
   // Monorepo workspace: map every sibling package's name onto its root so
   // `package:<pkg>/...` imports resolve across packages. The owning package
@@ -703,11 +717,17 @@ Map<String, Object?> sliceCandidate({
       _byteOffset(fileContent, targetMethod.bodyEnd),
     ];
 
+    final parsed = parseString(content: fileContent, throwIfDiagnostics: false);
+    final proof = SnapshotSyntax(parsed.unit, valid: parsed.errors.isEmpty);
+
     // Slice statements in body
     final stmtList =
         _extractStatements(bodySource, bodyStartOffset, fileContent);
 
     for (final stmt in stmtList) {
+      // Only real source tokens may enter the semantic ledger. Comments and
+      // string contents are never executable candidates.
+      if (!proof.isCodeRange(stmt.startOffset, stmt.endOffset)) continue;
       final spanBytes = fileContent.substring(stmt.startOffset, stmt.endOffset);
       final spanHash = sha256Hex(spanBytes);
       final canonicalAst = _canonicalFingerprint(spanBytes);
@@ -715,6 +735,15 @@ Map<String, Object?> sliceCandidate({
       // Check redactions in the raw statement span
       final redactSpan = _redactSecrets(spanBytes);
       totalRedactedCount += redactSpan.count;
+
+      final flowContextMeta = proof.contextFor(
+        source: fileContent,
+        path: relPath,
+        snapshotId: effectiveSnapshotId,
+        sourceHash: fileHash,
+        start: stmt.startOffset,
+        end: stmt.endOffset,
+      );
 
       final anchor = <String, Object?>{
         'repoRelativePath': relPath,
@@ -746,6 +775,7 @@ Map<String, Object?> sliceCandidate({
           symbolPath: fullSym,
           anchor: anchor,
           guardCondition: redactCond.text,
+          flowContext: flowContextMeta,
         ));
       } else if (stmt.type == _StmtType.mutation) {
         final rawBefore = stmt.stateBefore;
@@ -776,6 +806,7 @@ Map<String, Object?> sliceCandidate({
           anchor: anchor,
           stateBefore: finalBefore,
           stateAfter: finalAfter,
+          flowContext: flowContextMeta,
         ));
       } else if (stmt.type == _StmtType.call) {
         final receiver = stmt.callReceiver ?? '';
@@ -865,6 +896,7 @@ Map<String, Object?> sliceCandidate({
             symbolPath: resolved.symbolPath,
             anchor: anchor,
             effectTarget: isResolvedBoundary ? resolved.symbolPath : null,
+            flowContext: flowContextMeta,
           ));
 
           edges.add(_SliceEdge(
@@ -904,6 +936,7 @@ Map<String, Object?> sliceCandidate({
             symbolPath: boundarySym,
             anchor: anchor,
             effectTarget: redactTarget.text,
+            flowContext: flowContextMeta,
           ));
 
           edges.add(_SliceEdge(
@@ -927,6 +960,7 @@ Map<String, Object?> sliceCandidate({
               description: redactDesc.text,
               symbolPath: fullSym,
               anchor: anchor,
+              flowContext: flowContextMeta,
             ));
 
             edges.add(_SliceEdge(
@@ -950,6 +984,7 @@ Map<String, Object?> sliceCandidate({
           description: redactDesc.text,
           symbolPath: fullSym,
           anchor: anchor,
+          flowContext: flowContextMeta,
         ));
       }
     }

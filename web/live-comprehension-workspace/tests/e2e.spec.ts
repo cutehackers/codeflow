@@ -1,6 +1,89 @@
 import { test, expect } from './approval-fixture';
 
 test.describe('FlowView Live Semantic Comprehension Workspace E2E', () => {
+  test('source-unavailable context clears exact highlighting but preserves limitation and relation (VS-11)', async ({ page }) => {
+    await page.goto('http://127.0.0.1:4589/?token=testtoken');
+    let sourceRequests = 0;
+    await page.route('**/api/source?*', route => { sourceRequests++; return route.fulfill({body:'unsafe replacement'}); });
+    await page.route('**/api/flow/context?*', route => route.fulfill({json:{
+      precision:'unavailable',displayedLines:[],sourceLimitation:'선택한 스냅샷 소스가 없습니다',
+      structuralContext:{status:'unknown'},directRelation:{description:'이어지는 호출: Service.logout'},
+    }}));
+    await page.evaluate(() => {
+      // Simulate the state left by a previously selected exact statement.
+      document.getElementById('flow-context-precision')!.textContent='정확한 문장 (exact)';
+      // @ts-ignore
+      renderSemanticTaskView({taskIntent:{revision:1,request:{rawRequest:'review'}},semanticMap:{mapId:'review',generationId:'review',computedBasisId:'review',quality:{stage:'Q2'},summary:{requested:'review',current:'review'},steps:[{stepId:'review',ordinal:1,name:'review',structuralIdentity:'review',anchor:{repoRelativePath:'main.dart',startLine:1,endLine:3,enclosingSymbolPath:'Example'},evidenceRefs:[]}],unknowns:[]},projection:{visibleStepRefs:['review'],preservedStepRefs:[],unknownBoundaryRefs:[]}},false);
+    });
+    await expect(page.locator('#flow-context-precision')).toHaveText('문맥 제한 (unavailable)');
+    await expect(page.locator('#flow-source-limitation')).toBeVisible();
+    await expect(page.locator('#flow-relation-header')).toContainText('Service.logout');
+    await expect(page.locator('#flow-structural-context')).toContainText('확인할 수 없음');
+    await expect(page.locator('#code .hit')).toHaveCount(0);
+    expect(sourceRequests).toBe(0);
+  });
+
+  test('opens an MCP Live Semantic Map URL without requiring a second query', async ({ page }) => {
+    const request = 'Analyze the quick checkout flow while its code changes';
+    await page.goto('http://127.0.0.1:4589/?token=testtoken&live=1&request=' + encodeURIComponent(request) + '&entrySymbol=' + encodeURIComponent('app/page.tsx#HomePage.handleQuickCheckout'));
+
+    await expect(page.locator('#query-input')).toHaveValue(request);
+    await expect(page.locator('body')).toHaveAttribute('data-view', 'live-semantic-map');
+    await expect(page.locator('#code-flow .code-card').first()).toBeVisible({ timeout: 10000 });
+    await expect(page.locator('#code-flow .source').first()).toBeVisible();
+  });
+
+  test('loads the exact persisted Live Semantic Map after a published generation', async ({ page }) => {
+    const request = 'Analyze the quick checkout flow while its code changes';
+    const entrySymbol = 'app/page.tsx#HomePage.handleQuickCheckout';
+    await page.goto('http://127.0.0.1:4589/?token=testtoken&live=1&request=' + encodeURIComponent(request) + '&entrySymbol=' + encodeURIComponent(entrySymbol));
+    await expect(page.locator('#code-flow .code-card').first()).toBeVisible({ timeout: 10000 });
+
+    const published = await page.evaluate(() => {
+      // @ts-ignore — production Live state is defined by the embedded script.
+      const data = JSON.parse(JSON.stringify(state.data));
+      data.semanticMap.generationId = 'generation-event-99';
+      data.semanticMap.computedBasisId = 'basis-event-99';
+      data.semanticMap.validatedAgainstSnapshotId = 'snapshot-event-99';
+      if (data.semanticMap.basis) {
+        data.semanticMap.basis.computedBasisId = 'basis-event-99';
+        data.semanticMap.basis.computedWorkspaceSnapshotId = 'snapshot-event-99';
+      }
+      if (data.projection) {
+        data.projection.generationId = 'generation-event-99';
+        data.projection.computedBasisId = 'basis-event-99';
+      }
+      for (const context of Object.values(data.flowContexts || {}) as any[]) {
+        context.generationId = 'generation-event-99';
+        context.snapshotId = 'snapshot-event-99';
+      }
+      return data;
+    });
+    await page.route('**/api/live/generation?*', route => route.fulfill({ json: published }));
+    let taskRequeries = 0;
+    page.on('request', candidate => {
+      if (new URL(candidate.url()).pathname === '/api/task/view') taskRequeries += 1;
+    });
+    const refresh = page.waitForRequest(candidate => {
+      const url = new URL(candidate.url());
+      return url.pathname === '/api/live/generation'
+        && url.searchParams.get('generationId') === 'generation-event-99'
+        && url.searchParams.get('computedBasisId') === 'basis-event-99'
+        && url.searchParams.get('snapshotId') === 'snapshot-event-99';
+    });
+    await page.evaluate(() => {
+      // The production EventSource listener receives this event after the
+      // versioned edit compiler publishes a new generation.
+      // @ts-ignore
+      handleLiveEvent('generation.published', new MessageEvent('generation.published', { data: JSON.stringify({
+        generationId: 'generation-event-99', computedBasisId: 'basis-event-99', validatedAgainstSnapshotId: 'snapshot-event-99',
+      }) }));
+    });
+    await refresh;
+    await expect(page.locator('#live-notice')).toContainText('검증된 흐름');
+    expect(taskRequeries).toBe(0);
+  });
+
   test('natural language feature query and disambiguation workflow', async ({ page }) => {
     // 1. Load FlowView with auth token
     await page.goto('http://127.0.0.1:4589/?token=testtoken');
@@ -54,33 +137,22 @@ test.describe('FlowView Live Semantic Comprehension Workspace E2E', () => {
     await expect(codePath).not.toBeEmpty();
   });
 
-  test('displays workspace activity status, pending revisions, analysis lag, and scope', async ({ page }) => {
+  test('keeps workspace change state out of Static FlowView and on the Live surface', async ({ page }) => {
+    const requestedPaths: string[] = [];
+    page.on('request', request => requestedPaths.push(new URL(request.url()).pathname));
     await page.goto('http://127.0.0.1:4589/?token=testtoken');
+    await expect(page.locator('#workspace-activity-badge')).toHaveCount(0);
+    await expect(page.locator('#workspace-epoch-tag')).toHaveCount(0);
+    await expect(page.locator('#workspace-pending-count')).toHaveCount(0);
+    await expect(page.locator('#workspace-analysis-lag')).toHaveCount(0);
+    await expect(page.locator('#workspace-scope-tag')).toHaveCount(0);
+    await page.waitForTimeout(100);
+    expect(requestedPaths).not.toContain('/api/workspace/activity');
+    expect(requestedPaths).not.toContain('/api/workspace/stream');
 
-    // 1. Activity badge
-    const badge = page.locator('#workspace-activity-badge');
-    await expect(badge).toBeVisible();
-    await expect(badge).toHaveText(/(idle|editing|analyzing|reconciling)/);
-
-    // 2. Epoch tag
-    const epochTag = page.locator('#workspace-epoch-tag');
-    await expect(epochTag).toBeVisible();
-    await expect(epochTag).toHaveText(/\[\d+\]/);
-
-    // 3. Pending revisions count (VS03-A6)
-    const pendingCount = page.locator('#workspace-pending-count');
-    await expect(pendingCount).toBeVisible();
-    await expect(pendingCount).toContainText('pending');
-
-    // 4. Analysis lag (VS03-A6)
-    const analysisLag = page.locator('#workspace-analysis-lag');
-    await expect(analysisLag).toBeVisible();
-    await expect(analysisLag).toContainText('lag');
-
-    // 5. Active scope (VS03-A6)
-    const scopeTag = page.locator('#workspace-scope-tag');
-    await expect(scopeTag).toBeVisible();
-    await expect(scopeTag).not.toBeEmpty();
+    await page.goto('http://127.0.0.1:4589/live?token=testtoken');
+    await expect(page.locator('body')).toHaveAttribute('data-view', 'live-semantic-map');
+    await expect(page.locator('#live-notice')).toBeVisible();
   });
 
   test('displays independent status axes, SSE connection, and preserves step selection', async ({ page }) => {
@@ -515,5 +587,260 @@ test.describe('FlowView Live Semantic Comprehension Workspace E2E', () => {
     // 4. Empty UI input must remain unmeasured and cannot fabricate a pass.
     await expect(badge).toHaveText('Release Ready: NOT MEASURED');
     await expect(page.locator('#slm-capabilities-list')).toHaveText('not measured');
+  });
+
+  test('displays precise Flow Context, structural context, direct relation, and expansion controls (VS-11)', async ({ page }) => {
+    await page.goto('http://127.0.0.1:4589/?token=testtoken');
+
+    const exactPayload = {
+      taskIntent: { revision: 1, request: { rawRequest: 'checkout submit flow' } },
+      semanticMap: {
+        schemaId: 'https://codeflow.local/schemas/rflsc.semantic-map-ir.v2.schema.json',
+        schemaVersion: 2,
+        mapId: 'map-vs11',
+        generationId: 'generation-vs11',
+        computedBasisId: 'basis-vs11',
+        freshness: 'current',
+        quality: { stage: 'Q4' },
+        summary: { requested: 'checkout submit flow', current: 'Exact statement flow context' },
+        steps: [
+          {
+            stepId: 'step-on-tap',
+            ordinal: 1,
+            name: 'Submit Button Tap',
+            structuralIdentity: 'checkout.submit|ui|event',
+            layer: 'presentation',
+            kind: 'event',
+            technicalName: 'SubmitButton.onTap',
+            anchor: {
+              repoRelativePath: 'lib/src/submit_button.dart',
+              startLine: 12,
+              endLine: 12,
+              enclosingSymbolPath: 'SubmitButton.build'
+            },
+            flowContext: {
+              precision: 'exact',
+              statement: {
+                nodeKind: 'ExpressionStatement',
+                startLine: 12,
+                endLine: 12,
+                text: 'await checkoutService.submit();'
+              },
+              structuralContext: {
+                status: 'present',
+                nodeKind: 'callback',
+                label: 'onTap',
+                startLine: 10,
+                endLine: 14
+              },
+              callableSignature: {
+                name: 'build',
+                signature: 'Widget build(BuildContext context)',
+                startLine: 5,
+                endLine: 5
+              },
+              directRelation: {
+                predecessorStepId: '',
+                successorStepId: 'step-validate',
+                callTargetSymbol: 'CheckoutService.submit',
+                relationKind: 'call'
+              },
+              displayedLines: [
+                { lineNumber: 5, text: 'Widget build(BuildContext context) {', isSig: true },
+                { lineNumber: 10, text: '  onTap: () async {', isStruct: true },
+                { lineNumber: 12, text: '    await checkoutService.submit();', isHit: true, selection: {before:'    ',text:'await checkoutService.submit();',after:''} },
+                { lineNumber: 14, text: '  },', isStruct: true }
+              ],
+              currentExpansion: 'flow_context'
+            },
+            rules: [],
+            evidenceRefs: ['evidence-tap']
+          },
+          {
+            stepId: 'step-validate',
+            ordinal: 2,
+            name: 'Validate Cart',
+            structuralIdentity: 'checkout.validate|domain|rule',
+            layer: 'domain',
+            kind: 'rule',
+            technicalName: 'CartValidator.validate',
+            anchor: {
+              repoRelativePath: 'lib/src/cart_validator.dart',
+              startLine: 20,
+              endLine: 20,
+              enclosingSymbolPath: 'CartValidator.validate'
+            },
+            flowContext: {
+              precision: 'exact',
+              statement: {
+                nodeKind: 'ExpressionStatement',
+                startLine: 20,
+                endLine: 20,
+                text: 'if (cart.isEmpty) throw CartEmptyException();'
+              },
+              structuralContext: {
+                status: 'none',
+                nodeKind: 'none',
+                label: '',
+                startLine: 0,
+                endLine: 0
+              },
+              callableSignature: {
+                name: 'validate',
+                signature: 'void validate(Cart cart)',
+                startLine: 18,
+                endLine: 18
+              },
+              directRelation: {
+                predecessorStepId: 'step-on-tap',
+                successorStepId: '',
+                callTargetSymbol: '',
+                relationKind: 'predecessor',
+                description: '직접 선행: step-on-tap · 후행 단계 없음'
+              },
+              displayedLines: [
+                { lineNumber: 18, text: 'void validate(Cart cart) {', isSig: true },
+                { lineNumber: 20, text: '  if (cart.isEmpty) throw CartEmptyException();', isHit: true },
+                { lineNumber: 22, text: '}', isSig: true }
+              ],
+              currentExpansion: 'flow_context'
+            },
+            rules: [],
+            evidenceRefs: ['evidence-val']
+          }
+        ],
+        unknowns: []
+      },
+      projection: { visibleStepRefs: ['step-on-tap', 'step-validate'], preservedStepRefs: [], unknownBoundaryRefs: [], foldedSubflows: [] },
+      currentProofVerified: true
+    };
+
+    // 1. Render task view with exact flow context
+    await page.evaluate((data) => {
+      // @ts-ignore
+      renderSemanticTaskView(data, false);
+    }, exactPayload);
+
+    // 2. Precision badge displays exact statement
+    const precBadge = page.locator('#flow-context-precision');
+    await expect(precBadge).toBeVisible();
+    await expect(precBadge).toHaveText('정확한 문장 (exact)');
+    await expect(precBadge).toHaveAttribute('role', 'status');
+
+    // 3. Callable signature and structural context are separated
+    await expect(page.locator('#flow-callable-signature')).toHaveText('Widget build(BuildContext context)');
+    await expect(page.locator('#flow-structural-context')).toContainText('감싸는 문맥: callback (onTap)');
+
+    // 4. Selected statement line is marked with .hit; structural context lines are .struct; signature is .sig
+    const hitLines = page.locator('#code .line.hit');
+    await expect(hitLines).toHaveCount(1);
+    await expect(hitLines.first()).toContainText('await checkoutService.submit();');
+    await expect(page.locator('#code .selected-source')).toHaveText('await checkoutService.submit();');
+
+    const structLines = page.locator('#code .line.struct');
+    await expect(structLines).toHaveCount(2);
+    await expect(structLines.first()).toContainText('onTap: () async {');
+
+    const sigLines = page.locator('#code .line.sig');
+    await expect(sigLines).toHaveCount(1);
+    await expect(sigLines.first()).toContainText('Widget build(BuildContext context) {');
+
+    // 5. Direct relation header shows direct relations
+    const relationHeader = page.locator('#flow-relation-header');
+    await expect(relationHeader).toContainText('호출 대상: CheckoutService.submit');
+    await expect(relationHeader).toContainText('직후: step-validate');
+
+    // 6. Expansion controls toggle aria-pressed
+    const btnDefault = page.locator('#btn-flow-context-default');
+    const btnCallable = page.locator('#btn-expand-callable');
+    const btnFile = page.locator('#btn-expand-file');
+
+    await expect(btnDefault).toHaveAttribute('aria-pressed', 'true');
+    await expect(btnCallable).toHaveAttribute('aria-pressed', 'false');
+    await expect(btnFile).toHaveAttribute('aria-pressed', 'false');
+
+    await btnCallable.click();
+    await expect(btnCallable).toHaveAttribute('aria-pressed', 'true');
+    await expect(btnDefault).toHaveAttribute('aria-pressed', 'false');
+
+    await btnFile.click();
+    await expect(btnFile).toHaveAttribute('aria-pressed', 'true');
+    await expect(btnCallable).toHaveAttribute('aria-pressed', 'false');
+
+    await btnDefault.click();
+    await expect(btnDefault).toHaveAttribute('aria-pressed', 'true');
+
+    // 7. Select step 2: no enclosing callback/condition/builder (structural context is 'none')
+    await page.evaluate(() => {
+      // @ts-ignore
+      selectStep(1);
+    });
+
+    await expect(page.locator('#flow-structural-context')).toContainText('직접 감싸는 제어/콜백 문맥 없음 (none)');
+    await expect(relationHeader).toContainText('직접 선행: step-on-tap');
+    await expect(precBadge).toHaveText('정확한 문장 (exact)');
+
+    // 8. Broad-anchor fallback / missing proof: precision falls back to unknown/unavailable
+    const broadPayload = {
+      taskIntent: { revision: 1, request: { rawRequest: 'broad anchor step' } },
+      semanticMap: {
+        schemaId: 'https://codeflow.local/schemas/rflsc.semantic-map-ir.v2.schema.json',
+        schemaVersion: 2,
+        mapId: 'map-vs11-broad',
+        generationId: 'generation-vs11-broad',
+        computedBasisId: 'basis-vs11-broad',
+        freshness: 'candidate',
+        quality: { stage: 'Q2' },
+        summary: { requested: 'broad anchor step', current: 'Broad anchor fallback' },
+        steps: [
+          {
+            stepId: 'step-broad',
+            ordinal: 1,
+            name: 'Broad Class Anchor',
+            structuralIdentity: 'checkout.page|ui|view',
+            layer: 'presentation',
+            kind: 'view',
+            technicalName: 'CheckoutPage',
+            anchor: {
+              repoRelativePath: 'lib/src/checkout_page.dart',
+              startLine: 1,
+              endLine: 50,
+              enclosingSymbolPath: 'CheckoutPage'
+            },
+            flowContext: {
+              precision: 'unknown',
+              statement: null,
+              structuralContext: { status: 'none', nodeKind: 'none', label: '', startLine: 0, endLine: 0 },
+              callableSignature: { name: 'CheckoutPage', signature: 'class CheckoutPage', startLine: 1, endLine: 1 },
+              directRelation: { predecessorStepId: '', successorStepId: '', callTargetSymbol: '', relationKind: 'none' },
+              sourceLimitation: '정확한 실행 문장을 특정할 수 없어 주변 문맥 또는 선언부로 대체 표시합니다.',
+              displayedLines: [
+                { lineNumber: 1, text: 'class CheckoutPage {', role: 'fallback' },
+                { lineNumber: 2, text: '  // body', role: 'fallback' }
+              ],
+              currentExpansion: 'flow_context'
+            },
+            rules: [],
+            evidenceRefs: []
+          }
+        ],
+        unknowns: []
+      },
+      projection: { visibleStepRefs: ['step-broad'], preservedStepRefs: [], unknownBoundaryRefs: [], foldedSubflows: [] },
+      currentProofVerified: false
+    };
+
+    await page.evaluate((data) => {
+      // @ts-ignore
+      renderSemanticTaskView(data, false);
+    }, broadPayload);
+
+    await expect(precBadge).toHaveText('알 수 없음 (unknown)');
+    // Under broad anchor fallback, .hit lines MUST NOT be present
+    await expect(page.locator('#code .line.hit')).toHaveCount(0);
+    // Source limitation warning must be shown
+    const limitationEl = page.locator('#flow-source-limitation');
+    await expect(limitationEl).toBeVisible();
+    await expect(limitationEl).toContainText('정확한 실행 문장을 특정할 수 없어');
   });
 });

@@ -78,7 +78,7 @@ func analyzerRequestForCall(requestID, operation string, params any, maxMessageB
 	}
 	request.CapabilityRequest = stringSlice(m["capabilityRequest"])
 	if maxMessageBytes <= 0 {
-		maxMessageBytes = DefaultMaxMessageSizeBytes
+		maxMessageBytes = DefaultAdapterMessageSizeBytes
 	}
 	request.MaxMessageBytes = maxMessageBytes
 	request.Payload = operationPayload(m)

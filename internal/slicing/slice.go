@@ -33,18 +33,53 @@ type Anchor struct {
 	SymbolRange *[2]int `json:"symbolRange,omitempty"`
 }
 
+// StatementNodeMetadata represents verified statement AST node metadata.
+type StatementNodeMetadata struct {
+	NodeKind  string `json:"nodeKind"` // must be "statement"
+	ByteRange [2]int `json:"byteRange"`
+	LineRange [2]int `json:"lineRange"`
+}
+
+// StructuralContextMetadata represents enclosing condition, callback, or builder metadata.
+type StructuralContextMetadata struct {
+	Status    string  `json:"status"`             // "present" | "none"
+	NodeKind  string  `json:"nodeKind,omitempty"` // "condition" | "callback" | "builder"
+	ByteRange *[2]int `json:"byteRange,omitempty"`
+	LineRange *[2]int `json:"lineRange,omitempty"`
+}
+
+// CallableMetadata represents enclosing callable signature and span metadata.
+type CallableMetadata struct {
+	Signature          string `json:"signature"`
+	SignatureByteRange [2]int `json:"signatureByteRange"`
+	SignatureLineRange [2]int `json:"signatureLineRange"`
+	ByteRange          [2]int `json:"byteRange"`
+	LineRange          [2]int `json:"lineRange"`
+}
+
+// FlowContextMetadata is the additive Flow Context capability metadata emitted by adapters.
+type FlowContextMetadata struct {
+	Statement         StatementNodeMetadata     `json:"statement"`
+	StructuralContext StructuralContextMetadata `json:"structuralContext"`
+	Callable          CallableMetadata          `json:"callable"`
+	CanonicalPath     string                    `json:"canonicalPath"`
+	SnapshotID        string                    `json:"snapshotId"`
+	SourceHash        string                    `json:"sourceHash"`
+}
+
 // SliceStep represents a single guard, mutation, call, or branch step extracted from AST.
 type SliceStep struct {
-	Ordinal        int     `json:"ordinal"`
-	Kind           string  `json:"kind"`
-	Description    string  `json:"description"`
-	SymbolPath     string  `json:"symbolPath"`
-	Anchor         Anchor  `json:"anchor"`
-	GuardCondition *string `json:"guardCondition,omitempty"`
-	StateBefore    *string `json:"stateBefore,omitempty"`
-	StateAfter     *string `json:"stateAfter,omitempty"`
-	EffectTarget   *string `json:"effectTarget,omitempty"`
-	Layer          string  `json:"layer,omitempty"`
+	Ordinal        int                  `json:"ordinal"`
+	Kind           string               `json:"kind"`
+	Description    string               `json:"description"`
+	SymbolPath     string               `json:"symbolPath"`
+	Anchor         Anchor               `json:"anchor"`
+	GuardCondition *string              `json:"guardCondition,omitempty"`
+	StateBefore    *string              `json:"stateBefore,omitempty"`
+	StateAfter     *string              `json:"stateAfter,omitempty"`
+	EffectTarget   *string              `json:"effectTarget,omitempty"`
+	Layer          string               `json:"layer,omitempty"`
+	FlowContext    *FlowContextMetadata `json:"flowContext,omitempty"`
 }
 
 // SliceEdge represents a call link between symbols/files or boundaries.
@@ -267,7 +302,7 @@ func cachedSlicePayload(snapshot protocol.Snapshot, candidateID, entrySymbolPath
 // computeSliceCacheKeyForSnapshot so the entry hash comes from captured bytes.
 func computeSliceCacheKey(repoRoot, candidateID, entrySymbolPath string, opts map[string]any, basis ...string) string {
 	fileByteHash := ""
-	versionInfo := "v3"
+	versionInfo := "v4-ast-context"
 	if len(basis) > 0 && basis[0] != "" {
 		versionInfo += "|" + basis[0]
 	}
@@ -294,7 +329,7 @@ func computeSliceCacheKeyForSnapshot(snapshot protocol.Snapshot, candidateID, en
 			fileByteHash = hex.EncodeToString(h[:])
 		}
 	}
-	versionInfo := "v3"
+	versionInfo := "v4-ast-context"
 	if snapshot.ComputedBasisID != "" {
 		versionInfo += "|" + snapshot.ComputedBasisID
 	}

@@ -3,8 +3,10 @@ package semantic
 import (
 	"errors"
 	"fmt"
+	"slices"
 	"testing"
 
+	"codeflow/internal/fusion"
 	"codeflow/internal/slicing"
 )
 
@@ -294,5 +296,56 @@ func TestComputeSemanticDelta_RenameMoveStableIdentity(t *testing.T) {
 	// Should match as same step, not added + removed
 	if len(delta.Changes) != 0 {
 		t.Errorf("expected 0 semantic changes for renamed/re-identified step, got %d", len(delta.Changes))
+	}
+}
+
+func TestComputeSemanticDeltaIdentifiesBehaviorFacetsAndCallRelation(t *testing.T) {
+	baseBranch, currentBranch := "amount > 0", "amount >= 100"
+	baseEffect, currentEffect := "charge gateway", "authorize gateway"
+	base := &SemanticMapIR{
+		MapID: "m1", GenerationID: "gen-1", ComputedBasisID: "basis-1", SchemaVersion: 1,
+		Steps: []SemanticStep{
+			{StepID: "step-entry", Name: "결제 접수", TechnicalName: "Payment.accept", Anchor: slicing.Anchor{RepoRelativePath: "payment.go", EnclosingSymbolPath: "Payment.accept"}},
+			{StepID: "step-charge", Name: "결제 실행", TechnicalName: "Payment.charge", Anchor: slicing.Anchor{RepoRelativePath: "payment.go", EnclosingSymbolPath: "Payment.charge"}, Rules: []string{"결제한다"}, Branch: &baseBranch, StateDelta: &fusion.StateDelta{Before: "pending", After: "paid"}, SideEffect: &baseEffect},
+		},
+		Edges: []SemanticEdge{{FromStepID: "step-entry", ToStepID: "step-charge", Kind: "calls", ResolutionStatus: "resolved"}},
+	}
+	current := &SemanticMapIR{
+		MapID: "m2", GenerationID: "gen-2", ComputedBasisID: "basis-2", SchemaVersion: 1,
+		Steps: []SemanticStep{
+			{StepID: "step-entry", Name: "결제 접수", TechnicalName: "Payment.accept", Anchor: slicing.Anchor{RepoRelativePath: "payment.go", EnclosingSymbolPath: "Payment.accept"}},
+			{StepID: "step-charge", Name: "결제 실행", TechnicalName: "Payment.charge", Anchor: slicing.Anchor{RepoRelativePath: "payment.go", EnclosingSymbolPath: "Payment.charge"}, Rules: []string{"승인 뒤 결제한다"}, Branch: &currentBranch, StateDelta: &fusion.StateDelta{Before: "pending", After: "authorized"}, SideEffect: &currentEffect},
+		},
+		Edges: []SemanticEdge{{FromStepID: "step-entry", ToStepID: "step-charge", Kind: "dispatches", ResolutionStatus: "resolved"}},
+	}
+	prepareComparableDeltaMaps(base, current)
+
+	delta, err := ComputeSemanticDelta("comp-facets", base, current)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var behavior, relation *DeltaChange
+	for index := range delta.Changes {
+		change := &delta.Changes[index]
+		switch change.Kind {
+		case "changed_rule":
+			behavior = change
+		case "structural_only":
+			relation = change
+		}
+	}
+	if behavior == nil {
+		t.Fatal("missing changed behavior")
+	}
+	for _, facet := range []string{"behavior changed", "branch changed", "state changed", "external effect changed"} {
+		if !slices.Contains(behavior.StructuralChanges, facet) {
+			t.Errorf("behavior facets %v do not include %q", behavior.StructuralChanges, facet)
+		}
+	}
+	if relation == nil || !slices.Contains(relation.StructuralChanges, "call relation changed") {
+		t.Fatalf("missing call relation change: %+v", relation)
+	}
+	if relation.TargetStepID != "step-entry" {
+		t.Fatalf("relation target = %q, want step-entry", relation.TargetStepID)
 	}
 }

@@ -711,7 +711,7 @@ func (s *Server) listTools() []map[string]any {
 		},
 		{
 			"name":        "harvest_flows",
-			"description": "Harvest candidate flows with scoring and intent signals for natural language matching",
+			"description": "Find candidate entry points for a natural-language flow request. To show a new FlowView, select an unambiguous matching candidate and call analyze_flow with its entrySymbolPath; this call alone does not create a flowId.",
 			"inputSchema": map[string]any{
 				"type": "object",
 				"properties": map[string]any{
@@ -734,7 +734,7 @@ func (s *Server) listTools() []map[string]any {
 		},
 		{
 			"name":        "analyze_flow",
-			"description": "On-demand slice and publish for an arbitrary entry point",
+			"description": "Slice and publish one exact entry point. Returns a persisted FlowSpec containing flowId; when the user requested a visual result, pass that exact flowId to open_review.",
 			"inputSchema": map[string]any{
 				"type":     "object",
 				"required": []string{"entrySymbolPath"},
@@ -786,7 +786,7 @@ func (s *Server) listTools() []map[string]any {
 		},
 		{
 			"name":        "open_review",
-			"description": "Open FlowView in the browser for visual review",
+			"description": "Open FlowView for a persisted flowId. Use the exact flowId returned by analyze_flow or publish_core_flow; do not call it for an unselected candidate.",
 			"inputSchema": map[string]any{
 				"type": "object",
 				"properties": map[string]any{
@@ -797,7 +797,7 @@ func (s *Server) listTools() []map[string]any {
 		},
 		{
 			"name":        "query_task_view",
-			"description": "Execute a task-scoped query against the workspace. Feature/review/impact modes use task-view-query; debug/incident modes require an explicit rflsc.failure-query.v2 with exact basis, generation, snapshot, freshness, and server-resolved runtime observation identity.",
+			"description": "Execute a task-scoped query against the workspace. For Live Semantic View or Live Semantic Map creation, use feature mode and open or present the returned flowView.url. It serves the fixed live-semantic-map-prototype.html template with workspace data. Do not generate an alternative HTML layout or open the sample as a live result. Feature/review/impact modes use task-view-query; debug/incident modes require an explicit rflsc.failure-query.v2 with exact basis, generation, snapshot, freshness, and server-resolved runtime observation identity.",
 			"inputSchema": map[string]any{
 				"type":     "object",
 				"required": []string{"query"},
@@ -836,15 +836,27 @@ func (s *Server) listTools() []map[string]any {
 			"name":        "submit_versioned_edit",
 			"description": "Submit a versioned document edit to the workspace snapshot engine",
 			"inputSchema": map[string]any{
-				"type":     "object",
-				"required": []string{"path", "content", "documentVersion"},
+				"type": "object",
+				"anyOf": []any{
+					map[string]any{"required": []string{"path", "content", "documentVersion"}},
+					map[string]any{"required": []string{"batchId", "changes"}},
+				},
 				"properties": map[string]any{
 					"path":            map[string]any{"type": "string", "description": "Relative file path"},
 					"content":         map[string]any{"type": "string", "description": "New file content bytes"},
 					"documentVersion": map[string]any{"type": "integer", "description": "Monotonic document version >= 1"},
 					"source":          map[string]any{"type": "string", "description": "Edit source (agent_transaction, ide_versioned, watcher_fallback)"},
-					"target":          targetProp,
-					"token":           map[string]any{"type": "string", "description": "Auth token when RequireToken=true"},
+					"batchId":         map[string]any{"type": "string", "description": "Stable producer batch identity"},
+					"kind":            map[string]any{"type": "string", "enum": []string{"create", "upsert", "rename", "delete"}},
+					"oldPath":         map[string]any{"type": "string", "description": "Prior relative path for rename"},
+					"changes": map[string]any{"type": "array", "minItems": 1, "items": map[string]any{
+						"type": "object", "required": []string{"kind", "path"}, "properties": map[string]any{
+							"kind": map[string]any{"type": "string", "enum": []string{"create", "upsert", "rename", "delete"}}, "path": map[string]any{"type": "string"}, "oldPath": map[string]any{"type": "string"},
+							"content": map[string]any{"type": "string"}, "contentId": map[string]any{"type": "string"}, "documentVersion": map[string]any{"type": "integer"},
+						},
+					}},
+					"target": targetProp,
+					"token":  map[string]any{"type": "string", "description": "Auth token when RequireToken=true"},
 				},
 			},
 		},

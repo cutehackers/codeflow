@@ -169,18 +169,6 @@ func (s *Server) handleSubmitVersionedEdit(ctx context.Context, args map[string]
 		return nil, fmt.Errorf("resolve target: %w", err)
 	}
 
-	path, _ := args["path"].(string)
-	if path == "" {
-		return nil, fmt.Errorf("missing required field 'path'")
-	}
-
-	contentStr, _ := args["content"].(string)
-	docVerFloat, ok := args["documentVersion"].(float64)
-	if !ok || docVerFloat < 1 {
-		return nil, fmt.Errorf("documentVersion must be a positive integer >= 1")
-	}
-	docVer := int(docVerFloat)
-
 	source, _ := args["source"].(string)
 	if source == "" {
 		source = workspace.SourceAgentTransaction
@@ -191,20 +179,49 @@ func (s *Server) handleSubmitVersionedEdit(ctx context.Context, args map[string]
 		return nil, fmt.Errorf("get snapshot engine: %w", err)
 	}
 
-	rev, snap, err := coordinator.SubmitVersionedEdit(ctx, workspace.EditRequest{
-		Path:            path,
-		Content:         []byte(contentStr),
-		DocumentVersion: docVer,
-		Source:          source,
-	})
+	if rawChanges, ok := args["changes"].([]any); ok && len(rawChanges) > 0 {
+		batchID, _ := args["batchId"].(string)
+		if batchID == "" {
+			return nil, fmt.Errorf("batchId is required for multi-file changes")
+		}
+		changes := make([]workspace.VersionedChange, 0, len(rawChanges))
+		for index, raw := range rawChanges {
+			item, ok := raw.(map[string]any)
+			if !ok {
+				return nil, fmt.Errorf("changes[%d] must be an object", index)
+			}
+			kind, _ := item["kind"].(string)
+			path, _ := item["path"].(string)
+			oldPath, _ := item["oldPath"].(string)
+			content, _ := item["content"].(string)
+			contentID, _ := item["contentId"].(string)
+			version := 0
+			if value, ok := item["documentVersion"].(float64); ok {
+				version = int(value)
+			}
+			changes = append(changes, workspace.VersionedChange{Kind: workspace.ChangeKind(kind), Path: path, OldPath: oldPath, Content: []byte(content), ContentID: contentID, DocumentVersion: version})
+		}
+		result, err := coordinator.SubmitVersionedChanges(ctx, workspace.VersionedChangeRequest{BatchID: batchID, Source: source, Changes: changes})
+		if err != nil {
+			return nil, fmt.Errorf("apply versioned change batch: %w", err)
+		}
+		return result, nil
+	}
+
+	path, _ := args["path"].(string)
+	if path == "" {
+		return nil, fmt.Errorf("missing required field 'path'")
+	}
+	contentStr, _ := args["content"].(string)
+	docVerFloat, ok := args["documentVersion"].(float64)
+	if !ok || docVerFloat < 1 {
+		return nil, fmt.Errorf("documentVersion must be a positive integer >= 1")
+	}
+	rev, snap, err := coordinator.SubmitVersionedEdit(ctx, workspace.EditRequest{Path: path, Content: []byte(contentStr), DocumentVersion: int(docVerFloat), Source: source})
 	if err != nil {
 		return nil, fmt.Errorf("apply versioned edit: %w", err)
 	}
-
-	return map[string]any{
-		"revision": rev,
-		"snapshot": snap,
-	}, nil
+	return map[string]any{"revision": rev, "snapshot": snap}, nil
 }
 
 func (s *Server) handleGetGenerationProof(ctx context.Context, args map[string]any) (any, error) {

@@ -26,6 +26,15 @@ type liveRequest struct {
 	requestText string
 }
 
+type persistedLiveView struct {
+	SchemaID        string                            `json:"schemaId"`
+	SchemaVersion   int                               `json:"schemaVersion"`
+	GenerationID    string                            `json:"generationId"`
+	ComputedBasisID string                            `json:"computedBasisId"`
+	SnapshotID      string                            `json:"snapshotId"`
+	FlowContexts    map[string]*FlowContextProjection `json:"flowContexts"`
+}
+
 // liveState is intentionally held separately from the durable map cache. A
 // task query is the input to the always-on checkpoint consumer and is never a
 // publication authority by itself.
@@ -185,6 +194,12 @@ func (s *Server) compileSnapshotCandidate(ctx context.Context, snapshot protocol
 	if err := contractharness.ValidateSemanticMapIR(mapBytes); err != nil {
 		return nil, nil, nil, nil, nil, nil, fmt.Errorf("semantic map contract: %w", err)
 	}
+	capability := false
+	if conn, err := pool.Get(ctx); err == nil {
+		capability = conn.Version().Capabilities.FlowContext
+		pool.Put(conn)
+	}
+	s.rememberFlowContexts(mapIR, slicePayload, capability)
 	return mapIR, projection, slicePayload, resolved, intent, closure, nil
 }
 
@@ -316,6 +331,27 @@ func canonicalPublicationArtifacts(mapBytes []byte, projection *semantic.FlowVie
 	return refs, artifacts, digests, nil
 }
 
+func (s *Server) liveViewArtifact(mapIR *semantic.SemanticMapIR, snapshot protocol.Snapshot) ([]byte, error) {
+	if mapIR == nil || mapIR.GenerationID == "" || mapIR.ComputedBasisID == "" || snapshot.SnapshotID == "" {
+		return nil, fmt.Errorf("Live view artifact identity is incomplete")
+	}
+	s.mu.Lock()
+	metadata := s.flowContextMetadata[mapIR.GenerationID]
+	s.mu.Unlock()
+	contexts := make(map[string]*FlowContextProjection, len(mapIR.Steps))
+	files := snapshotSourceBytes(snapshot)
+	for _, step := range mapIR.Steps {
+		contexts[step.StepID] = DeriveFlowContext(DeriveFlowContextParams{
+			Step: step, SemanticMap: mapIR, SnapshotFiles: files, SourceSnapshotID: snapshot.SnapshotID,
+			AdapterHasFlowContext: metadata.Capability, Metadata: metadata.Steps[step.StepID], Expansion: ExpansionFlowContext,
+		})
+	}
+	return json.Marshal(persistedLiveView{
+		SchemaID: "https://codeflow.local/schemas/rflsc.live-generation-view.v1.schema.json", SchemaVersion: 1,
+		GenerationID: mapIR.GenerationID, ComputedBasisID: mapIR.ComputedBasisID, SnapshotID: snapshot.SnapshotID, FlowContexts: contexts,
+	})
+}
+
 // semanticDeltaForPublication compares the candidate against the currently
 // active proof. The active proof is the only durable predecessor authority,
 // so a missing or invalid predecessor fails the publication rather than
@@ -372,6 +408,12 @@ func (s *Server) startLiveConsumer() {
 	go func() {
 		defer s.liveWG.Done()
 		defer close(done)
+		watcherDone := make(chan struct{})
+		go func() {
+			defer close(watcherDone)
+			s.runWorkspaceWatcher(liveCtx)
+		}()
+		defer func() { <-watcherDone }()
 		for {
 			select {
 			case <-liveCtx.Done():
@@ -558,6 +600,15 @@ func (s *Server) processCheckpoint(ctx context.Context, snap *workspace.Workspac
 		emitGap("canonical publication artifacts: " + artifactErr.Error())
 		return
 	}
+	liveViewBytes, liveViewErr := s.liveViewArtifact(mapIR, protocolSnapshot)
+	if liveViewErr != nil {
+		emitGap("Live view artifact: " + liveViewErr.Error())
+		return
+	}
+	liveViewRef := storage.ArtifactCASRef(liveViewBytes)
+	artifactRefs.LiveView = liveViewRef
+	artifactBytes[liveViewRef] = liveViewBytes
+	artifactDigests["liveView"] = strings.TrimPrefix(liveViewRef, "cas:sha256:")
 	gateResult, gap := s.gate.EvaluateCurrent(semantic.PublicationInput{
 		Map: mapIR, Closure: closure, Delta: delta, CapturedSnapshot: snap, LiveHeadSnapshot: live, Intent: intent,
 		RepositoryID: snap.RepositoryID, WorktreeID: snap.WorktreeID, DependencyFingerprint: snap.DependencyFingerprint, QueryHash: queryIdentity(req.query), GenerationID: mapIR.GenerationID, ExpectedPreviousGenerationID: previousID,

@@ -31,6 +31,7 @@ import (
 	"codeflow/internal/semantic"
 	"codeflow/internal/slicing"
 	"codeflow/internal/storage"
+	"codeflow/internal/watch"
 	"codeflow/internal/workspace"
 )
 
@@ -88,6 +89,11 @@ var implementationTestIDs = map[string]string{
 	"VS03-A13": "codeflow/internal/rflscvs03.TestRFLSCR2VS03_A13",
 	"VS03-A14": "codeflow/internal/rflscvs03.TestRFLSCR2VS03_A14",
 	"VS03-A15": "codeflow/internal/rflscvs03.TestRFLSCR2VS03_A15",
+	"VS03-A16": "codeflow/internal/rflscvs03.TestRFLSCR2VS03_A16",
+	"VS03-A17": "codeflow/internal/rflscvs03.TestRFLSCR2VS03_A17",
+	"VS03-A18": "codeflow/internal/rflscvs03.TestRFLSCR2VS03_A18",
+	"VS03-A19": "codeflow/internal/rflscvs03.TestRFLSCR2VS03_A19",
+	"VS03-A20": "codeflow/internal/rflscvs03.TestRFLSCR2VS03_A20",
 }
 
 const (
@@ -1763,6 +1769,441 @@ func RunA15(t *testing.T) Evidence {
 	return evidenceFor("VS03-A15", head.RootTreeID, "alignment:confirmed", "authority:current-proof", "proof:validated", "evidence:verified-required", "negative:10-identity-and-evidence-cases")
 }
 
+// RunA16 proves the immutable Static FlowView and the event-driven Live
+// Semantic View are separate public HTTP surfaces.
+func RunA16(t *testing.T) Evidence {
+	t.Helper()
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "service.go"), []byte("package service\nfunc Submit() {}\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	srv, err := flowview.NewServer(flowview.Config{RepoRoot: root, Port: 0, AuthToken: "vs03-a16"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := srv.SubmitVersionedChanges(context.Background(), workspace.VersionedChangeRequest{BatchID: "seed-a16", Source: workspace.SourceWatcherFallback, Changes: []workspace.VersionedChange{{Kind: workspace.ChangeUpsert, Path: "service.go", Content: []byte("package service\nfunc Submit() {}\n")}}}); err != nil {
+		t.Fatal(err)
+	}
+	srv.Start()
+	defer func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+		defer cancel()
+		if err := srv.Shutdown(ctx); err != nil {
+			t.Errorf("shutdown static/live fixture: %v", err)
+		}
+	}()
+
+	readPage := func(rawURL string) string {
+		t.Helper()
+		response, err := http.Get(rawURL)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer response.Body.Close()
+		if response.StatusCode != http.StatusOK {
+			t.Fatalf("GET %s returned %d", rawURL, response.StatusCode)
+		}
+		body, err := io.ReadAll(response.Body)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return string(body)
+	}
+	staticHTML := readPage(srv.URL())
+	liveHTML := readPage(strings.Replace(srv.URL(), "/?token=", "/live?token=", 1))
+	staticMarkup := strings.SplitN(staticHTML, "<script", 2)[0]
+	initStart := strings.Index(staticHTML, "async function init(){")
+	if initStart < 0 {
+		t.Fatal("Static FlowView initializer was not found")
+	}
+	initEnd := strings.Index(staticHTML[initStart:], "\n}\n\nasync function loadFlow")
+	if initEnd < 0 {
+		t.Fatal("Static FlowView initializer boundary was not found")
+	}
+	initializer := staticHTML[initStart : initStart+initEnd]
+	if strings.Contains(staticMarkup, "workspace-activity-badge") || strings.Contains(staticMarkup, "workspace-pending-count") || strings.Contains(initializer, "initLiveStream()") || strings.Contains(initializer, "loadWorkspaceActivity()") {
+		t.Fatal("Static FlowView still exposes mutable workspace state or starts the workspace stream")
+	}
+	if !strings.Contains(liveHTML, `data-view="live-semantic-map"`) || !strings.Contains(liveHTML, "new EventSource('/api/workspace/stream") {
+		t.Fatal("Live Semantic View does not own the workspace stream")
+	}
+	head := srv.SnapshotEngine().LiveHead()
+	if head == nil {
+		t.Fatal("static/live fixture has no immutable snapshot")
+	}
+	return evidenceFor("VS03-A16", head.RootTreeID, "surface:static-immutable", "surface:live-event-driven", "snapshot-boundary:"+head.SnapshotID)
+}
+
+// RunA17 exercises the authenticated HTTP ingress with VS Code operations,
+// one multi-file agent batch, and a duplicate watcher capture.
+func RunA17(t *testing.T) Evidence {
+	t.Helper()
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "service.go"), []byte("package service\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	srv, err := flowview.NewServer(flowview.Config{RepoRoot: root, Port: 0, AuthToken: "vs03-a17"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	srv.Start()
+	defer func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+		defer cancel()
+		if err := srv.Shutdown(ctx); err != nil {
+			t.Errorf("shutdown ingress fixture: %v", err)
+		}
+	}()
+
+	endpoint := strings.Replace(srv.URL(), "/?token=", "/api/workspace/edit?token=", 1)
+	unauthorized, err := http.Post("http://"+srv.Addr()+"/api/workspace/edit", "application/json", strings.NewReader(`{"path":"denied.go","content":"package denied","documentVersion":1}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = unauthorized.Body.Close()
+	if unauthorized.StatusCode == http.StatusOK {
+		t.Fatal("workspace ingress accepted an unauthenticated edit")
+	}
+	type ingressResponse struct {
+		Batch     *workspace.ChangeBatch        `json:"batch"`
+		Revisions []*workspace.DocumentRevision `json:"revisions"`
+		Snapshot  *workspace.WorkspaceSnapshot  `json:"snapshot"`
+		Duplicate bool                          `json:"duplicate"`
+	}
+	post := func(body map[string]any) ingressResponse {
+		t.Helper()
+		encoded, err := json.Marshal(body)
+		if err != nil {
+			t.Fatal(err)
+		}
+		response, err := http.Post(endpoint, "application/json", bytes.NewReader(encoded))
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer response.Body.Close()
+		if response.StatusCode != http.StatusOK {
+			message, _ := io.ReadAll(response.Body)
+			t.Fatalf("workspace ingress returned %d: %s", response.StatusCode, message)
+		}
+		var result ingressResponse
+		if err := json.NewDecoder(response.Body).Decode(&result); err != nil {
+			t.Fatal(err)
+		}
+		return result
+	}
+	agentContent := "package agent\nfunc First() {}\n"
+	agent := post(map[string]any{
+		"batchId": "agent-completed-write-a17", "source": workspace.SourceAgentTransaction,
+		"changes": []map[string]any{
+			{"kind": workspace.ChangeCreate, "path": "agent_first.go", "content": agentContent, "documentVersion": 1},
+			{"kind": workspace.ChangeCreate, "path": "agent_second.go", "content": "package agent\nfunc Second() {}\n", "documentVersion": 1},
+		},
+	})
+	if agent.Batch == nil || agent.Batch.BatchID != "agent-completed-write-a17" || agent.Batch.Source != workspace.SourceAgentTransaction || len(agent.Revisions) != 2 {
+		t.Fatalf("agent batch identity was not preserved: %+v", agent)
+	}
+	duplicate := post(map[string]any{
+		"batchId": "watcher-duplicate-a17", "source": workspace.SourceWatcherFallback,
+		"changes": []map[string]any{{"kind": workspace.ChangeUpsert, "path": "agent_first.go", "content": agentContent}},
+	})
+	if !duplicate.Duplicate || duplicate.Snapshot == nil || duplicate.Snapshot.SnapshotID != agent.Snapshot.SnapshotID {
+		t.Fatalf("watcher duplicate created a second snapshot: %+v", duplicate)
+	}
+
+	created := post(map[string]any{"batchId": "vscode-create-a17", "source": workspace.SourceIDEVersioned, "changes": []map[string]any{{"kind": workspace.ChangeCreate, "path": "vscode.go", "content": "package vscode\n", "documentVersion": 1}}})
+	updated := post(map[string]any{"batchId": "vscode-upsert-a17", "source": workspace.SourceIDEVersioned, "changes": []map[string]any{{"kind": workspace.ChangeUpsert, "path": "vscode.go", "content": "package vscode\nfunc Saved() {}\n", "documentVersion": 2}}})
+	renamed := post(map[string]any{"batchId": "vscode-rename-a17", "source": workspace.SourceIDEVersioned, "changes": []map[string]any{{"kind": workspace.ChangeRename, "oldPath": "vscode.go", "path": "vscode_saved.go", "content": "package vscode\nfunc Saved() {}\n", "documentVersion": 1}}})
+	deleted := post(map[string]any{"batchId": "vscode-delete-a17", "source": workspace.SourceIDEVersioned, "changes": []map[string]any{{"kind": workspace.ChangeDelete, "path": "vscode_saved.go"}}})
+	for name, result := range map[string]ingressResponse{"create": created, "upsert": updated, "rename": renamed, "delete": deleted} {
+		if result.Batch == nil || result.Batch.Source != workspace.SourceIDEVersioned || result.Batch.BatchID == "" || result.Snapshot == nil {
+			t.Fatalf("VS Code %s lost source or batch identity: %+v", name, result)
+		}
+	}
+	if _, exists := deleted.Snapshot.Entries["vscode_saved.go"]; exists {
+		t.Fatal("VS Code delete did not remove the canonical path")
+	}
+	return evidenceFor("VS03-A17", deleted.Snapshot.RootTreeID, "batch:"+agent.Batch.BatchID, "source:"+agent.Batch.Source, "duplicate:"+duplicate.Snapshot.SnapshotID, "operations:create-upsert-rename-delete")
+}
+
+// RunA18 proves the coordinator watcher captures stable repository bytes,
+// recognizes a measured rename, ignores excluded paths, and reports a
+// repository identity transition as reconciliation.
+func RunA18(t *testing.T) Evidence {
+	t.Helper()
+	root := t.TempDir()
+	original := []byte("package service\nfunc Submit() {}\n")
+	if err := os.WriteFile(filepath.Join(root, "service.go"), original, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	srv, err := flowview.NewServer(flowview.Config{RepoRoot: root, Port: 0, AuthToken: "vs03-a18", WorkspaceWatchInterval: 10 * time.Millisecond})
+	if err != nil {
+		t.Fatal(err)
+	}
+	srv.Start()
+	defer func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+		defer cancel()
+		if err := srv.Shutdown(ctx); err != nil {
+			t.Errorf("shutdown watcher fixture: %v", err)
+		}
+	}()
+	waitHead := func(predicate func(*workspace.WorkspaceSnapshot) bool) *workspace.WorkspaceSnapshot {
+		t.Helper()
+		deadline := time.Now().Add(2 * time.Second)
+		for time.Now().Before(deadline) {
+			if head := srv.SnapshotEngine().LiveHead(); head != nil && predicate(head) {
+				return head
+			}
+			time.Sleep(10 * time.Millisecond)
+		}
+		t.Fatal("coordinator watcher did not publish the expected snapshot")
+		return nil
+	}
+	// Let the first poll establish its comparison baseline.
+	time.Sleep(35 * time.Millisecond)
+	changed := []byte("package service\nfunc Submit() { Changed() }\n")
+	if err := os.WriteFile(filepath.Join(root, "service.go"), changed, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	changedDigest := sha256.Sum256(changed)
+	head := waitHead(func(snapshot *workspace.WorkspaceSnapshot) bool {
+		entry, ok := snapshot.Entries["service.go"]
+		return ok && entry.ContentID == hex.EncodeToString(changedDigest[:])
+	})
+	if err := os.Rename(filepath.Join(root, "service.go"), filepath.Join(root, "renamed.go")); err != nil {
+		t.Fatal(err)
+	}
+	head = waitHead(func(snapshot *workspace.WorkspaceSnapshot) bool {
+		_, oldExists := snapshot.Entries["service.go"]
+		entry, newExists := snapshot.Entries["renamed.go"]
+		return !oldExists && newExists && entry.ContentID == hex.EncodeToString(changedDigest[:])
+	})
+	if err := os.MkdirAll(filepath.Join(root, "node_modules", "ignored"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "node_modules", "ignored", "ignored.go"), []byte("package ignored\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	outside := filepath.Join(t.TempDir(), "outside.go")
+	if err := os.WriteFile(outside, []byte("package outside\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	time.Sleep(40 * time.Millisecond)
+	head = srv.SnapshotEngine().LiveHead()
+	if _, exists := head.Entries["node_modules/ignored/ignored.go"]; exists {
+		t.Fatal("ignored source path entered the workspace ingress")
+	}
+	if _, exists := head.Entries[outside]; exists {
+		t.Fatal("outside path entered the workspace ingress")
+	}
+
+	identityRoot := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(identityRoot, ".git"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(identityRoot, ".git", "HEAD"), []byte("ref: refs/heads/main\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(identityRoot, "main.go"), []byte("package main\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	watchCtx, cancelWatch := context.WithCancel(context.Background())
+	defer cancelWatch()
+	signals := make(chan watch.ChangeSet, 2)
+	go func() {
+		_ = watch.WatchChanges(watchCtx, identityRoot, 10*time.Millisecond, func(change watch.ChangeSet) { signals <- change })
+	}()
+	time.Sleep(35 * time.Millisecond)
+	if err := os.WriteFile(filepath.Join(identityRoot, ".git", "HEAD"), []byte("ref: refs/heads/feature\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case signal := <-signals:
+		if !signal.Reconcile || signal.Reason != "repository identity changed" {
+			t.Fatalf("branch/worktree transition was not a reconciliation signal: %+v", signal)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("watcher did not report repository identity reconciliation")
+	}
+	return evidenceFor("VS03-A18", head.RootTreeID, "capture:stat-read-stat", "rename:measured", "ignored:excluded", "reconcile:repository-identity")
+}
+
+// RunA19 publishes one complete persisted proof-backed Live view and retrieves
+// it by the exact event identities through the production HTTP endpoint.
+func RunA19(t *testing.T) Evidence {
+	t.Helper()
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "service.go"), []byte("package service\nfunc Submit() {}\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	srv, err := flowview.NewServer(flowview.Config{RepoRoot: root, Port: 0, AuthToken: "vs03-a19"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := srv.SubmitVersionedChanges(context.Background(), workspace.VersionedChangeRequest{BatchID: "seed-a19", Source: workspace.SourceWatcherFallback, Changes: []workspace.VersionedChange{{Kind: workspace.ChangeUpsert, Path: "service.go", Content: []byte("package service\nfunc Submit() {}\n")}}}); err != nil {
+		t.Fatal(err)
+	}
+	defer func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+		defer cancel()
+		if err := srv.Shutdown(ctx); err != nil {
+			t.Errorf("shutdown generation fixture: %v", err)
+		}
+	}()
+	head := srv.SnapshotEngine().LiveHead()
+	if head == nil {
+		t.Fatal("generation fixture has no live head")
+	}
+	generationID := "generation-vs03-a19"
+	mapIR := candidateMap(head.ComputedBasisID, head.SnapshotID, generationID, 1, "Q3")
+	mapIR.ValidatedAgainstSnapshotID = head.SnapshotID
+	mapIR.Basis.RepositoryID = head.RepositoryID
+	mapIR.Basis.WorktreeID = head.WorktreeID
+	mapIR.Basis.WorkspaceEpoch = head.WorkspaceEpoch
+	mapIR.Basis.ComputedWorkspaceSnapshotID = head.SnapshotID
+	mapIR.Basis.ComputedBasisID = head.ComputedBasisID
+	mapIR.Basis.SnapshotTreeID = head.RootTreeID
+	mapIR.Basis.DependencyFingerprint = head.DependencyFingerprint
+	mapIR.Basis.ConfigurationFingerprint = head.ConfigurationFingerprint
+	tx := publicationTransaction(generationID, head.SnapshotID, head.ComputedBasisID, nil, true)
+	tx.Event = generationPublishedEvent(3, head.ComputedBasisID, head.SnapshotID, generationID)
+	replaceSemanticMapArtifact(&tx, mapIR)
+	tx.Manifest.WorkspaceEpoch = head.WorkspaceEpoch
+	tx.Manifest.ComputedSnapshotID = head.SnapshotID
+	tx.Manifest.ValidatedAgainstSnapshotID = head.SnapshotID
+	tx.Pointer.WorkspaceEpoch = head.WorkspaceEpoch
+	tx.Pointer.RepositoryID = head.RepositoryID
+	tx.Pointer.WorktreeID = head.WorktreeID
+	liveView, err := json.Marshal(map[string]any{
+		"schemaId": "codeflow.live-generation-view", "schemaVersion": 1,
+		"generationId": generationID, "computedBasisId": head.ComputedBasisID, "snapshotId": head.SnapshotID,
+		"flowContexts": map[string]any{},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	liveViewRef := storage.ArtifactCASRef(liveView)
+	tx.Manifest.ArtifactRefs.LiveView = liveViewRef
+	tx.Artifacts[liveViewRef] = liveView
+	bindAuthoritativeHead(&tx, srv.SnapshotEngine(), head.SnapshotID)
+	store := storage.New(root)
+	if _, err := store.PublishGeneration(tx); err != nil {
+		t.Fatalf("publish generation-bound Live view: %v", err)
+	}
+	srv.Start()
+	exactURL := strings.Replace(srv.URL(), "/?token=", "/api/live/generation?generationId="+generationID+"&computedBasisId="+head.ComputedBasisID+"&snapshotId="+head.SnapshotID+"&token=", 1)
+	response, err := http.Get(exactURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if response.StatusCode != http.StatusOK {
+		message, _ := io.ReadAll(response.Body)
+		_ = response.Body.Close()
+		t.Fatalf("exact generation endpoint returned %d: %s", response.StatusCode, message)
+	}
+	var exact struct {
+		SemanticMap   semantic.SemanticMapIR          `json:"semanticMap"`
+		Projection    semantic.FlowViewProjection     `json:"projection"`
+		ProofManifest storage.GenerationProofManifest `json:"proofManifest"`
+		ViewState     map[string]any                  `json:"viewState"`
+	}
+	if err := json.NewDecoder(response.Body).Decode(&exact); err != nil {
+		_ = response.Body.Close()
+		t.Fatal(err)
+	}
+	_ = response.Body.Close()
+	if exact.SemanticMap.GenerationID != generationID || exact.ProofManifest.ComputedBasisID != head.ComputedBasisID || exact.Projection.GenerationID != generationID {
+		t.Fatalf("generation endpoint mixed persisted identities: %+v", exact)
+	}
+	mismatchURL := strings.Replace(exactURL, "snapshotId="+head.SnapshotID, "snapshotId=snapshot-mismatch", 1)
+	mismatch, err := http.Get(mismatchURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var mismatchBody map[string]any
+	_ = json.NewDecoder(mismatch.Body).Decode(&mismatchBody)
+	_ = mismatch.Body.Close()
+	if mismatch.StatusCode != http.StatusConflict || mismatchBody["code"] != "generation_unavailable" {
+		t.Fatalf("proof mismatch did not fail closed: status=%d body=%v", mismatch.StatusCode, mismatchBody)
+	}
+	eventStart := strings.Index(flowview.LiveSemanticHTML, "async function receivePublishedGeneration")
+	if eventStart < 0 {
+		t.Fatal("Live published-event handler was not found")
+	}
+	eventEnd := strings.Index(flowview.LiveSemanticHTML[eventStart:], "function startLive")
+	if eventEnd < 0 {
+		t.Fatal("Live published-event handler boundary was not found")
+	}
+	eventHandler := flowview.LiveSemanticHTML[eventStart : eventStart+eventEnd]
+	if !strings.Contains(eventHandler, "/api/live/generation?") || strings.Contains(eventHandler, "/api/task/view") || strings.Contains(eventHandler, "query(") {
+		t.Fatal("published-event rendering is not bound exclusively to the persisted generation endpoint")
+	}
+	return evidenceFor("VS03-A19", head.RootTreeID, "generation:"+generationID, "proof:"+tx.Manifest.ProofID, "live-view:"+liveViewRef, "mismatch:generation-unavailable")
+}
+
+// RunA20 binds the Change Pulse to verified semantic facets and checks the
+// production selection transition plus explicit retain/apply UI states.
+func RunA20(t *testing.T) Evidence {
+	t.Helper()
+	baseline := candidateMap("basis-vs03-a20-before", "snapshot-vs03-a20-before", "generation-vs03-a20-before", 1, "Q3")
+	current := candidateMap("basis-vs03-a20-after", "snapshot-vs03-a20-after", "generation-vs03-a20-after", 2, "Q3")
+	baseline.Task.TaskID, current.Task.TaskID = "task-vs03-a20", "task-vs03-a20"
+	baseline.Basis.RepositoryID, current.Basis.RepositoryID = "repo-vs03-a20", "repo-vs03-a20"
+	baseline.Basis.WorkspaceEpoch, current.Basis.WorkspaceEpoch = 7, 7
+	baseline.Basis.SnapshotTreeID, current.Basis.SnapshotTreeID = "tree-vs03-a20", "tree-vs03-a20"
+	baseBranch, currentBranch := "amount > 0", "amount >= 100"
+	baseEffect, currentEffect := "charge gateway", "authorize gateway"
+	baseline.Steps[0].Branch = &baseBranch
+	baseline.Steps[0].StateDelta = &fusion.StateDelta{Before: "pending", After: "paid"}
+	baseline.Steps[0].SideEffect = &baseEffect
+	baseline.Steps[0].Rules = []string{"charge"}
+	current.Steps[0].Branch = &currentBranch
+	current.Steps[0].StateDelta = &fusion.StateDelta{Before: "pending", After: "authorized"}
+	current.Steps[0].SideEffect = &currentEffect
+	current.Steps[0].Rules = []string{"authorize then charge"}
+	baseline.Edges = []semantic.SemanticEdge{{FromStepID: "step-submit", ToStepID: "step-submit", Kind: "calls", ResolutionStatus: "resolved"}}
+	current.Edges = []semantic.SemanticEdge{{FromStepID: "step-submit", ToStepID: "step-submit", Kind: "dispatches", ResolutionStatus: "resolved"}}
+	delta, err := semantic.ComputeSemanticDelta("comparison-vs03-a20", baseline, current)
+	if err != nil {
+		t.Fatal(err)
+	}
+	facets := map[string]bool{}
+	for _, change := range delta.Changes {
+		if change.TargetStepID == "" {
+			t.Fatalf("semantic change has no affected step: %+v", change)
+		}
+		for _, facet := range change.StructuralChanges {
+			facets[facet] = true
+		}
+	}
+	for _, required := range []string{"behavior changed", "branch changed", "state changed", "external effect changed", "call relation changed"} {
+		if !facets[required] {
+			t.Fatalf("verified Semantic Delta omitted %q: %+v", required, delta.Changes)
+		}
+	}
+	previous := flowview.LogicalViewSelection{SelectedStepID: "step-old", SelectedStructuralIdentity: "service.go#Submit:entry", ScrollAnchor: &flowview.LogicalScrollAnchor{StepID: "step-old", StructuralIdentity: "service.go#Submit:entry", OffsetPx: 18}}
+	preserved := flowview.PreserveLogicalViewSelection(previous, []flowview.ViewStepIdentity{{StepID: "step-new", StructuralIdentity: "service.go#Submit:entry"}})
+	if !preserved.Preserved || preserved.SelectedStepID != "step-new" || preserved.ScrollAnchor == nil || preserved.ScrollAnchor.OffsetPx != 18 {
+		t.Fatalf("compatible selection/read position was not preserved: %+v", preserved)
+	}
+	removed := flowview.PreserveLogicalViewSelection(previous, []flowview.ViewStepIdentity{{StepID: "different", StructuralIdentity: "different"}})
+	if !removed.IdentityLoss || removed.Preserved {
+		t.Fatalf("removed selected identity did not retain an explicit loss state: %+v", removed)
+	}
+	html := flowview.LiveSemanticHTML
+	for _, required := range []string{"added_behavior", "changed_rule", "removed_behavior", "evidence_updated", "structural_only", "ambiguous_move", "data-delta-step", "읽기 고정 중이라 이전 흐름을 유지합니다", "선택한 단계가 새 흐름에서 제거되었습니다", "최신 변경을 확인하지 못했습니다. 이전 코드 표시 중", "연결 끊김 · 최신 변경을 확인할 수 없습니다"} {
+		if !strings.Contains(html, required) {
+			t.Fatalf("Live Change Pulse is missing %q", required)
+		}
+	}
+	for _, forbidden := range []string{"analysisLagMs", "pendingRevisions", "workspaceEpoch"} {
+		if strings.Contains(html, forbidden) {
+			t.Fatalf("Live primary view exposes compiler telemetry %q", forbidden)
+		}
+	}
+	return evidenceFor("VS03-A20", current.Basis.SnapshotTreeID, "delta:"+delta.ComparisonID, "selection:preserved", "identity-loss:explicit", "pulse:semantic-only")
+}
+
 type publicationFixtureData struct {
 	input    semantic.PublicationInput
 	snapshot *workspace.WorkspaceSnapshot
@@ -1987,13 +2428,13 @@ func canonicalProofArtifactBundle(generation, snapshot, basis string, mapIR *sem
 	observation := rflscvs02.Observation{Kind: "negative_lookup", Path: "service.go", ValueHash: "negative-vs03", Measured: true}
 	readSet := rflscvs02.AnalysisReadSet{
 		SchemaID: rflscvs02.ReadSetSchemaID, SchemaVersion: rflscvs02.SchemaVersion,
-		ReadSetID: "readset-vs03", ComputedBasisID: basis, WorkspaceEpoch: 1,
+		ReadSetID: "readset-vs03", ComputedBasisID: basis, WorkspaceEpoch: mapIR.Basis.WorkspaceEpoch,
 		Documents: []rflscvs02.ReadDocument{}, NegativeObservations: []rflscvs02.Observation{observation},
 		MembershipObservations: []rflscvs02.Observation{}, DependencyFrontiers: []rflscvs02.Observation{},
 	}
 	closure := rflscvs02.ObservationClosure{
 		SchemaID: rflscvs02.ClosureSchemaID, SchemaVersion: rflscvs02.SchemaVersion,
-		ClosureID: "closure-vs03", AnalysisReadSetID: readSet.ReadSetID, ComputedBasisID: basis, WorkspaceEpoch: 1,
+		ClosureID: "closure-vs03", AnalysisReadSetID: readSet.ReadSetID, ComputedBasisID: basis, WorkspaceEpoch: mapIR.Basis.WorkspaceEpoch,
 		Status: "closed", NegativeObservations: []rflscvs02.Observation{observation},
 		MembershipObservations: []rflscvs02.Observation{}, DependencyFrontiers: []rflscvs02.Observation{},
 		RequiredObservations: []string{"negative_lookup"}, MeasuredObservations: []string{"negative_lookup"},
@@ -2002,7 +2443,7 @@ func canonicalProofArtifactBundle(generation, snapshot, basis string, mapIR *sem
 	result := rflscvs02.Result{
 		SchemaID: rflscvs02.AnalyzerResultSchemaID, SchemaVersion: rflscvs02.SchemaVersion,
 		RequestID: "request-vs03-" + generation, Operation: "detect", AdapterVersion: "adapter-vs03/2", AnalyzerRevision: "analyzer-vs03/2",
-		WorkspaceEpoch: 1, ComputedBasisID: basis, SnapshotID: snapshot, SnapshotTreeDigest: mapIR.Basis.SnapshotTreeID,
+		WorkspaceEpoch: mapIR.Basis.WorkspaceEpoch, ComputedBasisID: basis, SnapshotID: snapshot, SnapshotTreeDigest: mapIR.Basis.SnapshotTreeID,
 		DependencyFingerprint: mapIR.Basis.DependencyFingerprint, ReadSet: readSet, Closure: closure,
 		Capability: rflscvs02.CapabilityProfile{Adapter: "adapter-vs03", AdapterVersion: "adapter-vs03/2", AnalyzerRevision: "analyzer-vs03/2", Features: []string{"snapshot_bytes"}},
 		Coverage:   rflscvs02.Coverage{IncludedSourceRoots: []string{"."}, Measured: true}, Diagnostics: []rflscvs02.Diagnostic{},

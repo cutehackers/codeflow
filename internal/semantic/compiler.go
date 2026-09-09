@@ -264,7 +264,7 @@ func CompileDeterministicFeatureMap(target *ResolvedTarget, intent *TaskIntent, 
 		BoundaryTargets:            boundaryTargets,
 		Evidence:                   evidence,
 		Unknowns:                   unknowns,
-		Coverage:                   &CoverageBoundary{IncludedSourceRoots: sourceRoots(semanticSteps), ExcludedReasons: []string{}},
+		Coverage:                   &CoverageBoundary{IncludedSourceRoots: append([]string{}, sliceResult.ValidatedResult.Coverage.IncludedSourceRoots...), ExcludedReasons: append([]string{}, sliceResult.ValidatedResult.Coverage.ExcludedReasons...)},
 	}
 	if len(criteria) > 0 {
 		mapIR.RequirementAlignment = ComputeRequirementAlignment(criteria, mapIR, AlignmentOptions{})

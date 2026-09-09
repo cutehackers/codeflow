@@ -4,11 +4,15 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"io"
+	"net/http"
+	"net/url"
 	"path/filepath"
 	"runtime"
 	"strings"
 	"testing"
 
+	"codeflow/internal/flowview"
 	"codeflow/internal/mcp"
 )
 
@@ -170,6 +174,36 @@ func TestVS02A7_MCPSemanticTools(t *testing.T) {
 	}
 	if _, ok := payload["projection"]; !ok {
 		t.Errorf("missing projection in query_task_view response: %s", resText)
+	}
+	flowView, ok := payload["flowView"].(map[string]any)
+	if !ok {
+		t.Fatalf("missing Live Semantic Map FlowView response: %s", resText)
+	}
+	if flowView["status"] != "ready" || flowView["mode"] != "live_semantic_map" || flowView["autoOpen"] != true {
+		t.Errorf("unexpected Live Semantic Map FlowView state: %+v", flowView)
+	}
+	flowViewURL, _ := flowView["url"].(string)
+	if flowView["template"] != flowview.LiveSemanticTemplate {
+		t.Fatalf("MCP must identify the designated Live template: %+v", flowView)
+	}
+	parsedViewURL, parseErr := url.Parse(flowViewURL)
+	if parseErr != nil || parsedViewURL.Path != "/live" {
+		t.Fatalf("feature request must open the separate Live screen: %v", parseErr)
+	}
+	if !strings.Contains(flowViewURL, "live=1") || !strings.Contains(flowViewURL, "entrySymbol=app%2Fpage.tsx%23HomePage.handleQuickCheckout") {
+		t.Errorf("FlowView URL does not restore the resolved live request: %q", flowViewURL)
+	}
+	viewResponse, err := http.Get(flowViewURL)
+	if err != nil {
+		t.Fatalf("MCP returned an unreachable Live screen: %v", err)
+	}
+	viewBody, readErr := io.ReadAll(viewResponse.Body)
+	viewResponse.Body.Close()
+	if string(viewBody) != flowview.LiveSemanticHTML {
+		t.Fatal("MCP URL must serve the complete designated product template")
+	}
+	if readErr != nil || viewResponse.StatusCode != http.StatusOK || !bytes.Contains(viewBody, []byte(`data-view="live-semantic-map"`)) {
+		t.Fatalf("MCP URL did not serve the Live Semantic Map: status %d, read error %v", viewResponse.StatusCode, readErr)
 	}
 
 	// 5. Test get_current_answer tool with unambiguous entry

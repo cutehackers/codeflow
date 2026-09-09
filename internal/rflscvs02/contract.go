@@ -27,8 +27,11 @@ const (
 	CapabilityMatrixSchemaID = "https://codeflow.local/schemas/rflsc.adapter-capability-matrix.v1.schema.json"
 	DiagnosticSchemaID       = "https://codeflow.local/schemas/rflsc.adapter-diagnostic.v2.schema.json"
 	SchemaVersion            = 2
-	DefaultMaxMessageBytes   = int64(1 << 20)
-	MaxDiagnosticBytes       = 512
+	// This must match the core transport and every production language adapter.
+	// A smaller adapter declaration rejects the connection during capability
+	// negotiation before Live Semantic Map analysis can start.
+	DefaultMaxMessageBytes = int64(128 << 20)
+	MaxDiagnosticBytes     = 512
 )
 
 // SnapshotDocument is a defensive copy of one document in the selected VS-01
@@ -943,6 +946,7 @@ type InitializeCapabilityEvidence struct {
 	BatchAck          bool
 	SnapshotOverlay   bool
 	AnalysisMetadata  bool
+	FlowContext       bool
 	MaxMessageBytes   int64
 	ConformancePassed bool
 	// ConformanceProbeID and ConformanceObservations are populated only by an

@@ -441,18 +441,18 @@ func (g *PublicationGate) EvaluateSettlement(mapIR *SemanticMapIR) SettlementEva
 		return SettlementEvaluation{Gate: "pending", BlockingObligationRefs: []string{}}
 	}
 
+	blockingRefs := []string{}
+	for _, ob := range mapIR.Quality.CriticalObligations {
+		if ob.Required && ob.Status != "verified" {
+			blockingRefs = append(blockingRefs, ob.ObligationID)
+		}
+	}
+
 	// Q1 or Q2 cannot pass settlement regardless of verified obligations (VS04-A5, Raw §18.1)
 	if mapIR.Quality.Stage != "Q3" && mapIR.Quality.Stage != "Q4" {
 		return SettlementEvaluation{
 			Gate:                   "pending",
-			BlockingObligationRefs: []string{},
-		}
-	}
-
-	var blockingRefs []string
-	for _, ob := range mapIR.Quality.CriticalObligations {
-		if ob.Required && ob.Status != "verified" {
-			blockingRefs = append(blockingRefs, ob.ObligationID)
+			BlockingObligationRefs: blockingRefs,
 		}
 	}
 

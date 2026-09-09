@@ -59,6 +59,7 @@
         "semanticMap": { "$ref": "#/$defs/casRef" },
         "semanticDelta": { "$ref": "#/$defs/casRef" },
         "evidenceIndex": { "$ref": "#/$defs/casRef" },
+        "liveView": { "$ref": "#/$defs/casRef" },
         "projection": { "$ref": "#/$defs/casRef" },
         "analysisReadSet": { "$ref": "#/$defs/casRef" },
         "observationClosure": { "$ref": "#/$defs/casRef" },

@@ -6,6 +6,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"codeflow/internal/workspace"
@@ -251,6 +252,26 @@ func TestVS02A09BoundIsRejectedBeforeRequestAllocation(t *testing.T) {
 	request.MaxMessageBytes = 8
 	if _, err := MarshalBoundedRequest(request); err == nil {
 		t.Fatal("oversize request was accepted")
+	}
+}
+
+func TestVS02A09DefaultBoundAcceptsTwelveMiBSnapshot(t *testing.T) {
+	input, err := SnapshotInputFromContent(
+		"snapshot-large", "basis-large", "tree-large", "config-large", "dependency-large", 1,
+		map[string]string{"src/large.go": strings.Repeat("x", 12<<20)},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	request, err := NewAnalyzerRequest("req-large", "harvest_candidates", input, nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if request.MaxMessageBytes != 128<<20 {
+		t.Fatalf("default message bound = %d, want %d", request.MaxMessageBytes, 128<<20)
+	}
+	if _, err := MarshalBoundedRequest(request); err != nil {
+		t.Fatalf("12 MiB snapshot was rejected by the default bound: %v", err)
 	}
 }
 

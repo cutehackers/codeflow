@@ -29,7 +29,7 @@ const (
 	protocolVersion         = 1
 	adapterVersion          = "0.4.0"
 	analyzerVersion         = "go-structural/0.4.0"
-	maxMessageBytes         = int64(1 << 20)
+	maxMessageBytes         = int64(128 << 20)
 	maxHeaderBytes          = 8 << 10
 	analysisSchemaID        = "https://codeflow.local/schemas/adapter-analysis.schema.json"
 	readSetSchemaID         = "https://codeflow.local/schemas/analysis-read-set.schema.json"
@@ -223,6 +223,8 @@ func analyzerResultV2(requestID, operation string, params, legacy map[string]any
 		"measuredObservations":   closure["measuredObservations"],
 		"incompleteReasons":      closure["incompleteReasons"],
 	}
+	closureBytes, _ := json.Marshal(map[string]any{"readSet": readSetV2, "closure": closureV2})
+	closureV2["closureDigest"] = digest(closureBytes)
 	payload := make(map[string]any, len(legacy))
 	for key, value := range legacy {
 		switch key {
@@ -632,6 +634,9 @@ func analyzeV2(operation string, params map[string]any) (map[string]any, error) 
 		if len(parts) != 2 {
 			return nil, fmt.Errorf("invalid entrySymbolPath")
 		}
+		if !containsString(tracker.enumerateGoFiles(), parts[0]) {
+			return nil, fmt.Errorf("entry source file is outside the captured source set: %s", parts[0])
+		}
 		content, ok := tracker.read(parts[0])
 		if !ok {
 			return nil, fmt.Errorf("entry source file not found: %s", parts[0])
@@ -990,7 +995,11 @@ func (s *server) notification(method string, params map[string]any) {
 	s.write(map[string]any{"jsonrpc": jsonRPCVersion, "method": method, "params": params})
 }
 func (s *server) write(value map[string]any) {
-	body := boundedResponseBody(value, maxMessageBytes)
+	s.writeWithLimit(value, maxMessageBytes)
+}
+
+func (s *server) writeWithLimit(value map[string]any, limit int64) {
+	body := boundedResponseBody(value, limit)
 	if body == nil {
 		return
 	}

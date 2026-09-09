@@ -41,13 +41,13 @@ await expect(page.locator('#approval-history-status')).toHaveText('No durable ap
 await expect(page.locator('#approval-history-freshness')).toHaveText('unknown');
 await expect(page.locator('#btn-semantic-approve')).toBeEnabled();
 const observer=await browser.newPage();await observer.goto(fixture.url);
-await observer.evaluate(payload=>{renderSemanticTaskView(payload);window.approvalNotifications=[];liveEventSource.addEventListener('approval.updated',event=>window.approvalNotifications.push({id:event.lastEventId,cursor:lastSeenEventId,envelope:JSON.parse(event.data)}));},fixture.payload);
+await observer.evaluate(payload=>{renderSemanticTaskView(payload);window.approvalNotifications=[];initLiveStream();liveEventSource.addEventListener('approval.updated',event=>window.approvalNotifications.push({id:event.lastEventId,cursor:lastSeenEventId,envelope:JSON.parse(event.data)}));},fixture.payload);
 await expect(observer.locator('#badge-connection')).toHaveText('SSE: connected');
 await expect(observer.locator('#approval-history-status')).toHaveText('No durable approval history');
 const enrichURL=new URL('/api/semantic/enrich',fixture.url);enrichURL.search=new URL(fixture.url).search;
 const otherEnrichmentResponse=await page.request.post(enrichURL.toString(),{data:{generationId:fixture.payload.enrichment.proposal.generationId,targetStepId:'step-live-delta',promptRevision:'different-browser-proposal'}});
 expect(otherEnrichmentResponse.status()).toBe(200);const otherEnrichment=await otherEnrichmentResponse.json();expect(otherEnrichment.proposal.proposalId).not.toBe(fixture.payload.enrichment.proposal.proposalId);
-const unrelatedPage=await browser.newPage();await unrelatedPage.goto(fixture.url);await unrelatedPage.evaluate(payload=>renderSemanticTaskView(payload),{...fixture.payload,enrichment:otherEnrichment});
+const unrelatedPage=await browser.newPage();await unrelatedPage.goto(fixture.url);await unrelatedPage.evaluate(payload=>{renderSemanticTaskView(payload);initLiveStream();}, {...fixture.payload,enrichment:otherEnrichment});
 await expect(unrelatedPage.locator('#approval-history-status')).toHaveText('No durable approval history');
 await expect(unrelatedPage.locator('#badge-connection')).toHaveText('SSE: connected');
 const responsePromise=page.waitForResponse(response=>response.url().includes('/api/semantic/approve')&&response.request().method()==='POST');
