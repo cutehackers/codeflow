@@ -6,7 +6,7 @@ import (
 	"testing"
 
 	"codeflow/internal/contractharness"
-	"codeflow/internal/rflscvs02"
+	"codeflow/internal/evidence"
 )
 
 func TestBuildAnalysisRequestUsesCanonicalV2Envelope(t *testing.T) {
@@ -27,10 +27,10 @@ func TestBuildAnalysisRequestUsesCanonicalV2Envelope(t *testing.T) {
 	if err := json.Unmarshal(fr.env.Params, &params); err != nil {
 		t.Fatal(err)
 	}
-	if got, want := params["schemaId"], rflscvs02.AnalyzerRequestSchemaID; got != want {
+	if got, want := params["schemaId"], evidence.AnalyzerRequestSchemaID; got != want {
 		t.Fatalf("schemaId = %v, want %v", got, want)
 	}
-	if got, want := params["schemaVersion"], float64(rflscvs02.SchemaVersion); got != want {
+	if got, want := params["schemaVersion"], float64(evidence.SchemaVersion); got != want {
 		t.Fatalf("schemaVersion = %v, want %v", got, want)
 	}
 	if got, want := params["requestId"], fr.env.ID; got != want {
@@ -67,7 +67,7 @@ func TestAnalysisResponsePassesOneCanonicalSemanticGateAndUnwrapsPayload(t *test
 		t.Fatal(err)
 	}
 	params := snapshot.Params()
-	request, err := analyzerRequestForCall("cf-gate", OpDetect, params, rflscvs02.DefaultMaxMessageBytes)
+	request, err := analyzerRequestForCall("cf-gate", OpDetect, params, evidence.DefaultMaxMessageBytes)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -77,7 +77,7 @@ func TestAnalysisResponsePassesOneCanonicalSemanticGateAndUnwrapsPayload(t *test
 		t.Fatal(err)
 	}
 	var detected detResult
-	if err := finishCall(&reply{ok: true, result: raw}, &detected, OpDetect, params, request.RequestID, rflscvs02.DefaultMaxMessageBytes); err != nil {
+	if err := finishCall(&reply{ok: true, result: raw}, &detected, OpDetect, params, request.RequestID, evidence.DefaultMaxMessageBytes); err != nil {
 		t.Fatalf("valid v2 result rejected: %v", err)
 	}
 	if detected.Language != "go" || !detected.Confident {
@@ -91,26 +91,26 @@ func TestAnalysisResponseRejectsIdentityClosureAndPayloadDrift(t *testing.T) {
 		t.Fatal(err)
 	}
 	params := snapshot.Params()
-	request, err := analyzerRequestForCall("cf-adversarial", OpDetect, params, rflscvs02.DefaultMaxMessageBytes)
+	request, err := analyzerRequestForCall("cf-adversarial", OpDetect, params, evidence.DefaultMaxMessageBytes)
 	if err != nil {
 		t.Fatal(err)
 	}
 	cases := []struct {
 		name   string
-		mutate func(*rflscvs02.Result)
+		mutate func(*evidence.Result)
 	}{
-		{"requestId", func(result *rflscvs02.Result) { result.RequestID = "cf-other" }},
-		{"analyzerRevision", func(result *rflscvs02.Result) {
+		{"requestId", func(result *evidence.Result) { result.RequestID = "cf-other" }},
+		{"analyzerRevision", func(result *evidence.Result) {
 			result.AnalyzerRevision = "analyzer-other"
 		}},
-		{"snapshotId", func(result *rflscvs02.Result) { result.SnapshotID = "snapshot-other" }},
-		{"snapshotTreeDigest", func(result *rflscvs02.Result) { result.SnapshotTreeDigest = "tree-other" }},
-		{"dependencyFingerprint", func(result *rflscvs02.Result) { result.DependencyFingerprint = "dependency-other" }},
-		{"readSetIdentity", func(result *rflscvs02.Result) { result.ReadSet.ComputedBasisID = "basis-other" }},
-		{"closureDrift", func(result *rflscvs02.Result) {
-			result.Closure.MembershipObservations = []rflscvs02.Observation{{Kind: "membership", Path: ".", Measured: true}}
+		{"snapshotId", func(result *evidence.Result) { result.SnapshotID = "snapshot-other" }},
+		{"snapshotTreeDigest", func(result *evidence.Result) { result.SnapshotTreeDigest = "tree-other" }},
+		{"dependencyFingerprint", func(result *evidence.Result) { result.DependencyFingerprint = "dependency-other" }},
+		{"readSetIdentity", func(result *evidence.Result) { result.ReadSet.ComputedBasisID = "basis-other" }},
+		{"closureDrift", func(result *evidence.Result) {
+			result.Closure.MembershipObservations = []evidence.Observation{{Kind: "membership", Path: ".", Measured: true}}
 		}},
-		{"payloadType", func(result *rflscvs02.Result) { result.Payload = json.RawMessage(`{"language":7,"confident":true}`) }},
+		{"payloadType", func(result *evidence.Result) { result.Payload = json.RawMessage(`{"language":7,"confident":true}`) }},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -120,7 +120,7 @@ func TestAnalysisResponseRejectsIdentityClosureAndPayloadDrift(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if err := finishCall(&reply{ok: true, result: raw}, nil, OpDetect, params, request.RequestID, rflscvs02.DefaultMaxMessageBytes); err == nil {
+			if err := finishCall(&reply{ok: true, result: raw}, nil, OpDetect, params, request.RequestID, evidence.DefaultMaxMessageBytes); err == nil {
 				t.Fatal("adversarial v2 result was accepted")
 			}
 		})
@@ -130,14 +130,14 @@ func TestAnalysisResponseRejectsIdentityClosureAndPayloadDrift(t *testing.T) {
 func TestAnalysisRequestRejectsIncompleteSnapshotAndRetryChangesOnlyRequestID(t *testing.T) {
 	if _, err := analyzerRequestForCall("cf-missing", OpDetect, map[string]any{
 		"snapshot": map[string]any{"computedBasisId": "basis-only", "workspaceEpoch": 1, "files": map[string]any{}},
-	}, rflscvs02.DefaultMaxMessageBytes); err == nil {
+	}, evidence.DefaultMaxMessageBytes); err == nil {
 		t.Fatal("incomplete snapshot identity was accepted")
 	}
 	snapshot, err := NewSnapshot(1, map[string]string{"main.go": "package main\n"}, "basis-retry")
 	if err != nil {
 		t.Fatal(err)
 	}
-	c := &Conn{cfg: Config{MaxMessageSizeBytes: rflscvs02.DefaultMaxMessageBytes}}
+	c := &Conn{cfg: Config{MaxMessageSizeBytes: evidence.DefaultMaxMessageBytes}}
 	first, err := c.buildRequest(OpDetect, snapshot.Params())
 	if err != nil {
 		t.Fatal(err)
@@ -165,29 +165,29 @@ func TestAnalysisRequestRejectsIncompleteSnapshotAndRetryChangesOnlyRequestID(t 
 	}
 }
 
-func validV2Result(request rflscvs02.AnalyzerRequest) rflscvs02.Result {
-	return rflscvs02.Result{
-		SchemaID: rflscvs02.AnalyzerResultSchemaID, SchemaVersion: rflscvs02.SchemaVersion,
+func validV2Result(request evidence.AnalyzerRequest) evidence.Result {
+	return evidence.Result{
+		SchemaID: evidence.AnalyzerResultSchemaID, SchemaVersion: evidence.SchemaVersion,
 		RequestID: request.RequestID, Operation: request.Operation, AdapterVersion: "adapter/test",
 		AnalyzerRevision: "analyzer/test", WorkspaceEpoch: request.Snapshot.WorkspaceEpoch,
 		ComputedBasisID: request.Snapshot.ComputedBasisID, SnapshotID: request.Snapshot.SnapshotID,
 		SnapshotTreeDigest: request.Snapshot.RootTreeID, DependencyFingerprint: request.Snapshot.DependencyFingerprint,
-		ReadSet: rflscvs02.AnalysisReadSet{
-			SchemaID: rflscvs02.ReadSetSchemaID, SchemaVersion: rflscvs02.SchemaVersion,
+		ReadSet: evidence.AnalysisReadSet{
+			SchemaID: evidence.ReadSetSchemaID, SchemaVersion: evidence.SchemaVersion,
 			ReadSetID: "readset-gate", ComputedBasisID: request.Snapshot.ComputedBasisID,
-			WorkspaceEpoch: request.Snapshot.WorkspaceEpoch, Documents: []rflscvs02.ReadDocument{},
-			NegativeObservations: []rflscvs02.Observation{}, MembershipObservations: []rflscvs02.Observation{}, DependencyFrontiers: []rflscvs02.Observation{},
+			WorkspaceEpoch: request.Snapshot.WorkspaceEpoch, Documents: []evidence.ReadDocument{},
+			NegativeObservations: []evidence.Observation{}, MembershipObservations: []evidence.Observation{}, DependencyFrontiers: []evidence.Observation{},
 		},
-		Closure: rflscvs02.ObservationClosure{
-			SchemaID: rflscvs02.ClosureSchemaID, SchemaVersion: rflscvs02.SchemaVersion,
+		Closure: evidence.ObservationClosure{
+			SchemaID: evidence.ClosureSchemaID, SchemaVersion: evidence.SchemaVersion,
 			ClosureID: "closure-gate", AnalysisReadSetID: "readset-gate",
 			ComputedBasisID: request.Snapshot.ComputedBasisID, WorkspaceEpoch: request.Snapshot.WorkspaceEpoch,
-			Status: "open", NegativeObservations: []rflscvs02.Observation{}, MembershipObservations: []rflscvs02.Observation{}, DependencyFrontiers: []rflscvs02.Observation{},
+			Status: "open", NegativeObservations: []evidence.Observation{}, MembershipObservations: []evidence.Observation{}, DependencyFrontiers: []evidence.Observation{},
 			RequiredObservations: []string{}, MeasuredObservations: []string{}, IncompleteReasons: []string{},
 		},
-		Capability:  rflscvs02.CapabilityProfile{Adapter: "go", AdapterVersion: "adapter/test", AnalyzerRevision: "analyzer/test", Features: []string{"snapshot_bytes"}},
-		Coverage:    rflscvs02.Coverage{IncludedSourceRoots: []string{"."}, Measured: true},
-		Diagnostics: []rflscvs02.Diagnostic{}, Payload: json.RawMessage(`{"language":"go","confident":true}`),
+		Capability:  evidence.CapabilityProfile{Adapter: "go", AdapterVersion: "adapter/test", AnalyzerRevision: "analyzer/test", Features: []string{"snapshot_bytes"}},
+		Coverage:    evidence.Coverage{IncludedSourceRoots: []string{"."}, Measured: true},
+		Diagnostics: []evidence.Diagnostic{}, Payload: json.RawMessage(`{"language":"go","confident":true}`),
 	}
 }
 
@@ -196,7 +196,7 @@ func TestV2SchemaRejectsUnmodeledPayload(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	request, err := analyzerRequestForCall("cf-schema", OpDetect, snapshot.Params(), rflscvs02.DefaultMaxMessageBytes)
+	request, err := analyzerRequestForCall("cf-schema", OpDetect, snapshot.Params(), evidence.DefaultMaxMessageBytes)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -206,7 +206,7 @@ func TestV2SchemaRejectsUnmodeledPayload(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := contractharness.Validate(rflscvs02.AnalyzerResultSchemaID, data); err == nil {
+	if err := contractharness.Validate(evidence.AnalyzerResultSchemaID, data); err == nil {
 		t.Fatal("unmodeled operation payload unexpectedly passed schema")
 	}
 }

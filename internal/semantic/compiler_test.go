@@ -9,7 +9,7 @@ import (
 	"testing"
 
 	"codeflow/internal/contractharness"
-	"codeflow/internal/rflscvs02"
+	"codeflow/internal/evidence"
 	"codeflow/internal/slicing"
 )
 
@@ -29,7 +29,7 @@ func strictCompileOptions(t *testing.T, payload *slicing.SlicedPayload, basis st
 		payload.Steps[i].Anchor.SpanHash = hex.EncodeToString(spanSum[:])
 	}
 	files := map[string]string{"lib/service.dart": string(data)}
-	input, err := rflscvs02.SnapshotInputFromContent("snapshot-"+basis, basis, "tree-"+basis, "", "deps-"+basis, epoch, files)
+	input, err := evidence.SnapshotInputFromContent("snapshot-"+basis, basis, "tree-"+basis, "", "deps-"+basis, epoch, files)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -37,39 +37,39 @@ func strictCompileOptions(t *testing.T, payload *slicing.SlicedPayload, basis st
 	return CompileOptions{ComputedBasisID: basis, WorkspaceEpoch: epoch, ValidatedAgainstSnapshotID: input.SnapshotID, SnapshotID: input.SnapshotID, SnapshotTreeID: input.RootTreeID, RepositoryID: "repo-test", DependencyFingerprint: input.DependencyFingerprint, AdapterVersion: result.AdapterVersion, AnalyzerRevision: result.AnalyzerRevision, AnalysisReadSetID: result.ReadSet.ReadSetID, CausalObservationClosureID: result.Closure.ClosureID, SnapshotFiles: files, SnapshotInput: &input}
 }
 
-func attachValidatedVS02Result(t *testing.T, payload *slicing.SlicedPayload, input rflscvs02.SnapshotInput, roots []string) rflscvs02.Result {
+func attachValidatedVS02Result(t *testing.T, payload *slicing.SlicedPayload, input evidence.SnapshotInput, roots []string) evidence.Result {
 	t.Helper()
 	payloadBytes, err := json.Marshal(payload)
 	if err != nil {
 		t.Fatal(err)
 	}
-	documents := make([]rflscvs02.ReadDocument, 0, len(input.Documents))
+	documents := make([]evidence.ReadDocument, 0, len(input.Documents))
 	for _, document := range input.Documents {
-		documents = append(documents, rflscvs02.ReadDocument{
+		documents = append(documents, evidence.ReadDocument{
 			Path: document.Path, DocumentRevisionID: document.RevisionID, ContentID: document.ContentID,
 			ContentHash: document.ContentID, DocumentVersion: document.DocumentVersion, ByteLength: document.ByteLength,
 		})
 	}
-	negative := rflscvs02.Observation{Kind: "negative_lookup", Path: "missing.config", Detail: "not found", Measured: true}
-	membership := rflscvs02.Observation{Kind: "membership", Path: ".", ValueHash: "membership-test", Measured: true}
-	frontier := rflscvs02.Observation{Kind: "dependency_frontier", Path: "dependencies.lock", ValueHash: "frontier-test", Measured: true}
-	readSet := rflscvs02.AnalysisReadSet{
-		SchemaID: rflscvs02.ReadSetSchemaID, SchemaVersion: rflscvs02.SchemaVersion,
+	negative := evidence.Observation{Kind: "negative_lookup", Path: "missing.config", Detail: "not found", Measured: true}
+	membership := evidence.Observation{Kind: "membership", Path: ".", ValueHash: "membership-test", Measured: true}
+	frontier := evidence.Observation{Kind: "dependency_frontier", Path: "dependencies.lock", ValueHash: "frontier-test", Measured: true}
+	readSet := evidence.AnalysisReadSet{
+		SchemaID: evidence.ReadSetSchemaID, SchemaVersion: evidence.SchemaVersion,
 		ReadSetID: "readset-test-001", ComputedBasisID: input.ComputedBasisID, WorkspaceEpoch: input.WorkspaceEpoch,
-		Documents: documents, NegativeObservations: []rflscvs02.Observation{negative}, MembershipObservations: []rflscvs02.Observation{membership}, DependencyFrontiers: []rflscvs02.Observation{frontier},
+		Documents: documents, NegativeObservations: []evidence.Observation{negative}, MembershipObservations: []evidence.Observation{membership}, DependencyFrontiers: []evidence.Observation{frontier},
 	}
-	closure := rflscvs02.ObservationClosure{
-		SchemaID: rflscvs02.ClosureSchemaID, SchemaVersion: rflscvs02.SchemaVersion,
+	closure := evidence.ObservationClosure{
+		SchemaID: evidence.ClosureSchemaID, SchemaVersion: evidence.SchemaVersion,
 		ClosureID: "closure-test-001", AnalysisReadSetID: readSet.ReadSetID, ComputedBasisID: input.ComputedBasisID, WorkspaceEpoch: input.WorkspaceEpoch,
-		Status: "closed", NegativeObservations: []rflscvs02.Observation{negative}, MembershipObservations: []rflscvs02.Observation{membership}, DependencyFrontiers: []rflscvs02.Observation{frontier},
+		Status: "closed", NegativeObservations: []evidence.Observation{negative}, MembershipObservations: []evidence.Observation{membership}, DependencyFrontiers: []evidence.Observation{frontier},
 		RequiredObservations: []string{"negative_lookup", "membership", "dependency_frontier"}, MeasuredObservations: []string{"negative_lookup", "membership", "dependency_frontier"},
 	}
-	result := rflscvs02.Result{
-		SchemaID: rflscvs02.AnalyzerResultSchemaID, SchemaVersion: rflscvs02.SchemaVersion, RequestID: "request-test-001", Operation: "slice",
+	result := evidence.Result{
+		SchemaID: evidence.AnalyzerResultSchemaID, SchemaVersion: evidence.SchemaVersion, RequestID: "request-test-001", Operation: "slice",
 		AdapterVersion: "test-adapter/1", AnalyzerRevision: "test-analyzer/1", WorkspaceEpoch: input.WorkspaceEpoch,
 		ComputedBasisID: input.ComputedBasisID, SnapshotID: input.SnapshotID, SnapshotTreeDigest: input.RootTreeID, DependencyFingerprint: input.DependencyFingerprint,
-		ReadSet: readSet, Closure: closure, Capability: rflscvs02.CapabilityProfile{Adapter: "test", AdapterVersion: "test-adapter/1", AnalyzerRevision: "test-analyzer/1", Features: []string{"snapshot_bytes"}},
-		Coverage: rflscvs02.Coverage{IncludedSourceRoots: append([]string(nil), roots...), Measured: true}, Diagnostics: []rflscvs02.Diagnostic{}, Payload: payloadBytes,
+		ReadSet: readSet, Closure: closure, Capability: evidence.CapabilityProfile{Adapter: "test", AdapterVersion: "test-adapter/1", AnalyzerRevision: "test-analyzer/1", Features: []string{"snapshot_bytes"}},
+		Coverage: evidence.Coverage{IncludedSourceRoots: append([]string(nil), roots...), Measured: true}, Diagnostics: []evidence.Diagnostic{}, Payload: payloadBytes,
 	}
 	if err := payload.BindValidatedResult(result); err != nil {
 		t.Fatal(err)

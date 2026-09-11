@@ -10,7 +10,7 @@ import (
 	"strings"
 	"testing"
 
-	"codeflow/internal/releaseartifact"
+	"codeflow/internal/evidence"
 )
 
 func TestRFLSCR2VS10_A01(t *testing.T) {
@@ -1137,7 +1137,7 @@ func sealReleaseInput(input *ReleaseEvaluationInput) {
 }
 
 func mustReleaseArtifactRef(value any) string {
-	ref, err := releaseartifact.Ref(value)
+	ref, err := evidence.Ref(value)
 	if err != nil {
 		panic(err)
 	}

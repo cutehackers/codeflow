@@ -17,7 +17,6 @@ import (
 
 	"codeflow/internal/contractharness"
 	"codeflow/internal/protocol"
-	"codeflow/internal/rflscvs06"
 	oneshootRuntime "codeflow/internal/runtime"
 	"codeflow/internal/secret"
 	"codeflow/internal/semantic"
@@ -97,7 +96,7 @@ type failureProofSelection struct {
 type failureHTTPInput struct {
 	Query          semantic.FailureQueryV2
 	Runtime        failureRuntimeInput
-	RuntimeConsent *rflscvs06.RuntimeConsent
+	RuntimeConsent *oneshootRuntime.RuntimeConsent
 }
 
 type failureRuntimeInput struct {
@@ -142,7 +141,7 @@ func (e *failureHTTPDisclosureError) failureDisclosure() map[string]any {
 	return e.disclosure
 }
 
-func failureHTTPBlockedWithConsent(message string, cause error, consent *rflscvs06.RuntimeConsent) error {
+func failureHTTPBlockedWithConsent(message string, cause error, consent *oneshootRuntime.RuntimeConsent) error {
 	disclosure := map[string]any{}
 	if consent != nil {
 		disclosure = map[string]any{
@@ -201,7 +200,7 @@ func (s *Server) handleFailureV2(w http.ResponseWriter, r *http.Request, mode st
 
 	query := input.Query
 	var observation *semantic.RuntimeObservationV2
-	var isolation *rflscvs06.RuntimeIsolationResult
+	var isolation *oneshootRuntime.RuntimeIsolationResult
 	if mode == "incident" {
 		observation, err = s.resolveFailureObservation(r.Context(), query)
 		if err != nil {
@@ -234,7 +233,7 @@ func (s *Server) handleFailureV2(w http.ResponseWriter, r *http.Request, mode st
 				writeFailureHTTPError(w, err)
 				return
 			}
-			if isolation == nil || isolation.EvidencePromotion != rflscvs06.RuntimePromotionEligible {
+			if isolation == nil || isolation.EvidencePromotion != oneshootRuntime.RuntimePromotionEligible {
 				writeFailureHTTPError(w, errors.New("blocked: trusted_local runtime evidence is not promotion eligible"))
 				return
 			}
@@ -319,7 +318,7 @@ func parseFailureHTTPInput(r *http.Request, mode string) (failureHTTPInput, erro
 
 	input := failureHTTPInput{Query: query, Runtime: decodeFailureRuntimeInput(raw)}
 	if consentRaw, ok := raw["runtimeConsent"]; ok {
-		var consent rflscvs06.RuntimeConsent
+		var consent oneshootRuntime.RuntimeConsent
 		if err := json.Unmarshal(consentRaw, &consent); err != nil {
 			return failureHTTPInput{}, errors.New("blocked: runtime consent is not valid JSON")
 		}
@@ -633,7 +632,7 @@ func callFailureObservationStore(ctx context.Context, store any, id string) (*se
 	}
 }
 
-func (s *Server) executeTrustedLocal(ctx context.Context, selection *failureProofSelection, observation *semantic.RuntimeObservationV2, input failureHTTPInput) (*rflscvs06.RuntimeIsolationResult, error) {
+func (s *Server) executeTrustedLocal(ctx context.Context, selection *failureProofSelection, observation *semantic.RuntimeObservationV2, input failureHTTPInput) (*oneshootRuntime.RuntimeIsolationResult, error) {
 	rawConsent := input.RuntimeConsent
 	if rawConsent == nil {
 		rawConsent = cloneRuntimeConsent(s.runtimeConsent)
@@ -648,7 +647,7 @@ func (s *Server) executeTrustedLocal(ctx context.Context, selection *failureProo
 	if err := contractharness.ValidateRuntimeConsentV1(consentData); err != nil {
 		return nil, fmt.Errorf("blocked: runtime consent is not a valid RuntimeConsentV1: %w", err)
 	}
-	var consent rflscvs06.RuntimeConsent
+	var consent oneshootRuntime.RuntimeConsent
 	if err := json.Unmarshal(consentData, &consent); err != nil {
 		return nil, errors.New("blocked: runtime consent could not be decoded")
 	}
@@ -686,7 +685,7 @@ func (s *Server) executeTrustedLocal(ctx context.Context, selection *failureProo
 	if nonce != consent.Nonce {
 		return nil, blocked("runtime consent nonce does not match the execution request", nil)
 	}
-	if !reflect.DeepEqual(s.runtimeExecutionSpec, rflscvs06.RuntimeExecutionSpec{}) {
+	if !reflect.DeepEqual(s.runtimeExecutionSpec, oneshootRuntime.RuntimeExecutionSpec{}) {
 		if err := consent.Matches(s.runtimeExecutionSpec, snapshot.SnapshotID, snapshot.RootTreeID, nonce); err != nil {
 			return nil, blocked("runtime consent does not match configured command or isolation scope", err)
 		}
@@ -713,7 +712,7 @@ func (s *Server) executeTrustedLocal(ctx context.Context, selection *failureProo
 	if err := matchFailureIsolationIdentity(result.Isolation, consent, snapshot, nonce); err != nil {
 		return nil, blocked("trusted_local isolation result does not match exact consent or immutable snapshot", err)
 	}
-	if result.Isolation.EvidencePromotion != rflscvs06.RuntimePromotionEligible {
+	if result.Isolation.EvidencePromotion != oneshootRuntime.RuntimePromotionEligible {
 		return nil, blocked("trusted_local runtime evidence promotion is blocked", nil)
 	}
 	clean, err := validateAndRedactFailureIsolation(result.Isolation)
@@ -754,7 +753,7 @@ func callFailureRuntimeExecutor(ctx context.Context, executor any, request onesh
 	}
 }
 
-func validateFailureIsolationResult(result rflscvs06.RuntimeIsolationResult) error {
+func validateFailureIsolationResult(result oneshootRuntime.RuntimeIsolationResult) error {
 	data, err := json.Marshal(result)
 	if err != nil {
 		return err
@@ -765,14 +764,14 @@ func validateFailureIsolationResult(result rflscvs06.RuntimeIsolationResult) err
 	return result.Validate()
 }
 
-func matchFailureIsolationIdentity(result rflscvs06.RuntimeIsolationResult, consent rflscvs06.RuntimeConsent, snapshot protocol.Snapshot, nonce string) error {
+func matchFailureIsolationIdentity(result oneshootRuntime.RuntimeIsolationResult, consent oneshootRuntime.RuntimeConsent, snapshot protocol.Snapshot, nonce string) error {
 	if result.ConsentID != consent.ConsentID || result.ActorID != consent.ActorID || result.Nonce != nonce {
 		return errors.New("runtime isolation result consent identity differs from approved consent")
 	}
 	if result.SnapshotID != snapshot.SnapshotID || result.SnapshotTreeDigest != snapshot.RootTreeID || result.RecomputedTreeDigest != snapshot.RootTreeID {
 		return errors.New("runtime isolation result snapshot identity differs from immutable execution input")
 	}
-	if result.Command != consent.Command || !reflect.DeepEqual(result.Args, consent.Args) || result.CommandDigest != rflscvs06.CommandDigest(consent.Command, consent.Args) {
+	if result.Command != consent.Command || !reflect.DeepEqual(result.Args, consent.Args) || result.CommandDigest != oneshootRuntime.CommandDigest(consent.Command, consent.Args) {
 		return errors.New("runtime isolation result command differs from approved command")
 	}
 	if result.AccessScope != consent.AccessScope || result.IsolationScope != consent.IsolationScope {
@@ -781,29 +780,29 @@ func matchFailureIsolationIdentity(result rflscvs06.RuntimeIsolationResult, cons
 	return nil
 }
 
-func validateAndRedactFailureIsolation(result rflscvs06.RuntimeIsolationResult) (rflscvs06.RuntimeIsolationResult, error) {
+func validateAndRedactFailureIsolation(result oneshootRuntime.RuntimeIsolationResult) (oneshootRuntime.RuntimeIsolationResult, error) {
 	if err := validateFailureIsolationResult(result); err != nil {
-		return rflscvs06.RuntimeIsolationResult{}, err
+		return oneshootRuntime.RuntimeIsolationResult{}, err
 	}
 	data, err := json.Marshal(result)
 	if err != nil {
-		return rflscvs06.RuntimeIsolationResult{}, err
+		return oneshootRuntime.RuntimeIsolationResult{}, err
 	}
 	clean, _, err := secret.RedactJSON(data)
 	if err != nil {
-		return rflscvs06.RuntimeIsolationResult{}, err
+		return oneshootRuntime.RuntimeIsolationResult{}, err
 	}
-	var out rflscvs06.RuntimeIsolationResult
+	var out oneshootRuntime.RuntimeIsolationResult
 	if err := json.Unmarshal(clean, &out); err != nil {
-		return rflscvs06.RuntimeIsolationResult{}, err
+		return oneshootRuntime.RuntimeIsolationResult{}, err
 	}
 	if err := validateFailureIsolationResult(out); err != nil {
-		return rflscvs06.RuntimeIsolationResult{}, err
+		return oneshootRuntime.RuntimeIsolationResult{}, err
 	}
 	return out, nil
 }
 
-func failureResponse(trace *semantic.FailurePathTraceV2, observation *semantic.RuntimeObservationV2, isolation *rflscvs06.RuntimeIsolationResult) (any, error) {
+func failureResponse(trace *semantic.FailurePathTraceV2, observation *semantic.RuntimeObservationV2, isolation *oneshootRuntime.RuntimeIsolationResult) (any, error) {
 	cleanTrace, err := validateAndRedactFailureTrace(trace)
 	if err != nil {
 		return nil, err
@@ -997,7 +996,7 @@ func failureHTTPStatus(code string) string {
 	return "invalid"
 }
 
-func cloneRuntimeConsent(in *rflscvs06.RuntimeConsent) *rflscvs06.RuntimeConsent {
+func cloneRuntimeConsent(in *oneshootRuntime.RuntimeConsent) *oneshootRuntime.RuntimeConsent {
 	if in == nil {
 		return nil
 	}

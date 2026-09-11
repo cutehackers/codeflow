@@ -11,9 +11,8 @@ import (
 	"time"
 
 	"codeflow/internal/contractharness"
+	"codeflow/internal/evidence"
 	"codeflow/internal/fusion"
-	"codeflow/internal/rflscvs02"
-	"codeflow/internal/rflscvs06"
 	"codeflow/internal/runtime"
 	"codeflow/internal/semantic"
 	"codeflow/internal/slicing"
@@ -388,7 +387,7 @@ func TestMCPFailureV2TrustedLocalBlocksUnapprovedAndIneligiblePromotion(t *testi
 	called := false
 	executor := RuntimeOneShotExecutorFunc(func(_ context.Context, request runtime.ExecutionRequest) (runtime.ExecutionResult, error) {
 		called = true
-		return runtime.ExecutionResult{Isolation: mcpIsolationResult(request, rflscvs06.RuntimePromotionBlocked)}, nil
+		return runtime.ExecutionResult{Isolation: mcpIsolationResult(request, runtime.RuntimePromotionBlocked)}, nil
 	})
 	srv, err := NewServer(Config{
 		RepoRoot: root,
@@ -530,40 +529,40 @@ func mcpTrustedLocalObservation(query semantic.FailureQueryV2, approved bool) *s
 	}
 }
 
-func mcpRuntimeConsent(snapshotID, treeDigest, actor string) rflscvs06.RuntimeConsentV1 {
+func mcpRuntimeConsent(snapshotID, treeDigest, actor string) runtime.RuntimeConsentV1 {
 	issued := time.Now().UTC().Add(-time.Minute).Truncate(time.Second)
 	command := "fixture-runtime"
 	args := []string{"--read-only"}
-	return rflscvs06.RuntimeConsent{
-		SchemaID: rflscvs06.RuntimeConsentSchemaID, SchemaVersion: rflscvs06.RuntimeSchemaVersion,
+	return runtime.RuntimeConsent{
+		SchemaID: runtime.RuntimeConsentSchemaID, SchemaVersion: runtime.RuntimeSchemaVersion,
 		ConsentID: "consent-vs06", ActorID: actor, ApprovedBy: actor, Approved: true,
 		IssuedAt: issued.Format(time.RFC3339Nano), ExpiresAt: issued.Add(time.Hour).Format(time.RFC3339Nano),
-		Command: command, Args: args, CommandDigest: rflscvs06.CommandDigest(command, args),
-		AccessScope:    rflscvs06.RuntimeAccessScope{Source: "immutable_snapshot", Network: "none", Credentials: "none"},
-		IsolationScope: rflscvs06.RuntimeIsolationScope{Level: "trusted_local", SourceMount: "immutable_snapshot", SourcePermission: "read_only", WorkingDirectory: "isolated", WritableLayer: "disposable", RepositoryPathExposed: false},
+		Command: command, Args: args, CommandDigest: runtime.CommandDigest(command, args),
+		AccessScope:    runtime.RuntimeAccessScope{Source: "immutable_snapshot", Network: "none", Credentials: "none"},
+		IsolationScope: runtime.RuntimeIsolationScope{Level: "trusted_local", SourceMount: "immutable_snapshot", SourcePermission: "read_only", WorkingDirectory: "isolated", WritableLayer: "disposable", RepositoryPathExposed: false},
 		SnapshotID:     snapshotID, SnapshotTreeDigest: treeDigest, Nonce: "nonce-vs06-123456",
 	}
 }
 
-func mcpIsolationResult(request runtime.ExecutionRequest, promotion string) rflscvs06.RuntimeIsolationResult {
+func mcpIsolationResult(request runtime.ExecutionRequest, promotion string) runtime.RuntimeIsolationResult {
 	now := time.Now().UTC().Format(time.RFC3339Nano)
 	audit := workspace.SourceWriteAudit{CapturedSnapshotTreeDigest: request.Snapshot.RootTreeID}
-	return rflscvs06.RuntimeIsolationResult{
-		SchemaID: rflscvs06.RuntimeIsolationResultSchemaID, SchemaVersion: rflscvs06.RuntimeSchemaVersion,
+	return runtime.RuntimeIsolationResult{
+		SchemaID: runtime.RuntimeIsolationResultSchemaID, SchemaVersion: runtime.RuntimeSchemaVersion,
 		ResultAuthority: "runtime_executor", ProcessObserved: true, ExecutionID: "execution-vs06", ConsentID: request.Consent.ConsentID,
-		ActorID: request.Consent.ActorID, Nonce: request.Nonce, Status: rflscvs06.RuntimeTerminalSuccess, ResultCode: "ok",
-		Command: request.Consent.Command, Args: request.Consent.Args, CommandDigest: rflscvs06.CommandDigest(request.Consent.Command, request.Consent.Args),
+		ActorID: request.Consent.ActorID, Nonce: request.Nonce, Status: runtime.RuntimeTerminalSuccess, ResultCode: "ok",
+		Command: request.Consent.Command, Args: request.Consent.Args, CommandDigest: runtime.CommandDigest(request.Consent.Command, request.Consent.Args),
 		SnapshotID: request.Snapshot.SnapshotID, SnapshotTreeDigest: request.Snapshot.RootTreeID, RecomputedTreeDigest: request.Snapshot.RootTreeID, InputTreeVerified: true,
 		AccessScope: request.Consent.AccessScope, IsolationScope: request.Consent.IsolationScope,
-		MountPermissionEvidence: rflscvs02.MountPermissionEvidence{SourceDelivery: "protocol_snapshot_bytes", SourceMount: "not_mounted", WorkingDirectoryMode: "process_private_disposable", WorkingDirectoryPermission: "0700", ReadOnlySource: true, Disposable: true, RepositoryPathExposed: false, DependencyEnvironmentPreserved: true, CleanupVerified: true},
-		Cleanup:                 rflscvs06.RuntimeCleanupEvidence{LayerCreated: true, LayerDisposed: true, Verified: true}, SourceWriteAuditStatus: rflscvs06.RuntimeAuditClean, RepositoryPathWriteAudit: audit,
-		SourceIntegrityStatus: rflscvs06.RuntimeAuditClean, EvidencePromotion: promotion, PromotionBlockedReason: func() string {
-			if promotion == rflscvs06.RuntimePromotionBlocked {
+		MountPermissionEvidence: evidence.MountPermissionEvidence{SourceDelivery: "protocol_snapshot_bytes", SourceMount: "not_mounted", WorkingDirectoryMode: "process_private_disposable", WorkingDirectoryPermission: "0700", ReadOnlySource: true, Disposable: true, RepositoryPathExposed: false, DependencyEnvironmentPreserved: true, CleanupVerified: true},
+		Cleanup:                 runtime.RuntimeCleanupEvidence{LayerCreated: true, LayerDisposed: true, Verified: true}, SourceWriteAuditStatus: runtime.RuntimeAuditClean, RepositoryPathWriteAudit: audit,
+		SourceIntegrityStatus: runtime.RuntimeAuditClean, EvidencePromotion: promotion, PromotionBlockedReason: func() string {
+			if promotion == runtime.RuntimePromotionBlocked {
 				return "fixture intentionally blocks promotion"
 			}
 			return ""
 		}(),
-		ConcurrentWorktree: rflscvs06.RuntimeWorktreeComparison{Classification: "unchanged"}, StartedAt: now, FinishedAt: now,
+		ConcurrentWorktree: runtime.RuntimeWorktreeComparison{Classification: "unchanged"}, StartedAt: now, FinishedAt: now,
 	}
 }
 
@@ -624,16 +623,16 @@ func installMCPStaleCurrentProof(srv *Server, root string) (semantic.FailureQuer
 	return semantic.FailureQueryV2{SchemaID: semantic.FailureQuerySchemaID, SchemaVersion: semantic.FailureContractSchemaVersion, Mode: "debug", ComputedBasisID: basis, GenerationID: generation, ValidatedAgainstSnapshotID: computedSnapshot, Freshness: "current", Debug: &semantic.FailureDebugQuery{FailureEvidenceID: "missing-evidence"}}, nil
 }
 
-func mcpCurrentAnalysisArtifacts(basis, snapshot string) (rflscvs02.AnalysisReadSet, rflscvs02.ObservationClosure, rflscvs02.Result, string) {
-	negative := []rflscvs02.Observation{{Kind: "negative_lookup", Path: "test/missing.go", Measured: true}}
-	membership := []rflscvs02.Observation{{Kind: "membership", Path: "test", Measured: true}}
-	frontier := []rflscvs02.Observation{{Kind: "dependency_frontier", Path: "test/go.mod", Measured: true}}
-	readSet := rflscvs02.AnalysisReadSet{SchemaID: rflscvs02.ReadSetSchemaID, SchemaVersion: rflscvs02.SchemaVersion, ReadSetID: "readset-vs06", ComputedBasisID: basis, WorkspaceEpoch: 1, Documents: []rflscvs02.ReadDocument{}, NegativeObservations: negative, MembershipObservations: membership, DependencyFrontiers: frontier}
-	closure := rflscvs02.ObservationClosure{SchemaID: rflscvs02.ClosureSchemaID, SchemaVersion: rflscvs02.SchemaVersion, ClosureID: "closure-vs06", AnalysisReadSetID: readSet.ReadSetID, ComputedBasisID: basis, WorkspaceEpoch: 1, Status: "closed", NegativeObservations: negative, MembershipObservations: membership, DependencyFrontiers: frontier, RequiredObservations: []string{"negative_lookup", "membership", "dependency_frontier"}, MeasuredObservations: []string{"negative_lookup", "membership", "dependency_frontier"}, ClosureDigest: strings.Repeat("c", 64)}
-	capability := rflscvs02.CapabilityProfile{Adapter: "fixture-adapter", AdapterVersion: "adapter-vs06", AnalyzerRevision: "analyzer-vs06", Features: []string{"snapshot_bytes"}}
+func mcpCurrentAnalysisArtifacts(basis, snapshot string) (evidence.AnalysisReadSet, evidence.ObservationClosure, evidence.Result, string) {
+	negative := []evidence.Observation{{Kind: "negative_lookup", Path: "test/missing.go", Measured: true}}
+	membership := []evidence.Observation{{Kind: "membership", Path: "test", Measured: true}}
+	frontier := []evidence.Observation{{Kind: "dependency_frontier", Path: "test/go.mod", Measured: true}}
+	readSet := evidence.AnalysisReadSet{SchemaID: evidence.ReadSetSchemaID, SchemaVersion: evidence.SchemaVersion, ReadSetID: "readset-vs06", ComputedBasisID: basis, WorkspaceEpoch: 1, Documents: []evidence.ReadDocument{}, NegativeObservations: negative, MembershipObservations: membership, DependencyFrontiers: frontier}
+	closure := evidence.ObservationClosure{SchemaID: evidence.ClosureSchemaID, SchemaVersion: evidence.SchemaVersion, ClosureID: "closure-vs06", AnalysisReadSetID: readSet.ReadSetID, ComputedBasisID: basis, WorkspaceEpoch: 1, Status: "closed", NegativeObservations: negative, MembershipObservations: membership, DependencyFrontiers: frontier, RequiredObservations: []string{"negative_lookup", "membership", "dependency_frontier"}, MeasuredObservations: []string{"negative_lookup", "membership", "dependency_frontier"}, ClosureDigest: strings.Repeat("c", 64)}
+	capability := evidence.CapabilityProfile{Adapter: "fixture-adapter", AdapterVersion: "adapter-vs06", AnalyzerRevision: "analyzer-vs06", Features: []string{"snapshot_bytes"}}
 	capabilityData, _ := json.Marshal(capability)
 	capabilitySum := sha256.Sum256(capabilityData)
 	capabilityDigest := hex.EncodeToString(capabilitySum[:])
-	result := rflscvs02.Result{SchemaID: rflscvs02.AnalyzerResultSchemaID, SchemaVersion: rflscvs02.SchemaVersion, RequestID: "request-vs06", Operation: "detect", AdapterVersion: capability.AdapterVersion, AnalyzerRevision: capability.AnalyzerRevision, WorkspaceEpoch: 1, ComputedBasisID: basis, SnapshotID: snapshot, SnapshotTreeDigest: "tree-vs06", DependencyFingerprint: "deps-vs06", ReadSet: readSet, Closure: closure, Capability: capability, Coverage: rflscvs02.Coverage{IncludedSourceRoots: []string{"."}, Measured: true}, Diagnostics: []rflscvs02.Diagnostic{}, Payload: json.RawMessage(`{"language":"go","confident":true}`)}
+	result := evidence.Result{SchemaID: evidence.AnalyzerResultSchemaID, SchemaVersion: evidence.SchemaVersion, RequestID: "request-vs06", Operation: "detect", AdapterVersion: capability.AdapterVersion, AnalyzerRevision: capability.AnalyzerRevision, WorkspaceEpoch: 1, ComputedBasisID: basis, SnapshotID: snapshot, SnapshotTreeDigest: "tree-vs06", DependencyFingerprint: "deps-vs06", ReadSet: readSet, Closure: closure, Capability: capability, Coverage: evidence.Coverage{IncludedSourceRoots: []string{"."}, Measured: true}, Diagnostics: []evidence.Diagnostic{}, Payload: json.RawMessage(`{"language":"go","confident":true}`)}
 	return readSet, closure, result, capabilityDigest
 }

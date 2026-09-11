@@ -8,7 +8,7 @@ import (
 	"time"
 
 	"codeflow/internal/contractharness"
-	"codeflow/internal/rflscvs02"
+	"codeflow/internal/evidence"
 )
 
 // TestSupportedAdapterInitializeCapabilityMeasurements derives the capability
@@ -65,7 +65,7 @@ func TestSupportedAdapterInitializeCapabilityMeasurements(t *testing.T) {
 	if err != nil {
 		t.Fatalf("serialize capability matrix: %v", err)
 	}
-	if err := contractharness.Validate(rflscvs02.CapabilityMatrixSchemaID, raw); err != nil {
+	if err := contractharness.Validate(evidence.CapabilityMatrixSchemaID, raw); err != nil {
 		t.Fatalf("capability matrix schema validation: %v\n%s", err, raw)
 	}
 	for _, adapter := range []string{"dart", "typescript", "go"} {

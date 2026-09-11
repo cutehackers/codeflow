@@ -9,7 +9,7 @@ import (
 	"sort"
 	"strings"
 
-	"codeflow/internal/rflscvs02"
+	"codeflow/internal/evidence"
 	"codeflow/internal/workspace"
 )
 
@@ -34,33 +34,33 @@ type Snapshot struct {
 
 // AnalyzerInput converts captured protocol bytes into the canonical VS-02
 // analyzer envelope. It performs no filesystem access.
-func (s Snapshot) AnalyzerInput() (rflscvs02.SnapshotInput, error) {
+func (s Snapshot) AnalyzerInput() (evidence.SnapshotInput, error) {
 	files := s.Files
 	if len(files) == 0 {
 		files = s.ContentOverlay
 	}
-	input, err := rflscvs02.SnapshotInputFromContent(
+	input, err := evidence.SnapshotInputFromContent(
 		s.SnapshotID, s.ComputedBasisID, s.RootTreeID,
 		s.ConfigurationFingerprint, s.DependencyFingerprint,
 		s.WorkspaceEpoch, files,
 	)
 	if err != nil {
-		return rflscvs02.SnapshotInput{}, err
+		return evidence.SnapshotInput{}, err
 	}
 	identities := make(map[string]workspace.SnapshotDocument, len(s.Documents))
 	for _, document := range s.Documents {
 		if _, ok := files[document.Path]; !ok {
-			return rflscvs02.SnapshotInput{}, fmt.Errorf("snapshot document %s has no captured bytes", document.Path)
+			return evidence.SnapshotInput{}, fmt.Errorf("snapshot document %s has no captured bytes", document.Path)
 		}
 		identities[document.Path] = document
 	}
 	for i := range input.Documents {
 		if identity, ok := identities[input.Documents[i].Path]; ok {
 			if identity.ContentID != "" && identity.ContentID != input.Documents[i].ContentID {
-				return rflscvs02.SnapshotInput{}, fmt.Errorf("snapshot document %s content identity mismatch", identity.Path)
+				return evidence.SnapshotInput{}, fmt.Errorf("snapshot document %s content identity mismatch", identity.Path)
 			}
 			if identity.ByteLength != 0 && identity.ByteLength != input.Documents[i].ByteLength {
-				return rflscvs02.SnapshotInput{}, fmt.Errorf("snapshot document %s byte length mismatch", identity.Path)
+				return evidence.SnapshotInput{}, fmt.Errorf("snapshot document %s byte length mismatch", identity.Path)
 			}
 			input.Documents[i].RevisionID = identity.RevisionID
 			input.Documents[i].ContentID = identity.ContentID
@@ -80,7 +80,7 @@ func (s Snapshot) AnalyzerInput() (rflscvs02.SnapshotInput, error) {
 // VFS and are copied before the adapter is invoked. The returned Snapshot has
 // no repository path from which an adapter could perform a live-disk read.
 func SnapshotFromLease(lease workspace.SnapshotLease) (Snapshot, error) {
-	input, err := rflscvs02.SnapshotInputFromLease(lease)
+	input, err := evidence.SnapshotInputFromLease(lease)
 	if err != nil {
 		return Snapshot{}, err
 	}
@@ -205,8 +205,8 @@ func (s Snapshot) Params() map[string]any {
 		"computedBasisId": s.ComputedBasisID,
 		"workspaceEpoch":  s.WorkspaceEpoch,
 		"snapshot": map[string]any{
-			"schemaId":                 rflscvs02.AnalyzerRequestSchemaID,
-			"schemaVersion":            rflscvs02.SchemaVersion,
+			"schemaId":                 evidence.AnalyzerRequestSchemaID,
+			"schemaVersion":            evidence.SchemaVersion,
 			"computedBasisId":          s.ComputedBasisID,
 			"workspaceEpoch":           s.WorkspaceEpoch,
 			"snapshotId":               s.SnapshotID,

@@ -12,7 +12,7 @@ import (
 	"testing"
 	"time"
 
-	"codeflow/internal/rflscvs09evidence"
+	"codeflow/internal/evidence"
 	"codeflow/internal/semantic"
 )
 
@@ -124,7 +124,7 @@ func TestMCPApprovalMutationPublishesOnceAcrossRetryAndRestart(t *testing.T) {
 	if len(history.Events) != 1 || history.Aggregate.Version != 1 || !reflect.DeepEqual(history.Events[0], first.Receipt.Event) {
 		t.Fatalf("restart history duplicated or changed approval: %+v", history)
 	}
-	rflscvs09evidence.Observe(t, "codeflow/internal/mcp", []string{"VS09-A5", "VS09-A7"}, map[string]any{"before.sse": head, "after.sse": event, "before.receipt": first, "after.receipt": replayed, "after.history": history, "retry": retry})
+	evidence.ObserveApproval(t, "codeflow/internal/mcp", []string{"VS09-A5", "VS09-A7"}, map[string]any{"before.sse": head, "after.sse": event, "before.receipt": first, "after.receipt": replayed, "after.history": history, "retry": retry})
 }
 
 func approvalMCPStream(t *testing.T, rawURL, lastID string) (*bufio.Scanner, context.CancelFunc) {

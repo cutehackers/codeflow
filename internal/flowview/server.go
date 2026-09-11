@@ -26,7 +26,7 @@ import (
 	"codeflow/internal/fusion"
 	"codeflow/internal/harvest"
 	"codeflow/internal/protocol"
-	"codeflow/internal/rflscvs06"
+	"codeflow/internal/runtime"
 	"codeflow/internal/secret"
 	"codeflow/internal/semantic"
 	"codeflow/internal/slicing"
@@ -80,8 +80,8 @@ type Server struct {
 	observationStore           any
 	runtimeExecutor            any
 	oneShotExecutor            any
-	runtimeExecutionSpec       rflscvs06.RuntimeExecutionSpec
-	runtimeConsent             *rflscvs06.RuntimeConsent
+	runtimeExecutionSpec       runtime.RuntimeExecutionSpec
+	runtimeConsent             *runtime.RuntimeConsent
 	releaseThresholdDecisions  semantic.ThresholdDecisionResolver
 	live                       liveState
 	liveCtx                    context.Context
@@ -469,8 +469,8 @@ type Config struct {
 	// RuntimeConsent must authorize. Neither is constructed from the request.
 	RuntimeExecutor      any
 	OneShotExecutor      any // compatibility alias for integrations
-	RuntimeExecutionSpec rflscvs06.RuntimeExecutionSpec
-	RuntimeConsent       *rflscvs06.RuntimeConsent
+	RuntimeExecutionSpec runtime.RuntimeExecutionSpec
+	RuntimeConsent       *runtime.RuntimeConsent
 	// ModelHostFactory creates one Core-supervised host per enrichment request.
 	// The returned host is owned and closed by that request.
 	ModelHostFactory protocol.ModelHostFactory

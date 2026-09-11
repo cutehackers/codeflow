@@ -10,7 +10,7 @@ import (
 	"time"
 
 	"codeflow/internal/contractharness"
-	"codeflow/internal/rflscvs02"
+	"codeflow/internal/evidence"
 	"codeflow/internal/storage"
 	"codeflow/internal/workspace"
 )
@@ -189,8 +189,8 @@ type LateRefinementInput struct {
 	CapturedSnapshot   *workspace.WorkspaceSnapshot
 	LiveHeadSnapshot   *workspace.WorkspaceSnapshot
 	Intent             *TaskIntent
-	AnalysisRequest    *rflscvs02.AnalyzerRequest
-	AnalysisResult     *rflscvs02.Result
+	AnalysisRequest    *evidence.AnalyzerRequest
+	AnalysisResult     *evidence.Result
 	PreviousMapBytes   []byte
 	ArtifactBytes      map[string][]byte
 	ArtifactDigests    map[string]string
@@ -302,7 +302,7 @@ func (c *RefinementCoordinator) PublishLateRefinementV2(input LateRefinementInpu
 	if err != nil {
 		return storage.PublicationCommit{}, fmt.Errorf("marshal late refinement analysis read-set: %w", err)
 	}
-	if err := contractharness.Validate(rflscvs02.ReadSetSchemaID, readSetBytes); err != nil {
+	if err := contractharness.Validate(evidence.ReadSetSchemaID, readSetBytes); err != nil {
 		return storage.PublicationCommit{}, fmt.Errorf("validate late refinement analysis read-set artifact: %w", err)
 	}
 	readSetRef := storage.ArtifactCASRef(readSetBytes)
@@ -310,7 +310,7 @@ func (c *RefinementCoordinator) PublishLateRefinementV2(input LateRefinementInpu
 	if err != nil {
 		return storage.PublicationCommit{}, fmt.Errorf("marshal late refinement observation closure: %w", err)
 	}
-	if err := contractharness.Validate(rflscvs02.ClosureSchemaID, closureBytes); err != nil {
+	if err := contractharness.Validate(evidence.ClosureSchemaID, closureBytes); err != nil {
 		return storage.PublicationCommit{}, fmt.Errorf("validate late refinement observation closure artifact: %w", err)
 	}
 	closureRef := storage.ArtifactCASRef(closureBytes)
@@ -318,7 +318,7 @@ func (c *RefinementCoordinator) PublishLateRefinementV2(input LateRefinementInpu
 	if err != nil {
 		return storage.PublicationCommit{}, fmt.Errorf("marshal late refinement analyzer result: %w", err)
 	}
-	if err := contractharness.Validate(rflscvs02.AnalyzerResultSchemaID, resultBytes); err != nil {
+	if err := contractharness.Validate(evidence.AnalyzerResultSchemaID, resultBytes); err != nil {
 		return storage.PublicationCommit{}, fmt.Errorf("validate late refinement analyzer result artifact: %w", err)
 	}
 	resultRef := storage.ArtifactCASRef(resultBytes)
@@ -537,17 +537,17 @@ func validateLateRefinementInput(input LateRefinementInput) error {
 	if err != nil {
 		return fmt.Errorf("marshal late refinement analyzer request: %w", err)
 	}
-	if err := contractharness.Validate(rflscvs02.AnalyzerRequestSchemaID, requestBytes); err != nil {
+	if err := contractharness.Validate(evidence.AnalyzerRequestSchemaID, requestBytes); err != nil {
 		return fmt.Errorf("late refinement analyzer request schema: %w", err)
 	}
 	resultBytes, err := json.Marshal(input.AnalysisResult)
 	if err != nil {
 		return fmt.Errorf("marshal late refinement analyzer result: %w", err)
 	}
-	if err := contractharness.Validate(rflscvs02.AnalyzerResultSchemaID, resultBytes); err != nil {
+	if err := contractharness.Validate(evidence.AnalyzerResultSchemaID, resultBytes); err != nil {
 		return fmt.Errorf("late refinement analyzer result schema: %w", err)
 	}
-	if err := rflscvs02.ValidateResult(*input.AnalysisRequest, *input.AnalysisResult); err != nil {
+	if err := evidence.ValidateResult(*input.AnalysisRequest, *input.AnalysisResult); err != nil {
 		return fmt.Errorf("late refinement analyzer result: %w", err)
 	}
 	if input.AnalysisResult.RequestID != input.AnalysisRequest.RequestID || input.AnalysisResult.SnapshotID != input.CapturedSnapshot.SnapshotID || input.AnalysisResult.ComputedBasisID != input.CapturedSnapshot.ComputedBasisID || input.AnalysisResult.WorkspaceEpoch != input.CapturedSnapshot.WorkspaceEpoch {
@@ -585,7 +585,7 @@ func validateLateRefinementInput(input LateRefinementInput) error {
 	return contractharness.ValidateEventEnvelopeV2(input.Event)
 }
 
-func validateSemanticClosureAgainstCanonical(closure *CausalObservationClosure, request *rflscvs02.AnalyzerRequest, result *rflscvs02.Result) error {
+func validateSemanticClosureAgainstCanonical(closure *CausalObservationClosure, request *evidence.AnalyzerRequest, result *evidence.Result) error {
 	if closure == nil || request == nil || result == nil {
 		return fmt.Errorf("closure, request, and result are required")
 	}
@@ -613,7 +613,7 @@ func validateSemanticClosureAgainstCanonical(closure *CausalObservationClosure, 
 	for i, observation := range result.Closure.NegativeObservations {
 		got := closure.NegativeObservations[i]
 		wantScope := observation.Path
-		if rflscvs02.IsZeroMissMarker(observation) {
+		if evidence.IsZeroMissMarker(observation) {
 			wantScope = ""
 		}
 		if got.Kind != observation.Kind || got.Selector != observation.Path || got.ScopeRef != wantScope || got.ObservedAgainstIndexRevision != observation.ValueHash {
@@ -647,7 +647,7 @@ func validateSemanticClosureAgainstCanonical(closure *CausalObservationClosure, 
 	return nil
 }
 
-func analyzerSnapshotMatchesWorkspace(snapshot rflscvs02.SnapshotInput, workspaceSnapshot *workspace.WorkspaceSnapshot) error {
+func analyzerSnapshotMatchesWorkspace(snapshot evidence.SnapshotInput, workspaceSnapshot *workspace.WorkspaceSnapshot) error {
 	if workspaceSnapshot == nil {
 		return fmt.Errorf("workspace snapshot is required")
 	}

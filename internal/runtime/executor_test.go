@@ -15,7 +15,6 @@ import (
 
 	"codeflow/internal/contractharness"
 	"codeflow/internal/protocol"
-	"codeflow/internal/rflscvs06"
 	"codeflow/internal/workspace"
 )
 
@@ -61,7 +60,7 @@ func TestOneShotExecutorSuccessClosesDisposableProcess(t *testing.T) {
 		t.Fatalf("one-shot execution failed: %v", err)
 	}
 	iso := result.Isolation
-	if iso.Status != rflscvs06.RuntimeTerminalSuccess || iso.ResultCode != "ok" {
+	if iso.Status != RuntimeTerminalSuccess || iso.ResultCode != "ok" {
 		t.Fatalf("unexpected terminal result: %+v", iso)
 	}
 	if !iso.ProcessObserved || !iso.InputTreeVerified {
@@ -73,7 +72,7 @@ func TestOneShotExecutorSuccessClosesDisposableProcess(t *testing.T) {
 	if !iso.MountPermissionEvidence.CleanupVerified || !iso.MountPermissionEvidence.ReadOnlySource || iso.MountPermissionEvidence.RepositoryPathExposed {
 		t.Fatalf("isolation evidence is incomplete: %+v", iso.MountPermissionEvidence)
 	}
-	if iso.SourceWriteAuditStatus != rflscvs06.RuntimeAuditClean || iso.EvidencePromotion != rflscvs06.RuntimePromotionEligible {
+	if iso.SourceWriteAuditStatus != RuntimeAuditClean || iso.EvidencePromotion != RuntimePromotionEligible {
 		t.Fatalf("clean source audit was not promotable: %+v", iso)
 	}
 	if result.Analyzer == nil || result.Analyzer.SnapshotID != snapshot.SnapshotID {
@@ -115,11 +114,11 @@ func TestOneShotExecutorTerminalModesAlwaysCleanUp(t *testing.T) {
 		ctx  func() (context.Context, func())
 		want string
 	}{
-		{name: "failure", env: []string{"MOCK_CRASH_AFTER_N_REQUESTS=1"}, ctx: func() (context.Context, func()) { return context.Background(), func() {} }, want: rflscvs06.RuntimeTerminalFailure},
+		{name: "failure", env: []string{"MOCK_CRASH_AFTER_N_REQUESTS=1"}, ctx: func() (context.Context, func()) { return context.Background(), func() {} }, want: RuntimeTerminalFailure},
 		{name: "timeout", env: []string{"MOCK_HANG_OPS=detect"}, ctx: func() (context.Context, func()) {
 			return context.WithTimeout(context.Background(), 150*time.Millisecond)
-		}, want: rflscvs06.RuntimeTerminalTimeout},
-		{name: "cancel", env: []string{"MOCK_HANG_OPS=detect"}, ctx: func() (context.Context, func()) { return context.WithCancel(context.Background()) }, want: rflscvs06.RuntimeTerminalCancel},
+		}, want: RuntimeTerminalTimeout},
+		{name: "cancel", env: []string{"MOCK_HANG_OPS=detect"}, ctx: func() (context.Context, func()) { return context.WithCancel(context.Background()) }, want: RuntimeTerminalCancel},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			disposableRoot := filepath.Join(t.TempDir(), "disposable")
@@ -303,11 +302,11 @@ func TestOneShotExecutorBlocksPromotionOnAuditState(t *testing.T) {
 		status   string
 		reason   string
 	}{
-		{name: "indeterminate-default", provider: nil, status: rflscvs06.RuntimeAuditIndeterminate, reason: "indeterminate"},
+		{name: "indeterminate-default", provider: nil, status: RuntimeAuditIndeterminate, reason: "indeterminate"},
 		{name: "unavailable", provider: SourceAuditProviderFunc(func(context.Context, SourceAuditRequest) (SourceAuditReport, error) {
 			return SourceAuditReport{}, errors.New("audit unavailable")
-		}), status: rflscvs06.RuntimeAuditUnavailable, reason: "unavailable"},
-		{name: "attributed-write", provider: AttributedWriteSourceAuditProvider{Path: "src/main.go"}, status: rflscvs06.RuntimeAuditViolation, reason: rflscvs06.RuntimeAuditViolation},
+		}), status: RuntimeAuditUnavailable, reason: "unavailable"},
+		{name: "attributed-write", provider: AttributedWriteSourceAuditProvider{Path: "src/main.go"}, status: RuntimeAuditViolation, reason: RuntimeAuditViolation},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			disposableRoot := filepath.Join(t.TempDir(), "disposable")
@@ -325,7 +324,7 @@ func TestOneShotExecutorBlocksPromotionOnAuditState(t *testing.T) {
 			if err != nil {
 				t.Fatalf("audit test execution failed before outcome: %v", err)
 			}
-			if got.Isolation.SourceWriteAuditStatus != tc.status || got.Isolation.EvidencePromotion != rflscvs06.RuntimePromotionBlocked {
+			if got.Isolation.SourceWriteAuditStatus != tc.status || got.Isolation.EvidencePromotion != RuntimePromotionBlocked {
 				t.Fatalf("unexpected audit outcome: %+v", got.Isolation)
 			}
 			if !strings.Contains(got.Isolation.PromotionBlockedReason, tc.reason) {
@@ -394,7 +393,7 @@ func TestOneShotExecutorReconcilesConcurrentLiveEditAsUnattributed(t *testing.T)
 	if got.Isolation.ConcurrentWorktree.Classification != "reconciled_unattributed" {
 		t.Fatalf("concurrent edit was misclassified: %+v", got.Isolation.ConcurrentWorktree)
 	}
-	if got.Isolation.SourceWriteAuditStatus != rflscvs06.RuntimeAuditClean {
+	if got.Isolation.SourceWriteAuditStatus != RuntimeAuditClean {
 		t.Fatalf("concurrent live edit became a runtime source violation: %+v", got.Isolation)
 	}
 }
@@ -415,17 +414,17 @@ func TestOneShotExecutorTerminatesAdapterProcessGroup(t *testing.T) {
 		ctx  func() (context.Context, context.CancelFunc, func())
 		want string
 	}{
-		{name: "success", want: rflscvs06.RuntimeTerminalSuccess, ctx: func() (context.Context, context.CancelFunc, func()) {
+		{name: "success", want: RuntimeTerminalSuccess, ctx: func() (context.Context, context.CancelFunc, func()) {
 			return context.Background(), func() {}, func() {}
 		}},
-		{name: "failure", env: []string{"MOCK_CRASH_AFTER_N_REQUESTS=1"}, want: rflscvs06.RuntimeTerminalFailure, ctx: func() (context.Context, context.CancelFunc, func()) {
+		{name: "failure", env: []string{"MOCK_CRASH_AFTER_N_REQUESTS=1"}, want: RuntimeTerminalFailure, ctx: func() (context.Context, context.CancelFunc, func()) {
 			return context.Background(), func() {}, func() {}
 		}},
-		{name: "timeout", env: []string{"MOCK_HANG_OPS=detect"}, want: rflscvs06.RuntimeTerminalTimeout, ctx: func() (context.Context, context.CancelFunc, func()) {
+		{name: "timeout", env: []string{"MOCK_HANG_OPS=detect"}, want: RuntimeTerminalTimeout, ctx: func() (context.Context, context.CancelFunc, func()) {
 			ctx, cancel := context.WithTimeout(context.Background(), 300*time.Millisecond)
 			return ctx, cancel, func() {}
 		}},
-		{name: "cancel", env: []string{"MOCK_HANG_OPS=detect"}, want: rflscvs06.RuntimeTerminalCancel, ctx: func() (context.Context, context.CancelFunc, func()) {
+		{name: "cancel", env: []string{"MOCK_HANG_OPS=detect"}, want: RuntimeTerminalCancel, ctx: func() (context.Context, context.CancelFunc, func()) {
 			ctx, cancel := context.WithCancel(context.Background())
 			return ctx, cancel, func() { time.Sleep(100 * time.Millisecond); cancel() }
 		}},
@@ -463,10 +462,10 @@ func TestOneShotExecutorTerminatesAdapterProcessGroup(t *testing.T) {
 				}
 			} else {
 				got, runErr := executor.Execute(ctx, request)
-				if tc.want == rflscvs06.RuntimeTerminalSuccess && runErr != nil {
+				if tc.want == RuntimeTerminalSuccess && runErr != nil {
 					t.Fatalf("success process-group execution failed: %v", runErr)
 				}
-				if tc.want != rflscvs06.RuntimeTerminalSuccess && runErr == nil {
+				if tc.want != RuntimeTerminalSuccess && runErr == nil {
 					t.Fatalf("%s process-group execution unexpectedly succeeded", tc.name)
 				}
 				assertTerminalCleanup(t, got, tc.want, disposableRoot)
@@ -567,14 +566,14 @@ func processAlive(pid int) bool {
 	return state != "" && !strings.HasPrefix(state, "Z")
 }
 
-func testExecutionSpec(bin string) rflscvs06.RuntimeExecutionSpec {
-	return rflscvs06.RuntimeExecutionSpec{
-		Command:       rflscvs06.RuntimeCommand{Command: bin},
-		CommandDigest: commandDigest(rflscvs06.RuntimeCommand{Command: bin}),
-		AccessScope: rflscvs06.RuntimeAccessScope{
+func testExecutionSpec(bin string) RuntimeExecutionSpec {
+	return RuntimeExecutionSpec{
+		Command:       RuntimeCommand{Command: bin},
+		CommandDigest: commandDigest(RuntimeCommand{Command: bin}),
+		AccessScope: RuntimeAccessScope{
 			Source: "immutable_snapshot", Network: "disabled", Credentials: "not_available",
 		},
-		IsolationScope: rflscvs06.RuntimeIsolationScope{
+		IsolationScope: RuntimeIsolationScope{
 			Level: "trusted_local", SourceMount: "not_mounted", SourcePermission: "read_only_protocol",
 			WorkingDirectory: "process_private_disposable", WritableLayer: "discarded_after_terminal",
 			RepositoryPathExposed: false,
@@ -582,11 +581,11 @@ func testExecutionSpec(bin string) rflscvs06.RuntimeExecutionSpec {
 	}
 }
 
-func testConsent(snapshot protocol.Snapshot, spec rflscvs06.RuntimeExecutionSpec, executionID, nonce string) rflscvs06.RuntimeConsent {
+func testConsent(snapshot protocol.Snapshot, spec RuntimeExecutionSpec, executionID, nonce string) RuntimeConsent {
 	now := time.Now().UTC()
-	return rflscvs06.RuntimeConsent{
-		SchemaID:           rflscvs06.RuntimeConsentSchemaID,
-		SchemaVersion:      rflscvs06.RuntimeSchemaVersion,
+	return RuntimeConsent{
+		SchemaID:           RuntimeConsentSchemaID,
+		SchemaVersion:      RuntimeSchemaVersion,
 		ConsentID:          "consent-" + executionID,
 		ActorID:            "test-actor",
 		ApprovedBy:         "test-actor",

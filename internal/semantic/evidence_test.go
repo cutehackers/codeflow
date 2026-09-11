@@ -9,8 +9,8 @@ import (
 	"strings"
 	"testing"
 
+	"codeflow/internal/evidence"
 	"codeflow/internal/protocol"
-	"codeflow/internal/rflscvs02"
 	"codeflow/internal/slicing"
 )
 
@@ -189,7 +189,7 @@ func TestVS02A5SemanticEvidenceRequiresMatchingAnchorIdentity(t *testing.T) {
 	if err == nil {
 		t.Fatal("semantic evidence accepted stale anchor hashes")
 	}
-	var typed *rflscvs02.EvidenceError
+	var typed *evidence.EvidenceError
 	if !errors.As(err, &typed) || typed.Code != "unknown_revision" {
 		t.Fatalf("stale anchor returned wrong typed error: %T %v", err, err)
 	}

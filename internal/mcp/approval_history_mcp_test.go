@@ -14,7 +14,7 @@ import (
 	"unicode/utf8"
 
 	"codeflow/internal/contractharness"
-	"codeflow/internal/rflscvs09evidence"
+	"codeflow/internal/evidence"
 	"codeflow/internal/semantic"
 	"codeflow/internal/workspace"
 )
@@ -286,7 +286,7 @@ func TestMCPApprovalHistoryToolRestartsAndTracksLiveHeadReadOnly(t *testing.T) {
 	if !bytes.Equal(afterBody, restartedBody) || !reflect.DeepEqual(after, restartedResult) {
 		t.Fatalf("restart changed historical history: before=%s after=%s", afterBody, restartedBody)
 	}
-	rflscvs09evidence.Observe(t, "codeflow/internal/mcp", []string{"VS09-A9"}, map[string]any{"before.history": before, "after.history": after, "restart.history": restartedBody, "before.transactions": transactionBefore, "after.transactions": transactionAfter, "before.proof": proofBefore, "after.proof": proofAfter})
+	evidence.ObserveApproval(t, "codeflow/internal/mcp", []string{"VS09-A9"}, map[string]any{"before.history": before, "after.history": after, "restart.history": restartedBody, "before.transactions": transactionBefore, "after.transactions": transactionAfter, "before.proof": proofBefore, "after.proof": proofAfter})
 }
 
 func TestMCPApprovalHistoryStrictArgumentsFailClosedBeforeRead(t *testing.T) {

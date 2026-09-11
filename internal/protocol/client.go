@@ -18,7 +18,7 @@ import (
 	"time"
 
 	"codeflow/internal/contractharness"
-	"codeflow/internal/rflscvs02"
+	"codeflow/internal/evidence"
 	"codeflow/internal/secret"
 )
 
@@ -287,9 +287,9 @@ func newConn(cfg Config, cmd *exec.Cmd, stdin io.WriteCloser, workDir string, de
 // MountPermissionEvidence returns the process isolation proof accumulated by
 // this connection. The repository path is never used as the adapter cwd, and
 // the source side is supplied through the analyzer protocol envelope.
-func (c *Conn) MountPermissionEvidence() rflscvs02.MountPermissionEvidence {
+func (c *Conn) MountPermissionEvidence() evidence.MountPermissionEvidence {
 	if c == nil {
-		return rflscvs02.MountPermissionEvidence{}
+		return evidence.MountPermissionEvidence{}
 	}
 	c.isolationMu.RLock()
 	defer c.isolationMu.RUnlock()
@@ -301,7 +301,7 @@ func (c *Conn) MountPermissionEvidence() rflscvs02.MountPermissionEvidence {
 		sourceMount = "not_mounted"
 		readOnlySource = true
 	}
-	return rflscvs02.MountPermissionEvidence{
+	return evidence.MountPermissionEvidence{
 		SourceDelivery:                 sourceDelivery,
 		SourceMount:                    sourceMount,
 		WorkingDirectoryMode:           "process_private_disposable",
@@ -973,8 +973,8 @@ func (c *Conn) recordSnapshotDelivery(fr *frame) {
 	if err := json.Unmarshal(fr.env.Params, &params); err != nil {
 		return
 	}
-	if params["schemaId"] != rflscvs02.AnalyzerRequestSchemaID ||
-		int64Value(params["schemaVersion"]) != rflscvs02.SchemaVersion ||
+	if params["schemaId"] != evidence.AnalyzerRequestSchemaID ||
+		int64Value(params["schemaVersion"]) != evidence.SchemaVersion ||
 		params["requestId"] != fr.env.ID || params["operation"] != fr.env.Op {
 		return
 	}
@@ -1009,14 +1009,14 @@ func finishCall(rep *reply, result any, op string, params any, requestID string,
 		if err != nil {
 			return BadRequestError(fmt.Sprintf("analyzer request v2 rejected: %v", err))
 		}
-		if err := contractharness.Validate(rflscvs02.AnalyzerResultSchemaID, sanitized); err != nil {
+		if err := contractharness.Validate(evidence.AnalyzerResultSchemaID, sanitized); err != nil {
 			return BadRequestError(fmt.Sprintf("analyzer result v2 schema rejected: %v", err))
 		}
-		var envelope rflscvs02.Result
+		var envelope evidence.Result
 		if err := json.Unmarshal(sanitized, &envelope); err != nil {
 			return BadRequestError(fmt.Sprintf("decode analyzer result v2: %v", err))
 		}
-		if err := rflscvs02.ValidateResult(request, envelope); err != nil {
+		if err := evidence.ValidateResult(request, envelope); err != nil {
 			return BadRequestError(fmt.Sprintf("analyzer result v2 semantic validation failed: %v", err))
 		}
 		if err := validateAnalysisPayload(op, envelope.Payload); err != nil {
@@ -1025,7 +1025,7 @@ func finishCall(rep *reply, result any, op string, params any, requestID string,
 		if result == nil {
 			return nil
 		}
-		if envelopeResult, ok := result.(*rflscvs02.Result); ok {
+		if envelopeResult, ok := result.(*evidence.Result); ok {
 			*envelopeResult = envelope
 			return nil
 		}

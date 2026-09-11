@@ -10,7 +10,7 @@ import (
 	"time"
 
 	"codeflow/internal/contractharness"
-	"codeflow/internal/rflscvs02"
+	"codeflow/internal/evidence"
 	"codeflow/internal/workspace"
 )
 
@@ -47,8 +47,8 @@ type PublicationInput struct {
 	ExpectedPreviousGenerationID string
 	GenerationID                 string
 	ArtifactDigests              map[string]string
-	AnalysisRequest              *rflscvs02.AnalyzerRequest
-	AnalysisResult               *rflscvs02.Result
+	AnalysisRequest              *evidence.AnalyzerRequest
+	AnalysisResult               *evidence.Result
 	// CapabilityProfileDigest is optional at the compatibility gate boundary,
 	// but when supplied it must be the digest of the complete canonical
 	// AnalyzerResult capability profile. Strict publication paths always supply
@@ -61,7 +61,7 @@ type PublicationInput struct {
 // v2 capability profile carried by an analyzer result. JSON encoding of the
 // typed profile is deterministic, so the digest cannot be replaced by a
 // digest of only the feature names.
-func CanonicalCapabilityProfileDigest(profile rflscvs02.CapabilityProfile) (string, error) {
+func CanonicalCapabilityProfileDigest(profile evidence.CapabilityProfile) (string, error) {
 	data, err := json.Marshal(profile)
 	if err != nil {
 		return "", fmt.Errorf("marshal capability profile: %w", err)
@@ -145,12 +145,12 @@ func (g *PublicationGate) EvaluateCurrent(input PublicationInput) (CurrentPublic
 		resultBytes, err := json.Marshal(input.AnalysisResult)
 		if err != nil {
 			fail(&result.ClosureGate, "canonical analyzer result cannot be marshaled")
-		} else if err := contractharness.Validate(rflscvs02.AnalyzerResultSchemaID, resultBytes); err != nil {
+		} else if err := contractharness.Validate(evidence.AnalyzerResultSchemaID, resultBytes); err != nil {
 			fail(&result.ClosureGate, "canonical analyzer result schema is invalid")
 		}
 		if input.AnalysisRequest == nil {
 			fail(&result.ClosureGate, "canonical analyzer request is missing")
-		} else if err := rflscvs02.ValidateResult(*input.AnalysisRequest, *input.AnalysisResult); err != nil {
+		} else if err := evidence.ValidateResult(*input.AnalysisRequest, *input.AnalysisResult); err != nil {
 			fail(&result.ClosureGate, "canonical analyzer result is not bound to its request")
 		}
 		if capabilityDigest, digestErr := CanonicalCapabilityProfileDigest(input.AnalysisResult.Capability); digestErr != nil {

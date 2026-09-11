@@ -8,7 +8,7 @@ import (
 	"sync"
 	"time"
 
-	"codeflow/internal/rflscvs02"
+	"codeflow/internal/evidence"
 )
 
 // DefaultIdleTTL is how long an idle pooled connection is trusted
@@ -38,13 +38,13 @@ type Pool struct {
 	closed bool
 
 	isolationMu       sync.Mutex
-	isolationEvidence map[string]rflscvs02.MountPermissionEvidence
+	isolationEvidence map[string]evidence.MountPermissionEvidence
 }
 
 // NewPool creates a pool spawning adapters with cfg and keeping at most
 // maxIdle idle processes warm (maxIdle <= 0 means no pooling).
 func NewPool(cfg Config, maxIdle int) *Pool {
-	return &Pool{cfg: cfg.withDefaults(), maxIdle: maxIdle, idleTTL: DefaultIdleTTL, isolationEvidence: make(map[string]rflscvs02.MountPermissionEvidence)}
+	return &Pool{cfg: cfg.withDefaults(), maxIdle: maxIdle, idleTTL: DefaultIdleTTL, isolationEvidence: make(map[string]evidence.MountPermissionEvidence)}
 }
 
 func (p *Pool) recordIsolationEvidence(c *Conn) {
@@ -64,13 +64,13 @@ func (p *Pool) recordIsolationEvidence(c *Conn) {
 // MountPermissionEvidence returns aggregate evidence for every process this
 // pool has spawned. It remains available after Close so registry callers can
 // verify cleanup for crashed and replaced children.
-func (p *Pool) MountPermissionEvidence() rflscvs02.MountPermissionEvidence {
+func (p *Pool) MountPermissionEvidence() evidence.MountPermissionEvidence {
 	if p == nil {
-		return rflscvs02.MountPermissionEvidence{}
+		return evidence.MountPermissionEvidence{}
 	}
 	p.isolationMu.Lock()
 	defer p.isolationMu.Unlock()
-	var aggregate rflscvs02.MountPermissionEvidence
+	var aggregate evidence.MountPermissionEvidence
 	first := true
 	for _, evidence := range p.isolationEvidence {
 		if first {
@@ -370,7 +370,7 @@ func (r *AdapterRegistry) CapabilityRegistry() *CapabilityRegistry {
 // RefreshCapability performs one explicit initialize plus executable
 // conformance measurement and publishes its result. Ordinary Call requests
 // never invoke this method implicitly.
-func (r *AdapterRegistry) RefreshCapability(ctx context.Context, lang string, probe CapabilityConformanceProbe) (rflscvs02.CapabilityMeasurement, error) {
+func (r *AdapterRegistry) RefreshCapability(ctx context.Context, lang string, probe CapabilityConformanceProbe) (evidence.CapabilityMeasurement, error) {
 	registry := r.CapabilityRegistry()
 	pool, err := r.GetPool(lang)
 	if err != nil {

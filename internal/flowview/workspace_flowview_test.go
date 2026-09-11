@@ -16,7 +16,7 @@ import (
 	"codeflow/internal/fusion"
 	"codeflow/internal/semantic"
 	"codeflow/internal/slicing"
-	"codeflow/internal/testfixture"
+	"codeflow/test/fixtures"
 )
 
 func TestFlowViewWorkspaceEndpoints(t *testing.T) {
@@ -629,7 +629,7 @@ func TestFlowViewReleaseCapabilityEndpoint(t *testing.T) {
 		t.Fatalf("missing evidence must not generate metrics or capability claims: %+v", res)
 	}
 
-	explicitInput, err := json.Marshal(testfixture.VS10ReleaseEvaluationInput())
+	explicitInput, err := json.Marshal(fixtures.VS10ReleaseEvaluationInput())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -647,7 +647,7 @@ func TestFlowViewReleaseCapabilityEndpoint(t *testing.T) {
 		t.Fatalf("default REST server trusted caller decision labels: %+v", res)
 	}
 
-	configured, err := NewServer(Config{RepoRoot: tmpDir, Port: 0, ReleaseThresholdDecisions: testfixture.VS10ReleaseThresholdDecisions()})
+	configured, err := NewServer(Config{RepoRoot: tmpDir, Port: 0, ReleaseThresholdDecisions: fixtures.VS10ReleaseThresholdDecisions()})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -662,7 +662,7 @@ func TestFlowViewReleaseCapabilityEndpoint(t *testing.T) {
 		t.Fatalf("trusted configured decisions did not cross the REST boundary: %+v", res)
 	}
 
-	tampered := testfixture.VS10ReleaseEvaluationInput()
+	tampered := fixtures.VS10ReleaseEvaluationInput()
 	tampered.Thresholds.Thresholds[0].DecisionRef = "decision:unapproved"
 	tamperedInput, err := json.Marshal(tampered)
 	if err != nil {

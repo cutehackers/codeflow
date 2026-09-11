@@ -16,9 +16,9 @@ import (
 	"testing"
 	"time"
 
+	"codeflow/internal/evidence"
 	"codeflow/internal/fusion"
 	"codeflow/internal/protocol"
-	"codeflow/internal/rflscvs02"
 	"codeflow/internal/slicing"
 	"codeflow/internal/storage"
 	"codeflow/internal/workspace"
@@ -1013,39 +1013,39 @@ func publishApprovalAuthorityProofAtWithCommitAndLiveHeadResult(root string, map
 	if basis == "" || snapshotID == "" || generationID == "" || readSetID == "" || closureID == "" {
 		return errors.New("approval authority map identity is incomplete")
 	}
-	observations := []rflscvs02.Observation{
+	observations := []evidence.Observation{
 		{Kind: "negative_lookup", Path: "test/missing.go", Measured: true},
 		{Kind: "membership", Path: "test", Measured: true},
 		{Kind: "dependency_frontier", Path: "test/go.mod", Measured: true},
 	}
-	readSet := rflscvs02.AnalysisReadSet{
-		SchemaID: rflscvs02.ReadSetSchemaID, SchemaVersion: rflscvs02.SchemaVersion,
+	readSet := evidence.AnalysisReadSet{
+		SchemaID: evidence.ReadSetSchemaID, SchemaVersion: evidence.SchemaVersion,
 		ReadSetID: readSetID, ComputedBasisID: basis, WorkspaceEpoch: mapIR.Basis.WorkspaceEpoch,
-		Documents: []rflscvs02.ReadDocument{}, NegativeObservations: observations[:1],
+		Documents: []evidence.ReadDocument{}, NegativeObservations: observations[:1],
 		MembershipObservations: observations[1:2], DependencyFrontiers: observations[2:],
 	}
 	closureDigest := strings.Repeat("c", 64)
-	closure := rflscvs02.ObservationClosure{
-		SchemaID: rflscvs02.ClosureSchemaID, SchemaVersion: rflscvs02.SchemaVersion,
+	closure := evidence.ObservationClosure{
+		SchemaID: evidence.ClosureSchemaID, SchemaVersion: evidence.SchemaVersion,
 		ClosureID: closureID, AnalysisReadSetID: readSetID, ComputedBasisID: basis, WorkspaceEpoch: mapIR.Basis.WorkspaceEpoch,
 		Status: "closed", NegativeObservations: observations[:1], MembershipObservations: observations[1:2], DependencyFrontiers: observations[2:],
 		RequiredObservations: []string{"negative_lookup", "membership", "dependency_frontier"},
 		MeasuredObservations: []string{"negative_lookup", "membership", "dependency_frontier"}, ClosureDigest: closureDigest,
 	}
-	capability := rflscvs02.CapabilityProfile{Adapter: "test-adapter", AdapterVersion: "adapter-1", AnalyzerRevision: "analyzer-1", Features: []string{"snapshot_bytes"}}
+	capability := evidence.CapabilityProfile{Adapter: "test-adapter", AdapterVersion: "adapter-1", AnalyzerRevision: "analyzer-1", Features: []string{"snapshot_bytes"}}
 	capabilityBytes, err := json.Marshal(capability)
 	if err != nil {
 		return fmt.Errorf("marshal approval authority capability: %w", err)
 	}
 	capabilityHash := sha256.Sum256(capabilityBytes)
-	analyzer := rflscvs02.Result{
-		SchemaID: rflscvs02.AnalyzerResultSchemaID, SchemaVersion: rflscvs02.SchemaVersion,
+	analyzer := evidence.Result{
+		SchemaID: evidence.AnalyzerResultSchemaID, SchemaVersion: evidence.SchemaVersion,
 		RequestID: "approval-authority-request", Operation: "detect", AdapterVersion: capability.AdapterVersion,
 		AnalyzerRevision: capability.AnalyzerRevision, WorkspaceEpoch: mapIR.Basis.WorkspaceEpoch, ComputedBasisID: basis,
 		SnapshotID: snapshotID, SnapshotTreeDigest: mapIR.Basis.SnapshotTreeID, DependencyFingerprint: mapIR.Basis.DependencyFingerprint,
 		ReadSet: readSet, Closure: closure, Capability: capability,
-		Coverage:    rflscvs02.Coverage{IncludedSourceRoots: []string{"."}, ExcludedReasons: []string{"outside-scope"}, Measured: true},
-		Diagnostics: []rflscvs02.Diagnostic{}, Payload: json.RawMessage(`{"language":"go","confident":true}`),
+		Coverage:    evidence.Coverage{IncludedSourceRoots: []string{"."}, ExcludedReasons: []string{"outside-scope"}, Measured: true},
+		Diagnostics: []evidence.Diagnostic{}, Payload: json.RawMessage(`{"language":"go","confident":true}`),
 	}
 	readSetBytes, err := json.Marshal(readSet)
 	if err != nil {

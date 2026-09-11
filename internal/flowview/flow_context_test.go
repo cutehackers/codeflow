@@ -1,7 +1,7 @@
 package flowview
 
 import (
-	"codeflow/internal/rflscvs11evidence"
+	"codeflow/internal/evidence"
 	"codeflow/internal/semantic"
 	"codeflow/internal/slicing"
 	"context"
@@ -34,7 +34,7 @@ func contextParams(source string) DeriveFlowContextParams {
 
 func observeContext(t *testing.T, id string, params DeriveFlowContextParams, p *FlowContextProjection) {
 	t.Helper()
-	rflscvs11evidence.Observe(t, "codeflow/internal/flowview", []string{id}, rflscvs11evidence.Record{SnapshotID: p.SnapshotID, SnapshotTreeDigest: sha256Hex(params.SnapshotFiles[params.Step.Anchor.RepoRelativePath]), Precision: string(p.Precision), Expansion: string(p.ExpansionScope), DisplayedLinesCount: len(p.DisplayedLines)}, map[string]any{"fixtureSource": params.SnapshotFiles[params.Step.Anchor.RepoRelativePath], "response": p})
+	evidence.ObserveFlowContext(t, "codeflow/internal/flowview", []string{id}, evidence.FlowContextRecord{SnapshotID: p.SnapshotID, SnapshotTreeDigest: sha256Hex(params.SnapshotFiles[params.Step.Anchor.RepoRelativePath]), Precision: string(p.Precision), Expansion: string(p.ExpansionScope), DisplayedLinesCount: len(p.DisplayedLines)}, map[string]any{"fixtureSource": params.SnapshotFiles[params.Step.Anchor.RepoRelativePath], "response": p})
 }
 func requireExact(t *testing.T, p *FlowContextProjection) {
 	t.Helper()

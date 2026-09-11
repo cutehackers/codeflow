@@ -8,7 +8,7 @@
 ## D-LIVE-01 · 프롬프트 없는 프로젝트 변경 인지 시작
 
 - Context: 기능 요청은 Static FlowView의 시작점이다. Live View에 같은 입력을 요구하면 사용자는 현재 코드 변경을 보기 전에 기능명·entry symbol·MCP 도구를 알아야 한다.
-- Decision: `codeflow live [path]`가 project-change mode를 시작한다. Live 화면은 request input과 `흐름 보기`를 표시하지 않는다.
+- Decision: `codeflow live [path]`가 Live Project Change Analysis mode를 시작한다. Live 화면은 request input과 `흐름 보기`를 표시하지 않는다.
 - Rejected Alternative: 자연어 기능 요청 또는 FlowView 선택이 Live View 시작의 선행 조건이다.
 - Rationale: Live View의 가치는 프로젝트에서 새로 작성되는 코드를 자동으로 인지하는 데 있다.
 - Consequences: feature query는 Static FlowView에 남고 Live View는 변경 batch를 입력으로 받는다.

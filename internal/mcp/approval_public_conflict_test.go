@@ -15,7 +15,7 @@ import (
 	"testing"
 	"time"
 
-	"codeflow/internal/rflscvs09evidence"
+	"codeflow/internal/evidence"
 	"codeflow/internal/semantic"
 )
 
@@ -328,7 +328,7 @@ func TestApprovalPublicConflictReportsWinnerVersionAndPublishesOnce(t *testing.T
 				for _, reply := range replies {
 					observedReplies = append(observedReplies, json.RawMessage(reply.body))
 				}
-				rflscvs09evidence.Observe(t, "codeflow/internal/mcp", []string{"VS09-A11"}, map[string]any{"before.transactions": transactionBefore, "after.transactions": transactionAfter, "before.proof": proofBefore, "after.proof": proofAfter, "before.sse": head, "after.sse": event, "final.sse": finalHead, "history": history, "responses": observedReplies})
+				evidence.ObserveApproval(t, "codeflow/internal/mcp", []string{"VS09-A11"}, map[string]any{"before.transactions": transactionBefore, "after.transactions": transactionAfter, "before.proof": proofBefore, "after.proof": proofAfter, "before.sse": head, "after.sse": event, "final.sse": finalHead, "history": history, "responses": observedReplies})
 				storedAfter, err := barrier.ProposalStore.Load(context.Background(), fixture.server.approvalWorkspaceID, enrichment.Proposal.ProposalID, enrichment.Pack.EvidencePackID)
 				if err != nil {
 					t.Fatal(err)

@@ -14,7 +14,7 @@ import (
 
 	"codeflow/internal/flowmeter"
 	"codeflow/internal/semantic"
-	"codeflow/internal/testfixture"
+	"codeflow/test/fixtures"
 )
 
 func TestHelpExplainsTheCompleteRoutineInPlainLanguage(t *testing.T) {
@@ -239,7 +239,7 @@ func requiredArtifacts() []string {
 
 func TestApproveRequiresExplicitPerMetricValuesAndFinalConfirmation(t *testing.T) {
 	dir := t.TempDir()
-	input := testfixture.VS10ReleaseEvaluationInput()
+	input := fixtures.VS10ReleaseEvaluationInput()
 	writePlan(t, dir, flowmeter.Plan{SchemaVersion: 1, TargetVersion: input.TargetVersion})
 	writeJSON(t, filepath.Join(dir, "release-profile.json"), input.Profile)
 	writeJSON(t, filepath.Join(dir, "scenario-manifest.json"), input.Corpus)
@@ -268,7 +268,7 @@ func TestApproveRequiresExplicitPerMetricValuesAndFinalConfirmation(t *testing.T
 
 func TestApproveCancellationCreatesNoApprovalFiles(t *testing.T) {
 	dir := t.TempDir()
-	input := testfixture.VS10ReleaseEvaluationInput()
+	input := fixtures.VS10ReleaseEvaluationInput()
 	writePlan(t, dir, flowmeter.Plan{SchemaVersion: 1, TargetVersion: input.TargetVersion})
 	writeJSON(t, filepath.Join(dir, "release-profile.json"), input.Profile)
 	writeJSON(t, filepath.Join(dir, "scenario-manifest.json"), input.Corpus)
@@ -291,7 +291,7 @@ func TestApproveCancellationCreatesNoApprovalFiles(t *testing.T) {
 
 func TestFinalizeEvaluatesSealedEvidenceAndWritesReusableResults(t *testing.T) {
 	dir := t.TempDir()
-	input := testfixture.VS10ReleaseEvaluationInput()
+	input := fixtures.VS10ReleaseEvaluationInput()
 	writePlan(t, dir, flowmeter.Plan{SchemaVersion: 1, TargetVersion: input.TargetVersion})
 	writeJSON(t, filepath.Join(dir, "release-profile.json"), input.Profile)
 	writeJSON(t, filepath.Join(dir, "scenario-manifest.json"), input.Corpus)

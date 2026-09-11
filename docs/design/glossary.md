@@ -1,6 +1,16 @@
 # CodeFlow 설계 용어집
 
-## Requested Flow Live Semantic Compiler
+## Official Product Terms
+
+| Term | Operational Definition | Korean Term |
+|---|---|---|
+| Live Semantic Compiler | CodeFlow's engine for extracting, verifying, compiling, and presenting semantic execution flows. | 실시간 의미 컴파일러 |
+| Content-Addressable Storage | Persistence in which content identity determines the stored object reference. | 콘텐츠 주소 기반 저장소 |
+| Live Project Change Analysis | The product mode that detects project changes, analyzes their semantic impact, verifies the result, and presents the change. | 실시간 프로젝트 변경 분석 |
+
+`Requested Flow` remains the domain term for the execution flow selected by a user's intent. It is not part of the product name.
+
+## Core Semantic Terms
 
 | Term | Operational Definition | Scope | Source | Status | Related Contract |
 |---|---|---|---|---|---|
@@ -18,23 +28,23 @@
 | Critical Obligation | mode별로 완료 판정 전에 반드시 verified여야 하는 entry, result, branch, effect, failure, requirement link 등의 항목이다. | Settlement Gate | Raw §3.17, §10.16, D31 | Confirmed | `docs/design/specs/2026-09-02-requested-flow-live-semantic-compiler-ko.md` |
 | Settlement | 요청 흐름의 critical completion 상태다. Q1·Q2는 pending이며 Q3 이상에서 모든 required obligation verified, critical unknown 0, conflict 0일 때만 passed다. freshness와 별개다. | SemanticMapIR quality state | Raw §10.10–§10.11, §18.1, D27, D31 | Confirmed | `docs/design/specs/2026-09-02-requested-flow-live-semantic-compiler-ko.md` |
 | Semantic Approval | 인증된 로컬 사용자가 실제 proposal의 의미 표현을 특정 basis와 Task Intent revision에 대해 승인, 수정 후 승인, 거절, 취소 또는 대체한 append-only event다. Fact, Evidence, Requirement Alignment, freshness와 settlement를 변경하지 않는다. | optional model enrichment와 curated product language | Raw §10.9, D20, D34 | Confirmed | `docs/design/specs/2026-09-02-requested-flow-live-semantic-compiler-ko.md` |
-| Generation Proof Manifest | 한 generation의 map, delta, evidence, projection, closure와 gate 결과를 computed basis, validated head와 CAS 조건에 연결하는 canonical proof다. | atomic publication과 query | Raw §3.11, §10.11 | Confirmed | `docs/design/specs/2026-09-02-requested-flow-live-semantic-compiler-ko.md` |
+| Generation Proof Manifest | 한 generation의 map, delta, evidence, projection, closure와 gate 결과를 computed basis, validated head와 Content-Addressable Storage 조건에 연결하는 canonical proof다. | atomic publication과 query | Raw §3.11, §10.11 | Confirmed | `docs/design/specs/2026-09-02-requested-flow-live-semantic-compiler-ko.md` |
 | Workspace Change Ingress | IDE, coding agent 또는 watcher fallback이 관측한 upsert, delete, rename을 source, batch identity, canonical path와 stable capture로 coordinator의 단일 snapshot lineage에 제출하는 boundary다. | Live Semantic View의 edit-driven snapshot 생성 | D39, D40 | Confirmed | `docs/design/specs/2026-09-02-requested-flow-live-semantic-compiler-ko.md` |
 | Watcher Fallback | 직접 IDE·agent 제출이 없거나 누락됐을 때 filesystem event를 capture signal로 사용하고 stable capture 또는 reconciliation 결과만 Workspace Change Ingress에 제출하는 coordinator 기능이다. | Live Semantic View의 변경 누락 복구 | D40 | Confirmed | `docs/design/specs/2026-09-02-requested-flow-live-semantic-compiler-ko.md` |
 | Generation-bound Live View | `generation.published` event의 generation, basis, snapshot identity와 일치하는 proof-backed artifact만 렌더하는 Live Semantic View 응답이다. | 검증된 변경 반영과 reconnect | D41 | Confirmed | `docs/design/specs/2026-09-02-requested-flow-live-semantic-compiler-ko.md` |
-| Project-change mode | 기능 요청 없이 프로젝트 코드 변경을 감시하고, 재시작 시 마지막 검증 분석 기준과 현재 source의 차이를 검증해 표시하는 사용 모드다. 사용자 읽음·미확인 이력을 저장하거나 표시 기준으로 사용하지 않는다. | `codeflow live [path]`와 `/live` | D-LIVE-01, D-LIVE-08 | Confirmed | `docs/design/specs/2026-09-10-live-project-change-awareness-ko.md` |
-| Live Analysis Basis | 마지막으로 검증된 코드 분석이 사용한 source 상태다. 재시작 시 현재 stable source와 비교하며, 아직 분석되지 않은 최신 수집 head나 사용자의 읽음 여부와 구별한다. | project-change mode 재시작 비교 | D-LIVE-08 | Confirmed | `docs/design/specs/2026-09-10-live-project-change-awareness-ko.md` |
-| Logical Live coordinator | 특정 프로젝트의 workspace lineage, watcher, scheduler, event stream과 stale recovery를 단일 authority로 소유하는 논리 서비스다. MCP process는 이 coordinator의 producer이며 별도 authority가 아니다. | project-change mode | D-LIVE-02 | Confirmed | `docs/design/specs/2026-09-10-live-project-change-awareness-ko.md` |
-| Semantic Change Batch | 가까운 시간에 발생한 관련 source change를 같은 업무 변화로 묶고, 검증된 behavior·branch·state·external effect·call relation·Evidence update 또는 unresolved move를 표시하는 Live View 분석 단위다. | project-change mode Change Pulse | D-LIVE-03 | Confirmed | `docs/design/specs/2026-09-10-live-project-change-awareness-ko.md` |
+| Live Project Change Analysis | 기능 요청 없이 프로젝트 코드 변경을 감시하고, 재시작 시 마지막 검증 분석 기준과 현재 source의 차이를 검증해 표시하는 사용 모드다. 사용자 읽음·미확인 이력을 저장하거나 표시 기준으로 사용하지 않는다. | `codeflow live [path]`와 `/live` | D-LIVE-01, D-LIVE-08 | Confirmed | `docs/design/specs/2026-09-10-live-project-change-awareness-ko.md` |
+| Live Analysis Basis | 마지막으로 검증된 코드 분석이 사용한 source 상태다. 재시작 시 현재 stable source와 비교하며, 아직 분석되지 않은 최신 수집 head나 사용자의 읽음 여부와 구별한다. | Live Project Change Analysis 재시작 비교 | D-LIVE-08 | Confirmed | `docs/design/specs/2026-09-10-live-project-change-awareness-ko.md` |
+| Logical Live coordinator | 특정 프로젝트의 workspace lineage, watcher, scheduler, event stream과 stale recovery를 단일 authority로 소유하는 논리 서비스다. MCP process는 이 coordinator의 producer이며 별도 authority가 아니다. | Live Project Change Analysis | D-LIVE-02 | Confirmed | `docs/design/specs/2026-09-10-live-project-change-awareness-ko.md` |
+| Semantic Change Batch | 가까운 시간에 발생한 관련 source change를 같은 업무 변화로 묶고, 검증된 behavior·branch·state·external effect·call relation·Evidence update 또는 unresolved move를 표시하는 Live View 분석 단위다. | Live Project Change Analysis Change Pulse | D-LIVE-03 | Confirmed | `docs/design/specs/2026-09-10-live-project-change-awareness-ko.md` |
 | Release Ready | 승인된 release profile의 versioned corpus에서 contract, correctness, security, resilience, comprehension, semantic quality와 end-to-end SLO evidence를 모두 충족한 상태다. 입력이나 threshold가 없으면 false다. | capability declaration | Raw §16–§18, D36 | Confirmed | `docs/design/specs/2026-09-02-requested-flow-live-semantic-compiler-ko.md` |
 
 ## Architectural Modernization & Target Blueprint
 
 | Term | Operational Definition | Scope | Source | Status | Related Contract |
 |---|---|---|---|---|---|
-| Hexagonal Architecture | Domain Core (proof, semir, archmap)를 프레젠테이션(CLI, HTTP, MCP) 및 인프라(CAS, Process, Watcher)로부터 격리하는 Ports & Adapters 아키텍처 패턴. | 전체 CodeFlow 서브시스템 | ARCH-D01, ARCHITECTURE.md §2 | Confirmed | `docs/design/specs/2026-09-04-codeflow-architectural-modernization.md` |
-| CompilerService | 의도 정규화부터 하베스팅, AST 슬라이싱, 세맨틱 맵 컴파일, 서브게이트 평가, Generation Proof 생성 및 CAS 커밋까지의 15단계 컴파일 파이프라인을 단일 실행하는 Application Layer 서비스. | CLI, FlowView, MCP | ARCH-D02, ARCHITECTURE.md §3.2 | Confirmed | `docs/design/specs/2026-09-04-codeflow-architectural-modernization.md` |
+| Hexagonal Architecture | Domain Core (proof, semir, archmap)를 프레젠테이션(CLI, HTTP, MCP) 및 인프라(Content-Addressable Storage, Process, Watcher)로부터 격리하는 Ports & Adapters 아키텍처 패턴. | 전체 CodeFlow 서브시스템 | ARCH-D01, ARCHITECTURE.md §2 | Confirmed | `docs/design/specs/2026-09-04-codeflow-architectural-modernization.md` |
+| CompilerService | 의도 정규화부터 하베스팅, AST 슬라이싱, 세맨틱 맵 컴파일, 서브게이트 평가, Generation Proof 생성 및 Content-Addressable Storage 커밋까지의 15단계 컴파일 파이프라인을 단일 실행하는 Application Layer 서비스. | CLI, FlowView, MCP | ARCH-D02, ARCHITECTURE.md §3.2 | Confirmed | `docs/design/specs/2026-09-04-codeflow-architectural-modernization.md` |
 | Epistemic Segregation | 결정론적 AST 사실, SLM의 확률적 제안, 런타임 관측치, 인간 승인자 서명을 데이터 구조 및 런타임 수준에서 엄격히 분리하는 불변식. | SemanticStep, ModelProposal, Approval | Raw §9, §10, ARCHITECTURE.md §1 | Confirmed | `docs/design/specs/2026-09-04-codeflow-architectural-modernization.md` |
-| CAS Dual-Namespace | `.codeflow/cas/blobs/`(불변 파일 리비전)과 `.codeflow/cas/manifests/`(증명 매니페스트)로 디렉터리를 분리하여 GC 실행 시 매니페스트 삭제를 방지하는 스토리지 격리 구조. | Storage, WorkspaceSnapshot | ARCH-D06, ARCHITECTURE.md §5 | Confirmed | `docs/design/specs/2026-09-04-codeflow-architectural-modernization.md` |
+| Content-Addressable Storage Dual-Namespace | `.codeflow/cas/blobs/`(불변 파일 리비전)과 `.codeflow/cas/manifests/`(증명 매니페스트)로 디렉터리를 분리하여 GC 실행 시 매니페스트 삭제를 방지하는 스토리지 격리 구조. | Storage, WorkspaceSnapshot | ARCH-D06, ARCHITECTURE.md §5 | Confirmed | `docs/design/specs/2026-09-04-codeflow-architectural-modernization.md` |
 | Egress Redaction | FlowView HTTP 응답, 실시간 SSE 이벤트, MCP JSON-RPC 표준 출력 등 시스템 외부로 나가는 모든 데이터 스트림에 시크릿 마스킹 필터를 적용하는 보안 경계. | Presentation Layer, Security Filter | ARCH-D10, ARCHITECTURE.md §3.3 | Confirmed | `docs/design/specs/2026-09-04-codeflow-architectural-modernization.md` |
 | Process Group Isolation | 언어 어댑터 서브프로세스 스폰 시 `Setpgid: true`를 강제하고 종료 시 음수 PID(`-cmd.Process.Pid`)로 시그널을 전달하여 좀비 프로세스 누수를 원천 차단하는 OS 레벨 프로세스 격리 기법. | Protocol Pool, Subprocess Lifecycle | ARCH-D12, ARCHITECTURE.md §3.3 | Confirmed | `docs/design/specs/2026-09-04-codeflow-architectural-modernization.md` |

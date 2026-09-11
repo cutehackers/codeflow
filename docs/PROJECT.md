@@ -2,7 +2,7 @@
 
 > **Understand Large Codebases Through End-to-End Business Flow Extraction & Visualization**
 
-CodeFlow is an interactive code analysis engine and visualization platform for developers and AI coding agents. Given a large, complex repository, CodeFlow extracts end-to-end **Core Business Flows** (핵심 흐름) across architectural layers, validates every step against verifiable code anchors, and visualizes the complete execution path through an interactive 7-lane interface.
+CodeFlow is a **Live Semantic Compiler** and an interactive code analysis engine and visualization platform for developers and AI coding agents. Given a large, complex repository, CodeFlow extracts end-to-end **Core Business Flows** (핵심 흐름) across architectural layers, validates every step against verifiable code anchors, and visualizes the complete execution path through an interactive 7-lane interface.
 
 ---
 

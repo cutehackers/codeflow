@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	"codeflow/internal/rflscvs09evidence"
+	"codeflow/internal/evidence"
 )
 
 func TestApprovalPublicPersistenceFaultMatrix(t *testing.T) {
@@ -19,8 +19,8 @@ func TestApprovalPublicPersistenceFaultMatrix(t *testing.T) {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
 	defer cancel()
-	args := []string{"test", "-overlay", rflscvs09evidence.FaultOverlay(t, root), "./internal/flowview", "-run", "^TestApprovalPublicPersistenceFaultsOverlay$", "-count=1", "-timeout=120s", "-v"}
-	if rflscvs09evidence.RaceEnabled {
+	args := []string{"test", "-overlay", evidence.FaultOverlay(t, root), "./internal/flowview", "-run", "^TestApprovalPublicPersistenceFaultsOverlay$", "-count=1", "-timeout=120s", "-v"}
+	if evidence.RaceEnabled {
 		args = append(args, "-race")
 	}
 	command := exec.CommandContext(ctx, "go", args...)

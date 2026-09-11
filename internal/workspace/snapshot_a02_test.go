@@ -1,0 +1,11 @@
+package workspace_test
+
+import (
+	"testing"
+
+	"codeflow/internal/verification/workspace"
+)
+
+func TestRFLSCR2VS01_A02(t *testing.T) {
+	workspace.RunA02(t)
+}

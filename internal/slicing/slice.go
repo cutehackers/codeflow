@@ -13,8 +13,8 @@ import (
 	"strings"
 
 	"codeflow/internal/contractharness"
+	"codeflow/internal/evidence"
 	"codeflow/internal/protocol"
-	"codeflow/internal/rflscvs02"
 	"codeflow/internal/secret"
 	"codeflow/internal/storage"
 )
@@ -121,18 +121,18 @@ type SlicedPayload struct {
 	// deliberately excluded from the operation payload and cache JSON. The
 	// compiler re-validates this envelope against the immutable snapshot before
 	// promoting any semantic evidence.
-	ValidatedResult *rflscvs02.Result `json:"-"`
-	AdapterVersion  string            `json:"-"`
+	ValidatedResult *evidence.Result `json:"-"`
+	AdapterVersion  string           `json:"-"`
 }
 
 // BindValidatedResult retains the single v2 result envelope that was accepted
 // by the protocol semantic gate. Callers must not construct this marker for an
 // unvalidated payload. The compiler performs a second snapshot-bound check.
-func (p *SlicedPayload) BindValidatedResult(result rflscvs02.Result) error {
+func (p *SlicedPayload) BindValidatedResult(result evidence.Result) error {
 	if p == nil {
 		return fmt.Errorf("sliced payload is nil")
 	}
-	if result.Operation != protocol.OpSlice || result.SchemaID != rflscvs02.AnalyzerResultSchemaID || result.SchemaVersion != rflscvs02.SchemaVersion {
+	if result.Operation != protocol.OpSlice || result.SchemaID != evidence.AnalyzerResultSchemaID || result.SchemaVersion != evidence.SchemaVersion {
 		return fmt.Errorf("validated result is not a v2 slice envelope")
 	}
 	var operation SlicedPayload
@@ -221,7 +221,7 @@ func (r *Runner) SliceWithSnapshot(ctx context.Context, repoRoot, candidateID, e
 		params["opts"] = opts
 	}
 
-	var envelope rflscvs02.Result
+	var envelope evidence.Result
 	if err := proc.Call(ctx, "slice", params, &envelope); err != nil {
 		return nil, fmt.Errorf("slice call failed for %s: %w", entrySymbolPath, err)
 	}
@@ -269,10 +269,10 @@ func cachedSlicePayload(snapshot protocol.Snapshot, candidateID, entrySymbolPath
 	if err != nil {
 		return nil, false
 	}
-	if err := contractharness.Validate(rflscvs02.AnalyzerResultSchemaID, sanitized); err != nil {
+	if err := contractharness.Validate(evidence.AnalyzerResultSchemaID, sanitized); err != nil {
 		return nil, false
 	}
-	var envelope rflscvs02.Result
+	var envelope evidence.Result
 	if err := json.Unmarshal(sanitized, &envelope); err != nil || envelope.Operation != protocol.OpSlice || envelope.RequestID == "" {
 		return nil, false
 	}
@@ -280,8 +280,8 @@ func cachedSlicePayload(snapshot protocol.Snapshot, candidateID, entrySymbolPath
 	if err != nil {
 		return nil, false
 	}
-	request, err := rflscvs02.NewAnalyzerRequest(envelope.RequestID, protocol.OpSlice, input, nil, envelope.Closure.RequiredObservations)
-	if err != nil || rflscvs02.ValidateResult(request, envelope) != nil {
+	request, err := evidence.NewAnalyzerRequest(envelope.RequestID, protocol.OpSlice, input, nil, envelope.Closure.RequiredObservations)
+	if err != nil || evidence.ValidateResult(request, envelope) != nil {
 		return nil, false
 	}
 	if err := contractharness.Validate(contractharness.BaseURL+"sliced-payload.schema.json", envelope.Payload); err != nil {

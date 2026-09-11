@@ -11,7 +11,6 @@ import (
 	"sync/atomic"
 	"testing"
 
-	"codeflow/internal/rflscvs06"
 	oneshootRuntime "codeflow/internal/runtime"
 	"codeflow/internal/semantic"
 	"codeflow/internal/slicing"
@@ -225,7 +224,7 @@ func TestFailureEndpointTrustedLocalRequiresConsentAndPromotion(t *testing.T) {
 	rec = httptest.NewRecorder()
 	srv.runtimeExecutor = RuntimeOneShotExecutorFunc(func(context.Context, oneshootRuntime.ExecutionRequest) (oneshootRuntime.ExecutionResult, error) {
 		calls.Add(1)
-		return oneshootRuntime.ExecutionResult{Isolation: rflscvs06.RuntimeIsolationResult{EvidencePromotion: rflscvs06.RuntimePromotionBlocked}}, nil
+		return oneshootRuntime.ExecutionResult{Isolation: oneshootRuntime.RuntimeIsolationResult{EvidencePromotion: oneshootRuntime.RuntimePromotionBlocked}}, nil
 	})
 	srv.httpServer.Handler.ServeHTTP(rec, req)
 	if rec.Code != http.StatusForbidden || calls.Load() != 1 {
@@ -340,14 +339,14 @@ func failureEndpointIncidentQuery(mapIR *semantic.SemanticMapIR, observationID s
 	}
 }
 
-func failureEndpointConsent(snapshot *workspace.WorkspaceSnapshot) rflscvs06.RuntimeConsent {
-	return rflscvs06.RuntimeConsent{
-		SchemaID: rflscvs06.RuntimeConsentSchemaID, SchemaVersion: rflscvs06.RuntimeSchemaVersion,
+func failureEndpointConsent(snapshot *workspace.WorkspaceSnapshot) oneshootRuntime.RuntimeConsent {
+	return oneshootRuntime.RuntimeConsent{
+		SchemaID: oneshootRuntime.RuntimeConsentSchemaID, SchemaVersion: oneshootRuntime.RuntimeSchemaVersion,
 		ConsentID: "consent-failure", ActorID: "actor-failure", ApprovedBy: "actor-failure", Approved: true,
 		IssuedAt: "2000-01-01T00:00:00Z", ExpiresAt: "2999-09-05T11:00:00Z", Command: "codeflow", Args: []string{"analyze"},
-		CommandDigest:  rflscvs06.CommandDigest("codeflow", []string{"analyze"}),
-		AccessScope:    rflscvs06.RuntimeAccessScope{Source: "immutable_snapshot", Network: "disabled", Credentials: "not_available"},
-		IsolationScope: rflscvs06.RuntimeIsolationScope{Level: "trusted_local", SourceMount: "not_mounted", SourcePermission: "read_only_protocol", WorkingDirectory: "process_private_disposable", WritableLayer: "discarded_after_terminal", RepositoryPathExposed: false},
+		CommandDigest:  oneshootRuntime.CommandDigest("codeflow", []string{"analyze"}),
+		AccessScope:    oneshootRuntime.RuntimeAccessScope{Source: "immutable_snapshot", Network: "disabled", Credentials: "not_available"},
+		IsolationScope: oneshootRuntime.RuntimeIsolationScope{Level: "trusted_local", SourceMount: "not_mounted", SourcePermission: "read_only_protocol", WorkingDirectory: "process_private_disposable", WritableLayer: "discarded_after_terminal", RepositoryPathExposed: false},
 		SnapshotID:     snapshot.SnapshotID, SnapshotTreeDigest: snapshot.RootTreeID, Nonce: "nonce-failure-0001",
 	}
 }

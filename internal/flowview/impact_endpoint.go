@@ -10,7 +10,7 @@ import (
 	"strings"
 
 	"codeflow/internal/contractharness"
-	"codeflow/internal/rflscvs02"
+	"codeflow/internal/evidence"
 	"codeflow/internal/semantic"
 	"codeflow/internal/storage"
 )
@@ -149,7 +149,7 @@ func impactRelationQueryValues(values []string) []string {
 	return out
 }
 
-func (s *Server) resolveImpactProof(query semantic.ImpactQuery) (*semantic.SemanticMapIR, *rflscvs02.Result, *semantic.SemanticDeltaIR, bool, error) {
+func (s *Server) resolveImpactProof(query semantic.ImpactQuery) (*semantic.SemanticMapIR, *evidence.Result, *semantic.SemanticDeltaIR, bool, error) {
 	if query.Freshness == "current" {
 		bundle, err := s.storage.ReadValidatedActiveProofBundle()
 		if err != nil {
@@ -192,12 +192,12 @@ func (s *Server) resolveImpactProof(query semantic.ImpactQuery) (*semantic.Seman
 	return mapIR, nil, nil, false, nil
 }
 
-func decodeImpactBundle(bundle *storage.ValidatedActiveProofBundle) (*semantic.SemanticMapIR, *rflscvs02.Result, *semantic.SemanticDeltaIR, error) {
+func decodeImpactBundle(bundle *storage.ValidatedActiveProofBundle) (*semantic.SemanticMapIR, *evidence.Result, *semantic.SemanticDeltaIR, error) {
 	var mapIR semantic.SemanticMapIR
 	if err := json.Unmarshal(bundle.SemanticMap, &mapIR); err != nil {
 		return nil, nil, nil, fmt.Errorf("current_proof_unavailable: decode semantic map: %w", err)
 	}
-	var result rflscvs02.Result
+	var result evidence.Result
 	if err := json.Unmarshal(bundle.AnalyzerResult, &result); err != nil {
 		return nil, nil, nil, fmt.Errorf("current_proof_unavailable: decode analyzer result: %w", err)
 	}

@@ -6,9 +6,9 @@ import (
 	"fmt"
 	"strings"
 
+	"codeflow/internal/evidence"
 	"codeflow/internal/fusion"
 	"codeflow/internal/protocol"
-	"codeflow/internal/rflscvs02"
 	"codeflow/internal/slicing"
 )
 
@@ -58,9 +58,9 @@ func ExtractAndRedactEvidence(target *ResolvedTarget, payload *slicing.SlicedPay
 // ExtractAndRedactEvidenceFromSnapshot promotes only evidence ranges that
 // were validated against the supplied immutable snapshot bytes. Missing
 // documents, stale revisions, invalid ranges, and traversal paths are typed
-// failures from rflscvs02.ExtractEvidence. Descriptions are never used as
+// failures from evidence.ExtractEvidence. Descriptions are never used as
 // source evidence.
-func ExtractAndRedactEvidenceFromSnapshot(target *ResolvedTarget, payload *slicing.SlicedPayload, snapshot rflscvs02.SnapshotInput) ([]EvidenceRecord, error) {
+func ExtractAndRedactEvidenceFromSnapshot(target *ResolvedTarget, payload *slicing.SlicedPayload, snapshot evidence.SnapshotInput) ([]EvidenceRecord, error) {
 	if target == nil {
 		return nil, fmt.Errorf("target cannot be nil")
 	}
@@ -68,17 +68,17 @@ func ExtractAndRedactEvidenceFromSnapshot(target *ResolvedTarget, payload *slici
 		return nil, fmt.Errorf("payload cannot be nil")
 	}
 
-	anchors := make([]rflscvs02.EvidenceAnchor, 0, len(payload.Steps))
+	anchors := make([]evidence.EvidenceAnchor, 0, len(payload.Steps))
 	for _, step := range payload.Steps {
 		relPath := step.Anchor.RepoRelativePath
 		doc, ok := snapshot.Document(relPath)
 		if !ok {
-			return nil, &rflscvs02.EvidenceError{Code: "unknown_file", Path: relPath, Detail: "file is not in selected snapshot"}
+			return nil, &evidence.EvidenceError{Code: "unknown_file", Path: relPath, Detail: "file is not in selected snapshot"}
 		}
 		if strings.TrimSpace(step.Anchor.FileHash) == "" || strings.TrimSpace(step.Anchor.SpanHash) == "" {
-			return nil, &rflscvs02.EvidenceError{Code: "invalid_anchor", Path: relPath, Detail: "fileHash and spanHash are required for verified evidence"}
+			return nil, &evidence.EvidenceError{Code: "invalid_anchor", Path: relPath, Detail: "fileHash and spanHash are required for verified evidence"}
 		}
-		anchors = append(anchors, rflscvs02.EvidenceAnchor{
+		anchors = append(anchors, evidence.EvidenceAnchor{
 			EvidenceID: EvidenceIDForAnchor(target.FlowID, step.Anchor),
 			Path:       relPath,
 			RevisionID: doc.RevisionID,
@@ -89,7 +89,7 @@ func ExtractAndRedactEvidenceFromSnapshot(target *ResolvedTarget, payload *slici
 		})
 	}
 
-	validated, err := rflscvs02.ExtractEvidence(snapshot, anchors)
+	validated, err := evidence.ExtractEvidence(snapshot, anchors)
 	if err != nil {
 		return nil, err
 	}

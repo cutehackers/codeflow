@@ -3,7 +3,7 @@ package semantic
 import (
 	"time"
 
-	"codeflow/internal/rflscvs02"
+	"codeflow/internal/evidence"
 )
 
 // GenerationProofManifest represents the canonical proof manifest for a published generation (Raw §10.11, VS-04).
@@ -119,7 +119,7 @@ type CausalObservationClosure struct {
 	// closure. It is intentionally not serialized as part of the legacy
 	// semantic closure shape. Current publication must validate this envelope
 	// before using the compatibility projection above.
-	CanonicalResult *rflscvs02.Result `json:"-"`
+	CanonicalResult *evidence.Result `json:"-"`
 }
 
 type PositiveDependencies struct {

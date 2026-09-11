@@ -12,10 +12,10 @@ import (
 
 	"codeflow/internal/contractharness"
 	"codeflow/internal/detect"
+	"codeflow/internal/evidence"
 	"codeflow/internal/fusion"
 	"codeflow/internal/harvest"
 	"codeflow/internal/protocol"
-	"codeflow/internal/rflscvs02"
 	"codeflow/internal/semantic"
 	"codeflow/internal/slicing"
 	"codeflow/internal/storage"
@@ -339,14 +339,14 @@ func (s *Server) compileSnapshotCandidate(ctx context.Context, snapshot protocol
 	if err != nil {
 		return nil, nil, nil, nil, nil, nil, fmt.Errorf("marshal validated analyzer result: %w", err)
 	}
-	if err := contractharness.Validate(rflscvs02.AnalyzerResultSchemaID, resultBytes); err != nil {
+	if err := contractharness.Validate(evidence.AnalyzerResultSchemaID, resultBytes); err != nil {
 		return nil, nil, nil, nil, nil, nil, fmt.Errorf("analyzer result contract: %w", err)
 	}
-	analysisRequest, err := rflscvs02.NewAnalyzerRequest(analysisResult.RequestID, analysisResult.Operation, snapshotInput, nil, analysisResult.Closure.RequiredObservations)
+	analysisRequest, err := evidence.NewAnalyzerRequest(analysisResult.RequestID, analysisResult.Operation, snapshotInput, nil, analysisResult.Closure.RequiredObservations)
 	if err != nil {
 		return nil, nil, nil, nil, nil, nil, fmt.Errorf("analyzer request identity: %w", err)
 	}
-	if err := rflscvs02.ValidateResult(analysisRequest, *analysisResult); err != nil {
+	if err := evidence.ValidateResult(analysisRequest, *analysisResult); err != nil {
 		return nil, nil, nil, nil, nil, nil, fmt.Errorf("analyzer result semantic contract: %w", err)
 	}
 	*closure = semanticClosureFromVS02(analysisResult, snapshotInput.ConfigurationFingerprint)
@@ -384,7 +384,7 @@ func (s *Server) compileSnapshotCandidate(ctx context.Context, snapshot protocol
 	return mapIR, projection, slicePayload, resolved, intent, closure, nil
 }
 
-func semanticClosureFromVS02(result *rflscvs02.Result, configurationFingerprint string) semantic.CausalObservationClosure {
+func semanticClosureFromVS02(result *evidence.Result, configurationFingerprint string) semantic.CausalObservationClosure {
 	closure := semantic.CausalObservationClosure{
 		SchemaID:               semantic.ObservationClosureSchemaID,
 		SchemaVersion:          semantic.SemanticSchemaVersion,
@@ -412,7 +412,7 @@ func semanticClosureFromVS02(result *rflscvs02.Result, configurationFingerprint 
 	}
 	for _, observation := range result.Closure.NegativeObservations {
 		scopeRef := observation.Path
-		if rflscvs02.IsZeroMissMarker(observation) {
+		if evidence.IsZeroMissMarker(observation) {
 			scopeRef = ""
 		}
 		closure.NegativeObservations = append(closure.NegativeObservations, semantic.NegativeObservation{Kind: observation.Kind, Selector: observation.Path, ScopeRef: scopeRef, ObservedAgainstIndexRevision: observation.ValueHash})
@@ -436,7 +436,7 @@ func semanticClosureFromVS02(result *rflscvs02.Result, configurationFingerprint 
 // makes a current publication restart-verifiable. Callers do not supply CAS
 // references or digests here. Each reference is derived from the exact bytes
 // that are staged in the same storage transaction as the manifest and pointer.
-func canonicalPublicationArtifacts(mapBytes []byte, projection *semantic.FlowViewProjection, result *rflscvs02.Result, semanticDeltas ...*semantic.SemanticDeltaIR) (storage.ArtifactRefs, map[string][]byte, map[string]string, error) {
+func canonicalPublicationArtifacts(mapBytes []byte, projection *semantic.FlowViewProjection, result *evidence.Result, semanticDeltas ...*semantic.SemanticDeltaIR) (storage.ArtifactRefs, map[string][]byte, map[string]string, error) {
 	if len(mapBytes) == 0 || projection == nil || result == nil {
 		return storage.ArtifactRefs{}, nil, nil, fmt.Errorf("complete publication artifact bundle is required")
 	}
@@ -457,21 +457,21 @@ func canonicalPublicationArtifacts(mapBytes []byte, projection *semantic.FlowVie
 	if err != nil {
 		return storage.ArtifactRefs{}, nil, nil, fmt.Errorf("marshal analysis read-set artifact: %w", err)
 	}
-	if err := contractharness.Validate(rflscvs02.ReadSetSchemaID, readSetBytes); err != nil {
+	if err := contractharness.Validate(evidence.ReadSetSchemaID, readSetBytes); err != nil {
 		return storage.ArtifactRefs{}, nil, nil, fmt.Errorf("analysis read-set artifact contract: %w", err)
 	}
 	closureBytes, err := json.Marshal(result.Closure)
 	if err != nil {
 		return storage.ArtifactRefs{}, nil, nil, fmt.Errorf("marshal observation closure artifact: %w", err)
 	}
-	if err := contractharness.Validate(rflscvs02.ClosureSchemaID, closureBytes); err != nil {
+	if err := contractharness.Validate(evidence.ClosureSchemaID, closureBytes); err != nil {
 		return storage.ArtifactRefs{}, nil, nil, fmt.Errorf("observation closure artifact contract: %w", err)
 	}
 	resultBytes, err := json.Marshal(result)
 	if err != nil {
 		return storage.ArtifactRefs{}, nil, nil, fmt.Errorf("marshal analyzer result artifact: %w", err)
 	}
-	if err := contractharness.Validate(rflscvs02.AnalyzerResultSchemaID, resultBytes); err != nil {
+	if err := contractharness.Validate(evidence.AnalyzerResultSchemaID, resultBytes); err != nil {
 		return storage.ArtifactRefs{}, nil, nil, fmt.Errorf("analyzer result artifact contract: %w", err)
 	}
 	artifacts := map[string][]byte{
@@ -786,7 +786,7 @@ func (s *Server) processCheckpoint(ctx context.Context, snap *workspace.Workspac
 		return
 	}
 	metrics := s.engine.CurrentActivity()
-	var analysisRequest *rflscvs02.AnalyzerRequest
+	var analysisRequest *evidence.AnalyzerRequest
 	analysisResult := slicePayload.ValidatedResult
 	capabilityProfileDigest := ""
 	if analysisResult != nil {
@@ -795,7 +795,7 @@ func (s *Server) processCheckpoint(ctx context.Context, snap *workspace.Workspac
 			emitGap("analyzer request snapshot conversion failed: " + inputErr.Error())
 			return
 		}
-		request, requestErr := rflscvs02.NewAnalyzerRequest(analysisResult.RequestID, analysisResult.Operation, analysisInput, nil, analysisResult.Closure.RequiredObservations)
+		request, requestErr := evidence.NewAnalyzerRequest(analysisResult.RequestID, analysisResult.Operation, analysisInput, nil, analysisResult.Closure.RequiredObservations)
 		if requestErr != nil {
 			emitGap("analyzer request identity failed: " + requestErr.Error())
 			return

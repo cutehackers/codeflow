@@ -420,10 +420,10 @@ func TestTier1_Feature4_ClosedTriggerClassSchemaCompliance(t *testing.T) {
 	defer cancel()
 
 	validTriggerClasses := map[string]bool{
-		"user_action":          true,
-		"state_transition":     true,
-		"system_event":         true,
-		"use_case_invocation":  true,
+		"user_action":         true,
+		"state_transition":    true,
+		"system_event":        true,
+		"use_case_invocation": true,
 	}
 
 	fixtures := []string{

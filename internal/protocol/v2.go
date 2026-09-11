@@ -6,75 +6,75 @@ import (
 	"strings"
 
 	"codeflow/internal/contractharness"
-	"codeflow/internal/rflscvs02"
+	"codeflow/internal/evidence"
 )
 
 // analyzerRequestForCall is the one Core conversion point from the public Go
 // operation seam to the v2 analyzer contract. It captures no source data. The
 // only bytes accepted here are the snapshot bytes already present in params.
-func analyzerRequestForCall(requestID, operation string, params any, maxMessageBytes int64) (rflscvs02.AnalyzerRequest, error) {
+func analyzerRequestForCall(requestID, operation string, params any, maxMessageBytes int64) (evidence.AnalyzerRequest, error) {
 	m, err := objectParams(params)
 	if err != nil {
-		return rflscvs02.AnalyzerRequest{}, err
+		return evidence.AnalyzerRequest{}, err
 	}
 	if _, ok := m["snapshot"]; !ok {
-		return rflscvs02.AnalyzerRequest{}, BadRequestError("analysis snapshot is required")
+		return evidence.AnalyzerRequest{}, BadRequestError("analysis snapshot is required")
 	}
 	snapshot := objectValue(m["snapshot"])
 	if len(snapshot) == 0 {
-		return rflscvs02.AnalyzerRequest{}, BadRequestError("analysis snapshot must be an object")
+		return evidence.AnalyzerRequest{}, BadRequestError("analysis snapshot must be an object")
 	}
 	for _, field := range []string{"snapshotId", "workspaceEpoch", "computedBasisId", "rootTreeId", "dependencyFingerprint", "documents", "files", "repositoryPathWriteAudit"} {
 		if _, ok := snapshot[field]; !ok {
-			return rflscvs02.AnalyzerRequest{}, BadRequestError("analysis snapshot is missing " + field)
+			return evidence.AnalyzerRequest{}, BadRequestError("analysis snapshot is missing " + field)
 		}
 	}
 	files, err := snapshotFiles(m, snapshot)
 	if err != nil {
-		return rflscvs02.AnalyzerRequest{}, err
+		return evidence.AnalyzerRequest{}, err
 	}
 
 	basis := stringValue(snapshot["computedBasisId"])
 	if basis == "" {
-		return rflscvs02.AnalyzerRequest{}, BadRequestError("analysis snapshot computedBasisId is empty")
+		return evidence.AnalyzerRequest{}, BadRequestError("analysis snapshot computedBasisId is empty")
 	}
 	snapshotID := stringValue(snapshot["snapshotId"])
 	if snapshotID == "" {
-		return rflscvs02.AnalyzerRequest{}, BadRequestError("analysis snapshot snapshotId is empty")
+		return evidence.AnalyzerRequest{}, BadRequestError("analysis snapshot snapshotId is empty")
 	}
 	rootTreeID := stringValue(snapshot["rootTreeId"])
 	if rootTreeID == "" {
-		return rflscvs02.AnalyzerRequest{}, BadRequestError("analysis snapshot rootTreeId is empty")
+		return evidence.AnalyzerRequest{}, BadRequestError("analysis snapshot rootTreeId is empty")
 	}
 	configuration := stringValue(snapshot["configurationFingerprint"])
 	dependency := stringValue(snapshot["dependencyFingerprint"])
 	epochValue, epochPresent := snapshot["workspaceEpoch"]
 	if !epochPresent {
-		return rflscvs02.AnalyzerRequest{}, BadRequestError("analysis snapshot workspaceEpoch is missing")
+		return evidence.AnalyzerRequest{}, BadRequestError("analysis snapshot workspaceEpoch is missing")
 	}
 	epoch := int64Value(epochValue)
 	if epoch < 0 {
-		return rflscvs02.AnalyzerRequest{}, BadRequestError("analysis snapshot workspaceEpoch is invalid")
+		return evidence.AnalyzerRequest{}, BadRequestError("analysis snapshot workspaceEpoch is invalid")
 	}
 	if dependency == "" {
-		return rflscvs02.AnalyzerRequest{}, BadRequestError("analysis snapshot dependencyFingerprint is empty")
+		return evidence.AnalyzerRequest{}, BadRequestError("analysis snapshot dependencyFingerprint is empty")
 	}
-	input, err := rflscvs02.SnapshotInputFromContent(snapshotID, basis, rootTreeID, configuration, dependency, epoch, files)
+	input, err := evidence.SnapshotInputFromContent(snapshotID, basis, rootTreeID, configuration, dependency, epoch, files)
 	if err != nil {
-		return rflscvs02.AnalyzerRequest{}, BadRequestError(err.Error())
+		return evidence.AnalyzerRequest{}, BadRequestError(err.Error())
 	}
 	if err := bindSnapshotDocuments(&input, snapshot["documents"]); err != nil {
-		return rflscvs02.AnalyzerRequest{}, BadRequestError(err.Error())
+		return evidence.AnalyzerRequest{}, BadRequestError(err.Error())
 	}
 	if err := requireSnapshotAudit(&input, snapshot["repositoryPathWriteAudit"]); err != nil {
-		return rflscvs02.AnalyzerRequest{}, BadRequestError(err.Error())
+		return evidence.AnalyzerRequest{}, BadRequestError(err.Error())
 	}
 
 	taskScope := stringSlice(m["taskScope"])
 	required := stringSlice(m["requiredObservations"])
-	request, err := rflscvs02.NewAnalyzerRequest(requestID, operation, input, taskScope, required)
+	request, err := evidence.NewAnalyzerRequest(requestID, operation, input, taskScope, required)
 	if err != nil {
-		return rflscvs02.AnalyzerRequest{}, BadRequestError(err.Error())
+		return evidence.AnalyzerRequest{}, BadRequestError(err.Error())
 	}
 	request.CapabilityRequest = stringSlice(m["capabilityRequest"])
 	if maxMessageBytes <= 0 {
@@ -84,10 +84,10 @@ func analyzerRequestForCall(requestID, operation string, params any, maxMessageB
 	request.Payload = operationPayload(m)
 	encoded, err := json.Marshal(request.Params())
 	if err != nil {
-		return rflscvs02.AnalyzerRequest{}, BadRequestError(fmt.Sprintf("marshal analyzer request: %v", err))
+		return evidence.AnalyzerRequest{}, BadRequestError(fmt.Sprintf("marshal analyzer request: %v", err))
 	}
-	if err := contractharness.Validate(rflscvs02.AnalyzerRequestSchemaID, encoded); err != nil {
-		return rflscvs02.AnalyzerRequest{}, BadRequestError(fmt.Sprintf("analyzer request v2 schema rejected: %v", err))
+	if err := contractharness.Validate(evidence.AnalyzerRequestSchemaID, encoded); err != nil {
+		return evidence.AnalyzerRequest{}, BadRequestError(fmt.Sprintf("analyzer request v2 schema rejected: %v", err))
 	}
 	return request, nil
 }
@@ -136,7 +136,7 @@ func snapshotFiles(_ map[string]any, snapshot map[string]any) (map[string]string
 	return files, nil
 }
 
-func bindSnapshotDocuments(input *rflscvs02.SnapshotInput, raw any) error {
+func bindSnapshotDocuments(input *evidence.SnapshotInput, raw any) error {
 	if raw == nil {
 		return fmt.Errorf("snapshot documents are required")
 	}
@@ -194,7 +194,7 @@ func bindSnapshotDocuments(input *rflscvs02.SnapshotInput, raw any) error {
 	return nil
 }
 
-func requireSnapshotAudit(input *rflscvs02.SnapshotInput, raw any) error {
+func requireSnapshotAudit(input *evidence.SnapshotInput, raw any) error {
 	object, ok := raw.(map[string]any)
 	if !ok {
 		return fmt.Errorf("snapshot repositoryPathWriteAudit is required")
@@ -211,7 +211,7 @@ func requireSnapshotAudit(input *rflscvs02.SnapshotInput, raw any) error {
 	return nil
 }
 
-func bindSnapshotAudit(input *rflscvs02.SnapshotInput, raw any) {
+func bindSnapshotAudit(input *evidence.SnapshotInput, raw any) {
 	if object, ok := raw.(map[string]any); ok {
 		input.SourceWriteAudit.CodeFlowWriteCount = int(int64Value(object["codeflowWriteCount"]))
 		input.SourceWriteAudit.SourceIntegrityViolation, _ = object["sourceIntegrityViolation"].(bool)
@@ -338,6 +338,6 @@ func validateAnalysisPayload(operation string, payload json.RawMessage) error {
 	return nil
 }
 
-func analyzerRequestForResponse(requestID, operation string, params any, maxMessageBytes int64) (rflscvs02.AnalyzerRequest, error) {
+func analyzerRequestForResponse(requestID, operation string, params any, maxMessageBytes int64) (evidence.AnalyzerRequest, error) {
 	return analyzerRequestForCall(requestID, operation, params, maxMessageBytes)
 }

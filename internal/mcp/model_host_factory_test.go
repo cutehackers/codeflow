@@ -22,10 +22,10 @@ import (
 	"time"
 
 	"codeflow/internal/contractharness"
+	"codeflow/internal/evidence"
 	"codeflow/internal/flowview"
 	"codeflow/internal/fusion"
 	"codeflow/internal/protocol"
-	"codeflow/internal/rflscvs02"
 	"codeflow/internal/semantic"
 	"codeflow/internal/slicing"
 	"codeflow/internal/storage"
@@ -503,7 +503,7 @@ func newMCPEnrichmentFactoryFixture(t *testing.T) *mcpEnrichmentFactoryFixture {
 	return fixture
 }
 
-func mcpEnrichmentPublicationFixture(t *testing.T, snapshot protocol.Snapshot, generation, stepID string) (*semantic.SemanticMapIR, rflscvs02.AnalysisReadSet, rflscvs02.ObservationClosure, *rflscvs02.Result) {
+func mcpEnrichmentPublicationFixture(t *testing.T, snapshot protocol.Snapshot, generation, stepID string) (*semantic.SemanticMapIR, evidence.AnalysisReadSet, evidence.ObservationClosure, *evidence.Result) {
 	t.Helper()
 	if len(snapshot.Documents) == 0 {
 		t.Fatal("fixture snapshot has no documents")
@@ -514,16 +514,16 @@ func mcpEnrichmentPublicationFixture(t *testing.T, snapshot protocol.Snapshot, g
 	if err != nil {
 		t.Fatal(err)
 	}
-	readDocuments := make([]rflscvs02.ReadDocument, 0, len(input.Documents))
+	readDocuments := make([]evidence.ReadDocument, 0, len(input.Documents))
 	for _, item := range input.Documents {
-		readDocuments = append(readDocuments, rflscvs02.ReadDocument{Path: item.Path, DocumentRevisionID: item.RevisionID, ContentID: item.ContentID, ContentHash: item.ContentID, DocumentVersion: item.DocumentVersion, ByteLength: item.ByteLength})
+		readDocuments = append(readDocuments, evidence.ReadDocument{Path: item.Path, DocumentRevisionID: item.RevisionID, ContentID: item.ContentID, ContentHash: item.ContentID, DocumentVersion: item.DocumentVersion, ByteLength: item.ByteLength})
 	}
 	readSetID := "readset-mcp-factory"
 	closureID := "closure-mcp-factory"
-	membership := rflscvs02.Observation{Kind: "membership", Path: ".", ValueHash: "membership-mcp-factory", Measured: true}
-	readSet := rflscvs02.AnalysisReadSet{SchemaID: rflscvs02.ReadSetSchemaID, SchemaVersion: 2, ReadSetID: readSetID, ComputedBasisID: snapshot.ComputedBasisID, WorkspaceEpoch: snapshot.WorkspaceEpoch, Documents: readDocuments, NegativeObservations: []rflscvs02.Observation{}, MembershipObservations: []rflscvs02.Observation{membership}, DependencyFrontiers: []rflscvs02.Observation{}}
-	closure := rflscvs02.ObservationClosure{SchemaID: rflscvs02.ClosureSchemaID, SchemaVersion: 2, ClosureID: closureID, AnalysisReadSetID: readSetID, ComputedBasisID: snapshot.ComputedBasisID, WorkspaceEpoch: snapshot.WorkspaceEpoch, Status: "closed", NegativeObservations: []rflscvs02.Observation{}, MembershipObservations: []rflscvs02.Observation{membership}, DependencyFrontiers: []rflscvs02.Observation{}, RequiredObservations: []string{"membership"}, MeasuredObservations: []string{"membership"}, ClosureDigest: strings.Repeat("d", 64)}
-	result := &rflscvs02.Result{SchemaID: rflscvs02.AnalyzerResultSchemaID, SchemaVersion: 2, RequestID: "request-mcp-factory", Operation: "detect", AdapterVersion: "adapter-mcp-factory/1", AnalyzerRevision: "analyzer-mcp-factory/1", WorkspaceEpoch: snapshot.WorkspaceEpoch, ComputedBasisID: snapshot.ComputedBasisID, SnapshotID: snapshot.SnapshotID, SnapshotTreeDigest: snapshot.RootTreeID, DependencyFingerprint: snapshot.DependencyFingerprint, ReadSet: readSet, Closure: closure, Capability: rflscvs02.CapabilityProfile{Adapter: "mcp-factory", AdapterVersion: "adapter-mcp-factory/1", AnalyzerRevision: "analyzer-mcp-factory/1", Features: []string{"snapshot_bytes"}}, Coverage: rflscvs02.Coverage{IncludedSourceRoots: []string{"."}, ExcludedReasons: []string{}, Measured: true}, Diagnostics: []rflscvs02.Diagnostic{}, Payload: json.RawMessage(`{"language":"go","confident":true}`)}
+	membership := evidence.Observation{Kind: "membership", Path: ".", ValueHash: "membership-mcp-factory", Measured: true}
+	readSet := evidence.AnalysisReadSet{SchemaID: evidence.ReadSetSchemaID, SchemaVersion: 2, ReadSetID: readSetID, ComputedBasisID: snapshot.ComputedBasisID, WorkspaceEpoch: snapshot.WorkspaceEpoch, Documents: readDocuments, NegativeObservations: []evidence.Observation{}, MembershipObservations: []evidence.Observation{membership}, DependencyFrontiers: []evidence.Observation{}}
+	closure := evidence.ObservationClosure{SchemaID: evidence.ClosureSchemaID, SchemaVersion: 2, ClosureID: closureID, AnalysisReadSetID: readSetID, ComputedBasisID: snapshot.ComputedBasisID, WorkspaceEpoch: snapshot.WorkspaceEpoch, Status: "closed", NegativeObservations: []evidence.Observation{}, MembershipObservations: []evidence.Observation{membership}, DependencyFrontiers: []evidence.Observation{}, RequiredObservations: []string{"membership"}, MeasuredObservations: []string{"membership"}, ClosureDigest: strings.Repeat("d", 64)}
+	result := &evidence.Result{SchemaID: evidence.AnalyzerResultSchemaID, SchemaVersion: 2, RequestID: "request-mcp-factory", Operation: "detect", AdapterVersion: "adapter-mcp-factory/1", AnalyzerRevision: "analyzer-mcp-factory/1", WorkspaceEpoch: snapshot.WorkspaceEpoch, ComputedBasisID: snapshot.ComputedBasisID, SnapshotID: snapshot.SnapshotID, SnapshotTreeDigest: snapshot.RootTreeID, DependencyFingerprint: snapshot.DependencyFingerprint, ReadSet: readSet, Closure: closure, Capability: evidence.CapabilityProfile{Adapter: "mcp-factory", AdapterVersion: "adapter-mcp-factory/1", AnalyzerRevision: "analyzer-mcp-factory/1", Features: []string{"snapshot_bytes"}}, Coverage: evidence.Coverage{IncludedSourceRoots: []string{"."}, ExcludedReasons: []string{}, Measured: true}, Diagnostics: []evidence.Diagnostic{}, Payload: json.RawMessage(`{"language":"go","confident":true}`)}
 	anchor := slicing.Anchor{RepoRelativePath: doc.Path, ByteRange: [2]int{0, len([]byte(content))}, FileHash: doc.ContentID, SpanHash: doc.ContentID, EnclosingSymbolPath: "main", CanonicalAstFingerprint: "ast-mcp-factory"}
 	evidenceID := semantic.EvidenceIDForAnchor("flow-mcp-factory", anchor)
 	mapIR := &semantic.SemanticMapIR{SchemaID: semantic.SemanticMapSchemaID, SchemaVersion: 2, MapID: "map-" + generation, GenerationID: generation, ComputedBasisID: snapshot.ComputedBasisID, ValidatedAgainstSnapshotID: snapshot.SnapshotID, PublicationKind: "checkpoint", Freshness: "current", Settlement: "pending", EnrichmentStatus: "not_requested", Authority: "candidate", Quality: semantic.MapQuality{Stage: "Q3", UnresolvedCriticalCount: 0, ConflictingCriticalCount: 0}, Task: semantic.MapTaskContext{TaskID: "task-mcp-factory", IntentRevision: 1, IntentStatus: "parsed", Mode: "feature"}, Basis: semantic.MapBasisContext{RepositoryID: snapshot.RepositoryID, WorktreeID: snapshot.WorktreeID, WorkspaceEpoch: snapshot.WorkspaceEpoch, ComputedWorkspaceSnapshotID: snapshot.SnapshotID, ComputedBasisID: snapshot.ComputedBasisID, SnapshotTreeID: snapshot.RootTreeID, DependencyFingerprint: snapshot.DependencyFingerprint, ConfigurationFingerprint: snapshot.ConfigurationFingerprint, AnalysisReadSetID: readSetID, CausalObservationClosureID: closureID}, Summary: semantic.MapSummary{Requested: "show main", Current: "candidate"}, Steps: []semantic.SemanticStep{{StepID: stepID, StructuralIdentity: "flow-mcp-factory|main.go|main|action", Ordinal: 1, Name: "main", TechnicalName: "main", Kind: "action", Anchor: anchor, EvidenceRefs: []string{evidenceID}}}, Edges: []semantic.SemanticEdge{}, Unknowns: []fusion.Unknown{}, Coverage: &semantic.CoverageBoundary{IncludedSourceRoots: []string{"."}, ExcludedReasons: []string{}}, Evidence: []semantic.SemanticEvidence{{EvidenceID: evidenceID, Kind: "source", SourceAuthority: "code", ComputedBasisID: snapshot.ComputedBasisID, DocumentRevisionID: doc.RevisionID, Anchor: anchor, Producer: &semantic.ProducerInfo{Name: "mcp-factory", Version: "1"}, ValidationStatus: "verified", RedactionStatus: "passed", SnapshotID: snapshot.SnapshotID, ByteRange: anchor.ByteRange, LineRange: [2]int{1, 1}}}}
@@ -537,7 +537,7 @@ func mcpEnrichmentPublicationFixture(t *testing.T, snapshot protocol.Snapshot, g
 	return mapIR, readSet, closure, result
 }
 
-func publishMCPEnrichmentFixture(t *testing.T, coord *flowview.Server, st *storage.Storage, mapIR *semantic.SemanticMapIR, readSet rflscvs02.AnalysisReadSet, closure rflscvs02.ObservationClosure, result *rflscvs02.Result, snapshot protocol.Snapshot) error {
+func publishMCPEnrichmentFixture(t *testing.T, coord *flowview.Server, st *storage.Storage, mapIR *semantic.SemanticMapIR, readSet evidence.AnalysisReadSet, closure evidence.ObservationClosure, result *evidence.Result, snapshot protocol.Snapshot) error {
 	t.Helper()
 	mapBytes, err := json.Marshal(mapIR)
 	if err != nil {
@@ -560,7 +560,7 @@ func publishMCPEnrichmentFixture(t *testing.T, coord *flowview.Server, st *stora
 	if err != nil {
 		return err
 	}
-	for schemaID, data := range map[string][]byte{semantic.SemanticMapSchemaID: mapBytes, contractharness.FlowProjectionV2SchemaID: projectionBytes, rflscvs02.ReadSetSchemaID: readSetBytes, rflscvs02.ClosureSchemaID: closureBytes, rflscvs02.AnalyzerResultSchemaID: resultBytes} {
+	for schemaID, data := range map[string][]byte{semantic.SemanticMapSchemaID: mapBytes, contractharness.FlowProjectionV2SchemaID: projectionBytes, evidence.ReadSetSchemaID: readSetBytes, evidence.ClosureSchemaID: closureBytes, evidence.AnalyzerResultSchemaID: resultBytes} {
 		if err := contractharness.Validate(schemaID, data); err != nil {
 			return fmt.Errorf("fixture %s: %w", schemaID, err)
 		}

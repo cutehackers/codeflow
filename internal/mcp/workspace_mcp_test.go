@@ -11,7 +11,7 @@ import (
 	"codeflow/internal/semantic"
 	"codeflow/internal/slicing"
 	"codeflow/internal/storage"
-	"codeflow/internal/testfixture"
+	"codeflow/test/fixtures"
 )
 
 func TestVS03_MCPWorkspaceTools(t *testing.T) {
@@ -701,7 +701,7 @@ func TestVS10_MCPReleaseCapability(t *testing.T) {
 		t.Fatalf("missing evidence must not generate metrics or capability claims: %+v", evaluation)
 	}
 
-	res, err = srv.executeTool(ctx, "validate_release_capability", map[string]any{"evaluation": testfixture.VS10ReleaseEvaluationInput()})
+	res, err = srv.executeTool(ctx, "validate_release_capability", map[string]any{"evaluation": fixtures.VS10ReleaseEvaluationInput()})
 	if err != nil {
 		t.Fatalf("explicit evidence evaluation failed: %v", err)
 	}
@@ -713,12 +713,12 @@ func TestVS10_MCPReleaseCapability(t *testing.T) {
 	configured, err := NewServer(Config{
 		RepoRoot:                  tempDir,
 		RequireToken:              false,
-		ReleaseThresholdDecisions: testfixture.VS10ReleaseThresholdDecisions(),
+		ReleaseThresholdDecisions: fixtures.VS10ReleaseThresholdDecisions(),
 	})
 	if err != nil {
 		t.Fatalf("configured NewServer failed: %v", err)
 	}
-	res, err = configured.executeTool(ctx, "validate_release_capability", map[string]any{"evaluation": testfixture.VS10ReleaseEvaluationInput()})
+	res, err = configured.executeTool(ctx, "validate_release_capability", map[string]any{"evaluation": fixtures.VS10ReleaseEvaluationInput()})
 	if err != nil {
 		t.Fatalf("configured explicit evidence evaluation failed: %v", err)
 	}
@@ -727,7 +727,7 @@ func TestVS10_MCPReleaseCapability(t *testing.T) {
 		t.Fatalf("trusted configured decisions did not cross the MCP boundary: %#v", res)
 	}
 
-	tampered := testfixture.VS10ReleaseEvaluationInput()
+	tampered := fixtures.VS10ReleaseEvaluationInput()
 	tampered.Profile.OS = "linux"
 	res, err = configured.executeTool(ctx, "validate_release_capability", map[string]any{"evaluation": tampered})
 	if err != nil {

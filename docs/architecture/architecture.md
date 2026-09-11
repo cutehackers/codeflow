@@ -21,7 +21,7 @@ CodeFlow is a **Live Semantic Compiler** that bridges human developer intent and
    *Model proposals must never self-promote to verified state without explicit human approval backed by AST code evidence.*
 
 2. **Single-Source Application Services**:
-   The core 15-step compilation pipeline (intent normalization, harvesting, slicing, semantic IR compilation, critical obligation evaluation, generation proof construction, CAS manifest persistence, and atomic pointer publishing) must exist in **one unified Application Service**, consumed identically by CLI, FlowView Web, and MCP interfaces.
+   The core 15-step compilation pipeline (intent normalization, harvesting, slicing, semantic IR compilation, critical obligation evaluation, generation proof construction, Content-Addressable Storage manifest persistence, and atomic pointer publishing) must exist in **one unified Application Service**, consumed identically by CLI, FlowView Web, and MCP interfaces.
 
 3. **Sub-Second Reactive Feedback Loop**:
    Editing code triggers a non-blocking, multi-stage reactive pipeline:
@@ -30,8 +30,8 @@ CodeFlow is a **Live Semantic Compiler** that bridges human developer intent and
    - **$T_0 + 2\text{s}$**: Debounced publication coalescing and background AST re-indexing.
    - **$T_0 + 3\text{s}$**: Publication gate evaluation, atomic pointer swap, and `generation.published` SSE broadcast.
 
-4. **Immutable State & CAS Namespace Segregation**:
-   Workspace snapshots represent immutable point-in-time states backed by Copy-on-Write (CoW) Virtual File Systems. Content-Addressable Storage (CAS) strictly isolates raw file revisions from formal proof manifests to prevent garbage collection hazards.
+4. **Immutable State & Content-Addressable Storage Namespace Segregation**:
+   Workspace snapshots represent immutable point-in-time states backed by Copy-on-Write (CoW) Virtual File Systems. Content-Addressable Storage strictly isolates raw file revisions from formal proof manifests to prevent garbage collection hazards.
 
 5. **Defense-in-Depth Egress Security**:
    All outbound boundaries (FlowView HTTP REST, Server-Sent Events, MCP JSON-RPC stdio) pass through automated credential scrubbing. Loopback endpoints strictly validate Origin and Host headers to prevent DNS rebinding and cross-origin attacks.
@@ -65,7 +65,7 @@ graph TD
     end
 
     subgraph OutboundAdapters ["Outbound Adapters (Infrastructure Layer)"]
-        CASStore["CAS Storage Adapter<br/>(internal/infra/store)<br/>- .codeflow/cas/blobs/<br/>- .codeflow/cas/manifests/"]
+        ContentAddressableStorageStore["Content-Addressable Storage Adapter<br/>(internal/infra/store)<br/>- .codeflow/cas/blobs/<br/>- .codeflow/cas/manifests/"]
         ProcessPool["Process Pool Adapter<br/>(internal/infra/process)<br/>- Bounded maxActive<br/>- Setpgid Group Isolation"]
         ReactiveWatcher["Reactive File Watcher<br/>(internal/infra/watcher)<br/>- Debounced File Watch<br/>- Background Re-indexing"]
         SecretFilter["Secret Redaction Filter<br/>(internal/infra/security)<br/>- Egress Stream Scrubbing"]
@@ -84,7 +84,7 @@ graph TD
     WorkspaceService --> DomainPorts
     ApprovalService --> DomainPorts
 
-    DomainPorts -.-> CASStore
+    DomainPorts -.-> ContentAddressableStorageStore
     DomainPorts -.-> ProcessPool
     DomainPorts -.-> ReactiveWatcher
     DomainPorts -.-> SecretFilter
@@ -121,7 +121,7 @@ The Domain Layer is the core of the system. It has **zero dependencies** on oute
 - **`internal/domain/ports/`**:
   Abstract interfaces implemented by infrastructure adapters:
   - `SnapshotRepository`: Read/write workspace snapshots and revisions.
-  - `ManifestStoragePort`: Read/write proof manifests and CAS objects.
+  - `ManifestStoragePort`: Read/write proof manifests and Content-Addressable Storage objects.
   - `AdapterPoolPort`: Execute harvesting and slicing on language worker pools.
   - `EventPublisherPort`: Broadcast state changes to subscribers.
 
@@ -161,7 +161,7 @@ The Application Layer coordinates use-case execution. It orchestrates domain obj
   9. Generation Proof Construction (proof.NewManifest)
            │
            ▼
-  10. Atomic CAS Commit & Pointer Swap (ports.ManifestStoragePort)
+  10. Atomic Content-Addressable Storage Commit & Pointer Swap (ports.ManifestStoragePort)
            │
            ▼
   11. Event Emission (ports.EventPublisherPort -> "generation.published")
@@ -174,11 +174,11 @@ The Application Layer coordinates use-case execution. It orchestrates domain obj
 ### 3.3 Infrastructure Layer (`internal/infra/`)
 Outbound adapters that interact with disk, operating system, external processes, and network.
 
-- **`internal/infra/store/` (CAS & Active Pointer)**:
+- **`internal/infra/store/` (Content-Addressable Storage & Active Pointer)**:
   - Enforces strict directory segregation:
     - `.codeflow/cas/blobs/`: Immutable content revisions.
     - `.codeflow/cas/manifests/`: Immutable proof manifests and settlement evaluations.
-  - `PruneOrphanCAS` scans only `blobs/`, completely eliminating the catastrophic proof deletion hazard.
+  - Existing `PruneOrphanCAS` scans only `blobs/`, completely eliminating the catastrophic proof deletion hazard.
   - Manages atomic file rename operations for `active-pointer.json`.
 - **`internal/infra/process/` (Hardened Worker Pool)**:
   - Manages language adapter worker pools (`protocol.Pool`).
@@ -262,7 +262,7 @@ erDiagram
     WORKSPACE_SNAPSHOT ||--o{ REVISION_ENTRY : contains
     WORKSPACE_SNAPSHOT ||--o| GENERATION_PROOF_MANIFEST : validated_against
     GENERATION_PROOF_MANIFEST ||--|| ACTIVE_POINTER : referenced_by
-    GENERATION_PROOF_MANIFEST ||--o{ CAS_BLOB : links
+    GENERATION_PROOF_MANIFEST ||--o{ CONTENT_ADDRESSABLE_BLOB : links
     
     WORKSPACE_SNAPSHOT {
         string snapshotId PK
@@ -288,7 +288,7 @@ erDiagram
         int64 workspaceEpoch
     }
 
-    CAS_BLOB {
+    CONTENT_ADDRESSABLE_BLOB {
         string sha256 PK
         string namespace "blobs | manifests"
         bytes content
@@ -301,11 +301,11 @@ erDiagram
    Once registered, a `WorkspaceSnapshot` is strictly immutable. Snapshot transitions use copy-on-write cloning; in-place mutations of `LiveHead` are prohibited.
 2. **Disk-Backed State Single-Truth**:
    Snapshot indices and revision logs are persisted to `.codeflow/workspace/snapshots.json`. CLI commands, background daemons, and MCP servers share the identical disk-backed engine, preventing split-brain states.
-3. **CAS Dual-Namespace Segregation**:
+3. **Content-Addressable Storage Dual-Namespace Segregation**:
    - `HOME/workspace/codeflow/.codeflow/cas/blobs/<sha256>`: Stores raw file content revisions.
    - `HOME/workspace/codeflow/.codeflow/cas/manifests/<sha256>`: Stores `GenerationProofManifest` documents.
    - Garbage collection scans only `blobs/`, preserving proof history indefinitely.
-4. **Active Pointer Compare-And-Swap (CAS)**:
+4. **Active Pointer compare-and-swap**:
    Publishing a new generation requires atomic compare-and-swap against `active-pointer.json`. If a concurrent edit updates the live head snapshot before publication completes, the swap aborts and triggers a reactive re-compilation.
 
 ---
@@ -323,7 +323,7 @@ gantt
     MCP Path Traversal Guard (isSubpath)     :p1_2, after p1_1, 3d
     Centralized Egress Secret Redaction      :p1_3, after p1_1, 5d
     Per-Route SSE Write Deadlines           :p1_4, 2026-09-07, 4d
-    CAS Blobs/Manifests Segregation         :p1_5, after p1_4, 5d
+    Content-Addressable Storage Blobs/Manifests Segregation :p1_5, after p1_4, 5d
     Persistent Process Pool in FlowView     :p1_6, after p1_2, 4d
     Setpgid Process Group Isolation         :p1_7, after p1_6, 3d
     section Phase 2: Domain Decoupling
@@ -346,7 +346,7 @@ gantt
 
 | Phase | Core Focus | Key Deliverables | Risk & Compatibility |
 |:---|:---|:---|:---|
-| **Phase 1: Immediate Stabilization & Security Hardening** | Security vulnerabilities, data corruption hazards, and process leaks | Loopback host parsing, `isSubpath` MCP protection, egress secret redaction, CAS directory split, persistent process pool, and `Setpgid` subprocess termination. | **Zero breaking changes**. Modifies only internal infrastructure logic. |
+| **Phase 1: Immediate Stabilization & Security Hardening** | Security vulnerabilities, data corruption hazards, and process leaks | Loopback host parsing, `isSubpath` MCP protection, egress secret redaction, Content-Addressable Storage directory split, persistent process pool, and `Setpgid` subprocess termination. | **Zero breaking changes**. Modifies only internal infrastructure logic. |
 | **Phase 2: Domain Decoupling & Application Service Extraction** | Modularity, pipeline duplication, and clean architecture | `internal/domain/proof` canonical models, unified `CompilerService` (CLI/FlowView/MCP), `internal/domain/archmap/` migration, and decomposed `flowview.Server`. | **Zero breaking changes**. Preserves all REST endpoints, SSE formats, and JSON schemas. |
 | **Phase 3: Reactive Loop Activation & Multi-Language Parity** | Real-time reactivity, multi-language parity, and test fidelity | Active background re-indexer, disk-backed snapshot engine, full Go AST statement slicer with struct method support, and clean JSON-RPC 2.0 adapters. | **Zero breaking changes**. Wire compatibility preserved; language adapter protocol remains standard. |
 

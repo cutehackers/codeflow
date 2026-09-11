@@ -13,7 +13,7 @@ import (
 	"testing"
 	"time"
 
-	"codeflow/internal/rflscvs02"
+	"codeflow/internal/evidence"
 	"codeflow/internal/storage"
 )
 
@@ -103,23 +103,23 @@ func publicationTxWithSequence(gen, snap string, prev *string, sequence int) sto
 	readSetID := "read-1"
 	closureID := "closure-1"
 	closureDigest := strings.Repeat("c", 64)
-	capability := rflscvs02.CapabilityProfile{Adapter: "test-adapter", AdapterVersion: "adapter-1", AnalyzerRevision: "analyzer-1", Features: []string{"snapshot_bytes"}}
+	capability := evidence.CapabilityProfile{Adapter: "test-adapter", AdapterVersion: "adapter-1", AnalyzerRevision: "analyzer-1", Features: []string{"snapshot_bytes"}}
 	capabilityBytes := mustMarshalFixture(capability)
 	capabilityHash := sha256.Sum256(capabilityBytes)
 	capabilityDigest := hex.EncodeToString(capabilityHash[:])
-	observations := map[string][]rflscvs02.Observation{
+	observations := map[string][]evidence.Observation{
 		"negativeObservations":   {{Kind: "negative_lookup", Path: "test/missing.go", Measured: true}},
 		"membershipObservations": {{Kind: "membership", Path: "test", Measured: true}},
 		"dependencyFrontiers":    {{Kind: "dependency_frontier", Path: "test/go.mod", Measured: true}},
 	}
-	readSet := rflscvs02.AnalysisReadSet{
-		SchemaID: rflscvs02.ReadSetSchemaID, SchemaVersion: rflscvs02.SchemaVersion,
+	readSet := evidence.AnalysisReadSet{
+		SchemaID: evidence.ReadSetSchemaID, SchemaVersion: evidence.SchemaVersion,
 		ReadSetID: readSetID, ComputedBasisID: basis, WorkspaceEpoch: 1,
-		Documents: []rflscvs02.ReadDocument{}, NegativeObservations: observations["negativeObservations"],
+		Documents: []evidence.ReadDocument{}, NegativeObservations: observations["negativeObservations"],
 		MembershipObservations: observations["membershipObservations"], DependencyFrontiers: observations["dependencyFrontiers"],
 	}
-	closure := rflscvs02.ObservationClosure{
-		SchemaID: rflscvs02.ClosureSchemaID, SchemaVersion: rflscvs02.SchemaVersion,
+	closure := evidence.ObservationClosure{
+		SchemaID: evidence.ClosureSchemaID, SchemaVersion: evidence.SchemaVersion,
 		ClosureID: closureID, AnalysisReadSetID: readSetID, ComputedBasisID: basis, WorkspaceEpoch: 1,
 		Status: "closed", NegativeObservations: observations["negativeObservations"],
 		MembershipObservations: observations["membershipObservations"], DependencyFrontiers: observations["dependencyFrontiers"],
@@ -128,14 +128,14 @@ func publicationTxWithSequence(gen, snap string, prev *string, sequence int) sto
 	}
 	readSetBytes := mustMarshalFixture(readSet)
 	closureBytes := mustMarshalFixture(closure)
-	analyzerResult := rflscvs02.Result{
-		SchemaID: rflscvs02.AnalyzerResultSchemaID, SchemaVersion: rflscvs02.SchemaVersion,
+	analyzerResult := evidence.Result{
+		SchemaID: evidence.AnalyzerResultSchemaID, SchemaVersion: evidence.SchemaVersion,
 		RequestID: "request-1", Operation: "detect", AdapterVersion: capability.AdapterVersion,
 		AnalyzerRevision: capability.AnalyzerRevision, WorkspaceEpoch: 1, ComputedBasisID: basis,
 		SnapshotID: snap, SnapshotTreeDigest: "tree-test", DependencyFingerprint: "deps-test",
 		ReadSet: readSet, Closure: closure, Capability: capability,
-		Coverage:    rflscvs02.Coverage{IncludedSourceRoots: []string{"."}, Measured: true},
-		Diagnostics: []rflscvs02.Diagnostic{}, Payload: json.RawMessage(`{"language":"go","confident":true}`),
+		Coverage:    evidence.Coverage{IncludedSourceRoots: []string{"."}, Measured: true},
+		Diagnostics: []evidence.Diagnostic{}, Payload: json.RawMessage(`{"language":"go","confident":true}`),
 	}
 	analyzerResultBytes := mustMarshalFixture(analyzerResult)
 	mapData := mustMarshalFixture(map[string]any{

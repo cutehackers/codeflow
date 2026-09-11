@@ -9,8 +9,8 @@ import (
 	"sort"
 	"strings"
 
+	"codeflow/internal/evidence"
 	"codeflow/internal/fusion"
-	"codeflow/internal/rflscvs02"
 	"codeflow/internal/slicing"
 )
 
@@ -32,7 +32,7 @@ type CompileOptions struct {
 	AnalysisReadSetID          string
 	CausalObservationClosureID string
 	SnapshotFiles              map[string]string
-	SnapshotInput              *rflscvs02.SnapshotInput
+	SnapshotInput              *evidence.SnapshotInput
 }
 
 // CompileDeterministicFeatureMap compiles a complete candidate SemanticMapIR
@@ -277,7 +277,7 @@ func CompileDeterministicFeatureMap(target *ResolvedTarget, intent *TaskIntent, 
 	return mapIR, projection, nil
 }
 
-func validateCompilerVS02Result(sliceResult *slicing.SlicedPayload, input *rflscvs02.SnapshotInput, opts CompileOptions) error {
+func validateCompilerVS02Result(sliceResult *slicing.SlicedPayload, input *evidence.SnapshotInput, opts CompileOptions) error {
 	if sliceResult == nil || sliceResult.ValidatedResult == nil {
 		return fmt.Errorf("validated VS-02 slice result is required")
 	}
@@ -285,11 +285,11 @@ func validateCompilerVS02Result(sliceResult *slicing.SlicedPayload, input *rflsc
 	if result.Operation != "slice" || result.RequestID == "" {
 		return fmt.Errorf("validated VS-02 slice result has incomplete operation identity")
 	}
-	request, err := rflscvs02.NewAnalyzerRequest(result.RequestID, result.Operation, *input, nil, result.Closure.RequiredObservations)
+	request, err := evidence.NewAnalyzerRequest(result.RequestID, result.Operation, *input, nil, result.Closure.RequiredObservations)
 	if err != nil {
 		return fmt.Errorf("construct validation request: %w", err)
 	}
-	if err := rflscvs02.ValidateResult(request, *result); err != nil {
+	if err := evidence.ValidateResult(request, *result); err != nil {
 		return err
 	}
 	if result.ReadSet.ReadSetID != opts.AnalysisReadSetID {
@@ -329,7 +329,7 @@ func validateCompilerVS02Result(sliceResult *slicing.SlicedPayload, input *rflsc
 	return nil
 }
 
-func metadataMatchesResult(payload *slicing.SlicedPayload, result rflscvs02.Result) bool {
+func metadataMatchesResult(payload *slicing.SlicedPayload, result evidence.Result) bool {
 	if payload.ComputedBasisID != result.ComputedBasisID || payload.WorkspaceEpoch != result.WorkspaceEpoch || payload.SnapshotID != result.SnapshotID || payload.RootTreeID != result.SnapshotTreeDigest || payload.DependencyFingerprint != result.DependencyFingerprint || payload.AnalyzerVersion != result.AnalyzerRevision || payload.AdapterVersion != result.AdapterVersion {
 		return false
 	}
@@ -376,7 +376,7 @@ func sameSliceOperationPayload(left, right *slicing.SlicedPayload) bool {
 	return left.CandidateID == right.CandidateID && left.Language == right.Language && left.EntrySymbolPath == right.EntrySymbolPath && reflect.DeepEqual(left.Steps, right.Steps) && reflect.DeepEqual(left.Edges, right.Edges) && left.Truncated == right.Truncated && left.VisitedCycleDetected == right.VisitedCycleDetected && left.RedactedCount == right.RedactedCount
 }
 
-func validateCoverageRoots(input rflscvs02.SnapshotInput, roots []string) error {
+func validateCoverageRoots(input evidence.SnapshotInput, roots []string) error {
 	for _, root := range roots {
 		root = strings.TrimSpace(root)
 		if root == "" || strings.HasPrefix(root, "/") || root == ".." || strings.HasPrefix(root, "../") || strings.Contains(root, "/../") {
@@ -419,7 +419,7 @@ func qualityForCandidate(mapIR *SemanticMapIR) MapQuality {
 	return MapQuality{Stage: "Q1", CriticalObligations: obligations, CriticalCoverageSummary: &CriticalCoverageSummary{Required: len(obligations), Verified: len(obligations) - unresolved}, UnresolvedCriticalCount: unresolved, Degradations: []QualityDegradation{{Code: "awaiting_current_proof", Impact: "candidate map has no VS-03 current authority", RecoveryCondition: "run VS-03 current proof"}}}
 }
 
-func validateCompilerSnapshot(input *rflscvs02.SnapshotInput, files map[string]string) error {
+func validateCompilerSnapshot(input *evidence.SnapshotInput, files map[string]string) error {
 	if input.SnapshotID == "" || input.ComputedBasisID == "" || input.RootTreeID == "" || input.DependencyFingerprint == "" || input.WorkspaceEpoch < 0 {
 		return fmt.Errorf("snapshot identity is incomplete")
 	}

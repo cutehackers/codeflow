@@ -6,6 +6,13 @@ Core flow (핵심 흐름) — the flow the user requested: the complete set of a
 
 For a comprehensive explanation of CodeFlow's **Core Capabilities** and **Product Surfaces**, refer to [`docs/PROJECT.md`](docs/PROJECT.md) (or [`docs/PROJECT-ko.md`](docs/PROJECT-ko.md)).
 
+## Naming Rules
+
+- Use descriptive domain names. Do not introduce internal acronyms, ticket identifiers, or vertical-slice labels such as `RFLSC`, `LPCA`, or `VS01` in new package, directory, file, type, function, variable, or test names.
+- Use the full official terms defined in [`docs/design/glossary.md`](docs/design/glossary.md). Do not add an acronym in parentheses after them.
+- Keep `Requested Flow` as the domain term for the execution flow selected by a user's intent. It is not part of the `Live Semantic Compiler` product name.
+- Preserve existing schema IDs, protocol values, storage keys, public API names, and compatibility fixtures when renaming would break consumers. Rename legacy internal names only when the surrounding code is already being changed.
+
 ## Code Comprehension First & Anti-Telemetry Guard
 
 │ "NEVER leak internal compiler, benchmark, or engine telemetry (such as epochs, lag, or internal settlement flags) into the
@@ -17,5 +24,5 @@ For a comprehensive explanation of CodeFlow's **Core Capabilities** and **Produc
 - Do not write the absolute home-directory path (for example, `/Users/<username>`) directly in documentation, code, configuration, or examples.
 - When a home-directory path is needed, use `HOME` followed by the relative path instead. For example: `HOME/workspace/codeflow`.
 - **No Git Commits/Tags/Pushes**: Antigravity is strictly prohibited from running `git commit`, `git tag`, or `git push`. All version control commits and history modifications must be performed directly by the user.
-- **Go Coding Standards & Naming Conventions**: All Go code written, modified, or reviewed by agents MUST adhere to [`docs/guides/CODING_STANDARDS.md`](docs/guides/CODING_STANDARDS.md). Rigorously follow Go naming conventions (Google Go Style: strict initialism casing `FlowID`/`URL`/`MCP`, scope-proportional variable lengths, stutter-free package APIs, getters without `Get` prefix, `Err*` sentinel errors, and consistent 1-2 char receivers). Also adhere to package structure, `%w` error wrapping, anti-telemetry preservation, single-gate secret redaction in `internal/secret`, context timeouts, and table-driven testing. Always verify changes with `make fmt`, `make vet`, and `make test`.
+- **Go Coding Standards & Naming Conventions**: All Go code written, modified, or reviewed by agents MUST adhere to [`docs/guides/CODING_STANDARDS.md`](docs/guides/CODING_STANDARDS.md). Rigorously follow Go naming conventions (Google Go Style: strict initialism casing `FlowID`/`URL`/`MCP`, scope-proportional variable lengths, stutter-free package APIs, getters without `Get` prefix, `Err*` sentinel errors, and the naming rules above). Also adhere to package structure, `%w` error wrapping, anti-telemetry preservation, single-gate secret redaction in `internal/secret`, context timeouts, and table-driven testing. Always verify changes with `make fmt`, `make vet`, and `make test`.
 - **Version Management & Release Synchronization**: When preparing a release or bumping a version (`vX.Y.Z`), the agent MUST follow `docs/VERSIONING.md` and synchronize all version locations simultaneously (`README.md`, `scripts/install.sh`, `internal/pin/compatibility.json`, adapter package manifests, and `CHANGELOG.md`) before suggesting release tags.

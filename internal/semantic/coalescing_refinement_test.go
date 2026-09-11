@@ -9,8 +9,8 @@ import (
 	"testing"
 	"time"
 
+	"codeflow/internal/evidence"
 	"codeflow/internal/fusion"
-	"codeflow/internal/rflscvs02"
 	"codeflow/internal/semantic"
 	"codeflow/internal/slicing"
 	"codeflow/internal/storage"
@@ -189,24 +189,24 @@ func newLateRefinementFixture(t *testing.T) lateRefinementFixture {
 		Entries:                  map[string]workspace.SnapshotEntry{"main.go": {RevisionID: "rev-1", ContentID: contentID, DocumentVersion: 1, ByteLength: len(content)}},
 		RepositoryPathWriteAudit: workspace.SourceWriteAudit{CapturedSnapshotTreeDigest: rootTree},
 	}
-	inputSnapshot := rflscvs02.SnapshotInput{
+	inputSnapshot := evidence.SnapshotInput{
 		SnapshotID:               snapshotID,
 		WorkspaceEpoch:           1,
 		ComputedBasisID:          basis,
 		RootTreeID:               rootTree,
 		ConfigurationFingerprint: "config-refinement",
 		DependencyFingerprint:    dep,
-		Documents:                []rflscvs02.SnapshotDocument{{Path: "main.go", RevisionID: "rev-1", ContentID: contentID, DocumentVersion: 1, ByteLength: len(content), Bytes: append([]byte(nil), content...)}},
+		Documents:                []evidence.SnapshotDocument{{Path: "main.go", RevisionID: "rev-1", ContentID: contentID, DocumentVersion: 1, ByteLength: len(content), Bytes: append([]byte(nil), content...)}},
 		SourceWriteAudit:         workspace.SourceWriteAudit{CapturedSnapshotTreeDigest: rootTree},
 	}
-	request, err := rflscvs02.NewAnalyzerRequest("request-refinement", "detect", inputSnapshot, nil, []string{"membership"})
+	request, err := evidence.NewAnalyzerRequest("request-refinement", "detect", inputSnapshot, nil, []string{"membership"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	membership := rflscvs02.Observation{Kind: "membership", Path: ".", ValueHash: "membership-refinement", Measured: true}
-	result := rflscvs02.Result{
-		SchemaID:              rflscvs02.AnalyzerResultSchemaID,
-		SchemaVersion:         rflscvs02.SchemaVersion,
+	membership := evidence.Observation{Kind: "membership", Path: ".", ValueHash: "membership-refinement", Measured: true}
+	result := evidence.Result{
+		SchemaID:              evidence.AnalyzerResultSchemaID,
+		SchemaVersion:         evidence.SchemaVersion,
 		RequestID:             request.RequestID,
 		Operation:             request.Operation,
 		AdapterVersion:        "adapter-refinement/1",
@@ -216,11 +216,11 @@ func newLateRefinementFixture(t *testing.T) lateRefinementFixture {
 		SnapshotID:            snapshotID,
 		SnapshotTreeDigest:    rootTree,
 		DependencyFingerprint: dep,
-		ReadSet:               rflscvs02.AnalysisReadSet{SchemaID: rflscvs02.ReadSetSchemaID, SchemaVersion: 2, ReadSetID: "read-refinement", ComputedBasisID: basis, WorkspaceEpoch: 1, Documents: []rflscvs02.ReadDocument{{Path: "main.go", DocumentRevisionID: "rev-1", ContentID: contentID, ContentHash: contentID, DocumentVersion: 1, ByteLength: len(content)}}, NegativeObservations: []rflscvs02.Observation{}, MembershipObservations: []rflscvs02.Observation{membership}, DependencyFrontiers: []rflscvs02.Observation{}},
-		Closure:               rflscvs02.ObservationClosure{SchemaID: rflscvs02.ClosureSchemaID, SchemaVersion: 2, ClosureID: "closure-refinement", AnalysisReadSetID: "read-refinement", ComputedBasisID: basis, WorkspaceEpoch: 1, Status: "closed", NegativeObservations: []rflscvs02.Observation{}, MembershipObservations: []rflscvs02.Observation{membership}, DependencyFrontiers: []rflscvs02.Observation{}, RequiredObservations: []string{"membership"}, MeasuredObservations: []string{"membership"}, ClosureDigest: strings.Repeat("c", 64)},
-		Capability:            rflscvs02.CapabilityProfile{Adapter: "go", AdapterVersion: "adapter-refinement/1", AnalyzerRevision: "analyzer-refinement/1", Features: []string{"membership"}},
-		Coverage:              rflscvs02.Coverage{IncludedSourceRoots: []string{"."}, Measured: true},
-		Diagnostics:           []rflscvs02.Diagnostic{},
+		ReadSet:               evidence.AnalysisReadSet{SchemaID: evidence.ReadSetSchemaID, SchemaVersion: 2, ReadSetID: "read-refinement", ComputedBasisID: basis, WorkspaceEpoch: 1, Documents: []evidence.ReadDocument{{Path: "main.go", DocumentRevisionID: "rev-1", ContentID: contentID, ContentHash: contentID, DocumentVersion: 1, ByteLength: len(content)}}, NegativeObservations: []evidence.Observation{}, MembershipObservations: []evidence.Observation{membership}, DependencyFrontiers: []evidence.Observation{}},
+		Closure:               evidence.ObservationClosure{SchemaID: evidence.ClosureSchemaID, SchemaVersion: 2, ClosureID: "closure-refinement", AnalysisReadSetID: "read-refinement", ComputedBasisID: basis, WorkspaceEpoch: 1, Status: "closed", NegativeObservations: []evidence.Observation{}, MembershipObservations: []evidence.Observation{membership}, DependencyFrontiers: []evidence.Observation{}, RequiredObservations: []string{"membership"}, MeasuredObservations: []string{"membership"}, ClosureDigest: strings.Repeat("c", 64)},
+		Capability:            evidence.CapabilityProfile{Adapter: "go", AdapterVersion: "adapter-refinement/1", AnalyzerRevision: "analyzer-refinement/1", Features: []string{"membership"}},
+		Coverage:              evidence.Coverage{IncludedSourceRoots: []string{"."}, Measured: true},
+		Diagnostics:           []evidence.Diagnostic{},
 		Payload:               json.RawMessage(`{"language":"go","confident":true}`),
 	}
 	mapIR := createTestMapIR("Q2", nil, 0, 0)

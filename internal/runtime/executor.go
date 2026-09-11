@@ -19,11 +19,52 @@ import (
 	"sync"
 	"time"
 
+	"codeflow/internal/evidence"
+	"codeflow/internal/isolation"
 	"codeflow/internal/protocol"
-	"codeflow/internal/rflscvs02"
-	"codeflow/internal/rflscvs06"
 	"codeflow/internal/workspace"
 )
+
+// Forward aliases from isolation package.
+type Consent = isolation.Consent
+type IsolationResult = isolation.IsolationResult
+type RuntimeConsent = isolation.RuntimeConsent
+type RuntimeConsentV1 = isolation.RuntimeConsentV1
+type RuntimeIsolationResult = isolation.RuntimeIsolationResult
+type RuntimeIsolationResultV1 = isolation.RuntimeIsolationResultV1
+type RuntimeCommand = isolation.RuntimeCommand
+type RuntimeAccessScope = isolation.RuntimeAccessScope
+type RuntimeIsolationScope = isolation.RuntimeIsolationScope
+type RuntimeExecutionSpec = isolation.RuntimeExecutionSpec
+type RuntimeCleanupEvidence = isolation.RuntimeCleanupEvidence
+type RuntimeWorktreeComparison = isolation.RuntimeWorktreeComparison
+type RuntimeProcessOutput = isolation.RuntimeProcessOutput
+
+const (
+	RuntimeConsentSchemaID           = isolation.RuntimeConsentSchemaID
+	RuntimeIsolationResultSchemaID   = isolation.RuntimeIsolationResultSchemaID
+	RuntimeConsentV1SchemaID         = isolation.RuntimeConsentV1SchemaID
+	RuntimeIsolationResultV1SchemaID = isolation.RuntimeIsolationResultV1SchemaID
+	RuntimeSchemaVersion             = isolation.RuntimeSchemaVersion
+
+	RuntimeTerminalSuccess = isolation.RuntimeTerminalSuccess
+	RuntimeTerminalFailure = isolation.RuntimeTerminalFailure
+	RuntimeTerminalTimeout = isolation.RuntimeTerminalTimeout
+	RuntimeTerminalCancel  = isolation.RuntimeTerminalCancel
+
+	RuntimeAuditClean         = isolation.RuntimeAuditClean
+	RuntimeAuditViolation     = isolation.RuntimeAuditViolation
+	RuntimeAuditUnavailable   = isolation.RuntimeAuditUnavailable
+	RuntimeAuditIndeterminate = isolation.RuntimeAuditIndeterminate
+
+	RuntimePromotionEligible = isolation.RuntimePromotionEligible
+	RuntimePromotionBlocked  = isolation.RuntimePromotionBlocked
+)
+
+// CommandDigest computes a command digest for consent binding.
+func CommandDigest(command string, args []string) string {
+	return isolation.CommandDigest(command, args)
+}
 
 // ErrSnapshotIdentityMismatch means that the bytes or identity supplied to
 // the executor do not describe the declared immutable tree.
@@ -86,7 +127,7 @@ func (IndeterminateSourceAuditProvider) Audit(_ context.Context, request SourceA
 	if audit.CapturedSnapshotTreeDigest == "" {
 		audit = request.BeforeRepositoryAudit
 	}
-	return SourceAuditReport{Status: rflscvs06.RuntimeAuditIndeterminate, Audit: audit}, nil
+	return SourceAuditReport{Status: RuntimeAuditIndeterminate, Audit: audit}, nil
 }
 
 // CleanSourceAuditProvider is a deterministic test provider. It is exported
@@ -98,7 +139,7 @@ func (CleanSourceAuditProvider) Audit(_ context.Context, request SourceAuditRequ
 	if audit.CapturedSnapshotTreeDigest == "" {
 		audit.CapturedSnapshotTreeDigest = request.SnapshotTreeDigest
 	}
-	return SourceAuditReport{Status: rflscvs06.RuntimeAuditClean, Audit: audit}, nil
+	return SourceAuditReport{Status: RuntimeAuditClean, Audit: audit}, nil
 }
 
 // AttributedWriteSourceAuditProvider is a deterministic test provider for a
@@ -120,7 +161,7 @@ func (p AttributedWriteSourceAuditProvider) Audit(_ context.Context, request Sou
 		path = "runtime-attributed-source-write"
 	}
 	audit.RepositoryPathWrites = append(append([]string(nil), audit.RepositoryPathWrites...), path)
-	return SourceAuditReport{Status: rflscvs06.RuntimeAuditViolation, Audit: audit}, nil
+	return SourceAuditReport{Status: RuntimeAuditViolation, Audit: audit}, nil
 }
 
 // ExecutorConfig configures one-shot execution. AdapterConfig is passed to
@@ -129,7 +170,7 @@ func (p AttributedWriteSourceAuditProvider) Audit(_ context.Context, request Sou
 // head after the process exits.
 type ExecutorConfig struct {
 	AdapterConfig  protocol.Config
-	Spec           rflscvs06.RuntimeExecutionSpec
+	Spec           RuntimeExecutionSpec
 	Engine         *workspace.SnapshotEngine
 	AuditProvider  SourceAuditProvider
 	Clock          func() time.Time
@@ -142,7 +183,7 @@ type ExecutorConfig struct {
 type ExecutionRequest struct {
 	ExecutionID          string
 	Nonce                string
-	Consent              rflscvs06.RuntimeConsent
+	Consent              RuntimeConsent
 	Snapshot             protocol.Snapshot
 	Operation            string
 	Params               map[string]any
@@ -162,13 +203,13 @@ type OneShotRequest = ExecutionRequest
 // runtime-isolation contract so runtime lifecycle authority cannot be confused
 // with static analyzer authority.
 type ExecutionResult struct {
-	Isolation rflscvs06.RuntimeIsolationResult
-	Analyzer  *rflscvs02.Result
+	Isolation RuntimeIsolationResult
+	Analyzer  *evidence.Result
 }
 
 // RuntimeIsolationResult returns the contract payload without exposing a
 // mutable pointer owned by the executor.
-func (r ExecutionResult) RuntimeIsolationResult() rflscvs06.RuntimeIsolationResult {
+func (r ExecutionResult) RuntimeIsolationResult() RuntimeIsolationResult {
 	return r.Isolation
 }
 
@@ -230,16 +271,16 @@ func (e *Executor) Execute(ctx context.Context, request ExecutionRequest) (Execu
 	}
 
 	result := ExecutionResult{}
-	iso := rflscvs06.RuntimeIsolationResult{
-		SchemaID:                 rflscvs06.RuntimeIsolationResultSchemaID,
-		SchemaVersion:            rflscvs06.RuntimeSchemaVersion,
+	iso := RuntimeIsolationResult{
+		SchemaID:                 RuntimeIsolationResultSchemaID,
+		SchemaVersion:            RuntimeSchemaVersion,
 		ResultAuthority:          "runtime_executor",
 		ProcessObserved:          false,
 		ExecutionID:              frozen.executionID,
 		ConsentID:                frozen.consent.ConsentID,
 		ActorID:                  frozen.consent.ActorID,
 		Nonce:                    frozen.nonce,
-		Status:                   rflscvs06.RuntimeTerminalFailure,
+		Status:                   RuntimeTerminalFailure,
 		ResultCode:               "not_started",
 		Command:                  e.spec().Command.Command,
 		Args:                     cloneArgs(e.spec().Command.Args),
@@ -254,9 +295,9 @@ func (e *Executor) Execute(ctx context.Context, request ExecutionRequest) (Execu
 		StartedAt:                started.UTC().Format(time.RFC3339Nano),
 		FinishedAt:               started.UTC().Format(time.RFC3339Nano),
 		RepositoryPathWriteAudit: beforeAudit,
-		SourceWriteAuditStatus:   rflscvs06.RuntimeAuditIndeterminate,
+		SourceWriteAuditStatus:   RuntimeAuditIndeterminate,
 		SourceIntegrityStatus:    "audit_indeterminate",
-		EvidencePromotion:        rflscvs06.RuntimePromotionBlocked,
+		EvidencePromotion:        RuntimePromotionBlocked,
 		PromotionBlockedReason:   "runtime audit is indeterminate",
 	}
 
@@ -291,7 +332,7 @@ func (e *Executor) Execute(ctx context.Context, request ExecutionRequest) (Execu
 	// Close is unconditional. Conn.Close kills any remaining child, waits for
 	// its terminal sequence, and removes the process-private working directory.
 	var callErr error
-	var analyzer rflscvs02.Result
+	var analyzer evidence.Result
 	callErr = conn.Call(ctx, frozen.operation, frozen.params, &analyzer)
 	if callErr == nil {
 		result.Analyzer = &analyzer
@@ -303,7 +344,7 @@ func (e *Executor) Execute(ctx context.Context, request ExecutionRequest) (Execu
 
 	finished := e.now()
 	iso.MountPermissionEvidence = conn.MountPermissionEvidence()
-	iso.Cleanup = rflscvs06.RuntimeCleanupEvidence{
+	iso.Cleanup = RuntimeCleanupEvidence{
 		LayerCreated:  iso.MountPermissionEvidence.Disposable,
 		LayerDisposed: iso.MountPermissionEvidence.CleanupVerified,
 		Verified:      iso.MountPermissionEvidence.Disposable && iso.MountPermissionEvidence.CleanupVerified,
@@ -331,19 +372,19 @@ func (e *Executor) Execute(ctx context.Context, request ExecutionRequest) (Execu
 
 	iso.ConcurrentWorktree = e.reconcileLiveHead(beforeHead, frozen.snapshot.SnapshotID)
 	if !iso.InputTreeVerified {
-		iso.EvidencePromotion = rflscvs06.RuntimePromotionBlocked
+		iso.EvidencePromotion = RuntimePromotionBlocked
 		iso.PromotionBlockedReason = ErrSnapshotIdentityMismatch.Error()
 	} else if !iso.Cleanup.Verified {
-		iso.EvidencePromotion = rflscvs06.RuntimePromotionBlocked
+		iso.EvidencePromotion = RuntimePromotionBlocked
 		iso.PromotionBlockedReason = "disposable runtime cleanup was not verified"
-	} else if iso.SourceWriteAuditStatus != rflscvs06.RuntimeAuditClean {
-		iso.EvidencePromotion = rflscvs06.RuntimePromotionBlocked
+	} else if iso.SourceWriteAuditStatus != RuntimeAuditClean {
+		iso.EvidencePromotion = RuntimePromotionBlocked
 		iso.PromotionBlockedReason = promotionBlockReason(iso.SourceWriteAuditStatus)
 	} else if responseIdentityFailure(callErr) {
-		iso.EvidencePromotion = rflscvs06.RuntimePromotionBlocked
+		iso.EvidencePromotion = RuntimePromotionBlocked
 		iso.PromotionBlockedReason = ErrSnapshotIdentityMismatch.Error()
 	} else {
-		iso.EvidencePromotion = rflscvs06.RuntimePromotionEligible
+		iso.EvidencePromotion = RuntimePromotionEligible
 		iso.PromotionBlockedReason = ""
 	}
 	result.Isolation = iso
@@ -358,12 +399,12 @@ func ExecuteOneShot(ctx context.Context, cfg ExecutorConfig, request ExecutionRe
 
 type frozenRequest struct {
 	snapshot     protocol.Snapshot
-	input        rflscvs02.SnapshotInput
+	input        evidence.SnapshotInput
 	params       map[string]any
 	operation    string
 	executionID  string
 	nonce        string
-	consent      rflscvs06.RuntimeConsent
+	consent      RuntimeConsent
 	treeDigest   string
 	treeVerified bool
 }
@@ -424,7 +465,7 @@ func freezeRequest(request ExecutionRequest) (frozenRequest, error) {
 	}, nil
 }
 
-func analyzerParams(input rflscvs02.SnapshotInput, request ExecutionRequest) map[string]any {
+func analyzerParams(input evidence.SnapshotInput, request ExecutionRequest) map[string]any {
 	files := make(map[string]string, len(input.Documents))
 	documents := make([]map[string]any, 0, len(input.Documents))
 	for _, doc := range input.Documents {
@@ -436,8 +477,8 @@ func analyzerParams(input rflscvs02.SnapshotInput, request ExecutionRequest) map
 		})
 	}
 	snapshot := map[string]any{
-		"schemaId":                 rflscvs02.AnalyzerRequestSchemaID,
-		"schemaVersion":            rflscvs02.SchemaVersion,
+		"schemaId":                 evidence.AnalyzerRequestSchemaID,
+		"schemaVersion":            evidence.SchemaVersion,
 		"snapshotId":               input.SnapshotID,
 		"workspaceEpoch":           input.WorkspaceEpoch,
 		"computedBasisId":          input.ComputedBasisID,
@@ -483,7 +524,7 @@ func analyzerParams(input rflscvs02.SnapshotInput, request ExecutionRequest) map
 	return params
 }
 
-func cloneConsent(in rflscvs06.RuntimeConsent) rflscvs06.RuntimeConsent {
+func cloneConsent(in RuntimeConsent) RuntimeConsent {
 	out := in
 	out.Args = append([]string(nil), in.Args...)
 	return out
@@ -530,9 +571,9 @@ func responseIdentityFailure(err error) bool {
 	return strings.Contains(message, "analyzer result") || strings.Contains(message, "snapshot") || strings.Contains(message, "identity")
 }
 
-func (e *Executor) spec() rflscvs06.RuntimeExecutionSpec {
+func (e *Executor) spec() RuntimeExecutionSpec {
 	if e == nil {
-		return rflscvs06.RuntimeExecutionSpec{}
+		return RuntimeExecutionSpec{}
 	}
 	spec := e.cfg.Spec
 	if spec.Command.Command == "" {
@@ -542,13 +583,13 @@ func (e *Executor) spec() rflscvs06.RuntimeExecutionSpec {
 	if spec.CommandDigest == "" {
 		spec.CommandDigest = commandDigest(spec.Command)
 	}
-	if spec.AccessScope == (rflscvs06.RuntimeAccessScope{}) {
-		spec.AccessScope = rflscvs06.RuntimeAccessScope{
+	if spec.AccessScope == (RuntimeAccessScope{}) {
+		spec.AccessScope = RuntimeAccessScope{
 			Source: "immutable_snapshot", Network: "disabled", Credentials: "not_available",
 		}
 	}
-	if spec.IsolationScope == (rflscvs06.RuntimeIsolationScope{}) {
-		spec.IsolationScope = rflscvs06.RuntimeIsolationScope{
+	if spec.IsolationScope == (RuntimeIsolationScope{}) {
+		spec.IsolationScope = RuntimeIsolationScope{
 			Level: "trusted_local", SourceMount: "not_mounted", SourcePermission: "read_only_protocol",
 			WorkingDirectory: "process_private_disposable", WritableLayer: "discarded_after_terminal",
 			RepositoryPathExposed: false,
@@ -557,7 +598,7 @@ func (e *Executor) spec() rflscvs06.RuntimeExecutionSpec {
 	return spec
 }
 
-func commandDigest(command rflscvs06.RuntimeCommand) string {
+func commandDigest(command RuntimeCommand) string {
 	data, _ := json.Marshal(struct {
 		Command string   `json:"command"`
 		Args    []string `json:"args"`
@@ -607,13 +648,13 @@ func validateEngineSnapshot(engine *workspace.SnapshotEngine, snapshot protocol.
 	return nil
 }
 
-func recomputeTreeDigest(input rflscvs02.SnapshotInput, declared string) (string, bool) {
+func recomputeTreeDigest(input evidence.SnapshotInput, declared string) (string, bool) {
 	if len(input.Documents) == 0 {
 		return "", false
 	}
 	documentDigest := sha256.New()
 	metadataDigest := sha256.New()
-	docs := append([]rflscvs02.SnapshotDocument(nil), input.Documents...)
+	docs := append([]evidence.SnapshotDocument(nil), input.Documents...)
 	sort.Slice(docs, func(i, j int) bool { return docs[i].Path < docs[j].Path })
 	for _, doc := range docs {
 		content := sha256.Sum256(doc.Bytes)
@@ -639,7 +680,7 @@ func (e *Executor) audit(ctx context.Context, request SourceAuditRequest) Source
 	}
 	report, err := provider.Audit(ctx, request)
 	if err != nil {
-		return SourceAuditReport{Status: rflscvs06.RuntimeAuditUnavailable, Audit: request.BeforeRepositoryAudit}
+		return SourceAuditReport{Status: RuntimeAuditUnavailable, Audit: request.BeforeRepositoryAudit}
 	}
 	return report
 }
@@ -650,37 +691,37 @@ func normalizeAudit(report SourceAuditReport, before workspace.SourceWriteAudit,
 		audit.CapturedSnapshotTreeDigest = treeDigest
 	}
 	if audit.SourceIntegrityViolation || audit.CodeFlowWriteCount > 0 || len(audit.RepositoryPathWrites) > 0 {
-		return rflscvs06.RuntimeAuditViolation, rflscvs06.RuntimeAuditViolation, audit
+		return RuntimeAuditViolation, RuntimeAuditViolation, audit
 	}
 	status := strings.TrimSpace(report.Status)
 	switch status {
-	case rflscvs06.RuntimeAuditClean:
+	case RuntimeAuditClean:
 		if audit.CapturedSnapshotTreeDigest != treeDigest {
-			return rflscvs06.RuntimeAuditViolation, rflscvs06.RuntimeAuditViolation, audit
+			return RuntimeAuditViolation, RuntimeAuditViolation, audit
 		}
-		return rflscvs06.RuntimeAuditClean, rflscvs06.RuntimeAuditClean, audit
-	case rflscvs06.RuntimeAuditViolation:
-		return rflscvs06.RuntimeAuditViolation, rflscvs06.RuntimeAuditViolation, audit
-	case rflscvs06.RuntimeAuditUnavailable:
-		return rflscvs06.RuntimeAuditUnavailable, "audit_unavailable", audit
-	case rflscvs06.RuntimeAuditIndeterminate:
-		return rflscvs06.RuntimeAuditIndeterminate, "audit_indeterminate", audit
+		return RuntimeAuditClean, RuntimeAuditClean, audit
+	case RuntimeAuditViolation:
+		return RuntimeAuditViolation, RuntimeAuditViolation, audit
+	case RuntimeAuditUnavailable:
+		return RuntimeAuditUnavailable, "audit_unavailable", audit
+	case RuntimeAuditIndeterminate:
+		return RuntimeAuditIndeterminate, "audit_indeterminate", audit
 	default:
 		if before.CapturedSnapshotTreeDigest == treeDigest && before.CodeFlowWriteCount == 0 && !before.SourceIntegrityViolation && len(before.RepositoryPathWrites) == 0 {
 			// An omitted provider status is still not a clean assertion.
-			return rflscvs06.RuntimeAuditIndeterminate, "audit_indeterminate", audit
+			return RuntimeAuditIndeterminate, "audit_indeterminate", audit
 		}
-		return rflscvs06.RuntimeAuditUnavailable, "audit_unavailable", audit
+		return RuntimeAuditUnavailable, "audit_unavailable", audit
 	}
 }
 
 func promotionBlockReason(status string) string {
 	switch status {
-	case rflscvs06.RuntimeAuditViolation:
-		return rflscvs06.RuntimeAuditViolation
-	case rflscvs06.RuntimeAuditUnavailable:
+	case RuntimeAuditViolation:
+		return RuntimeAuditViolation
+	case RuntimeAuditUnavailable:
 		return "runtime source audit unavailable"
-	case rflscvs06.RuntimeAuditIndeterminate:
+	case RuntimeAuditIndeterminate:
 		return "runtime source audit indeterminate"
 	default:
 		return "runtime source audit is not clean"
@@ -689,19 +730,19 @@ func promotionBlockReason(status string) string {
 
 func terminalStatus(err error) (string, string) {
 	if err == nil {
-		return rflscvs06.RuntimeTerminalSuccess, "ok"
+		return RuntimeTerminalSuccess, "ok"
 	}
 	var perr *protocol.Error
 	if errors.As(err, &perr) {
 		switch perr.Code {
 		case protocol.ETimeout:
-			return rflscvs06.RuntimeTerminalTimeout, string(perr.Code)
+			return RuntimeTerminalTimeout, string(perr.Code)
 		case protocol.ECancelled:
-			return rflscvs06.RuntimeTerminalCancel, string(perr.Code)
+			return RuntimeTerminalCancel, string(perr.Code)
 		}
-		return rflscvs06.RuntimeTerminalFailure, string(perr.Code)
+		return RuntimeTerminalFailure, string(perr.Code)
 	}
-	return rflscvs06.RuntimeTerminalFailure, "runtime_error"
+	return RuntimeTerminalFailure, "runtime_error"
 }
 
 func errorCode(err error) string {
@@ -726,11 +767,11 @@ func boundedFailure(err error) string {
 	return text
 }
 
-func (e *Executor) reconcileLiveHead(before *workspace.WorkspaceSnapshot, selectedSnapshotID string) rflscvs06.RuntimeWorktreeComparison {
+func (e *Executor) reconcileLiveHead(before *workspace.WorkspaceSnapshot, selectedSnapshotID string) RuntimeWorktreeComparison {
 	if e == nil || e.cfg.Engine == nil {
 		return worktreeNotConfigured()
 	}
-	comparison := rflscvs06.RuntimeWorktreeComparison{Classification: "reconcile_pending"}
+	comparison := RuntimeWorktreeComparison{Classification: "reconcile_pending"}
 	if before != nil {
 		comparison.BeforeSnapshotID = before.SnapshotID
 		comparison.BeforeTreeDigest = before.RootTreeID
@@ -764,8 +805,8 @@ func (e *Executor) reconcileLiveHead(before *workspace.WorkspaceSnapshot, select
 	return comparison
 }
 
-func worktreeNotConfigured() rflscvs06.RuntimeWorktreeComparison {
-	return rflscvs06.RuntimeWorktreeComparison{Classification: "not_configured"}
+func worktreeNotConfigured() RuntimeWorktreeComparison {
+	return RuntimeWorktreeComparison{Classification: "not_configured"}
 }
 
 // SanitizeEnvironment removes path-bearing repository/worktree variables and

@@ -8,7 +8,7 @@ import (
 	"time"
 
 	"codeflow/internal/contractharness"
-	"codeflow/internal/rflscvs02"
+	"codeflow/internal/evidence"
 )
 
 func TestCapabilityRegistryPublishesSchemaValidatedMeasuredMatrix(t *testing.T) {
@@ -23,7 +23,7 @@ func TestCapabilityRegistryPublishesSchemaValidatedMeasuredMatrix(t *testing.T) 
 	if err != nil {
 		t.Fatalf("MatrixJSONAt() error = %v", err)
 	}
-	if err := contractharness.Validate(rflscvs02.CapabilityMatrixSchemaID, raw); err != nil {
+	if err := contractharness.Validate(evidence.CapabilityMatrixSchemaID, raw); err != nil {
 		t.Fatalf("published matrix is not schema-valid: %v\n%s", err, raw)
 	}
 	if got := registry.SnapshotAt(measuredAt).Measurement("go"); got.Status != "measured" {
@@ -46,14 +46,14 @@ func TestCapabilityRegistryKeepsUnprobedAdaptersUnsupported(t *testing.T) {
 	}
 	if raw, err := registry.MatrixJSONAt(now); err != nil {
 		t.Fatalf("unprobed matrix should still serialize: %v", err)
-	} else if err := contractharness.Validate(rflscvs02.CapabilityMatrixSchemaID, raw); err != nil {
+	} else if err := contractharness.Validate(evidence.CapabilityMatrixSchemaID, raw); err != nil {
 		t.Fatalf("unprobed matrix is not schema-valid: %v\n%s", err, raw)
 	}
 }
 
 func TestCapabilityRegistryRejectsForgedMeasuredPublication(t *testing.T) {
 	registry := NewCapabilityRegistry(time.Hour)
-	err := registry.publishMeasurement(rflscvs02.CapabilityMeasurement{
+	err := registry.publishMeasurement(evidence.CapabilityMeasurement{
 		Adapter: "go", AdapterVersion: "go/1", ProtocolVersion: 1,
 		AnalyzerRevision: "go-analyzer/1", MeasurementID: "forged",
 		Status: "measured", Features: []string{"read_only_source"}, Unsupported: []string{}, Evidence: []string{
@@ -154,7 +154,7 @@ func TestCapabilityRegistryExpiresCachedMeasurementWithoutImplicitProbe(t *testi
 	}
 	if raw, err := registry.MatrixJSONAt(measuredAt.Add(2 * time.Hour)); err != nil {
 		t.Fatalf("expired matrix should serialize: %v", err)
-	} else if err := contractharness.Validate(rflscvs02.CapabilityMatrixSchemaID, raw); err != nil {
+	} else if err := contractharness.Validate(evidence.CapabilityMatrixSchemaID, raw); err != nil {
 		t.Fatalf("expired matrix is not schema-valid: %v\n%s", err, raw)
 	}
 }

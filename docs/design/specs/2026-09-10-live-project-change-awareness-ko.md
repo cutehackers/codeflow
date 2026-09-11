@@ -67,9 +67,9 @@ Live View의 목적은 현재 프로젝트에서 계속 작성·수정되는 코
 
 | ID | 결정 |
 |---|---|
-| `D-LIVE-01` | `codeflow live [path]`는 프롬프트 없이 project-change mode를 시작하는 전용 public command다. feature query는 Static FlowView에 남고 Live의 시작 조건이 아니다. |
+| `D-LIVE-01` | `codeflow live [path]`는 프롬프트 없이 Live Project Change Analysis mode를 시작하는 전용 public command다. feature query는 Static FlowView에 남고 Live의 시작 조건이 아니다. |
 | `D-LIVE-02` | 프로젝트마다 하나의 논리 coordinator가 snapshot lineage, watcher, scheduler, event stream과 recovery를 소유한다. MCP는 producer이며 stale head 불일치 시 durable state를 다시 읽고 동일 idempotency key로 한 번 재시도한다. |
-| `D-LIVE-03` | 관련 변경을 semantic batch로 분석하고 기존 Change Pulse, 코드 카드, 처리 흐름, 읽기 고정과 Apply UX에 검증된 의미 변화와 근거를 표시한다. 요청 input과 흐름 보기는 project-change mode에서 숨긴다. |
+| `D-LIVE-03` | 관련 변경을 semantic batch로 분석하고 기존 Change Pulse, 코드 카드, 처리 흐름, 읽기 고정과 Apply UX에 검증된 의미 변화와 근거를 표시한다. 요청 input과 흐름 보기는 Live Project Change Analysis mode에서 숨긴다. |
 | `D-LIVE-08` | 사용자 확인 이력을 저장·관리하지 않는다. 재시작 시 마지막 검증 분석 기준과 현재 stable source를 비교하며 Apply는 표시 전환만 담당한다. |
 
 결정 ID는 연결된 결정 기록과 동일하다. 기존 D-LIVE-04의 미확인 복원 결정은 D-LIVE-08로 대체됐으며 현재 요구사항으로 사용하지 않는다.
@@ -123,7 +123,7 @@ Live View의 목적은 현재 프로젝트에서 계속 작성·수정되는 코
 
 ## 10. 화면 데이터 계약
 
-### Project-change mode 시작 상태
+### Live Project Change Analysis mode 시작 상태
 
 - `mode`: `project_change`
 - baseline: durable workspace state와 마지막 검증 분석 기준, 현재 source의 stable capture
@@ -151,13 +151,13 @@ Live View의 목적은 현재 프로젝트에서 계속 작성·수정되는 코
 ### Compatibility
 
 - `/` Static FlowView의 요청·선택·정적 표시 계약은 유지한다.
-- `/live`는 project-change mode의 canonical URL이다.
-- 기존 `query_task_view` feature 호출은 static FlowView URL을 반환하도록 전환한다. 기존 `/live?request=...` 또는 `entrySymbol=...` URL은 project-change mode를 열고 request parameter를 분석 시작 조건으로 사용하지 않는다.
+- `/live`는 Live Project Change Analysis mode의 canonical URL이다.
+- 기존 `query_task_view` feature 호출은 static FlowView URL을 반환하도록 전환한다. 기존 `/live?request=...` 또는 `entrySymbol=...` URL은 Live Project Change Analysis mode를 열고 request parameter를 분석 시작 조건으로 사용하지 않는다.
 
 ## 11. Feature-Level Acceptance
 
-- `FA-LIVE-01`: WHEN a user runs `codeflow live [path]`, THE system SHALL start project-change mode without requiring a prompt, feature query, flow ID, entry symbol or MCP tool selection.
-- `FA-LIVE-02`: WHEN project-change mode starts, THE system SHALL restore durable workspace state and the last verified analysis basis, compare it with current stable source, and process detected differences through canonical change ingress; a first start without a prior basis establishes the current source baseline.
+- `FA-LIVE-01`: WHEN a user runs `codeflow live [path]`, THE system SHALL start Live Project Change Analysis mode without requiring a prompt, feature query, flow ID, entry symbol or MCP tool selection.
+- `FA-LIVE-02`: WHEN Live Project Change Analysis mode starts, THE system SHALL restore durable workspace state and the last verified analysis basis, compare it with current stable source, and process detected differences through canonical change ingress; a first start without a prior basis establishes the current source baseline.
 - `FA-LIVE-03`: WHEN VS Code, a coding agent or a filesystem fallback observes a source change, THE system SHALL submit it through one canonical change ingress and SHALL preserve source and batch identity.
 - `FA-LIVE-04`: WHEN duplicate producer observations describe the same canonical content change, THE system SHALL create one revision and one user-visible change batch.
 - `FA-LIVE-05`: WHEN several MCP processes address one project, THE system SHALL provide one logical coordinator authority and SHALL NOT reject a valid current edit solely because a process holds a stale cached head.
@@ -170,7 +170,7 @@ Live View의 목적은 현재 프로젝트에서 계속 작성·수정되는 코
 - `FA-LIVE-12`: WHILE the user has reading fixed or the selected identity is absent from a new generation, THE system SHALL preserve the existing reading state and require explicit Apply or removal acknowledgement.
 - `FA-LIVE-13`: THE Live View SHALL expose user-language states for watching, pending change, gap and reconnect without showing MCP, live head, snapshot, generation, revision or compiler telemetry in the primary view.
 - `FA-LIVE-14`: THE Static FlowView SHALL NOT subscribe to project-change events or automatically apply Live View generations.
-- `FA-LIVE-15`: WHEN a feature query is submitted through FlowView or MCP, THE system SHALL preserve that query's static FlowView behavior and SHALL NOT require it to begin project-change mode.
+- `FA-LIVE-15`: WHEN a feature query is submitted through FlowView or MCP, THE system SHALL preserve that query's static FlowView behavior and SHALL NOT require it to begin Live Project Change Analysis mode.
 
 - `FA-LIVE-16`: THE system SHALL NOT persist user read/unread or acknowledgement history, or use it to select project-change results; Apply SHALL only change the displayed verified view.
 
@@ -197,7 +197,7 @@ Live View의 목적은 현재 프로젝트에서 계속 작성·수정되는 코
 
 - Feature-level acceptance has evidence from CLI, MCP multi-process, watcher, persistence, SSE and browser tests.
 - A real target-project trace proves that an agent edit after another process advanced durable head is automatically recovered or truthfully shown as a gap.
-- A user can begin and use project-change mode with `codeflow live .`, without typing a feature request or naming an MCP tool.
+- A user can begin and use Live Project Change Analysis mode with `codeflow live .`, without typing a feature request or naming an MCP tool.
 - Restart traces prove current source changes are compared with the last verified analysis basis, including a previously captured but unanalyzed change, without user confirmation history. Apply and selection-removal acknowledgement tests prove that no read/unread record is created.
 - Static FlowView regression tests prove its immutable behavior remains unchanged.
 

@@ -62,7 +62,6 @@ func TestTier4_Scenario1_NextjsEcommerceCheckoutFlow(t *testing.T) {
 		t.Fatalf("LoadLayersConfig failed: %v", err)
 	}
 
-
 	// In Next.js App Router layer order: presentation -> controller -> usecase -> domain -> data -> infra -> external
 	// Allow external -> data as valid or branch
 	flowStepsMonotonic := []slicing.SliceStep{

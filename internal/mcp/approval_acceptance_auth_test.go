@@ -6,7 +6,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"codeflow/internal/rflscvs09evidence"
+	"codeflow/internal/evidence"
 	"codeflow/internal/semantic"
 )
 
@@ -70,7 +70,7 @@ func TestMCPApprovalPublicAuthAndMissingPairCreateNoRecords(t *testing.T) {
 			if head.EventID != finalHead.EventID || head.Sequence != finalHead.Sequence {
 				t.Fatal("auth/missing pair broadcast event")
 			}
-			rflscvs09evidence.Observe(t, "codeflow/internal/mcp", []string{tc.criterion}, map[string]any{"before.transactions": map[string]any{"present": before.present, "entries": before.entries}, "after.transactions": map[string]any{"present": after.present, "entries": after.entries}, "before.sse": head, "after.sse": finalHead, "request": raw, "response": response})
+			evidence.ObserveApproval(t, "codeflow/internal/mcp", []string{tc.criterion}, map[string]any{"before.transactions": map[string]any{"present": before.present, "entries": before.entries}, "after.transactions": map[string]any{"present": after.present, "entries": after.entries}, "before.sse": head, "after.sse": finalHead, "request": raw, "response": response})
 		})
 	}
 }

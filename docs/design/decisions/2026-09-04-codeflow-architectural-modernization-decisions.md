@@ -31,7 +31,7 @@ This document records the architectural decisions for transitioning CodeFlow fro
 - Context: The 15-step semantic compilation pipeline is currently duplicated across `cmd/codeflow/query.go`, `internal/flowview/server.go`, and `internal/mcp/semantic_handlers.go`.
 - Decision: Unify the entire 15-step pipeline into a single `CompilerService` in `internal/application/compiler/`. CLI, FlowView, and MCP must delegate directly to this service.
 - Rejected Alternative: Keep separate handlers and extract helper utility functions.
-- Rationale: Shared application services guarantee zero logic drift in gate evaluation, proof construction, and CAS commits across all interfaces.
+- Rationale: Shared application services guarantee zero logic drift in gate evaluation, proof construction, and Content-Addressable Storage commits across all interfaces.
 - Consequences: Eliminates triple maintenance overhead. Any compilation change applies uniformly to CLI, Web, and MCP.
 - Source / Evidence: architectural-maturity-review.md §2.1; architecture.md §3.2.
 - Contract Trace: INT-01, GOAL-01, FA-01, FA-02.
@@ -81,12 +81,12 @@ This document records the architectural decisions for transitioning CodeFlow fro
 ---
 
 <a id="arch-d06"></a>
-## ARCH-D06 · CAS Storage Dual-Namespace Segregation
+## ARCH-D06 · Content-Addressable Storage Dual-Namespace Segregation
 
 - Status: Accepted
 - Context: `SnapshotEngine.PruneOrphanCAS` deletes all non-revision files in `.codeflow/cas/`, permanently wiping `GenerationProofManifest` JSON artifacts stored in the same directory.
-- Decision: Segregate CAS storage into `.codeflow/cas/blobs/` for revisions and `.codeflow/cas/manifests/` for proof documents. Configure GC to scan only `blobs/`.
-- Rejected Alternative: Disable CAS garbage collection entirely.
+- Decision: Segregate Content-Addressable Storage into `.codeflow/cas/blobs/` for revisions and `.codeflow/cas/manifests/` for proof documents. Configure garbage collection to scan only `blobs/`.
+- Rejected Alternative: Disable Content-Addressable Storage garbage collection entirely.
 - Rationale: Proof manifests and settlement evaluations are permanent epistemic audit records that must never be deleted by workspace revision cleanup.
 - Consequences: Historical proofs and settlement evaluations remain intact across all workspace transactions.
 - Source / Evidence: architectural-maturity-review.md §3.4, D-03; architecture.md §5.

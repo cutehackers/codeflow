@@ -14,7 +14,7 @@ import (
 	"time"
 
 	"codeflow/internal/contractharness"
-	"codeflow/internal/rflscvs02"
+	"codeflow/internal/evidence"
 )
 
 var (
@@ -310,7 +310,7 @@ func (s *Storage) readArtifactCASUnlocked(ref string) ([]byte, error) {
 	return data, nil
 }
 
-func samePersistedObservations(left, right []rflscvs02.Observation) bool {
+func samePersistedObservations(left, right []evidence.Observation) bool {
 	if len(left) != len(right) {
 		return false
 	}
@@ -322,7 +322,7 @@ func samePersistedObservations(left, right []rflscvs02.Observation) bool {
 	return true
 }
 
-func samePersistedReadDocuments(left, right []rflscvs02.ReadDocument) bool {
+func samePersistedReadDocuments(left, right []evidence.ReadDocument) bool {
 	if len(left) != len(right) {
 		return false
 	}
@@ -355,10 +355,10 @@ func containsPersistedString(values []string, want string) bool {
 	return false
 }
 
-func measuredPersistedObservationNames(readSet rflscvs02.AnalysisReadSet) []string {
+func measuredPersistedObservationNames(readSet evidence.AnalysisReadSet) []string {
 	seen := make(map[string]bool)
 	names := make([]string, 0, 3)
-	appendMeasured := func(kind string, observations []rflscvs02.Observation) {
+	appendMeasured := func(kind string, observations []evidence.Observation) {
 		for _, observation := range observations {
 			if !observation.Measured {
 				continue
@@ -390,7 +390,7 @@ func measuredPersistedObservationNames(readSet rflscvs02.AnalysisReadSet) []stri
 	return names
 }
 
-func canonicalCapabilityProfileDigest(profile rflscvs02.CapabilityProfile) string {
+func canonicalCapabilityProfileDigest(profile evidence.CapabilityProfile) string {
 	data, err := json.Marshal(profile)
 	if err != nil {
 		return ""
@@ -493,14 +493,14 @@ func validatePersistedAnalysisBundle(readSetData, closureData, resultData []byte
 	if manifest == nil {
 		return fmt.Errorf("active proof manifest is required")
 	}
-	var readSet rflscvs02.AnalysisReadSet
-	if err := contractharness.Validate(rflscvs02.ReadSetSchemaID, readSetData); err != nil {
+	var readSet evidence.AnalysisReadSet
+	if err := contractharness.Validate(evidence.ReadSetSchemaID, readSetData); err != nil {
 		return fmt.Errorf("analysis read-set contract: %w", err)
 	}
 	if err := json.Unmarshal(readSetData, &readSet); err != nil {
 		return fmt.Errorf("decode analysis read-set artifact: %w", err)
 	}
-	if readSet.SchemaID != rflscvs02.ReadSetSchemaID || readSet.SchemaVersion != rflscvs02.SchemaVersion || readSet.ReadSetID != manifest.AnalysisReadSetID || readSet.ComputedBasisID != manifest.ComputedBasisID || readSet.WorkspaceEpoch != manifest.WorkspaceEpoch {
+	if readSet.SchemaID != evidence.ReadSetSchemaID || readSet.SchemaVersion != evidence.SchemaVersion || readSet.ReadSetID != manifest.AnalysisReadSetID || readSet.ComputedBasisID != manifest.ComputedBasisID || readSet.WorkspaceEpoch != manifest.WorkspaceEpoch {
 		return fmt.Errorf("analysis read-set identity does not match active proof")
 	}
 	for _, document := range readSet.Documents {
@@ -508,14 +508,14 @@ func validatePersistedAnalysisBundle(readSetData, closureData, resultData []byte
 			return fmt.Errorf("analysis read-set contains an incomplete document identity")
 		}
 	}
-	var closure rflscvs02.ObservationClosure
-	if err := contractharness.Validate(rflscvs02.ClosureSchemaID, closureData); err != nil {
+	var closure evidence.ObservationClosure
+	if err := contractharness.Validate(evidence.ClosureSchemaID, closureData); err != nil {
 		return fmt.Errorf("observation closure contract: %w", err)
 	}
 	if err := json.Unmarshal(closureData, &closure); err != nil {
 		return fmt.Errorf("decode observation closure artifact: %w", err)
 	}
-	if closure.SchemaID != rflscvs02.ClosureSchemaID || closure.SchemaVersion != rflscvs02.SchemaVersion || closure.ClosureID != manifest.CausalObservationClosureID || closure.AnalysisReadSetID != readSet.ReadSetID || closure.ComputedBasisID != manifest.ComputedBasisID || closure.WorkspaceEpoch != manifest.WorkspaceEpoch {
+	if closure.SchemaID != evidence.ClosureSchemaID || closure.SchemaVersion != evidence.SchemaVersion || closure.ClosureID != manifest.CausalObservationClosureID || closure.AnalysisReadSetID != readSet.ReadSetID || closure.ComputedBasisID != manifest.ComputedBasisID || closure.WorkspaceEpoch != manifest.WorkspaceEpoch {
 		return fmt.Errorf("observation closure identity does not match active proof")
 	}
 	if closure.ClosureDigest == "" || manifest.CausalObservationClosureDigest != closure.ClosureDigest {
@@ -539,14 +539,14 @@ func validatePersistedAnalysisBundle(readSetData, closureData, resultData []byte
 			return fmt.Errorf("observation closure required observation %q was not measured", required)
 		}
 	}
-	var result rflscvs02.Result
-	if err := contractharness.Validate(rflscvs02.AnalyzerResultSchemaID, resultData); err != nil {
+	var result evidence.Result
+	if err := contractharness.Validate(evidence.AnalyzerResultSchemaID, resultData); err != nil {
 		return fmt.Errorf("analyzer result contract: %w", err)
 	}
 	if err := json.Unmarshal(resultData, &result); err != nil {
 		return fmt.Errorf("decode analyzer result artifact: %w", err)
 	}
-	if result.SchemaID != rflscvs02.AnalyzerResultSchemaID || result.SchemaVersion != rflscvs02.SchemaVersion || result.RequestID == "" || result.AdapterVersion == "" || result.AnalyzerRevision == "" || result.WorkspaceEpoch != manifest.WorkspaceEpoch || result.ComputedBasisID != manifest.ComputedBasisID || result.SnapshotID != manifest.ComputedSnapshotID || result.SnapshotTreeDigest != mapDoc.Basis.SnapshotTreeID || result.DependencyFingerprint != mapDoc.Basis.DependencyFingerprint {
+	if result.SchemaID != evidence.AnalyzerResultSchemaID || result.SchemaVersion != evidence.SchemaVersion || result.RequestID == "" || result.AdapterVersion == "" || result.AnalyzerRevision == "" || result.WorkspaceEpoch != manifest.WorkspaceEpoch || result.ComputedBasisID != manifest.ComputedBasisID || result.SnapshotID != manifest.ComputedSnapshotID || result.SnapshotTreeDigest != mapDoc.Basis.SnapshotTreeID || result.DependencyFingerprint != mapDoc.Basis.DependencyFingerprint {
 		return fmt.Errorf("analyzer result identity does not match active proof")
 	}
 	if result.Capability.Adapter == "" || result.Capability.AnalyzerRevision != result.AnalyzerRevision || len(result.Capability.Features) == 0 || canonicalCapabilityProfileDigest(result.Capability) == "" || canonicalCapabilityProfileDigest(result.Capability) != manifest.CapabilityProfileDigest {

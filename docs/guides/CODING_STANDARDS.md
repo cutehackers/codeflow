@@ -183,6 +183,8 @@ Acronyms and initialisms (e.g., `ID`, `URL`, `HTTP`, `JSON`, `AST`, `MCP`, `RPC`
   naming.NormalizeNaming(identifier)
   ```
 - **Avoid Local Variable Collisions:** Do not choose package names that conflict with common variable names (`ctx`, `err`, `status`, `flow`).
+- **Avoid Cryptic Internal Acronyms in Package & File Names:** Do not use obscure, concatenated internal acronyms (such as `rflsc` for *Live Semantic Compiler*, `rflscvs01`, `rflsc_runner`) in package names, directory paths, or filenames. Use clear, self-describing domain terms instead (e.g., `compiler`, `semantic`, `evidence`, `verification`). Follow the official terminology rules in [`AGENTS.md`](../../AGENTS.md).
+- **Strictly Forbid Ticket & Vertical-Slice Identifiers (`vs01*`, `vs02*`, etc.) in Filenames:** Never embed planning tickets, issue numbers, or vertical slice identifiers (e.g., `vs01`, `vs02`, `vs05`, `vs01_a01`, `lpca_vs04`) into filenames, packages, commands, or test files. File and test names must clearly reflect their **business domain, UI context, or tested behavior** with descriptive prefix/suffix patterns (e.g., `snapshot_lease_test.go` instead of `vs01_a04_test.go`, `cmd/schema-check` instead of `cmd/vs05-schema-check`, `catalog_contract_registry.go` instead of `vs07_registry.go`). A developer reading the repository should understand what a file does solely from its name, without cross-referencing legacy tickets.
 
 ### 4.4 Variable & Constant Naming
 - **No Type Encoding (Hungarian Notation):** Never embed the Go type name into the variable:

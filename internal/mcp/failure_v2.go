@@ -17,7 +17,6 @@ import (
 	"codeflow/internal/contractharness"
 	"codeflow/internal/flowview"
 	"codeflow/internal/protocol"
-	"codeflow/internal/rflscvs06"
 	oneshoRuntime "codeflow/internal/runtime"
 	"codeflow/internal/secret"
 	"codeflow/internal/semantic"
@@ -158,7 +157,7 @@ func (s *Server) handleFailureV2Request(ctx context.Context, args map[string]any
 	}
 
 	var observation *semantic.RuntimeObservationV2
-	var isolation *rflscvs06.RuntimeIsolationResult
+	var isolation *oneshoRuntime.RuntimeIsolationResult
 	if query.Mode == "incident" {
 		observation, status = s.resolveFailureObservation(ctx, targetRoot, query)
 		if status != nil {
@@ -189,7 +188,7 @@ func (s *Server) handleFailureV2Request(ctx context.Context, args map[string]any
 			}
 			// Runtime evidence is admitted only after the observed isolation
 			// result explicitly says promotion is eligible.
-			if isolation == nil || isolation.EvidencePromotion != rflscvs06.RuntimePromotionEligible {
+			if isolation == nil || isolation.EvidencePromotion != oneshoRuntime.RuntimePromotionEligible {
 				return failureStatus("blocked", "trusted_local runtime evidence is not promotion eligible", nil), nil
 			}
 		}
@@ -264,7 +263,7 @@ func failureStatus(code, message string, cause error) map[string]any {
 // available. The consent is not returned as a whole because it contains
 // actor/nonce metadata. Only the command and the approved boundary are
 // disclosed, and the values pass through the shared redaction/size gate.
-func failureStatusWithConsent(code, message string, cause error, consent *rflscvs06.RuntimeConsent) map[string]any {
+func failureStatusWithConsent(code, message string, cause error, consent *oneshoRuntime.RuntimeConsent) map[string]any {
 	doc := failureStatus(code, message, cause)
 	if consent == nil {
 		return doc
@@ -313,7 +312,7 @@ func enrichFailureStatusWithConsent(status map[string]any, args map[string]any) 
 	if err != nil {
 		return status
 	}
-	var consent rflscvs06.RuntimeConsent
+	var consent oneshoRuntime.RuntimeConsent
 	if err := json.Unmarshal(data, &consent); err != nil || consent.Command == "" {
 		return status
 	}
@@ -697,7 +696,7 @@ func isNilValue(value any) bool {
 	}
 }
 
-func (s *Server) executeTrustedLocal(ctx context.Context, targetRoot string, selection *failureProofSelection, query semantic.FailureQueryV2, observation *semantic.RuntimeObservationV2, args map[string]any) (*rflscvs06.RuntimeIsolationResult, map[string]any) {
+func (s *Server) executeTrustedLocal(ctx context.Context, targetRoot string, selection *failureProofSelection, query semantic.FailureQueryV2, observation *semantic.RuntimeObservationV2, args map[string]any) (*oneshoRuntime.RuntimeIsolationResult, map[string]any) {
 	rawConsent := firstArgument(args, "runtimeConsent", "consent")
 	if rawConsent == nil && s.cfg.RuntimeConsent != nil {
 		rawConsent = s.cfg.RuntimeConsent
@@ -712,7 +711,7 @@ func (s *Server) executeTrustedLocal(ctx context.Context, targetRoot string, sel
 	if err := contractharness.ValidateRuntimeConsentV1(consentData); err != nil {
 		return nil, failureStatus("blocked", "runtime consent is not a valid RuntimeConsentV1", err)
 	}
-	var consent rflscvs06.RuntimeConsentV1
+	var consent oneshoRuntime.RuntimeConsentV1
 	if err := json.Unmarshal(consentData, &consent); err != nil {
 		return nil, failureStatus("blocked", "runtime consent could not be decoded", err)
 	}
@@ -722,7 +721,7 @@ func (s *Server) executeTrustedLocal(ctx context.Context, targetRoot string, sel
 		// approved consent, disclose only the server-approved command/boundary.
 		disclosureConsent = s.cfg.RuntimeConsent
 	}
-	blocked := func(message string, cause error) (*rflscvs06.RuntimeIsolationResult, map[string]any) {
+	blocked := func(message string, cause error) (*oneshoRuntime.RuntimeIsolationResult, map[string]any) {
 		return nil, failureStatusWithConsent("blocked", message, cause, disclosureConsent)
 	}
 	if s.cfg.RuntimeConsent != nil && !reflect.DeepEqual(consent, *s.cfg.RuntimeConsent) {
@@ -756,7 +755,7 @@ func (s *Server) executeTrustedLocal(ctx context.Context, targetRoot string, sel
 	if nonce != consent.Nonce {
 		return blocked("runtime consent nonce does not match the execution request", nil)
 	}
-	if !reflect.DeepEqual(s.cfg.RuntimeExecutionSpec, rflscvs06.RuntimeExecutionSpec{}) {
+	if !reflect.DeepEqual(s.cfg.RuntimeExecutionSpec, oneshoRuntime.RuntimeExecutionSpec{}) {
 		if err := consent.Matches(s.cfg.RuntimeExecutionSpec, snapshot.SnapshotID, snapshot.RootTreeID, nonce); err != nil {
 			return blocked("runtime consent does not match configured command or isolation scope", err)
 		}
@@ -784,7 +783,7 @@ func (s *Server) executeTrustedLocal(ctx context.Context, targetRoot string, sel
 	if err := matchIsolationIdentity(isolation, consent, snapshot, nonce); err != nil {
 		return nil, failureStatusWithIsolation("blocked", "trusted_local isolation result does not match the exact consent or immutable snapshot", err, isolation)
 	}
-	if execErr != nil || isolation.EvidencePromotion != rflscvs06.RuntimePromotionEligible {
+	if execErr != nil || isolation.EvidencePromotion != oneshoRuntime.RuntimePromotionEligible {
 		message := "trusted_local runtime evidence promotion is blocked"
 		if execErr != nil {
 			message = "trusted_local executor returned a terminal error"
@@ -884,7 +883,7 @@ func (s *Server) snapshotForFailureExecution(ctx context.Context, targetRoot str
 	return snapshot, func() { _ = lease.Close() }, nil
 }
 
-func validateIsolationResult(result rflscvs06.RuntimeIsolationResult) error {
+func validateIsolationResult(result oneshoRuntime.RuntimeIsolationResult) error {
 	data := mustJSON(result)
 	if err := contractharness.ValidateRuntimeIsolationResultV1(data); err != nil {
 		return err
@@ -892,14 +891,14 @@ func validateIsolationResult(result rflscvs06.RuntimeIsolationResult) error {
 	return result.Validate()
 }
 
-func matchIsolationIdentity(result rflscvs06.RuntimeIsolationResult, consent rflscvs06.RuntimeConsent, snapshot protocol.Snapshot, nonce string) error {
+func matchIsolationIdentity(result oneshoRuntime.RuntimeIsolationResult, consent oneshoRuntime.RuntimeConsent, snapshot protocol.Snapshot, nonce string) error {
 	if result.ConsentID != consent.ConsentID || result.ActorID != consent.ActorID || result.Nonce != nonce {
 		return errors.New("runtime isolation result consent identity differs from the approved consent")
 	}
 	if result.SnapshotID != snapshot.SnapshotID || result.SnapshotTreeDigest != snapshot.RootTreeID || result.RecomputedTreeDigest != snapshot.RootTreeID {
 		return errors.New("runtime isolation result snapshot identity differs from immutable execution input")
 	}
-	if result.Command != consent.Command || !reflect.DeepEqual(result.Args, consent.Args) || result.CommandDigest != rflscvs06.CommandDigest(consent.Command, consent.Args) {
+	if result.Command != consent.Command || !reflect.DeepEqual(result.Args, consent.Args) || result.CommandDigest != oneshoRuntime.CommandDigest(consent.Command, consent.Args) {
 		return errors.New("runtime isolation result command differs from approved command")
 	}
 	if result.AccessScope != consent.AccessScope || result.IsolationScope != consent.IsolationScope {
@@ -908,7 +907,7 @@ func matchIsolationIdentity(result rflscvs06.RuntimeIsolationResult, consent rfl
 	return nil
 }
 
-func failureStatusWithIsolation(code, message string, cause error, isolation rflscvs06.RuntimeIsolationResult) map[string]any {
+func failureStatusWithIsolation(code, message string, cause error, isolation oneshoRuntime.RuntimeIsolationResult) map[string]any {
 	doc := failureStatus(code, message, cause)
 	if redacted, err := validateAndRedactIsolation(isolation); err == nil {
 		doc["runtimeIsolation"] = redacted
@@ -920,20 +919,20 @@ func failureStatusWithIsolation(code, message string, cause error, isolation rfl
 	return doc
 }
 
-func validateAndRedactIsolation(result rflscvs06.RuntimeIsolationResult) (rflscvs06.RuntimeIsolationResult, error) {
+func validateAndRedactIsolation(result oneshoRuntime.RuntimeIsolationResult) (oneshoRuntime.RuntimeIsolationResult, error) {
 	if err := validateIsolationResult(result); err != nil {
-		return rflscvs06.RuntimeIsolationResult{}, err
+		return oneshoRuntime.RuntimeIsolationResult{}, err
 	}
 	clean, err := redactJSON(mustJSON(result))
 	if err != nil {
-		return rflscvs06.RuntimeIsolationResult{}, err
+		return oneshoRuntime.RuntimeIsolationResult{}, err
 	}
-	var out rflscvs06.RuntimeIsolationResult
+	var out oneshoRuntime.RuntimeIsolationResult
 	if err := json.Unmarshal(clean, &out); err != nil {
-		return rflscvs06.RuntimeIsolationResult{}, err
+		return oneshoRuntime.RuntimeIsolationResult{}, err
 	}
 	if err := validateIsolationResult(out); err != nil {
-		return rflscvs06.RuntimeIsolationResult{}, err
+		return oneshoRuntime.RuntimeIsolationResult{}, err
 	}
 	return out, nil
 }

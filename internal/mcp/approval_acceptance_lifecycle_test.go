@@ -7,7 +7,7 @@ import (
 	"reflect"
 	"testing"
 
-	"codeflow/internal/rflscvs09evidence"
+	"codeflow/internal/evidence"
 	"codeflow/internal/semantic"
 )
 
@@ -85,7 +85,7 @@ func TestMCPApprovalAllLifecycleCommandsPreserveCanonicalProofAndGuards(t *testi
 					if !reflect.DeepEqual(beforeHistory, history()) {
 						t.Fatalf("%s/%s changed public history", decision, mutation.name)
 					}
-					rflscvs09evidence.Observe(t, "codeflow/internal/mcp", []string{"VS09-A10"}, map[string]any{"before.history": beforeHistory, "after.history": history(), "request": raw, "response": response})
+					evidence.ObserveApproval(t, "codeflow/internal/mcp", []string{"VS09-A10"}, map[string]any{"before.history": beforeHistory, "after.history": history(), "request": raw, "response": response})
 				}
 				if decision == "edit_then_approve" || decision == "revoke" || decision == "supersede" {
 					missing := make(map[string]any, len(args))
@@ -172,7 +172,7 @@ func TestMCPApprovalAllLifecycleCommandsPreserveCanonicalProofAndGuards(t *testi
 				if !reflect.DeepEqual(proofBefore, proofAfter) {
 					t.Fatalf("%s changed active manifest/map/analyzer/delta/CAS identity including Fact/Evidence/alignment/freshness/settlement", decision)
 				}
-				rflscvs09evidence.Observe(t, "codeflow/internal/mcp", []string{"VS09-A6", "VS09-A8", "VS09-A10"}, map[string]any{"before.history": beforeHistory, "after.history": history(), "before.proof": proofBefore, "after.proof": proofAfter, "response": response, "replay": retry, "sse": broadcast})
+				evidence.ObserveApproval(t, "codeflow/internal/mcp", []string{"VS09-A6", "VS09-A8", "VS09-A10"}, map[string]any{"before.history": beforeHistory, "after.history": history(), "before.proof": proofBefore, "after.proof": proofAfter, "response": response, "replay": retry, "sse": broadcast})
 			}
 			raw, _ := json.Marshal(map[string]any{"proposalId": enrichment.Proposal.ProposalID, "evidencePackId": enrichment.Pack.EvidencePackID})
 			text := requireMCPApprovalHistorySuccess(t, serveMCPApprovalHistoryRequest(t, fixture.server, mcpApprovalHistoryToolCall("get_semantic_approval_history", raw)))

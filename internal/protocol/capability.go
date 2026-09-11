@@ -11,7 +11,7 @@ import (
 	"time"
 
 	"codeflow/internal/contractharness"
-	"codeflow/internal/rflscvs02"
+	"codeflow/internal/evidence"
 )
 
 const (
@@ -39,16 +39,16 @@ type CapabilityProvenance struct {
 // CapabilityMatrixSnapshot is the Core-owned, product-consumable capability
 // publication. It contains an explicit entry for every supported adapter.
 type CapabilityMatrixSnapshot struct {
-	SchemaID      string                            `json:"schemaId"`
-	SchemaVersion int                               `json:"schemaVersion"`
-	GeneratedAt   string                            `json:"generatedAt,omitempty"`
-	ExpiresAt     string                            `json:"expiresAt,omitempty"`
-	Measurements  []rflscvs02.CapabilityMeasurement `json:"measurements"`
-	Provenance    map[string]CapabilityProvenance   `json:"provenance,omitempty"`
+	SchemaID      string                           `json:"schemaId"`
+	SchemaVersion int                              `json:"schemaVersion"`
+	GeneratedAt   string                           `json:"generatedAt,omitempty"`
+	ExpiresAt     string                           `json:"expiresAt,omitempty"`
+	Measurements  []evidence.CapabilityMeasurement `json:"measurements"`
+	Provenance    map[string]CapabilityProvenance  `json:"provenance,omitempty"`
 }
 
 // Measurement returns a defensive copy of one adapter's current capability.
-func (s CapabilityMatrixSnapshot) Measurement(adapter string) rflscvs02.CapabilityMeasurement {
+func (s CapabilityMatrixSnapshot) Measurement(adapter string) evidence.CapabilityMeasurement {
 	for _, measurement := range s.Measurements {
 		if measurement.Adapter == adapter {
 			measurement.Features = append([]string(nil), measurement.Features...)
@@ -57,11 +57,11 @@ func (s CapabilityMatrixSnapshot) Measurement(adapter string) rflscvs02.Capabili
 			return measurement
 		}
 	}
-	return rflscvs02.CapabilityMeasurement{}
+	return evidence.CapabilityMeasurement{}
 }
 
 type capabilityRecord struct {
-	measurement rflscvs02.CapabilityMeasurement
+	measurement evidence.CapabilityMeasurement
 	measuredAt  time.Time
 	expiresAt   time.Time
 }
@@ -87,7 +87,7 @@ func NewCapabilityRegistry(ttl time.Duration) *CapabilityRegistry {
 // publishMeasurement publishes one already-derived measurement. It is
 // package-private because the measured state must originate from the
 // canonical executable conformance path.
-func (r *CapabilityRegistry) publishMeasurement(measurement rflscvs02.CapabilityMeasurement, measuredAt time.Time, proof CapabilityConformanceEvidence) error {
+func (r *CapabilityRegistry) publishMeasurement(measurement evidence.CapabilityMeasurement, measuredAt time.Time, proof CapabilityConformanceEvidence) error {
 	if r == nil {
 		return fmt.Errorf("capability registry is nil")
 	}
@@ -199,7 +199,7 @@ func (r *CapabilityRegistry) matrixJSONAtLocked(at time.Time) ([]byte, error) {
 	if err != nil {
 		return nil, fmt.Errorf("marshal capability matrix: %w", err)
 	}
-	if err := contractharness.Validate(rflscvs02.CapabilityMatrixSchemaID, raw); err != nil {
+	if err := contractharness.Validate(evidence.CapabilityMatrixSchemaID, raw); err != nil {
 		return nil, fmt.Errorf("capability matrix schema validation failed: %w", err)
 	}
 	return raw, nil
@@ -246,26 +246,26 @@ func emptyCapabilityMatrix(at time.Time) CapabilityMatrixSnapshot {
 		at = time.Now().UTC()
 	}
 	return CapabilityMatrixSnapshot{
-		SchemaID: rflscvs02.CapabilityMatrixSchemaID, SchemaVersion: capabilityMatrixSchemaVersion,
-		GeneratedAt: at.UTC().Format(time.RFC3339Nano), Measurements: make([]rflscvs02.CapabilityMeasurement, 0, len(supportedCapabilityAdapters)),
+		SchemaID: evidence.CapabilityMatrixSchemaID, SchemaVersion: capabilityMatrixSchemaVersion,
+		GeneratedAt: at.UTC().Format(time.RFC3339Nano), Measurements: make([]evidence.CapabilityMeasurement, 0, len(supportedCapabilityAdapters)),
 		Provenance: make(map[string]CapabilityProvenance, len(supportedCapabilityAdapters)),
 	}
 }
 
-func normalizeCapabilityMeasurement(measurement rflscvs02.CapabilityMeasurement) rflscvs02.CapabilityMeasurement {
+func normalizeCapabilityMeasurement(measurement evidence.CapabilityMeasurement) evidence.CapabilityMeasurement {
 	measurement.Features = append([]string{}, measurement.Features...)
 	measurement.Unsupported = append([]string{}, measurement.Unsupported...)
 	measurement.Evidence = append([]string{}, measurement.Evidence...)
 	return measurement
 }
 
-func unsupportedCapabilityMeasurement(adapter, reason string) rflscvs02.CapabilityMeasurement {
-	measurement := rflscvs02.CapabilityMeasurementFromInitialize(rflscvs02.InitializeCapabilityEvidence{Adapter: adapter})
+func unsupportedCapabilityMeasurement(adapter, reason string) evidence.CapabilityMeasurement {
+	measurement := evidence.CapabilityMeasurementFromInitialize(evidence.InitializeCapabilityEvidence{Adapter: adapter})
 	measurement.Evidence = appendUniqueCapabilityString(measurement.Evidence, reason)
 	return measurement
 }
 
-func expiredCapabilityMeasurement(measurement rflscvs02.CapabilityMeasurement) rflscvs02.CapabilityMeasurement {
+func expiredCapabilityMeasurement(measurement evidence.CapabilityMeasurement) evidence.CapabilityMeasurement {
 	measurement.Status = "unsupported"
 	measurement.Features = []string{}
 	measurement.Unsupported = appendUniqueCapabilityString(measurement.Unsupported, "expired_measurement")
@@ -405,17 +405,17 @@ func CanonicalCapabilityConformanceProbe(snapshot Snapshot, adapter string) Capa
 	}
 }
 
-func capabilityProbeDetect(ctx context.Context, conn *Conn, snapshot Snapshot, required []string) (rflscvs02.Result, error) {
+func capabilityProbeDetect(ctx context.Context, conn *Conn, snapshot Snapshot, required []string) (evidence.Result, error) {
 	params := snapshot.Params()
 	if required != nil {
 		params["requiredObservations"] = append([]string(nil), required...)
 	}
-	var result rflscvs02.Result
+	var result evidence.Result
 	if err := conn.Call(ctx, OpDetect, params, &result); err != nil {
-		return rflscvs02.Result{}, err
+		return evidence.Result{}, err
 	}
 	if len(result.ReadSet.Documents) == 0 && len(required) == 0 {
-		return rflscvs02.Result{}, fmt.Errorf("detect probe did not measure any snapshot document")
+		return evidence.Result{}, fmt.Errorf("detect probe did not measure any snapshot document")
 	}
 	return result, nil
 }
@@ -423,7 +423,7 @@ func capabilityProbeDetect(ctx context.Context, conn *Conn, snapshot Snapshot, r
 func capabilityProbeHarvest(ctx context.Context, conn *Conn, snapshot Snapshot) error {
 	params := snapshot.Params()
 	params["requiredObservations"] = []string{"membership", "dependency_frontier"}
-	var result rflscvs02.Result
+	var result evidence.Result
 	if err := conn.Call(ctx, OpHarvestCandidates, params, &result); err != nil {
 		return fmt.Errorf("harvest observation probe: %w", err)
 	}
@@ -440,7 +440,7 @@ func capabilityProbeSlice(ctx context.Context, conn *Conn, snapshot Snapshot, ad
 	}
 	params := snapshot.Params()
 	params["payload"] = map[string]any{"candidateId": "cand-capability0001", "entrySymbolPath": entry}
-	var result rflscvs02.Result
+	var result evidence.Result
 	if err := conn.Call(ctx, OpSlice, params, &result); err != nil {
 		return fmt.Errorf("slice observation probe: %w", err)
 	}
@@ -503,7 +503,7 @@ func capabilitySliceEntry(snapshot Snapshot, adapter string) (string, bool) {
 	return filepath.ToSlash(paths[0]) + "#" + symbol, true
 }
 
-func hasMeasuredCapabilityObservation(observations []rflscvs02.Observation, want string) bool {
+func hasMeasuredCapabilityObservation(observations []evidence.Observation, want string) bool {
 	for _, observation := range observations {
 		if !observation.Measured {
 			continue
@@ -532,8 +532,8 @@ func containsCapabilityReason(reasons []string, want string) bool {
 // negotiated by a connection into the VS-02 measurement input. The caller
 // must set conformancePassed only after the adapter's executable conformance
 // probes have succeeded.
-func CapabilityEvidenceFromVersionInfo(adapter string, info VersionInfo, conformancePassed bool) rflscvs02.InitializeCapabilityEvidence {
-	return rflscvs02.InitializeCapabilityEvidence{
+func CapabilityEvidenceFromVersionInfo(adapter string, info VersionInfo, conformancePassed bool) evidence.InitializeCapabilityEvidence {
+	return evidence.InitializeCapabilityEvidence{
 		Adapter: adapter, AdapterVersion: info.AdapterVersion, AnalyzerRevision: info.AnalyzerVersion,
 		ProtocolVersion: info.ProtocolVersion, Cancellation: info.Capabilities.Cancellation,
 		Progress: info.Capabilities.Progress, BatchAck: info.Capabilities.BatchAck,
@@ -546,7 +546,7 @@ func CapabilityEvidenceFromVersionInfo(adapter string, info VersionInfo, conform
 // MeasureCapability is retained for source compatibility with older callers,
 // but a callback that only returns error cannot prove the claimed observation
 // relations. Such calls therefore remain explicitly unsupported.
-func (p *Pool) MeasureCapability(ctx context.Context, adapter string, probe func(*Conn) error) (rflscvs02.CapabilityMeasurement, error) {
+func (p *Pool) MeasureCapability(ctx context.Context, adapter string, probe func(*Conn) error) (evidence.CapabilityMeasurement, error) {
 	measurement, _, err := p.measureCapabilityWithReport(ctx, adapter, func(_ context.Context, conn *Conn) (CapabilityConformanceEvidence, error) {
 		if probe == nil {
 			return CapabilityConformanceEvidence{}, nil
@@ -558,15 +558,15 @@ func (p *Pool) MeasureCapability(ctx context.Context, adapter string, probe func
 
 // MeasureCapabilityWithConformance obtains a fresh initialize result and
 // requires the executable probe to return a validated observation report.
-func (p *Pool) MeasureCapabilityWithConformance(ctx context.Context, adapter string, probe CapabilityConformanceProbe) (rflscvs02.CapabilityMeasurement, error) {
+func (p *Pool) MeasureCapabilityWithConformance(ctx context.Context, adapter string, probe CapabilityConformanceProbe) (evidence.CapabilityMeasurement, error) {
 	measurement, _, err := p.measureCapabilityWithReport(ctx, adapter, probe)
 	return measurement, err
 }
 
-func (p *Pool) measureCapabilityWithReport(ctx context.Context, adapter string, probe CapabilityConformanceProbe) (rflscvs02.CapabilityMeasurement, CapabilityConformanceEvidence, error) {
+func (p *Pool) measureCapabilityWithReport(ctx context.Context, adapter string, probe CapabilityConformanceProbe) (evidence.CapabilityMeasurement, CapabilityConformanceEvidence, error) {
 	conn, err := p.Get(ctx)
 	if err != nil {
-		return rflscvs02.CapabilityMeasurement{}, CapabilityConformanceEvidence{}, err
+		return evidence.CapabilityMeasurement{}, CapabilityConformanceEvidence{}, err
 	}
 	defer p.Put(conn)
 	info := conn.Version()
@@ -575,12 +575,12 @@ func (p *Pool) measureCapabilityWithReport(ctx context.Context, adapter string, 
 	if probe != nil {
 		conformance, probeErr = probe(ctx, conn)
 	}
-	evidence := CapabilityEvidenceFromVersionInfo(adapter, info, probeErr == nil && conformance.complete())
-	evidence.ConformanceProbeID = conformance.ProbeID
-	evidence.ConformanceObservations = append([]string(nil), conformance.MeasuredObservations...)
-	evidence.OpenOnMissing = conformance.OpenOnMissing
-	evidence.ReadOnlySource = conformance.ReadOnlySource
-	measurement := rflscvs02.CapabilityMeasurementFromInitialize(evidence)
+	capEvidence := CapabilityEvidenceFromVersionInfo(adapter, info, probeErr == nil && conformance.complete())
+	capEvidence.ConformanceProbeID = conformance.ProbeID
+	capEvidence.ConformanceObservations = append([]string(nil), conformance.MeasuredObservations...)
+	capEvidence.OpenOnMissing = conformance.OpenOnMissing
+	capEvidence.ReadOnlySource = conformance.ReadOnlySource
+	measurement := evidence.CapabilityMeasurementFromInitialize(capEvidence)
 	if measurement.Status != "measured" {
 		if probeErr != nil {
 			return measurement, conformance, fmt.Errorf("adapter %s capability measurement is %s: %w", adapter, measurement.Status, probeErr)

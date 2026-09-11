@@ -61,18 +61,18 @@ func buildRealAnchor(t *testing.T, repoRoot, relPath, enclosingSymbol, snippet s
 
 func TestChallenger1_Detect_CorruptedPackageJSON(t *testing.T) {
 	corruptPayloads := map[string]string{
-		"syntax_error_unclosed_brace":      `{"name": "test-app", "dependencies": {`,
-		"syntax_error_trailing_comma":      `{"name": "test-app", "dependencies": {"react": "18.0.0",},}`,
-		"json_array_root":                  `["react", "next", "vue"]`,
-		"json_primitive_string":            `"just a string"`,
-		"json_primitive_number":            `12345.678`,
-		"json_null":                        `null`,
-		"binary_garbage_header":            "\x00\xff\xfe\x01\x02\x03\x04\x05",
-		"empty_file":                       "",
-		"dependencies_as_array":            `{"name": "test-app", "dependencies": ["react", "next"]}`,
-		"dependencies_as_number":           `{"name": "test-app", "dependencies": 42}`,
-		"dev_dependencies_as_boolean":      `{"name": "test-app", "devDependencies": true}`,
-		"nested_corrupted_json":            `{"name": "test", "dependencies": {"next": { "version": "14" }}}`,
+		"syntax_error_unclosed_brace": `{"name": "test-app", "dependencies": {`,
+		"syntax_error_trailing_comma": `{"name": "test-app", "dependencies": {"react": "18.0.0",},}`,
+		"json_array_root":             `["react", "next", "vue"]`,
+		"json_primitive_string":       `"just a string"`,
+		"json_primitive_number":       `12345.678`,
+		"json_null":                   `null`,
+		"binary_garbage_header":       "\x00\xff\xfe\x01\x02\x03\x04\x05",
+		"empty_file":                  "",
+		"dependencies_as_array":       `{"name": "test-app", "dependencies": ["react", "next"]}`,
+		"dependencies_as_number":      `{"name": "test-app", "dependencies": 42}`,
+		"dev_dependencies_as_boolean": `{"name": "test-app", "devDependencies": true}`,
+		"nested_corrupted_json":       `{"name": "test", "dependencies": {"next": { "version": "14" }}}`,
 	}
 
 	for name, payload := range corruptPayloads {

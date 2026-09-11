@@ -12,7 +12,7 @@ import (
 	"strings"
 
 	"codeflow/internal/contractharness"
-	"codeflow/internal/releaseartifact"
+	"codeflow/internal/evidence"
 )
 
 const (
@@ -250,7 +250,7 @@ func LoadReleaseThresholdDecisionRegistry(path string) (ThresholdDecisionResolve
 	if !isImmutableReleaseRef(set.ArtifactRef) {
 		return nil, fmt.Errorf("release threshold decisions lack an immutable artifactRef")
 	}
-	if err := releaseartifact.Verify(set, set.ArtifactRef); err != nil {
+	if err := evidence.Verify(set, set.ArtifactRef); err != nil {
 		return nil, fmt.Errorf("verify release threshold decisions: %w", err)
 	}
 	return NewReleaseThresholdDecisionRegistry(set.Decisions)
@@ -1209,7 +1209,7 @@ func validateReleaseEvidenceIdentities(input ReleaseEvaluationInput) []string {
 	if profile.SchemaID != ReleaseProfileV2SchemaID || profile.SchemaVersion != ReleaseSchemaVersion || profile.TargetVersion != input.TargetVersion || profile.ProfileID == "" || !isImmutableReleaseRef(profile.ArtifactRef) {
 		reasons = append(reasons, "release profile identity is invalid or mutable")
 	}
-	if err := releaseartifact.Verify(profile, profile.ArtifactRef); err != nil {
+	if err := evidence.Verify(profile, profile.ArtifactRef); err != nil {
 		reasons = append(reasons, "release profile content/ref mismatch")
 	}
 	toolchains := map[string]bool{}
@@ -1231,7 +1231,7 @@ func validateReleaseEvidenceIdentities(input ReleaseEvaluationInput) []string {
 	if corpus.SchemaID != ScenarioManifestV2SchemaID || corpus.SchemaVersion != ReleaseSchemaVersion || corpus.CorpusID == "" || corpus.CorpusVersion == "" || corpus.ProfileID != profile.ProfileID || corpus.ProfileRef != profile.ArtifactRef || !isImmutableReleaseRef(corpus.ArtifactRef) {
 		reasons = append(reasons, "scenario corpus identity does not bind to the release profile")
 	}
-	if err := releaseartifact.Verify(corpus, corpus.ArtifactRef); err != nil {
+	if err := evidence.Verify(corpus, corpus.ArtifactRef); err != nil {
 		reasons = append(reasons, "scenario corpus content/ref mismatch")
 	}
 	if err := validateReleaseInputContract(ScenarioManifestV2SchemaID, corpus); err != nil {
@@ -1264,7 +1264,7 @@ func validateReleaseEvidenceIdentities(input ReleaseEvaluationInput) []string {
 		if report.SchemaID != ExecutionReportV2SchemaID || report.SchemaVersion != ReleaseSchemaVersion || report.ReportID == "" || report.Command == "" || report.ExecutedAt == "" || !isImmutableReleaseRef(report.ArtifactRef) {
 			reasons = append(reasons, prefix+" identity is invalid or mutable")
 		}
-		if err := releaseartifact.Verify(report, report.ArtifactRef); err != nil {
+		if err := evidence.Verify(report, report.ArtifactRef); err != nil {
 			reasons = append(reasons, prefix+" content/ref mismatch")
 		}
 		if report.ProfileID != profile.ProfileID || report.ProfileRef != profile.ArtifactRef || report.CorpusID != corpus.CorpusID || report.CorpusVersion != corpus.CorpusVersion || report.CorpusRef != corpus.ArtifactRef {
@@ -1361,17 +1361,17 @@ func validateReleaseEvidenceIdentities(input ReleaseEvaluationInput) []string {
 	if input.Thresholds.ProfileID != profile.ProfileID || input.Thresholds.ProfileRef != profile.ArtifactRef || input.Thresholds.CorpusID != corpus.CorpusID || input.Thresholds.CorpusVersion != corpus.CorpusVersion || input.Thresholds.CorpusRef != corpus.ArtifactRef || !isImmutableReleaseRef(input.Thresholds.ArtifactRef) {
 		reasons = append(reasons, "approved thresholds are not bound to the declared profile and corpus")
 	}
-	if err := releaseartifact.Verify(input.Thresholds, input.Thresholds.ArtifactRef); err != nil {
+	if err := evidence.Verify(input.Thresholds, input.Thresholds.ArtifactRef); err != nil {
 		reasons = append(reasons, "approved threshold content/ref mismatch")
 	}
-	for _, evidence := range input.ChildEvidence {
-		if evidence.EvidenceID == "" || evidence.SliceID == "" || evidence.ContractRef == "" || evidence.ImplementationRef == "" || evidence.ExecutionID == "" || evidence.TargetVersion != input.TargetVersion || evidence.SourceRef != profile.Repository.FixtureRef || !isImmutableReleaseRef(evidence.ArtifactRef) {
+	for _, child := range input.ChildEvidence {
+		if child.EvidenceID == "" || child.SliceID == "" || child.ContractRef == "" || child.ImplementationRef == "" || child.ExecutionID == "" || child.TargetVersion != input.TargetVersion || child.SourceRef != profile.Repository.FixtureRef || !isImmutableReleaseRef(child.ArtifactRef) {
 			reasons = append(reasons, "child evidence identity is missing or mutable")
 		}
-		if err := releaseartifact.Verify(evidence, evidence.ArtifactRef); err != nil {
-			reasons = append(reasons, "child evidence content/ref mismatch: "+evidence.EvidenceID)
+		if err := evidence.Verify(child, child.ArtifactRef); err != nil {
+			reasons = append(reasons, "child evidence content/ref mismatch: "+child.EvidenceID)
 		}
-		for _, acceptance := range evidence.Acceptance {
+		for _, acceptance := range child.Acceptance {
 			if !isImmutableReleaseRef(acceptance.EvidenceRef) {
 				reasons = append(reasons, "child acceptance evidence reference is mutable")
 			}

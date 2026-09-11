@@ -15,10 +15,10 @@ import (
 	"time"
 
 	"codeflow/internal/contractharness"
+	"codeflow/internal/evidence"
 	"codeflow/internal/fusion"
 	"codeflow/internal/harvest"
 	"codeflow/internal/protocol"
-	"codeflow/internal/rflscvs02"
 	"codeflow/internal/semantic"
 	"codeflow/internal/slicing"
 	"codeflow/internal/storage"
@@ -58,26 +58,26 @@ func TestCanonicalPublicationArtifactsAreValidatedAndBound(t *testing.T) {
 	if err := contractharness.ValidateSemanticMapIR(mapBytes); err != nil {
 		t.Fatalf("fixture semantic map must be canonical: %v", err)
 	}
-	membership := rflscvs02.Observation{Kind: "membership", Path: ".", ValueHash: "membership-live-artifacts", Measured: true}
-	readSet := rflscvs02.AnalysisReadSet{
-		SchemaID: rflscvs02.ReadSetSchemaID, SchemaVersion: 2, ReadSetID: readSetID,
-		ComputedBasisID: basis, WorkspaceEpoch: 3, Documents: []rflscvs02.ReadDocument{},
-		NegativeObservations: []rflscvs02.Observation{}, MembershipObservations: []rflscvs02.Observation{membership}, DependencyFrontiers: []rflscvs02.Observation{},
+	membership := evidence.Observation{Kind: "membership", Path: ".", ValueHash: "membership-live-artifacts", Measured: true}
+	readSet := evidence.AnalysisReadSet{
+		SchemaID: evidence.ReadSetSchemaID, SchemaVersion: 2, ReadSetID: readSetID,
+		ComputedBasisID: basis, WorkspaceEpoch: 3, Documents: []evidence.ReadDocument{},
+		NegativeObservations: []evidence.Observation{}, MembershipObservations: []evidence.Observation{membership}, DependencyFrontiers: []evidence.Observation{},
 	}
-	closure := rflscvs02.ObservationClosure{
-		SchemaID: rflscvs02.ClosureSchemaID, SchemaVersion: 2, ClosureID: closureID, AnalysisReadSetID: readSetID,
-		ComputedBasisID: basis, WorkspaceEpoch: 3, Status: "closed", NegativeObservations: []rflscvs02.Observation{},
-		MembershipObservations: []rflscvs02.Observation{membership}, DependencyFrontiers: []rflscvs02.Observation{},
+	closure := evidence.ObservationClosure{
+		SchemaID: evidence.ClosureSchemaID, SchemaVersion: 2, ClosureID: closureID, AnalysisReadSetID: readSetID,
+		ComputedBasisID: basis, WorkspaceEpoch: 3, Status: "closed", NegativeObservations: []evidence.Observation{},
+		MembershipObservations: []evidence.Observation{membership}, DependencyFrontiers: []evidence.Observation{},
 		RequiredObservations: []string{"membership"}, MeasuredObservations: []string{"membership"}, ClosureDigest: strings.Repeat("c", 64),
 	}
-	result := &rflscvs02.Result{
-		SchemaID: rflscvs02.AnalyzerResultSchemaID, SchemaVersion: 2, RequestID: "request-live-artifacts", Operation: "detect",
+	result := &evidence.Result{
+		SchemaID: evidence.AnalyzerResultSchemaID, SchemaVersion: 2, RequestID: "request-live-artifacts", Operation: "detect",
 		AdapterVersion: "adapter-live-artifacts/1", AnalyzerRevision: "analyzer-live-artifacts/1", WorkspaceEpoch: 3,
 		ComputedBasisID: basis, SnapshotID: snapshotID, SnapshotTreeDigest: tree, DependencyFingerprint: deps,
 		ReadSet: readSet, Closure: closure,
-		Capability:  rflscvs02.CapabilityProfile{Adapter: "live-artifacts", AdapterVersion: "adapter-live-artifacts/1", AnalyzerRevision: "analyzer-live-artifacts/1", Features: []string{"snapshot_bytes"}},
-		Coverage:    rflscvs02.Coverage{IncludedSourceRoots: []string{"."}, ExcludedReasons: []string{}, Measured: true},
-		Diagnostics: []rflscvs02.Diagnostic{}, Payload: json.RawMessage(`{"language":"go","confident":true}`),
+		Capability:  evidence.CapabilityProfile{Adapter: "live-artifacts", AdapterVersion: "adapter-live-artifacts/1", AnalyzerRevision: "analyzer-live-artifacts/1", Features: []string{"snapshot_bytes"}},
+		Coverage:    evidence.Coverage{IncludedSourceRoots: []string{"."}, ExcludedReasons: []string{}, Measured: true},
+		Diagnostics: []evidence.Diagnostic{}, Payload: json.RawMessage(`{"language":"go","confident":true}`),
 	}
 	projection := &semantic.FlowViewProjection{
 		SchemaID: contractharness.FlowProjectionV2SchemaID, SchemaVersion: 2, ProjectionID: "projection-live-artifacts",
@@ -132,14 +132,14 @@ func TestLivePipelinePublishesAndStrictlyRereadsCompleteProofBundle(t *testing.T
 		}
 		doc := snapshot.Documents[0]
 		content := []byte(snapshot.Files[doc.Path])
-		readDocuments := make([]rflscvs02.ReadDocument, 0, len(input.Documents))
+		readDocuments := make([]evidence.ReadDocument, 0, len(input.Documents))
 		for _, item := range input.Documents {
-			readDocuments = append(readDocuments, rflscvs02.ReadDocument{Path: item.Path, DocumentRevisionID: item.RevisionID, ContentID: item.ContentID, ContentHash: item.ContentID, DocumentVersion: item.DocumentVersion, ByteLength: item.ByteLength})
+			readDocuments = append(readDocuments, evidence.ReadDocument{Path: item.Path, DocumentRevisionID: item.RevisionID, ContentID: item.ContentID, ContentHash: item.ContentID, DocumentVersion: item.DocumentVersion, ByteLength: item.ByteLength})
 		}
-		membership := rflscvs02.Observation{Kind: "membership", Path: ".", ValueHash: "membership-live-pipeline", Measured: true}
-		readSet := rflscvs02.AnalysisReadSet{SchemaID: rflscvs02.ReadSetSchemaID, SchemaVersion: 2, ReadSetID: "readset-live-pipeline", ComputedBasisID: input.ComputedBasisID, WorkspaceEpoch: input.WorkspaceEpoch, Documents: readDocuments, NegativeObservations: []rflscvs02.Observation{}, MembershipObservations: []rflscvs02.Observation{membership}, DependencyFrontiers: []rflscvs02.Observation{}}
-		canonicalClosure := rflscvs02.ObservationClosure{SchemaID: rflscvs02.ClosureSchemaID, SchemaVersion: 2, ClosureID: "closure-live-pipeline", AnalysisReadSetID: readSet.ReadSetID, ComputedBasisID: input.ComputedBasisID, WorkspaceEpoch: input.WorkspaceEpoch, Status: "closed", NegativeObservations: []rflscvs02.Observation{}, MembershipObservations: []rflscvs02.Observation{membership}, DependencyFrontiers: []rflscvs02.Observation{}, RequiredObservations: []string{"membership"}, MeasuredObservations: []string{"membership"}, ClosureDigest: strings.Repeat("c", 64)}
-		result := &rflscvs02.Result{SchemaID: rflscvs02.AnalyzerResultSchemaID, SchemaVersion: 2, RequestID: "request-live-pipeline", Operation: "detect", AdapterVersion: "adapter-live-pipeline/1", AnalyzerRevision: "analyzer-live-pipeline/1", WorkspaceEpoch: input.WorkspaceEpoch, ComputedBasisID: input.ComputedBasisID, SnapshotID: input.SnapshotID, SnapshotTreeDigest: input.RootTreeID, DependencyFingerprint: input.DependencyFingerprint, ReadSet: readSet, Closure: canonicalClosure, Capability: rflscvs02.CapabilityProfile{Adapter: "live-pipeline", AdapterVersion: "adapter-live-pipeline/1", AnalyzerRevision: "analyzer-live-pipeline/1", Features: []string{"snapshot_bytes", "relation:calls"}}, Coverage: rflscvs02.Coverage{IncludedSourceRoots: []string{"."}, ExcludedReasons: []string{}, Measured: true}, Diagnostics: []rflscvs02.Diagnostic{}, Payload: json.RawMessage(`{"language":"go","confident":true}`)}
+		membership := evidence.Observation{Kind: "membership", Path: ".", ValueHash: "membership-live-pipeline", Measured: true}
+		readSet := evidence.AnalysisReadSet{SchemaID: evidence.ReadSetSchemaID, SchemaVersion: 2, ReadSetID: "readset-live-pipeline", ComputedBasisID: input.ComputedBasisID, WorkspaceEpoch: input.WorkspaceEpoch, Documents: readDocuments, NegativeObservations: []evidence.Observation{}, MembershipObservations: []evidence.Observation{membership}, DependencyFrontiers: []evidence.Observation{}}
+		canonicalClosure := evidence.ObservationClosure{SchemaID: evidence.ClosureSchemaID, SchemaVersion: 2, ClosureID: "closure-live-pipeline", AnalysisReadSetID: readSet.ReadSetID, ComputedBasisID: input.ComputedBasisID, WorkspaceEpoch: input.WorkspaceEpoch, Status: "closed", NegativeObservations: []evidence.Observation{}, MembershipObservations: []evidence.Observation{membership}, DependencyFrontiers: []evidence.Observation{}, RequiredObservations: []string{"membership"}, MeasuredObservations: []string{"membership"}, ClosureDigest: strings.Repeat("c", 64)}
+		result := &evidence.Result{SchemaID: evidence.AnalyzerResultSchemaID, SchemaVersion: 2, RequestID: "request-live-pipeline", Operation: "detect", AdapterVersion: "adapter-live-pipeline/1", AnalyzerRevision: "analyzer-live-pipeline/1", WorkspaceEpoch: input.WorkspaceEpoch, ComputedBasisID: input.ComputedBasisID, SnapshotID: input.SnapshotID, SnapshotTreeDigest: input.RootTreeID, DependencyFingerprint: input.DependencyFingerprint, ReadSet: readSet, Closure: canonicalClosure, Capability: evidence.CapabilityProfile{Adapter: "live-pipeline", AdapterVersion: "adapter-live-pipeline/1", AnalyzerRevision: "analyzer-live-pipeline/1", Features: []string{"snapshot_bytes", "relation:calls"}}, Coverage: evidence.Coverage{IncludedSourceRoots: []string{"."}, ExcludedReasons: []string{}, Measured: true}, Diagnostics: []evidence.Diagnostic{}, Payload: json.RawMessage(`{"language":"go","confident":true}`)}
 		anchor := slicing.Anchor{RepoRelativePath: doc.Path, ByteRange: [2]int{0, len(content)}, FileHash: doc.ContentID, SpanHash: doc.ContentID, EnclosingSymbolPath: "main", CanonicalAstFingerprint: "ast-live-pipeline"}
 		evidenceID := semantic.EvidenceIDForAnchor("flow-live-pipeline", anchor)
 		intent, err := semantic.NormalizeTaskIntent("show main", semantic.IntentOptions{Mode: "feature"})
@@ -390,14 +390,14 @@ func liveDeltaCandidate(ctx context.Context, snapshot protocol.Snapshot, query *
 	suffix := strings.TrimPrefix(generation, "generation-")
 	readSetID := "readset-" + suffix
 	closureID := "closure-" + suffix
-	membership := rflscvs02.Observation{Kind: "membership", Path: ".", ValueHash: "membership-live-delta", Measured: true}
-	readDocuments := make([]rflscvs02.ReadDocument, 0, len(input.Documents))
+	membership := evidence.Observation{Kind: "membership", Path: ".", ValueHash: "membership-live-delta", Measured: true}
+	readDocuments := make([]evidence.ReadDocument, 0, len(input.Documents))
 	for _, item := range input.Documents {
-		readDocuments = append(readDocuments, rflscvs02.ReadDocument{Path: item.Path, DocumentRevisionID: item.RevisionID, ContentID: item.ContentID, ContentHash: item.ContentID, DocumentVersion: item.DocumentVersion, ByteLength: item.ByteLength})
+		readDocuments = append(readDocuments, evidence.ReadDocument{Path: item.Path, DocumentRevisionID: item.RevisionID, ContentID: item.ContentID, ContentHash: item.ContentID, DocumentVersion: item.DocumentVersion, ByteLength: item.ByteLength})
 	}
-	readSet := rflscvs02.AnalysisReadSet{SchemaID: rflscvs02.ReadSetSchemaID, SchemaVersion: 2, ReadSetID: readSetID, ComputedBasisID: input.ComputedBasisID, WorkspaceEpoch: input.WorkspaceEpoch, Documents: readDocuments, NegativeObservations: []rflscvs02.Observation{}, MembershipObservations: []rflscvs02.Observation{membership}, DependencyFrontiers: []rflscvs02.Observation{}}
-	canonicalClosure := rflscvs02.ObservationClosure{SchemaID: rflscvs02.ClosureSchemaID, SchemaVersion: 2, ClosureID: closureID, AnalysisReadSetID: readSetID, ComputedBasisID: input.ComputedBasisID, WorkspaceEpoch: input.WorkspaceEpoch, Status: "closed", NegativeObservations: []rflscvs02.Observation{}, MembershipObservations: []rflscvs02.Observation{membership}, DependencyFrontiers: []rflscvs02.Observation{}, RequiredObservations: []string{"membership"}, MeasuredObservations: []string{"membership"}, ClosureDigest: strings.Repeat("d", 64)}
-	result := &rflscvs02.Result{SchemaID: rflscvs02.AnalyzerResultSchemaID, SchemaVersion: 2, RequestID: "request-" + suffix, Operation: "detect", AdapterVersion: "adapter-live-delta/1", AnalyzerRevision: "analyzer-live-delta/1", WorkspaceEpoch: input.WorkspaceEpoch, ComputedBasisID: input.ComputedBasisID, SnapshotID: input.SnapshotID, SnapshotTreeDigest: input.RootTreeID, DependencyFingerprint: input.DependencyFingerprint, ReadSet: readSet, Closure: canonicalClosure, Capability: rflscvs02.CapabilityProfile{Adapter: "live-delta", AdapterVersion: "adapter-live-delta/1", AnalyzerRevision: "analyzer-live-delta/1", Features: []string{"snapshot_bytes", "relation:calls"}}, Coverage: rflscvs02.Coverage{IncludedSourceRoots: []string{"."}, ExcludedReasons: []string{}, Measured: true}, Diagnostics: []rflscvs02.Diagnostic{}, Payload: json.RawMessage(`{"language":"go","confident":true}`)}
+	readSet := evidence.AnalysisReadSet{SchemaID: evidence.ReadSetSchemaID, SchemaVersion: 2, ReadSetID: readSetID, ComputedBasisID: input.ComputedBasisID, WorkspaceEpoch: input.WorkspaceEpoch, Documents: readDocuments, NegativeObservations: []evidence.Observation{}, MembershipObservations: []evidence.Observation{membership}, DependencyFrontiers: []evidence.Observation{}}
+	canonicalClosure := evidence.ObservationClosure{SchemaID: evidence.ClosureSchemaID, SchemaVersion: 2, ClosureID: closureID, AnalysisReadSetID: readSetID, ComputedBasisID: input.ComputedBasisID, WorkspaceEpoch: input.WorkspaceEpoch, Status: "closed", NegativeObservations: []evidence.Observation{}, MembershipObservations: []evidence.Observation{membership}, DependencyFrontiers: []evidence.Observation{}, RequiredObservations: []string{"membership"}, MeasuredObservations: []string{"membership"}, ClosureDigest: strings.Repeat("d", 64)}
+	result := &evidence.Result{SchemaID: evidence.AnalyzerResultSchemaID, SchemaVersion: 2, RequestID: "request-" + suffix, Operation: "detect", AdapterVersion: "adapter-live-delta/1", AnalyzerRevision: "analyzer-live-delta/1", WorkspaceEpoch: input.WorkspaceEpoch, ComputedBasisID: input.ComputedBasisID, SnapshotID: input.SnapshotID, SnapshotTreeDigest: input.RootTreeID, DependencyFingerprint: input.DependencyFingerprint, ReadSet: readSet, Closure: canonicalClosure, Capability: evidence.CapabilityProfile{Adapter: "live-delta", AdapterVersion: "adapter-live-delta/1", AnalyzerRevision: "analyzer-live-delta/1", Features: []string{"snapshot_bytes", "relation:calls"}}, Coverage: evidence.Coverage{IncludedSourceRoots: []string{"."}, ExcludedReasons: []string{}, Measured: true}, Diagnostics: []evidence.Diagnostic{}, Payload: json.RawMessage(`{"language":"go","confident":true}`)}
 	intent, err := semantic.NormalizeTaskIntent(query.Feature.Request, semantic.IntentOptions{Mode: query.Mode})
 	if err != nil {
 		return nil, nil, nil, nil, nil, nil, err

@@ -10,7 +10,7 @@ import (
 	"strings"
 
 	"codeflow/internal/contractharness"
-	"codeflow/internal/rflscvs02"
+	"codeflow/internal/evidence"
 	"codeflow/internal/secret"
 	"codeflow/internal/semantic"
 	"codeflow/internal/storage"
@@ -208,39 +208,39 @@ func validateImpactRequest(request *impactRequest, coverageComplete, currentProo
 	return nil
 }
 
-func (s *Server) loadImpactBasis(ctx context.Context, targetRoot string, st *storage.Storage, request *impactRequest) (*semantic.SemanticMapIR, rflscvs02.CapabilityProfile, []byte, bool, bool, error) {
+func (s *Server) loadImpactBasis(ctx context.Context, targetRoot string, st *storage.Storage, request *impactRequest) (*semantic.SemanticMapIR, evidence.CapabilityProfile, []byte, bool, bool, error) {
 	if request == nil {
-		return nil, rflscvs02.CapabilityProfile{}, nil, false, false, fmt.Errorf("missing_precondition: impact request is required")
+		return nil, evidence.CapabilityProfile{}, nil, false, false, fmt.Errorf("missing_precondition: impact request is required")
 	}
 	if request.Freshness == "current" {
 		bundle, err := st.ReadValidatedActiveProofBundle()
 		if err != nil {
-			return nil, rflscvs02.CapabilityProfile{}, nil, false, false, fmt.Errorf("invalid_authority: validated current proof is unavailable: %w", err)
+			return nil, evidence.CapabilityProfile{}, nil, false, false, fmt.Errorf("invalid_authority: validated current proof is unavailable: %w", err)
 		}
 		if bundle == nil || bundle.Manifest == nil || bundle.Pointer == nil {
-			return nil, rflscvs02.CapabilityProfile{}, nil, false, false, fmt.Errorf("missing_precondition: no validated current proof is published")
+			return nil, evidence.CapabilityProfile{}, nil, false, false, fmt.Errorf("missing_precondition: no validated current proof is published")
 		}
 		engine, engineErr := s.getSnapshotEngine(targetRoot)
 		if engineErr != nil {
-			return nil, rflscvs02.CapabilityProfile{}, nil, false, false, fmt.Errorf("invalid_authority: live workspace head is unavailable: %w", engineErr)
+			return nil, evidence.CapabilityProfile{}, nil, false, false, fmt.Errorf("invalid_authority: live workspace head is unavailable: %w", engineErr)
 		}
 		liveHead := engine.LiveHead()
 		if liveHead == nil {
-			return nil, rflscvs02.CapabilityProfile{}, nil, false, false, fmt.Errorf("invalid_authority: workspace has no measured live snapshot")
+			return nil, evidence.CapabilityProfile{}, nil, false, false, fmt.Errorf("invalid_authority: workspace has no measured live snapshot")
 		}
 		if bundle.Pointer.ExpectedLiveHeadSnapshotID == "" || liveHead.SnapshotID != bundle.Pointer.ExpectedLiveHeadSnapshotID {
-			return nil, rflscvs02.CapabilityProfile{}, nil, false, false, fmt.Errorf("invalid_authority: active proof expected live head %q but workspace live head is %q", bundle.Pointer.ExpectedLiveHeadSnapshotID, liveHead.SnapshotID)
+			return nil, evidence.CapabilityProfile{}, nil, false, false, fmt.Errorf("invalid_authority: active proof expected live head %q but workspace live head is %q", bundle.Pointer.ExpectedLiveHeadSnapshotID, liveHead.SnapshotID)
 		}
 		if bundle.Pointer.ComputedBasisID != request.BasisID || bundle.Pointer.GenerationID != request.GenerationID || bundle.Manifest.ComputedBasisID != request.BasisID || bundle.Manifest.GenerationID != request.GenerationID {
-			return nil, rflscvs02.CapabilityProfile{}, nil, false, false, fmt.Errorf("incomparable_basis: requested impact identity does not match the validated current proof")
+			return nil, evidence.CapabilityProfile{}, nil, false, false, fmt.Errorf("incomparable_basis: requested impact identity does not match the validated current proof")
 		}
 
 		mapIR, result, err := decodeValidatedImpactArtifacts(bundle.SemanticMap, bundle.AnalyzerResult)
 		if err != nil {
-			return nil, rflscvs02.CapabilityProfile{}, nil, false, false, fmt.Errorf("invalid_graph: validated current impact artifacts are unusable: %w", err)
+			return nil, evidence.CapabilityProfile{}, nil, false, false, fmt.Errorf("invalid_graph: validated current impact artifacts are unusable: %w", err)
 		}
 		if mapIR.GenerationID != request.GenerationID || mapIR.ComputedBasisID != request.BasisID {
-			return nil, rflscvs02.CapabilityProfile{}, nil, false, false, fmt.Errorf("incomparable_basis: semantic map identity does not match the requested impact basis")
+			return nil, evidence.CapabilityProfile{}, nil, false, false, fmt.Errorf("incomparable_basis: semantic map identity does not match the requested impact basis")
 		}
 		supported := semantic.SupportedImpactRelationKinds(result.Capability.Features, request.RelationKinds)
 		excludedReasons := impactCoverageExcludedReasons(mapIR, result.Coverage.ExcludedReasons)
@@ -249,47 +249,47 @@ func (s *Server) loadImpactBasis(ctx context.Context, targetRoot string, st *sto
 	}
 
 	if request.Freshness != "historical" {
-		return nil, rflscvs02.CapabilityProfile{}, nil, false, false, fmt.Errorf("invalid_precondition: freshness must be current or historical")
+		return nil, evidence.CapabilityProfile{}, nil, false, false, fmt.Errorf("invalid_precondition: freshness must be current or historical")
 	}
 	mapIR, ok := s.loadSemanticMap(targetRoot, request.GenerationID)
 	if !ok || mapIR == nil {
-		return nil, rflscvs02.CapabilityProfile{}, nil, false, false, fmt.Errorf("missing_precondition: historical semantic map %q is not available", request.GenerationID)
+		return nil, evidence.CapabilityProfile{}, nil, false, false, fmt.Errorf("missing_precondition: historical semantic map %q is not available", request.GenerationID)
 	}
 	if mapIR.SchemaID != semantic.SemanticMapSchemaID || mapIR.SchemaVersion != semantic.SemanticSchemaVersion || mapIR.GenerationID != request.GenerationID || mapIR.ComputedBasisID != request.BasisID || mapIR.ValidatedAgainstSnapshotID == "" {
-		return nil, rflscvs02.CapabilityProfile{}, nil, false, false, fmt.Errorf("incomparable_basis: historical semantic map identity does not match the requested basis")
+		return nil, evidence.CapabilityProfile{}, nil, false, false, fmt.Errorf("incomparable_basis: historical semantic map identity does not match the requested basis")
 	}
 	if mapIR.Freshness != "historical" {
-		return nil, rflscvs02.CapabilityProfile{}, nil, false, false, fmt.Errorf("invalid_authority: historical impact requires an explicitly historical semantic map")
+		return nil, evidence.CapabilityProfile{}, nil, false, false, fmt.Errorf("invalid_authority: historical impact requires an explicitly historical semantic map")
 	}
 	// The in-memory historical cache has no persisted analyzer capability
 	// profile. Keep every requested relation unsupported instead of turning a
 	// cache hit into an invented capability claim.
-	return cloneSemanticMapForImpact(mapIR), rflscvs02.CapabilityProfile{}, nil, false, false, nil
+	return cloneSemanticMapForImpact(mapIR), evidence.CapabilityProfile{}, nil, false, false, nil
 }
 
-func decodeValidatedImpactArtifacts(mapBytes, resultBytes []byte) (*semantic.SemanticMapIR, rflscvs02.Result, error) {
+func decodeValidatedImpactArtifacts(mapBytes, resultBytes []byte) (*semantic.SemanticMapIR, evidence.Result, error) {
 	if len(mapBytes) == 0 || len(resultBytes) == 0 {
-		return nil, rflscvs02.Result{}, fmt.Errorf("semantic map and analyzer result artifacts are required")
+		return nil, evidence.Result{}, fmt.Errorf("semantic map and analyzer result artifacts are required")
 	}
 	if err := contractharness.ValidateSemanticMapIR(mapBytes); err != nil {
-		return nil, rflscvs02.Result{}, fmt.Errorf("semantic map contract: %w", err)
+		return nil, evidence.Result{}, fmt.Errorf("semantic map contract: %w", err)
 	}
-	if err := contractharness.Validate(rflscvs02.AnalyzerResultSchemaID, resultBytes); err != nil {
-		return nil, rflscvs02.Result{}, fmt.Errorf("analyzer result contract: %w", err)
+	if err := contractharness.Validate(evidence.AnalyzerResultSchemaID, resultBytes); err != nil {
+		return nil, evidence.Result{}, fmt.Errorf("analyzer result contract: %w", err)
 	}
 	var mapIR semantic.SemanticMapIR
 	if err := json.Unmarshal(mapBytes, &mapIR); err != nil {
-		return nil, rflscvs02.Result{}, fmt.Errorf("decode semantic map: %w", err)
+		return nil, evidence.Result{}, fmt.Errorf("decode semantic map: %w", err)
 	}
-	var result rflscvs02.Result
+	var result evidence.Result
 	if err := json.Unmarshal(resultBytes, &result); err != nil {
-		return nil, rflscvs02.Result{}, fmt.Errorf("decode analyzer result: %w", err)
+		return nil, evidence.Result{}, fmt.Errorf("decode analyzer result: %w", err)
 	}
 	if mapIR.SchemaID != semantic.SemanticMapSchemaID || mapIR.SchemaVersion != semantic.SemanticSchemaVersion || mapIR.GenerationID == "" || mapIR.ComputedBasisID == "" || mapIR.ValidatedAgainstSnapshotID == "" {
-		return nil, rflscvs02.Result{}, fmt.Errorf("semantic map identity is incomplete")
+		return nil, evidence.Result{}, fmt.Errorf("semantic map identity is incomplete")
 	}
 	if result.ComputedBasisID != mapIR.ComputedBasisID || result.SnapshotID != mapIR.Basis.ComputedWorkspaceSnapshotID || result.SnapshotID == "" {
-		return nil, rflscvs02.Result{}, fmt.Errorf("analyzer result identity does not match semantic map")
+		return nil, evidence.Result{}, fmt.Errorf("analyzer result identity does not match semantic map")
 	}
 	return &mapIR, result, nil
 }

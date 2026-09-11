@@ -21,7 +21,7 @@ import (
 	"sync"
 	"time"
 
-	"codeflow/internal/rflscvs02"
+	"codeflow/internal/evidence"
 	"codeflow/internal/secret"
 )
 
@@ -828,7 +828,7 @@ func zeroMissMarker(operation string) map[string]any {
 	return map[string]any{
 		"kind": "negative_lookup", "path": ".",
 		"valueHash": digest([]byte("zero-miss:" + operation)),
-		"detail":    rflscvs02.ZeroMissDetailPrefix + "resolution completed over snapshot scope during " + operation + " with no unresolved lookups",
+		"detail":    evidence.ZeroMissDetailPrefix + "resolution completed over snapshot scope during " + operation + " with no unresolved lookups",
 		"measured":  true,
 	}
 }

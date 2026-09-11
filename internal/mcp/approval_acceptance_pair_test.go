@@ -6,7 +6,7 @@ import (
 	"reflect"
 	"testing"
 
-	"codeflow/internal/rflscvs09evidence"
+	"codeflow/internal/evidence"
 	"codeflow/internal/semantic"
 )
 
@@ -95,7 +95,7 @@ func TestMCPApprovalRejectsEachCorruptStoredPairWithoutMutation(t *testing.T) {
 			if !reflect.DeepEqual(before, after) {
 				t.Fatal("corrupt pair mutated approval records")
 			}
-			rflscvs09evidence.Observe(t, "codeflow/internal/mcp", []string{"VS09-A3"}, map[string]any{"before.transactions": before, "after.transactions": after, "request": raw, "response": response, "before.proof": proof})
+			evidence.ObserveApproval(t, "codeflow/internal/mcp", []string{"VS09-A3"}, map[string]any{"before.transactions": before, "after.transactions": after, "request": raw, "response": response, "before.proof": proof})
 		})
 	}
 	// Intent revision belongs to the command/current Q3 identity, not the pair DTO.
@@ -122,7 +122,7 @@ func TestMCPApprovalRejectsEachCorruptStoredPairWithoutMutation(t *testing.T) {
 			if !response.Result.IsError || !reflect.DeepEqual(problem, map[string]any{"code": "approval_conflict", "message": "approval request conflicts with current state"}) {
 				t.Fatalf("stale identity=%+v", response)
 			}
-			rflscvs09evidence.Observe(t, "codeflow/internal/mcp", []string{"VS09-A4"}, map[string]any{"before.transactions": before, "request": raw, "response": response})
+			evidence.ObserveApproval(t, "codeflow/internal/mcp", []string{"VS09-A4"}, map[string]any{"before.transactions": before, "request": raw, "response": response})
 		})
 	}
 	after, err := transactions.Snapshot(context.Background())
@@ -155,5 +155,5 @@ func TestMCPApprovalRejectsEachCorruptStoredPairWithoutMutation(t *testing.T) {
 	if controlEvent.EventType != "approval.updated" || controlEvent.Sequence != head.Sequence+1 {
 		t.Fatalf("valid control SSE=%+v", controlEvent)
 	}
-	rflscvs09evidence.Observe(t, "codeflow/internal/mcp", []string{"VS09-A3", "VS09-A4"}, map[string]any{"before.transactions": before, "after.transactions": after, "before.proof": proof, "after.proof": proofAfter, "before.sse": head, "after.sse": finalHead, "control.response": response, "control.sse": controlEvent})
+	evidence.ObserveApproval(t, "codeflow/internal/mcp", []string{"VS09-A3", "VS09-A4"}, map[string]any{"before.transactions": before, "after.transactions": after, "before.proof": proof, "after.proof": proofAfter, "before.sse": head, "after.sse": finalHead, "control.response": response, "control.sse": controlEvent})
 }

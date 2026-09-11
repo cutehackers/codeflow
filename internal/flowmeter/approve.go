@@ -16,7 +16,7 @@ import (
 	"time"
 
 	"codeflow/internal/contractharness"
-	"codeflow/internal/releaseartifact"
+	"codeflow/internal/evidence"
 	"codeflow/internal/semantic"
 )
 
@@ -105,12 +105,12 @@ func runApprove(args []string, stdin io.Reader, stdout io.Writer, stderr io.Writ
 		CorpusID: corpus.CorpusID, CorpusVersion: corpus.CorpusVersion, CorpusRef: corpus.ArtifactRef,
 		Thresholds: thresholds,
 	}
-	if set.ArtifactRef, err = releaseartifact.Ref(set); err != nil {
+	if set.ArtifactRef, err = evidence.Ref(set); err != nil {
 		_, _ = fmt.Fprintf(stderr, "threshold sealing 실패: %v\n", err)
 		return 1
 	}
 	decisionSet := semantic.ApprovedThresholdDecisionSet{Decisions: decisions}
-	if decisionSet.ArtifactRef, err = releaseartifact.Ref(decisionSet); err != nil {
+	if decisionSet.ArtifactRef, err = evidence.Ref(decisionSet); err != nil {
 		_, _ = fmt.Fprintf(stderr, "decision sealing 실패: %v\n", err)
 		return 1
 	}

@@ -24,7 +24,7 @@ import (
 	"codeflow/internal/fusion"
 	"codeflow/internal/harvest"
 	"codeflow/internal/protocol"
-	"codeflow/internal/rflscvs06"
+	"codeflow/internal/runtime"
 	"codeflow/internal/semantic"
 	"codeflow/internal/slicing"
 	"codeflow/internal/storage"
@@ -62,8 +62,8 @@ type Config struct {
 	// is intentionally not constructed from a caller-provided command.
 	RuntimeExecutor      any
 	OneShotExecutor      any // compatibility alias for integrations
-	RuntimeExecutionSpec rflscvs06.RuntimeExecutionSpec
-	RuntimeConsent       *rflscvs06.RuntimeConsent
+	RuntimeExecutionSpec runtime.RuntimeExecutionSpec
+	RuntimeConsent       *runtime.RuntimeConsent
 	// ModelHostFactory creates one Core-supervised host per enrichment request.
 	// The request owns and closes the returned host.
 	ModelHostFactory protocol.ModelHostFactory
@@ -957,7 +957,7 @@ func (s *Server) listTools() []map[string]any {
 					"map":            map[string]any{"$ref": semantic.SemanticMapSchemaID, "description": "Alias for semanticMap in historical queries."},
 					"proof":          map[string]any{"type": "object", "description": "Explicit proof manifest plus pointer for historical queries."},
 					"pointer":        map[string]any{"type": "object", "description": "Explicit active-pointer identity paired with a historical proof."},
-					"runtimeConsent": map[string]any{"$ref": rflscvs06.RuntimeConsentSchemaID, "description": "Exact one-shot consent required for trusted_local observations."},
+					"runtimeConsent": map[string]any{"$ref": runtime.RuntimeConsentSchemaID, "description": "Exact one-shot consent required for trusted_local observations."},
 					"runtime":        map[string]any{"type": "object", "description": "Optional one-shot operation parameters for trusted_local execution."},
 					"target":         targetProp,
 					"token":          map[string]any{"type": "string", "description": "Auth token when RequireToken=true"},

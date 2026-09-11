@@ -13,7 +13,7 @@ import (
 	"testing"
 	"time"
 
-	"codeflow/internal/rflscvs02"
+	"codeflow/internal/evidence"
 	"codeflow/internal/workspace"
 )
 
@@ -85,7 +85,7 @@ func TestSourceReadOnlyAdapterLifecycle(t *testing.T) {
 
 	// Success: the response is bound to the captured snapshot identity.
 	successPool := NewPool(Config{BinPath: bin, Env: writeEnv(nil), DisposableRoot: disposableRoot, DefaultTimeout: 2 * time.Second}, 1)
-	var success rflscvs02.Result
+	var success evidence.Result
 	if err := successPool.Call(context.Background(), OpDetect, params, &success); err != nil {
 		t.Fatalf("snapshot success failed: %v", err)
 	}
@@ -141,7 +141,7 @@ func TestSourceReadOnlyAdapterLifecycle(t *testing.T) {
 			"MOCK_CRASH_STATE_FILE":       crashState,
 		}),
 	}, 1)
-	var recovered rflscvs02.Result
+	var recovered evidence.Result
 	if err := crashPool.Call(context.Background(), OpDetect, params, &recovered); err != nil {
 		t.Fatalf("crash retry failed: %v", err)
 	}
@@ -201,7 +201,7 @@ func TestAdapterProcessIsolationAndCleanup(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	var success rflscvs02.Result
+	var success evidence.Result
 	if err := conn.Call(context.Background(), OpDetect, params, &success); err != nil {
 		t.Fatal(err)
 	}
@@ -255,7 +255,7 @@ func TestAdapterProcessIsolationAndCleanup(t *testing.T) {
 		"MOCK_CRASH_STATE_FILE":       crashState,
 	})
 	crashPool := NewPool(Config{BinPath: bin, Env: crashEnv, DisposableRoot: workRoot}, 1)
-	var recovered rflscvs02.Result
+	var recovered evidence.Result
 	if err := crashPool.Call(context.Background(), OpDetect, params, &recovered); err != nil {
 		t.Fatal(err)
 	}
@@ -299,7 +299,7 @@ func TestConnPublishesMountPermissionEvidenceAfterCleanup(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	var result rflscvs02.Result
+	var result evidence.Result
 	if err := conn.Call(context.Background(), OpDetect, snapshot.Params(), &result); err != nil {
 		t.Fatal(err)
 	}
@@ -403,8 +403,8 @@ func digestFile(t *testing.T, path string) string {
 	return hex.EncodeToString(sum[:])
 }
 
-func mergeMountEvidence(values ...rflscvs02.MountPermissionEvidence) rflscvs02.MountPermissionEvidence {
-	var merged rflscvs02.MountPermissionEvidence
+func mergeMountEvidence(values ...evidence.MountPermissionEvidence) evidence.MountPermissionEvidence {
+	var merged evidence.MountPermissionEvidence
 	first := true
 	for _, value := range values {
 		if first {
@@ -446,11 +446,11 @@ func firstNonEmpty(first, second string) string {
 	return second
 }
 
-func writeLifecycleEvidenceArtifact(t *testing.T, path string, snapshot Snapshot, audit workspace.SourceWriteAudit, isolation rflscvs02.MountPermissionEvidence, failedSpawnClean bool) {
+func writeLifecycleEvidenceArtifact(t *testing.T, path string, snapshot Snapshot, audit workspace.SourceWriteAudit, isolation evidence.MountPermissionEvidence, failedSpawnClean bool) {
 	t.Helper()
-	artifact := rflscvs02.IsolationLifecycleEvidence{
-		SchemaID:                   rflscvs02.IsolationLifecycleEvidenceSchemaID,
-		SchemaVersion:              rflscvs02.SchemaVersion,
+	artifact := evidence.IsolationLifecycleEvidence{
+		SchemaID:                   evidence.IsolationLifecycleEvidenceSchemaID,
+		SchemaVersion:              evidence.SchemaVersion,
 		ExecutionID:                "protocol.TestSourceReadOnlyAdapterLifecycle",
 		SnapshotID:                 snapshot.SnapshotID,
 		SnapshotTreeDigest:         snapshot.RootTreeID,
