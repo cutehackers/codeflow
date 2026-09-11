@@ -14,7 +14,7 @@
 .view-toolbar{margin:0 30px 16px;display:flex;gap:12px;align-items:center;flex-wrap:wrap}.view-toolbar button{font-size:12px}.view-toolbar p{font-size:11px;color:#666}.view-stage{height:660px;height:clamp(480px,calc(100vh - 330px),850px)}.flow-panel{height:100%;overflow:auto;scrollbar-gutter:stable;padding:2px 6px 2px 2px}.flow-panel.entering{animation:appear 120ms ease-out}.condition-bar{margin-bottom:15px;font-size:11px}.condition-bar select{font:inherit;background:white;color:#171717;border:1px solid #bbb;padding:6px;max-width:100%}.condition-bar p{font-size:10px;color:#666;margin-top:5px}.process-card{border:1px solid #ccc;border-radius:7px;margin-bottom:18px;background:white;overflow:hidden}.process-card.selected{border:2px solid #171717}.process-select{display:flex;gap:12px;width:100%;border:0;border-radius:0;text-align:left;padding:16px;align-items:start}.process-select strong{display:block;font-size:14px}.process-select small{display:block;font-size:10px;color:#666;overflow-wrap:anywhere}.process-select .tag{margin-left:auto}.process-condition{margin:0 15px 12px;padding:9px 12px;border-left:3px solid #171717;background:#f3f3f3;font:11px/1.8 ui-monospace,monospace;overflow-wrap:anywhere}.process-effect{padding:0 15px 12px;font-size:11px}.outside-focus{border-style:dashed}.outside-focus .card-head,.outside-focus .process-select{background:#f5f5f5}.condition-match{box-shadow:inset 4px 0 #171717}@keyframes appear{from{opacity:.65}to{opacity:1}}@media(prefers-reduced-motion:reduce){.flow-panel.entering{animation:none}}@media(max-width:650px){.view-toolbar{margin-left:15px;margin-right:15px}.view-stage{height:600px}.process-select{padding:12px;gap:8px}}
 @media(min-width:1600px){.view-toolbar{max-width:1540px;margin-left:auto;margin-right:auto}}
 .view-stage{height:auto}.flow-panel{height:auto;overflow:visible;scrollbar-gutter:auto}.view-toolbar{position:sticky;top:0;z-index:5;background:#fafafa;padding:10px 0;border-bottom:1px solid #ddd}.rail,.context{top:70px;max-height:calc(100vh - 85px);overflow:auto}.flow-summary{font-size:12px;color:#555;margin-top:10px}.flow-summary p+p{margin-top:4px}.sample-controls summary{cursor:pointer;font-size:12px;font-weight:600}.code-card,.process-card{scroll-margin-top:75px}@media(max-width:650px){.rail,.context{position:static;max-height:none;overflow:visible}}
-.change-pulse{margin:0 30px 18px;padding:13px;border:1px solid #bbb;background:#fff;border-radius:6px}.change-pulse h2{font-size:11px;letter-spacing:.6px;margin-bottom:8px}.pulse-list{display:flex;gap:7px;flex-wrap:wrap}.pulse-item{font-size:10px;text-align:left}.pulse-item b{margin-right:5px}.pulse-item[data-kind="removed_behavior"],.pulse-item[data-kind="ambiguous_move"]{border-style:dashed}.pulse-empty{font-size:11px;color:#666}@media(min-width:1600px){.change-pulse{max-width:1540px;margin-left:auto;margin-right:auto}}@media(max-width:650px){.change-pulse{margin-left:15px;margin-right:15px}}
+.change-pulse{margin:0 30px 18px;padding:13px;border:1px solid #bbb;background:#fff;border-radius:6px}.change-pulse h2{font-size:11px;letter-spacing:.6px;margin-bottom:8px}.pulse-list{display:flex;gap:7px;flex-wrap:wrap}.pulse-item{font-size:10px;text-align:left}.pulse-item b{margin-right:5px}.pulse-item[data-kind="removed_behavior"],.pulse-item[data-kind="ambiguous_move"]{border-style:dashed}.pulse-item.pulse-low-priority{opacity:.85;border-style:dotted}.pulse-empty{font-size:11px;color:#666}@media(min-width:1600px){.change-pulse{max-width:1540px;margin-left:auto;margin-right:auto}}@media(max-width:650px){.change-pulse{margin-left:15px;margin-right:15px}}
 </style>
 </head>
 <body data-view="live-semantic-map">
@@ -31,7 +31,7 @@
 const params=new URLSearchParams(location.search),token=params.get('token')||'';
 const $=id=>document.getElementById(id);
 const esc=value=>String(value??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-const state={data:null,baseline:null,pending:null,selected:null,paused:false,compare:false,request:params.get('request')||'',entry:params.get('entrySymbol')||'',requestId:0,expanded:new Map(),stream:null,editSerial:0,dirty:false};
+const state={data:null,baseline:null,pending:null,selected:null,paused:false,compare:false,request:params.get('request')||'',entry:params.get('entrySymbol')||'',mode:params.get('mode')||'',requestId:0,expanded:new Map(),stream:null,editSerial:0,dirty:false};
 const layers={presentation:'UI',page:'UI',ui:'UI',controller:'Controller',usecase:'UseCase',application:'UseCase',domain:'Domain',data:'Repository',repository:'Repository',infra:'Infrastructure',external:'External'};
 const edgeNames={call:'호출',calls:'호출',successor:'다음 처리',return:'반환',branch:'분기',error:'오류',failure:'실패',async:'비동기 호출'};
 const deltaNames={added_behavior:'행동 추가',changed_rule:'행동·조건 변경',removed_behavior:'행동 제거',evidence_updated:'근거 갱신',structural_only:'호출·위치 변경',ambiguous_move:'이동 판단 보류'};
@@ -54,7 +54,7 @@ function renderProcess(step){return '<article class="process-card '+(state.selec
 $('view-code').onclick=()=>setView('code');$('view-process').onclick=()=>setView('process');
 $('condition-focus').onchange=event=>{state.condition=event.target.value||null;applyCondition();};
 function say(text){$('live-notice').textContent=text;}
-function renderPulse(data=state.data){const changes=(data?.semanticDelta?.changes||[]).filter(change=>deltaNames[change.kind]);$('change-pulse').hidden=!changes.length;$('pulse-list').innerHTML=changes.length?changes.map(change=>'<button class="pulse-item" data-delta-step="'+esc(change.targetStepId)+'" data-kind="'+esc(change.kind)+'"><b>'+esc(deltaNames[change.kind])+'</b>'+esc(change.summary)+'</button>').join(''):'<p class="pulse-empty">검증된 의미 변경이 없습니다.</p>';}
+function renderPulse(data=state.data){const allChanges=(data?.semanticDelta?.changes||[]).filter(change=>deltaNames[change.kind]&&change.kind!=='structural_only');const hasProd=allChanges.some(c=>['added_behavior','changed_rule','removed_behavior','ambiguous_move'].includes(c.kind));$('change-pulse').hidden=!allChanges.length;$('pulse-list').innerHTML=allChanges.length?allChanges.map(change=>{let label=deltaNames[change.kind];let extraClass='';if(change.kind==='evidence_updated'){if(!hasProd){label='테스트 근거 (낮은 중요도)';extraClass=' pulse-low-priority';}else{label='근거 갱신';}}const ev=(change.evidenceRefs||[]).join(',');return '<button class="pulse-item'+extraClass+'" data-delta-step="'+esc(change.targetStepId)+'" data-kind="'+esc(change.kind)+'" data-symbol="'+esc(change.targetStepId)+'" data-evidence="'+esc(ev)+'"><b>'+esc(label)+'</b>'+esc(change.summary)+'</button>';}).join(''):'<p class="pulse-empty">검증된 의미 변경이 없습니다.</p>';}
 function steps(data=state.data){return data?.semanticMap?.steps||[];}
 function stepKey(step){return step?.structuralIdentity||null;}
 function matchStep(step,data){const key=stepKey(step);if(!key)return null;const matches=steps(data).filter(item=>stepKey(item)===key);return matches.length===1?matches[0]:null;}
@@ -89,10 +89,10 @@ function renderContext(){
  if(state.view==='process'){$('context').innerHTML='<div class="eyebrow muted">선택한 처리</div><h2>'+esc(step.name)+'</h2><p class="caption">'+esc(layers[step.layer]||step.layer||'계층 미확인')+'</p>'+(step.branch?'<section class="context-section"><h3>판단 조건</h3><p>'+esc(step.branch)+'</p></section>':'')+(step.stateDelta?'<section class="context-section"><h3>상태 변화</h3><p>'+esc(step.stateDelta.before)+' → '+esc(step.stateDelta.after)+'</p></section>':'')+(step.sideEffect?'<section class="context-section"><h3>외부 처리</h3><p>'+esc(step.sideEffect)+'</p></section>':'')+'<section class="context-section"><h3>이어지는 연결</h3>'+relationHTML(step)+'</section><section class="context-section"><h3>구현 확인</h3><p class="caption mono">'+esc(c?.canonicalPath||step.anchor?.repoRelativePath||'소스 위치 미확인')+'</p><button id="inspect-code">이 단계의 코드 보기 →</button></section><p class="caption">소스에서 확인한 관계입니다. 실제 실행 순서와 결과는 확인하지 않았습니다.</p>';$('inspect-code').onclick=()=>{setView('code');select(step.stepId);};return;}
  $('context').innerHTML='<div class="eyebrow muted">선택한 코드</div><h2>'+esc(step.name)+'</h2><p class="caption mono">'+esc(step.technicalName||'')+'</p>'+(step.branch?'<section class="context-section"><h3>분기 조건</h3><p>'+esc(step.branch)+'</p></section>':'')+(step.sideEffect?'<section class="context-section"><h3>외부 처리</h3><p>'+esc(step.sideEffect)+'</p></section>':'')+(step.stateDelta?'<section class="context-section"><h3>코드에 나타난 상태 변경</h3><p>'+esc(step.stateDelta.before)+' → '+esc(step.stateDelta.after)+'</p></section>':'')+'<section class="context-section"><h3>이곳을 호출한 코드</h3>'+incoming.map(edge=>{const from=steps().find(item=>item.stepId===edge.fromStepId);return from?'<button data-select="'+esc(from.stepId)+'">← '+esc(from.technicalName||from.name)+'</button>':'';}).join('')+(incoming.length?'':'<p class="caption">분석에서 확인한 선행 연결 없음</p>')+'</section><details><summary>소스 범위와 설명</summary><p>'+esc(c?.sourceLimitation||'선택한 분석과 같은 시점의 소스입니다. 실제 실행 여부와 결과는 확인하지 않았습니다.')+'</p></details>';
 }
-function updateControls(){$('pause').textContent=state.paused?'갱신 재개':'읽기 고정';$('pause').setAttribute('aria-pressed',state.paused);$('apply').hidden=!state.pending;$('compare').disabled=!state.baseline||state.baseline===state.data;$('compare').setAttribute('aria-pressed',state.compare);}
+function updateControls(){$('pause').textContent=state.paused?'계속 읽기':(state.mode==='project_change'?'감시 일시정지':'읽기 고정');$('pause').setAttribute('aria-pressed',state.paused);$('apply').hidden=!state.pending;$('compare').disabled=!state.baseline||state.baseline===state.data;$('compare').setAttribute('aria-pressed',state.compare);}
 function render(){
  const focused=document.activeElement,attr=['data-select','data-expand','data-callable'].find(a=>focused?.hasAttribute?.(a)),value=attr&&focused.getAttribute(attr);
- const list=steps();$('flow-title').textContent=state.data.semanticMap.summary?.requested||state.request||'요청한 코드 흐름';
+ const list=steps();$('flow-title').textContent=state.data?.semanticMap?.summary?.requested||state.request||(state.mode==='project_change'?'프로젝트 변경 감시 상태':'요청한 코드 흐름');
  const layerList=[...new Set(list.map(step=>layers[step.layer]||step.layer||'계층 미확인'))];$('flow-scope').textContent=list.length?list.length+'개 처리 단계 · 포함 계층: '+layerList.join(' · '):'확인된 처리 단계 없음';
  const modified=list.filter(changed);$('flow-change').textContent=modified.length?'최초 표시 대비 코드 변경: '+modified.map(step=>step.name).join(', '):'소스 기반 흐름 · 실제 실행 결과는 확인하지 않았습니다.';
  $('step-nav').innerHTML=list.map(step=>'<button class="step-link" data-select="'+esc(step.stepId)+'" aria-pressed="'+(state.selected===step.stepId)+'"><span class="idx">'+String(step.ordinal||1).padStart(2,'0')+'</span><span><strong>'+esc(step.name)+'</strong><small>'+esc(layers[step.layer]||step.layer||'계층 미확인')+'</small></span></button>').join('');
@@ -142,7 +142,7 @@ async function expand(id,callable){
 }
 function handleLiveEvent(type,event){
  if(type==='activity.updated'){let data;try{data=JSON.parse(event.data);data=data.data||data;}catch(_){return;}if(['editing','analyzing','reconciling'].includes(data.activity)){state.editSerial++;state.dirty=true;state.pending=null;updateControls();say('코드 수정 감지 · 읽는 내용은 유지합니다.');}return;}
- if(type==='generation.gap'){state.editSerial++;state.dirty=true;state.pending=null;updateControls();say('최신 변경을 확인하지 못했습니다. 이전 코드 표시 중.');return;}
+ if(type==='generation.gap'){state.editSerial++;state.dirty=true;state.pending=null;updateControls();let reason='최신 변경을 확인하지 못했습니다. 이전 코드 표시 중',scope=[];try{let payload=JSON.parse(event.data);payload=payload.data||payload;if(payload&&typeof payload==='object'){if(Array.isArray(payload.affectedScope))scope=payload.affectedScope;else if(payload.gap&&Array.isArray(payload.gap.affectedScope))scope=payload.gap.affectedScope;}}catch(_){}let text=reason;if(scope.length)text+=' · 영향 범위: '+scope.slice(0,3).join(', ')+(scope.length>3?' 외':'');say(text);return;}
  if(type==='generation.published'){void receivePublishedGeneration(event);return;}
  if(type==='snapshot_sync'){let envelope;try{envelope=JSON.parse(event.data);}catch(_){say('연결 복구 정보를 확인하지 못했습니다. 이전 흐름을 유지합니다.');return;}const manifest=envelope.data?.activeManifest;if(manifest)void receiveGenerationIdentity(manifest.generationId,manifest.computedBasisId,manifest.validatedAgainstSnapshotId);else if(envelope.data?.verifiedGap)say('연결 복구 후에도 최신 변경을 확인하지 못했습니다. 이전 흐름을 유지합니다.');}
 }
@@ -152,7 +152,7 @@ function startLive(){
  if(typeof EventSource==='undefined'){say('실시간 연결을 사용할 수 없습니다. 흐름 보기로 다시 확인하세요.');return;}
  state.stream=new EventSource('/api/workspace/stream?token='+encodeURIComponent(token));
  for(const type of ['activity.updated','generation.published','generation.gap','snapshot_sync'])state.stream.addEventListener(type,event=>handleLiveEvent(type,event));
- state.stream.onerror=()=>{state.editSerial++;state.dirty=true;state.pending=null;updateControls();say('연결 끊김 · 최신 변경을 확인할 수 없습니다.');};
+ state.stream.onerror=()=>{state.editSerial++;state.dirty=true;state.pending=null;updateControls();say('연결 끊김 · 최신 변경을 확인할 수 없습니다. 연결을 복구하고 있습니다.');};
 }
 $('request-form').addEventListener('submit',event=>{event.preventDefault();state.request=$('query-input').value.trim();state.entry='';const url=new URL(location.href);url.searchParams.set('request',state.request);url.searchParams.delete('entrySymbol');history.replaceState(null,'',url);query(true);});
 $('pause').onclick=()=>{state.paused=!state.paused;if(!state.paused&&state.pending)adopt(state.pending);else say(state.paused?'읽기 고정 · 새 코드는 도착 알림으로 표시합니다.':'화면 갱신을 재개했습니다.');updateControls();};
@@ -161,7 +161,43 @@ $('compare').onclick=()=>{state.compare=!state.compare;state.paused=true;render(
 document.addEventListener('click',event=>{const button=event.target.closest('button');if(!button)return;if(button.dataset.deltaStep){const target=steps().find(step=>step.stepId===button.dataset.deltaStep);if(target)select(target.stepId);else say('변경된 단계가 새 흐름에서 제거되었습니다. 이전 흐름을 유지합니다.');}if(button.dataset.select)select(button.dataset.select);if(button.dataset.expand)expand(button.dataset.expand,false);if(button.dataset.callable)expand(button.dataset.callable,true);if(button.dataset.entry){state.entry=button.dataset.entry;const url=new URL(location.href);url.searchParams.set('entrySymbol',state.entry);history.replaceState(null,'',url);query(true);}});
 document.addEventListener('pointerup',()=>{if(String(window.getSelection())&&document.activeElement?.closest?.('.source')){state.paused=true;updateControls();say('코드 선택 중 · 읽기 고정');}});
 window.addEventListener('beforeunload',()=>state.stream?.close());
-function boot(){const staticURL=new URL('/',location.origin);staticURL.searchParams.set('token',token);$('static-link').href=staticURL.toString();$('query-input').value=state.request||state.entry;if(state.request||state.entry)query(true);startLive();}
+async function boot(){
+ const staticURL=new URL('/',location.origin);staticURL.searchParams.set('token',token);$('static-link').href=staticURL.toString();
+ const isLivePath=window.location.pathname==='/live';
+ try{
+  const res=await api('/api/live/project');
+  if(res.ok){
+   const proj=await res.json();
+   if(proj&&proj.mode){state.mode=proj.mode;}
+   if(isLivePath){state.mode='project_change';}
+    if(state.mode==='project_change'){
+     state.request='';
+     state.entry='';
+     $('request-form').hidden=true;
+     $('flow-title').textContent=(proj&&proj.title)||'프로젝트 변경 감시 상태';
+     say((proj&&proj.notice)||'현재 프로젝트의 변경을 감시하고 있습니다');
+     updateControls();
+     try{
+      const proofRes=await api('/api/workspace/proof');
+      if(proofRes.ok){
+       const proof=await proofRes.json().catch(()=>null);
+       const manifest=proof&&proof.manifest;
+       if(manifest&&manifest.generationId&&manifest.computedBasisId&&manifest.validatedAgainstSnapshotId){
+        await receiveGenerationIdentity(manifest.generationId,manifest.computedBasisId,manifest.validatedAgainstSnapshotId);
+       }
+      }
+     }catch(_){}
+    }
+  } else if(isLivePath){
+   state.mode='project_change';state.request='';state.entry='';$('request-form').hidden=true;$('flow-title').textContent='프로젝트 변경 감시 상태';say('현재 프로젝트의 변경을 감시하고 있습니다');updateControls();
+  }
+ }catch(_){if(isLivePath){state.mode='project_change';state.request='';state.entry='';$('request-form').hidden=true;$('flow-title').textContent='프로젝트 변경 감시 상태';say('현재 프로젝트의 변경을 감시하고 있습니다');updateControls();}}
+ if(state.mode!=='project_change'){
+  $('query-input').value=state.request||state.entry;
+  if(state.request||state.entry)query(true);
+ }
+ startLive();
+}
 // LIVE_BOOTSTRAP
 boot();
 </script>

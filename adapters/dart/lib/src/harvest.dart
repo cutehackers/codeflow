@@ -312,6 +312,14 @@ Map<String, Object?> harvestCandidates(Map<Object?, Object?> params,
   var isWorkspaceFallback = false;
   if (activeTracker != null) {
     relFiles = activeTracker.enumerateDartSourceFiles(libSubdir: libSubdir);
+    if (relFiles.isEmpty && (libSubdir == 'lib')) {
+      // Monorepo workspace fallback for snapshot-backed runs (e.g. a Flutter
+      // workspace with apps/*/lib and packages/*/lib but no root lib/).
+      // The filesystem probe below cannot run here because the adapter host
+      // only sees the immutable snapshot overlay.
+      relFiles = activeTracker.enumerateDartSourceFiles(libSubdir: '.');
+      if (relFiles.isNotEmpty) isWorkspaceFallback = true;
+    }
     if (relFiles.isEmpty) return {'candidates': const <Object?>[]};
   } else if (overlay != null) {
     final prefix = libSubdir == '.' || libSubdir.isEmpty ? '' : '$libSubdir/';
@@ -322,6 +330,15 @@ Map<String, Object?> harvestCandidates(Map<Object?, Object?> params,
         .where((key) => !_isGenerated(key))
         .toList()
       ..sort();
+    if (relFiles.isEmpty && (libSubdir == 'lib')) {
+      // Same workspace fallback for overlay maps without a tracker.
+      relFiles = overlay.keys
+          .where((key) => key.endsWith('.dart'))
+          .where((key) => !_isGenerated(key))
+          .toList()
+        ..sort();
+      if (relFiles.isNotEmpty) isWorkspaceFallback = true;
+    }
     if (relFiles.isEmpty) return {'candidates': const <Object?>[]};
   } else if (Directory(libDirPosix).existsSync()) {
     relFiles = _collectDartFiles(libDirPosix);
@@ -359,9 +376,11 @@ Map<String, Object?> harvestCandidates(Map<Object?, Object?> params,
           ? activeTracker.read(sourceRelPath)
           : (overlay == null
               ? File(absFile).readAsStringSync()
-              : overlay[libSubdir == '.' || libSubdir.isEmpty
+              : overlay[isWorkspaceFallback
                   ? rel
-                  : '$libSubdir/$rel']);
+                  : (libSubdir == '.' || libSubdir.isEmpty
+                      ? rel
+                      : '$libSubdir/$rel')]);
       if (content == null) continue;
       scanned = scanSource(content);
     } catch (_) {
@@ -388,6 +407,7 @@ Map<String, Object?> harvestCandidates(Map<Object?, Object?> params,
           methodName: method.name,
           bodyText: body,
           profile: profile,
+          sourcePath: posixRel,
         );
         if (marker == null) continue;
         candidates.add(_emit(
@@ -468,6 +488,18 @@ String? _packageNameFromContent(String? content) {
 String _stripTrailingSlash(String s) =>
     s.length > 1 && s.endsWith('/') ? s.substring(0, s.length - 1) : s;
 
+/// Test-scoped paths never become flow roots: fakes and fixtures under
+/// these directories mirror production flows but are not production flows.
+bool _isTestScopedPath(String posixRelPath) {
+  if (posixRelPath == 'test' || posixRelPath.startsWith('test/')) return true;
+  if (posixRelPath.contains('/test/')) return true;
+  if (posixRelPath == 'integration_test' ||
+      posixRelPath.startsWith('integration_test/')) {
+    return true;
+  }
+  return posixRelPath.contains('/integration_test/');
+}
+
 bool _isConstructor(String methodName, String className) =>
     methodName == className || methodName == 'new';
 
@@ -479,6 +511,7 @@ _Marker? _classifyMethod({
   required String methodName,
   required String bodyText,
   required FrameworkProfile profile,
+  String sourcePath = '',
 }) {
   final lowerClass = className.toLowerCase();
   final endsNotifier = lowerClass.endsWith('notifier');
@@ -552,6 +585,26 @@ _Marker? _classifyMethod({
   if (profile.domainMarkerRegexes
       .any((re) => re.hasMatch(className) || re.hasMatch(qualified))) {
     return const _Marker(triggerUserAction, markerNotifierMethod);
+  }
+
+  // 10. Probe / Coordinator / Interceptor public entry points. These
+  //    verification, startup-coordination, and channel-middleware classes
+  //    are genuine flow roots (device checks, auth injection, app
+  //    coordination) that the notifier/bloc/use-case shapes miss. Abstract
+  //    declarations (empty body) and test-scope fakes are excluded.
+  //    Fallback position: structural evidence above always wins.
+  final endsProbe = lowerClass.endsWith('probe');
+  final endsCoordinator = lowerClass.endsWith('coordinator');
+  final endsInterceptor = lowerClass.endsWith('interceptor');
+  if ((endsProbe || endsCoordinator || endsInterceptor) &&
+      isPublic &&
+      bodyText.trim().isNotEmpty &&
+      !_isTestScopedPath(sourcePath) &&
+      !profile.matchesBoundaryClass(className)) {
+    if (endsInterceptor) {
+      return const _Marker(triggerSystemEvent, markerLifecycleCallback);
+    }
+    return const _Marker(triggerUseCaseInvocation, markerUsecaseCall);
   }
 
   return null;

@@ -190,13 +190,16 @@ function run() {
     harvest.result.analysisReadSet.documents.map((doc) => doc.path),
     ['package.json', 'src/app.ts'],
   );
-  assert.deepStrictEqual(harvest.result.analysisReadSet.negativeObservations, []);
+  assert.strictEqual(harvest.result.analysisReadSet.negativeObservations.length, 1);
+  assert.strictEqual(harvest.result.analysisReadSet.negativeObservations[0].kind, 'negative_lookup');
+  assert(harvest.result.analysisReadSet.negativeObservations[0].detail.startsWith('zero-miss:'));
   assert.strictEqual(harvest.result.analysisReadSet.membershipObservations.length, 1);
   assert.deepStrictEqual(
     harvest.result.analysisReadSet.dependencyFrontiers.map((item) => item.path),
     ['package.json'],
   );
-  assert.strictEqual(harvest.result.causalObservationClosure.closureStatus, 'open');
+  assert.strictEqual(harvest.result.causalObservationClosure.closureStatus, 'closed');
+  assert(harvest.result.causalObservationClosure.measuredObservations.includes('negative_lookup'));
 
   const harvestWithExtra = rpcAnalysis('v2-harvest-extra', 'harvest_candidates', {
     ...harvestFiles,

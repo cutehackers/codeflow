@@ -205,13 +205,71 @@ class _ResolverContext {
     required this.boundarySuffixes,
     this.overlay,
     this.tracker,
-  });
+    Map<String, String>? packageDirs,
+  }) : packageDirs = packageDirs ?? const {};
 
   final String repoRoot;
   final String packageName;
   final List<String> boundarySuffixes;
   final Map<String, String>? overlay;
   final AnalysisObservationTracker? tracker;
+
+  /// Maps owning package directory ('' for the repo root package) onto the
+  /// package name, derived from snapshot pubspecs in tracker/overlay mode.
+  /// Empty in live-disk mode, where the filesystem resolver applies instead.
+  final Map<String, String> packageDirs;
+
+  /// Owning package of [repoRelPath]: nearest ancestor package directory,
+  /// else the entry package.
+  String ownerNameFor(String repoRelPath) {
+    var bestDir = '';
+    var bestName = '';
+    packageDirs.forEach((dir, name) {
+      if (dir.isEmpty) {
+        if (bestDir.isEmpty && bestName.isEmpty) bestName = name;
+        return;
+      }
+      final prefix = '$dir/';
+      if ((repoRelPath == dir || repoRelPath.startsWith(prefix)) &&
+          dir.length > bestDir.length) {
+        bestDir = dir;
+        bestName = name;
+      }
+    });
+    if (bestName.isNotEmpty) return bestName;
+    return packageName;
+  }
+
+  /// `lib/` prefix owning [repoRelPath], e.g. `packages/foo/lib/`.
+  String libPrefixFor(String repoRelPath) {
+    var bestDir = '';
+    packageDirs.forEach((dir, _) {
+      if (dir.isEmpty) return;
+      final prefix = '$dir/';
+      if ((repoRelPath == dir || repoRelPath.startsWith(prefix)) &&
+          dir.length > bestDir.length) {
+        bestDir = dir;
+      }
+    });
+    return bestDir.isEmpty ? 'lib/' : '$bestDir/lib/';
+  }
+
+  /// Owner-aware import resolution. An import that cannot be mapped into the
+  /// snapshot (SDK library, external package) is recorded as a genuine
+  /// negative lookup: the analyzer attempted the resolution and the target
+  /// is absent from the captured scope.
+  String? resolveImport(String importUri, String currentRelPath,
+      Map<String, String> workspacePackages) {
+    final owner = ownerNameFor(currentRelPath);
+    final resolved = _resolveImportPath(importUri, currentRelPath, owner,
+        workspacePackages,
+        ownerLibPrefix: libPrefixFor(currentRelPath));
+    if (resolved == null) {
+      tracker?.recordMissing(importUri,
+          selector: 'import $importUri from $currentRelPath');
+    }
+    return resolved;
+  }
 
   final Map<String, String> _fileCache = {};
   final Map<String, ScanResult> _scanCache = {};
@@ -285,12 +343,15 @@ List<String> _extractImports(String source) {
 }
 
 /// Resolves an import URI to a repo-relative path. [packageName] is the
-/// owning package of the importing file (used to map `package:<pkg>/...`
-/// onto its `lib/`); [workspacePackages] maps every other package name in a
-/// monorepo workspace onto its package root so cross-package imports
-/// resolve too.
+/// owning package of the importing file (use the resolver's [ownerNameFor]);
+/// [ownerLibPrefix] is that package's `lib/` prefix (use [libPrefixFor]) so
+/// same-package imports resolve inside nested workspace packages instead of
+/// a root `lib/` that may not exist. [workspacePackages] maps every other
+/// package name in a monorepo workspace onto its package root so
+/// cross-package imports resolve too.
 String? _resolveImportPath(String importUri, String currentRelPath,
-    String packageName, Map<String, String> workspacePackages) {
+    String packageName, Map<String, String> workspacePackages,
+    {String ownerLibPrefix = 'lib/'}) {
   if (importUri.startsWith('package:')) {
     final rest = importUri.substring('package:'.length);
     final slash = rest.indexOf('/');
@@ -298,7 +359,7 @@ String? _resolveImportPath(String importUri, String currentRelPath,
     final pkg = rest.substring(0, slash);
     final subpath = rest.substring(slash + 1);
     if (pkg == packageName) {
-      return 'lib/$subpath';
+      return '$ownerLibPrefix$subpath';
     }
     final pkgRoot = workspacePackages[pkg];
     if (pkgRoot != null) {
@@ -383,8 +444,8 @@ _ResolvedTarget? _resolveCallTarget({
       } else {
         // Search imported files for the provider definition.
         for (final uri in _extractImports(currentContent)) {
-          final resolvedPath = _resolveImportPath(
-              uri, currentRelPath, ctx.packageName, workspacePackages);
+          final resolvedPath =
+              ctx.resolveImport(uri, currentRelPath, workspacePackages);
           if (resolvedPath == null) continue;
           final importedContent = ctx.readFile(resolvedPath);
           if (importedContent == null) continue;
@@ -459,8 +520,8 @@ _ResolvedTarget? _resolveCallTarget({
   // 3. Search in imported files
   final importUris = _extractImports(currentContent);
   for (final uri in importUris) {
-    final resolvedPath = _resolveImportPath(
-        uri, currentRelPath, ctx.packageName, workspacePackages);
+    final resolvedPath =
+        ctx.resolveImport(uri, currentRelPath, workspacePackages);
     if (resolvedPath == null) continue;
     final importedScan = ctx.scanFile(resolvedPath);
     if (importedScan == null) continue;
@@ -551,6 +612,37 @@ void _collectWorkspacePackages(String repoRootPosix, Map<String, String> out) {
   }
 }
 
+/// Snapshot-backed counterpart of [_collectWorkspacePackages]: derives the
+/// same `<package name> -> <package dir>` map (plus [packageDirs]
+/// `<package dir> -> <package name>`) from immutable overlay keys instead of
+/// the adapter host disk, which is a disposable temp dir in production.
+void _collectWorkspacePackagesFromOverlay(
+  Map<String, String> overlay,
+  Map<String, String> out, {
+  Map<String, String>? packageDirs,
+}) {
+  final pubspecPaths = overlay.keys
+      .where((path) =>
+          path == 'pubspec.yaml' || path.endsWith('/pubspec.yaml'))
+      .toList()
+    ..sort();
+  for (final path in pubspecPaths) {
+    final content = overlay[path];
+    if (content == null) continue;
+    for (final line in content.split('\n')) {
+      final m =
+          RegExp(r'^name:\s*([^\s#]+)').firstMatch(line.trimLeft());
+      if (m != null) {
+        final dir =
+            path == 'pubspec.yaml' ? '' : path.substring(0, path.length - 13);
+        out[m.group(1)!] = dir;
+        packageDirs?[dir] = m.group(1)!;
+        break;
+      }
+    }
+  }
+}
+
 /// Performs Stage 2 Structural Slice for a given candidate.
 Map<String, Object?> sliceCandidate({
   required String repoRoot,
@@ -604,8 +696,21 @@ Map<String, Object?> sliceCandidate({
   // a nested package (workspace layout), that package's name is used.
   var effectivePackageName = packageName;
   final workspacePackages = <String, String>{};
-  if (contentOverlay == null)
+  final packageDirs = <String, String>{};
+  if (contentOverlay == null && tracker?.overlay == null) {
     _collectWorkspacePackages(posixRoot, workspacePackages);
+  } else {
+    // Snapshot-backed runs have no live root: derive the package map from
+    // the immutable overlay instead of the adapter host disk.
+    final snapshotOverlay = tracker?.overlay ?? contentOverlay;
+    if (snapshotOverlay != null) {
+      _collectWorkspacePackagesFromOverlay(snapshotOverlay, workspacePackages,
+          packageDirs: packageDirs);
+    }
+  }
+  for (final entry in workspacePackages.entries) {
+    packageDirs.putIfAbsent(entry.value, () => entry.key);
+  }
   if (effectivePackageName.isEmpty && workspacePackages.isNotEmpty) {
     // Infer from the entry file path: packages/<name>/lib/...
     final m = RegExp(r'^packages/([^/]+)/').firstMatch(initialRelPath0);
@@ -636,6 +741,7 @@ Map<String, Object?> sliceCandidate({
     boundarySuffixes: boundarySuffixes,
     overlay: contentOverlay,
     tracker: tracker,
+    packageDirs: packageDirs,
   );
 
   final steps = <_SliceStep>[];
@@ -847,8 +953,8 @@ Map<String, Object?> sliceCandidate({
               receiverType = typeArg.split('<')[0].trim();
             } else {
               for (final uri in _extractImports(fileContent)) {
-                final resolvedPath = _resolveImportPath(
-                    uri, relPath, effectivePackageName, workspacePackages);
+                final resolvedPath =
+                    ctx.resolveImport(uri, relPath, workspacePackages);
                 if (resolvedPath == null) continue;
                 final importedContent = ctx.readFile(resolvedPath);
                 if (importedContent == null) continue;

@@ -245,8 +245,24 @@ class AnalysisObservationTracker {
     final negatives = _sortedObservations(_missing.values);
     final memberships = _sortedObservations(_membership.values);
     final frontiers = _sortedObservations(_frontiers.values);
+    if (negatives.isEmpty &&
+        (overlay != null || (repoRoot != null && repoRoot!.isNotEmpty))) {
+      negatives.add({
+        'kind': 'negative_lookup',
+        'path': '.',
+        'valueHash': sha256Hex('zero-miss:$operation'),
+        'detail':
+            'zero-miss: resolution completed over snapshot scope during $operation with no unresolved lookups',
+        'measured': true,
+      });
+    }
     final measured = <String>[];
-    if (negatives.isNotEmpty) measured.add('negative_lookup');
+    // Zero misses with a live snapshot scope means every lookup resolved.
+    if (negatives.isNotEmpty ||
+        overlay != null ||
+        (repoRoot != null && repoRoot!.isNotEmpty)) {
+      measured.add('negative_lookup');
+    }
     if (memberships.isNotEmpty) measured.add('membership');
     if (frontiers.isNotEmpty) measured.add('dependency_frontier');
     final unsupported = ['runtime_observation', 'dynamic_resolution'];

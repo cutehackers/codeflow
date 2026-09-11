@@ -130,6 +130,9 @@ func byEntry(cs []Candidate) map[string]Candidate {
 func TestResolveDartAdapterForms(t *testing.T) {
 	t.Run("missing spec is an actionable error", func(t *testing.T) {
 		t.Setenv("HOME", t.TempDir())
+		// Isolate the working directory too: the bundled-checkout fallback
+		// walks up from cwd, so staying inside the checkout would resolve.
+		t.Chdir(t.TempDir())
 		_, err := ResolveDartAdapter("")
 		if err == nil || !strings.Contains(err.Error(), DartAdapterEnvVar) {
 			t.Fatalf("err = %v, want mention of %s", err, DartAdapterEnvVar)
@@ -411,6 +414,10 @@ func TestCLIFlowsCommand(t *testing.T) {
 	t.Run("missing adapter config exits 1 with an actionable message", func(t *testing.T) {
 		cmd := exec.Command(bin, "flows", app)
 		cmd.Env = []string{"PATH=" + os.Getenv("PATH")}
+		// Run outside the checkout so the bundled-adapters fallback cannot
+		// resolve via the working directory; the failure under test is the
+		// genuinely unconfigured case.
+		cmd.Dir = t.TempDir()
 		out, err := cmd.CombinedOutput()
 		exitErr, ok := err.(*exec.ExitError)
 		if !ok || exitErr.ExitCode() != 1 {

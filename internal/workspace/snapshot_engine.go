@@ -303,6 +303,65 @@ func NewSnapshotEngine(repoRoot string, epoch int64) (*SnapshotEngine, error) {
 	return e, nil
 }
 
+// ReloadFromDurable reloads the latest durable state and objects from disk.
+// This is used by the coordinator to recover when a concurrent mutation advanced the live head.
+func (e *SnapshotEngine) ReloadFromDurable() error {
+	if e == nil {
+		return fmt.Errorf("snapshot engine is nil")
+	}
+	unlockRoot := e.lockRootCommit()
+	defer unlockRoot()
+	e.mu.Lock()
+	defer e.mu.Unlock()
+
+	stateEpoch, statePresent, legacyState, err := e.loadState()
+	if err != nil {
+		return err
+	}
+	if legacyState {
+		return fmt.Errorf("workspace has incompatible legacy state")
+	}
+	durableHead, durableHeadPresent, err := e.readDurableLiveHead()
+	if err != nil {
+		return err
+	}
+	if statePresent && durableHeadPresent && (durableHead.WorkspaceEpoch != stateEpoch || durableHead.Sequence != e.sequence || durableHead.SnapshotID != e.liveHeadID) {
+		return fmt.Errorf("workspace state and live head are inconsistent")
+	}
+	// Clear in-memory objects before reloading from disk so deleted or
+	// quarantined revisions, snapshots, and batches do not survive recovery.
+	e.snapshots = make(map[string]*WorkspaceSnapshot)
+	e.revisions = make(map[string]*DocumentRevision)
+	e.batches = make(map[string]*ChangeBatch)
+	e.fileVersions = make(map[string]int)
+	legacyObjects, err := e.loadObjects()
+	if err != nil {
+		return err
+	}
+	if legacyObjects {
+		return fmt.Errorf("workspace has incompatible legacy objects")
+	}
+	if durableHeadPresent && durableHead.SnapshotID != "" {
+		snap, ok := e.snapshots[durableHead.SnapshotID]
+		if !ok || snap.SnapshotID != e.liveHeadID || snap.WorkspaceEpoch != durableHead.WorkspaceEpoch || snap.Sequence != durableHead.Sequence || snap.RootTreeID != durableHead.RootTreeID {
+			return fmt.Errorf("workspace live head does not match its snapshot")
+		}
+	}
+	if e.liveHeadID != "" {
+		snap, ok := e.snapshots[e.liveHeadID]
+		if !ok {
+			return fmt.Errorf("workspace live head snapshot %q is missing after reload", e.liveHeadID)
+		}
+		if snap.WorkspaceEpoch != e.currentEpoch {
+			return fmt.Errorf("workspace live head epoch %d does not match current epoch %d", snap.WorkspaceEpoch, e.currentEpoch)
+		}
+		e.liveHead = snap
+	} else {
+		e.liveHead = nil
+	}
+	return nil
+}
+
 func (e *SnapshotEngine) loadState() (epoch int64, present, legacy bool, err error) {
 	statePath := filepath.Join(e.codeflowDir, "workspace", "state.json")
 	data, readErr := os.ReadFile(statePath)
@@ -997,6 +1056,34 @@ func (e *SnapshotEngine) CanonicalRoot() string {
 	e.mu.RLock()
 	defer e.mu.RUnlock()
 	return e.canonicalRoot
+}
+
+// FilterUncapturedPaths drops watcher-reported paths that whole-tree capture
+// would skip: git-ignored generated churn (e.g. Flutter ios/Flutter/ephemeral)
+// must never become its own analysis snapshot, or every toolchain rewrite
+// would burn a checkpoint and starve real edits behind a gap. Paths survive
+// exactly when loadGitCaptureSet admits them; without a git capture set
+// (non-git worktree or git unavailable) every path survives to preserve the
+// historical behavior.
+func (e *SnapshotEngine) FilterUncapturedPaths(paths []string) []string {
+	if e == nil || len(paths) == 0 {
+		return nil
+	}
+	e.mu.RLock()
+	root := e.canonicalRoot
+	e.mu.RUnlock()
+	set := loadGitCaptureSet(root)
+	if set == nil {
+		return append([]string(nil), paths...)
+	}
+	kept := make([]string, 0, len(paths))
+	for _, p := range paths {
+		rel := filepath.ToSlash(filepath.Clean(p))
+		if set.contains(rel) {
+			kept = append(kept, p)
+		}
+	}
+	return kept
 }
 
 // WithLiveHead executes commit while the canonical-root authority lock and

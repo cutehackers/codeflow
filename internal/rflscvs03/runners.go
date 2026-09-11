@@ -1821,8 +1821,11 @@ func RunA16(t *testing.T) Evidence {
 		t.Fatal("Static FlowView initializer boundary was not found")
 	}
 	initializer := staticHTML[initStart : initStart+initEnd]
-	if strings.Contains(staticMarkup, "workspace-activity-badge") || strings.Contains(staticMarkup, "workspace-pending-count") || strings.Contains(initializer, "initLiveStream()") || strings.Contains(initializer, "loadWorkspaceActivity()") {
+	if strings.Contains(staticMarkup, "workspace-activity-badge") || strings.Contains(staticMarkup, "workspace-pending-count") || strings.Contains(initializer, "loadWorkspaceActivity()") {
 		t.Fatal("Static FlowView still exposes mutable workspace state or starts the workspace stream")
+	}
+	if !strings.Contains(initializer, "initLiveStream()") || (!strings.Contains(initializer, "'/live'") && !strings.Contains(initializer, "liveParam")) {
+		t.Fatal("Static FlowView must gate the workspace stream on live mode instead of always connecting or never offering it")
 	}
 	if !strings.Contains(liveHTML, `data-view="live-semantic-map"`) || !strings.Contains(liveHTML, "new EventSource('/api/workspace/stream") {
 		t.Fatal("Live Semantic View does not own the workspace stream")

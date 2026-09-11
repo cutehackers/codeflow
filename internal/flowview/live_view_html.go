@@ -11,9 +11,10 @@ const LiveSemanticTemplate = LiveViewTemplate
 
 //go:generate python3 ../../scripts/generate_live_semantic.py
 
-// LiveViewHTML (or Live Semantic View) is a separate code-comprehension surface.
-// FlowViewHTML remains FlowView; only explicit live entry points serve this document.
-//
+// LiveViewHTML is the archived prototype that defined the live template.
+// The /live route now serves the 7-lane FlowViewHTML in live mode; this
+// document remains generated from the designated template for reference.
+
 //go:embed live_view.html
 var LiveViewHTML string
 

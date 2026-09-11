@@ -309,8 +309,8 @@ func TestV2ObservationTrackerUsesActualOperationReads(t *testing.T) {
 	if len(mapList(harvestSet["membershipObservations"])) != 1 || len(mapList(harvestSet["dependencyFrontiers"])) != 1 {
 		t.Fatalf("harvest tracker observations = %v", harvestSet)
 	}
-	if v2Closure(harvest)["closureStatus"] != "open" || !strings.Contains(v2Closure(harvest)["incompleteReasons"].([]string)[0], "negative_lookup") {
-		t.Fatalf("harvest required miss did not keep closure open: %v", v2Closure(harvest))
+	if v2Closure(harvest)["closureStatus"] != "closed" || !containsString(v2Closure(harvest)["measuredObservations"].([]string), "negative_lookup") {
+		t.Fatalf("harvest with zero misses did not close with measured negative_lookup: %v", v2Closure(harvest))
 	}
 	harvestExtra := v2TrackerResult(t, "harvest-extra", "harvest_candidates", map[string]string{
 		"go.mod":       harvestFiles["go.mod"],
@@ -419,5 +419,25 @@ func TestV2DetectDoesNotClaimDependencyFrontierWithoutGoMod(t *testing.T) {
 	measured := closure["measuredObservations"].([]string)
 	if containsString(measured, "dependency_frontier") {
 		t.Fatalf("source-only detect fabricated dependency frontier: %v", measured)
+	}
+}
+
+func TestV2SliceClosesWithZeroMissesOnCleanSnapshot(t *testing.T) {
+	result := v2TrackerResult(t, "slice-clean-close", "slice", map[string]string{
+		"go.mod":  "module example.com/clean\n\ngo 1.24\n",
+		"main.go": "package main\n\nfunc Handle() {}\n",
+	}, []string{"negative_lookup", "membership", "dependency_frontier"}, map[string]any{
+		"candidateId": "clean#Handle", "entrySymbolPath": "main.go#Handle",
+	})
+	closure := v2Closure(result)
+	if closure["closureStatus"] != "closed" {
+		t.Fatalf("clean slice did not close: %v", closure)
+	}
+	measured := closure["measuredObservations"].([]string)
+	if !containsString(measured, "negative_lookup") {
+		t.Fatalf("clean slice left negative_lookup unmeasured: %v", measured)
+	}
+	if negatives := mapList(closure["negativeObservations"]); len(negatives) != 1 || negatives[0]["kind"] != "negative_lookup" || !strings.Contains(negatives[0]["detail"].(string), "zero-miss:") {
+		t.Fatalf("clean slice must carry exactly one zero-miss marker: %v", negatives)
 	}
 }

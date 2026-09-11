@@ -1,7 +1,5 @@
-// Package watch implements polling-based worktree change detection (ticket 10 minimal).
-// Full incremental design (fsnotify + debounced Reconcile→impact→recompile with R4 cache) requires
-// separate detailed design for debounce, ignore patterns, and adapter invalidation; this minimal
-// watcher provides the polling primitive that FlowView auto-refresh and future watch loops can build on.
+// Package watch implements worktree change detection with native OS
+// notifications and a polling fallback behind the ChangeSet seam.
 package watch
 
 import (
@@ -38,10 +36,19 @@ func Watch(ctx context.Context, repoRoot string, interval time.Duration, onChang
 	})
 }
 
-// WatchChanges polls the supported repository source set and repository
-// identity. It reports only capture signals; callers must capture or reconcile
-// before accepting source facts.
+// WatchChanges serves capture signals from native OS notifications when
+// available and falls back to the polling loop otherwise. Both backends
+// share the ChangeSet seam and first-tick-baseline semantics.
 func WatchChanges(ctx context.Context, repoRoot string, interval time.Duration, onChange func(ChangeSet)) error {
+	if nativeAvailable() {
+		if err := watchNative(ctx, repoRoot, onChange); err == nil {
+			return nil
+		}
+	}
+	return watchPoll(ctx, repoRoot, interval, onChange)
+}
+
+func watchPoll(ctx context.Context, repoRoot string, interval time.Duration, onChange func(ChangeSet)) error {
 	if interval <= 0 {
 		interval = 500 * time.Millisecond
 	}
@@ -147,11 +154,14 @@ var defaultSourceExtensions = map[string]bool{
 	".py":    true,
 	".go":    true,
 	".rs":    true,
+	".yaml":  true,
+	".json":  true,
+	".mod":   true,
 }
 
 func collectSourceFilesWithMtime(repoRoot string, dirs []string, exts []string) ([]string, map[string]time.Time, error) {
 	if len(dirs) == 0 {
-		dirs = []string{"lib", "src", "app", "pkg", "internal", "."}
+		dirs = []string{"."}
 	}
 	extMap := defaultSourceExtensions
 	if len(exts) > 0 {

@@ -187,23 +187,32 @@ func TestVS02A7_MCPSemanticTools(t *testing.T) {
 		t.Fatalf("MCP must identify the designated Live template: %+v", flowView)
 	}
 	parsedViewURL, parseErr := url.Parse(flowViewURL)
-	if parseErr != nil || parsedViewURL.Path != "/live" {
-		t.Fatalf("feature request must open the separate Live screen: %v", parseErr)
-	}
-	if !strings.Contains(flowViewURL, "live=1") || !strings.Contains(flowViewURL, "entrySymbol=app%2Fpage.tsx%23HomePage.handleQuickCheckout") {
-		t.Errorf("FlowView URL does not restore the resolved live request: %q", flowViewURL)
+	if parseErr != nil || (parsedViewURL.Path != "/" && parsedViewURL.Path != "") {
+		t.Fatalf("feature request must return the static FlowView URL: %v (path: %s)", parseErr, parsedViewURL.Path)
 	}
 	viewResponse, err := http.Get(flowViewURL)
 	if err != nil {
-		t.Fatalf("MCP returned an unreachable Live screen: %v", err)
+		t.Fatalf("MCP returned an unreachable FlowView screen: %v", err)
 	}
 	viewBody, readErr := io.ReadAll(viewResponse.Body)
 	viewResponse.Body.Close()
-	if string(viewBody) != flowview.LiveSemanticHTML {
-		t.Fatal("MCP URL must serve the complete designated product template")
+	if readErr != nil || viewResponse.StatusCode != http.StatusOK || !bytes.Contains(viewBody, []byte(`CODEFLOW · FLOWVIEW`)) {
+		t.Fatalf("MCP URL did not serve static FlowView: status %d, read error %v", viewResponse.StatusCode, readErr)
 	}
-	if readErr != nil || viewResponse.StatusCode != http.StatusOK || !bytes.Contains(viewBody, []byte(`data-view="live-semantic-map"`)) {
-		t.Fatalf("MCP URL did not serve the Live Semantic Map: status %d, read error %v", viewResponse.StatusCode, readErr)
+
+	// Coordinator /live endpoint serves the Live Semantic Map
+	liveURL := parsedViewURL.Scheme + "://" + parsedViewURL.Host + "/live"
+	if tok := parsedViewURL.Query().Get("token"); tok != "" {
+		liveURL += "?token=" + tok
+	}
+	liveResponse, err := http.Get(liveURL)
+	if err != nil {
+		t.Fatalf("coordinator did not serve /live: %v", err)
+	}
+	liveBody, readErr := io.ReadAll(liveResponse.Body)
+	liveResponse.Body.Close()
+	if readErr != nil || liveResponse.StatusCode != http.StatusOK || !bytes.Contains(liveBody, []byte(`data-view="live-semantic-map"`)) {
+		t.Fatalf("coordinator URL did not serve the Live Semantic Map: status %d, read error %v", liveResponse.StatusCode, readErr)
 	}
 
 	// 5. Test get_current_answer tool with unambiguous entry

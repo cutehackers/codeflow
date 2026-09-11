@@ -395,7 +395,7 @@ func (s *Server) getPoolAndRunnersForSnapshot(ctx context.Context, repoRoot stri
 		spec = s.cfg.DartAdapter
 	}
 
-	adapterCfg, err := harvest.ResolveAdapter(lang, spec)
+	adapterCfg, err := harvest.ResolveAdapterForRepo(absRoot, "", lang, spec)
 	if err != nil {
 		return nil, nil, nil, fmt.Errorf("CodeFlow Adapter Error: %s adapter could not be resolved for target %s.\nRemediation:\n- %v", lang, absRoot, err)
 	}

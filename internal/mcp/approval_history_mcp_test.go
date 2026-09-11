@@ -220,7 +220,7 @@ func TestMCPApprovalHistoryToolRestartsAndTracksLiveHeadReadOnly(t *testing.T) {
 	if err != nil {
 		t.Fatalf("get snapshot engine: %v", err)
 	}
-	if _, _, err := engine.ApplyVersionedEdit(context.Background(), workspace.EditRequest{Path: "main.go", Content: []byte("package main\n\nfunc Changed() {}\n"), DocumentVersion: 2, Source: workspace.SourceIDEVersioned}); err != nil {
+	if _, _, err := engine.ApplyVersionedEdit(context.Background(), workspace.EditRequest{Path: "main.go", Content: []byte("package main\n\nfunc Changed() {}\n"), DocumentVersion: 3, Source: workspace.SourceIDEVersioned}); err != nil {
 		t.Fatalf("advance live head: %v", err)
 	}
 	transactionTreeBeforeHistoricalQuery, err := snapshotApprovalHistoryTree(filepath.Join(fixture.root, ".codeflow", "approval-transactions"))

@@ -392,8 +392,13 @@ void main() {
     expect(_rpcObjects(harvestRead['membershipObservations']), hasLength(1));
     expect(_rpcObjects(harvestRead['dependencyFrontiers']).single['path'],
         'pubspec.yaml');
-    expect(_rpcObjects(harvestRead['negativeObservations']), isEmpty);
-    expect(_rpcClosure(harvest)['closureStatus'], 'open');
+    final harvestNegatives = _rpcObjects(harvestRead['negativeObservations']);
+    expect(harvestNegatives, hasLength(1));
+    expect(harvestNegatives.single['kind'], 'negative_lookup');
+    expect(harvestNegatives.single['detail'], contains('zero-miss:'));
+    expect(_rpcClosure(harvest)['closureStatus'], 'closed');
+    expect(_rpcClosure(harvest)['measuredObservations'],
+        contains('negative_lookup'));
 
     final harvestExtraFiles = <String, String>{
       ...harvestFiles,

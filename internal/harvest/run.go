@@ -44,7 +44,18 @@ const (
 )
 
 // ResolveAdapter turns a language identifier and optional spec into a protocol.Config.
+// It preserves the historical cwd-based checkout fallback for callers that do
+// not know the target repository root.
 func ResolveAdapter(lang string, spec string) (protocol.Config, error) {
+	cwd, _ := os.Getwd()
+	return ResolveAdapterForRepo("", cwd, lang, spec)
+}
+
+// ResolveAdapterForRepo resolves the adapter the same way as ResolveAdapter
+// but anchors the bundled-checkout fallback at the target repository and the
+// running binary instead of only the process cwd. `codeflow live <target>`
+// must not depend on where the user invoked the binary from.
+func ResolveAdapterForRepo(repoRoot, cwd, lang string, spec string) (protocol.Config, error) {
 	lang = strings.ToLower(strings.TrimSpace(lang))
 	if lang == "" {
 		lang = "dart"
@@ -107,29 +118,47 @@ func ResolveAdapter(lang string, spec string) (protocol.Config, error) {
 		}
 	}
 
-	// 4. Check workspace adapter directories if running from checkout
+	// 4. Check workspace adapter directories if running from checkout.
+	// Anchor at the target repo first (self-hosted runs), then the process
+	// cwd (historical behavior), then the running binary's install layout.
 	if spec == "" {
-		cwd, err := os.Getwd()
-		if err == nil {
-			if lang == "dart" {
-				dartDir := filepath.Join(cwd, "adapters", "dart")
-				if info, err := os.Stat(filepath.Join(dartDir, dartEntrypoint)); err == nil && !info.IsDir() {
-					spec = dartrunScheme + dartDir
-				}
-			} else if lang == "typescript" || lang == "javascript" {
-				tsDir := filepath.Join(cwd, "adapters", "typescript")
-				if info, err := os.Stat(filepath.Join(tsDir, tsEntrypointJS)); err == nil && !info.IsDir() {
-					spec = noderunScheme + tsDir
-				} else if info, err := os.Stat(filepath.Join(tsDir, tsEntrypointTS)); err == nil && !info.IsDir() {
-					spec = tsrunScheme + tsDir
-				}
-			} else if lang == "go" {
-				goDir := filepath.Join(cwd, goAdapterDir)
-				if info, err := os.Stat(filepath.Join(goDir, "main.go")); err == nil && !info.IsDir() {
-					if _, err := findExecutable("go"); err == nil {
-						spec = gorunScheme + goDir
-					}
-				}
+		searchRoots := make([]string, 0, 4)
+		seenRoots := map[string]bool{}
+		addRoot := func(root string) {
+			if root == "" || seenRoots[root] {
+				return
+			}
+			seenRoots[root] = true
+			searchRoots = append(searchRoots, root)
+		}
+		if abs, err := filepath.Abs(repoRoot); err == nil && repoRoot != "" {
+			addRoot(abs)
+		}
+		if cwd != "" {
+			if abs, err := filepath.Abs(cwd); err == nil {
+				addRoot(abs)
+			} else {
+				addRoot(cwd)
+			}
+		} else if wd, err := os.Getwd(); err == nil {
+			addRoot(wd)
+		}
+		if exe, err := os.Executable(); err == nil && exe != "" {
+			if resolved, err := filepath.EvalSymlinks(exe); err == nil && resolved != "" {
+				exe = resolved
+			}
+			exeDir := filepath.Dir(exe)
+			addRoot(exeDir)
+			addRoot(filepath.Dir(exeDir))
+			addRoot(filepath.Join(exeDir, ".."))
+		}
+		for _, root := range searchRoots {
+			if root == "" {
+				continue
+			}
+			if found, ok := findBundledAdapterSpec(root, lang); ok {
+				spec = found
+				break
 			}
 		}
 	}
@@ -206,6 +235,11 @@ func ResolveAdapter(lang string, spec string) (protocol.Config, error) {
 	}
 
 	// Handle gorun: scheme for the repository-local native Go adapter.
+	// The adapter subprocess runs with a disposable cwd (protocol.Spawn
+	// isolation), so `go run <dir>` would resolve go.mod from the temp dir
+	// and fail with "go.mod file not found". `-C <dir>` anchors the module
+	// lookup at the adapter directory while source still arrives only via
+	// the protocol snapshot overlay.
 	if dir, ok := strings.CutPrefix(spec, gorunScheme); ok {
 		if !filepath.IsAbs(dir) {
 			return protocol.Config{}, fmt.Errorf("%s needs an absolute adapter-directory path: %q", gorunScheme, spec)
@@ -217,7 +251,7 @@ func ResolveAdapter(lang string, spec string) (protocol.Config, error) {
 		if err != nil {
 			return protocol.Config{}, fmt.Errorf("go must be on PATH: %v", err)
 		}
-		return protocol.Config{BinPath: goBin, Args: []string{"run", dir}}, nil
+		return protocol.Config{BinPath: goBin, Args: []string{"run", "-C", dir, dir}}, nil
 	}
 
 	if !filepath.IsAbs(spec) {
@@ -227,6 +261,46 @@ func ResolveAdapter(lang string, spec string) (protocol.Config, error) {
 		return protocol.Config{}, fmt.Errorf("adapter binary %q is not an executable file", spec)
 	}
 	return protocol.Config{BinPath: spec}, nil
+}
+
+// findBundledAdapterSpec looks for the bundled <checkout>/adapters tree at
+// root or up to 8 levels above it, so package-deep working directories (e.g.
+// `go test ./internal/flowview`) still resolve the checkout adapters.
+func findBundledAdapterSpec(root, lang string) (string, bool) {
+	dir := root
+	for depth := 0; depth <= 8; depth++ {
+		switch lang {
+		case "dart":
+			dartDir := filepath.Join(dir, "adapters", "dart")
+			if info, err := os.Stat(filepath.Join(dartDir, dartEntrypoint)); err == nil && !info.IsDir() {
+				return dartrunScheme + dartDir, true
+			}
+		case "typescript", "javascript":
+			tsDir := filepath.Join(dir, "adapters", "typescript")
+			if info, err := os.Stat(filepath.Join(tsDir, tsEntrypointJS)); err == nil && !info.IsDir() {
+				return noderunScheme + tsDir, true
+			}
+			if info, err := os.Stat(filepath.Join(tsDir, tsEntrypointTS)); err == nil && !info.IsDir() {
+				return tsrunScheme + tsDir, true
+			}
+		case "go":
+			goDir := filepath.Join(dir, goAdapterDir)
+			if info, err := os.Stat(filepath.Join(goDir, "main.go")); err == nil && !info.IsDir() {
+				if _, err := findExecutable("go"); err == nil {
+					return gorunScheme + goDir, true
+				}
+				return "", false
+			}
+		default:
+			return "", false
+		}
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			return "", false
+		}
+		dir = parent
+	}
+	return "", false
 }
 
 // findExecutable looks for an executable on PATH, falling back to standard
@@ -276,6 +350,20 @@ func findExecutable(name string) (string, error) {
 				filepath.Join(home, "flutter", "bin", "dart"),
 				filepath.Join(home, "Library", "flutter", "bin", "dart"),
 				filepath.Join(home, "development", "flutter", "bin", "dart"),
+			)
+		}
+
+	case "go":
+		candidates = append(candidates,
+			"/opt/homebrew/bin/go",
+			"/usr/local/bin/go",
+			"/usr/local/go/bin/go",
+		)
+		if home != "" {
+			candidates = append(candidates,
+				filepath.Join(home, ".local", "bin", "go"),
+				filepath.Join(home, "go", "bin", "go"),
+				filepath.Join(home, ".asdf", "shims", "go"),
 			)
 		}
 

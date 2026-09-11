@@ -266,6 +266,7 @@ func TestOneShotExecutorRejectsConcurrentConsentNonceReplay(t *testing.T) {
 	}
 	close(start)
 	waitForPIDLog(t, pidLog)
+	time.Sleep(50 * time.Millisecond)
 	cancel()
 	var replayCount, spawnedCount int
 	for range 2 {

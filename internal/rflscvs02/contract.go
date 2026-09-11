@@ -284,6 +284,17 @@ type Observation struct {
 	Measured  bool   `json:"measured"`
 }
 
+// ZeroMissDetailPrefix marks a negative_lookup observation recording that
+// resolution ran to completion over a live scope with zero misses. Markers
+// satisfy measuredObservations derivation without fabricating a missing path.
+// Downstream scope matching must treat markers as scope-inert (no ScopeRef).
+const ZeroMissDetailPrefix = "zero-miss: "
+
+// IsZeroMissMarker reports whether o is a completed-with-zero-misses marker.
+func IsZeroMissMarker(o Observation) bool {
+	return o.Kind == "negative_lookup" && strings.HasPrefix(o.Detail, ZeroMissDetailPrefix)
+}
+
 type AnalysisReadSet struct {
 	SchemaID               string         `json:"schemaId"`
 	SchemaVersion          int            `json:"schemaVersion"`

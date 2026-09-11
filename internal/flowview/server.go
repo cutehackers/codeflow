@@ -102,6 +102,60 @@ type Server struct {
 	shutdownResultDone         chan struct{}
 	shutdownInitErr            error
 	shutdownFirstErr           error
+
+	projectMu                    sync.RWMutex
+	lastVerifiedBasisID          string
+	livePrototype                bool
+	adapterRegistry              *protocol.AdapterRegistry
+	adapterRegistryMu            sync.Mutex
+	baselineCompileQueued        bool
+	lastPublishedEntrySymbolPath string
+	projectMode                  string
+	projectStatus                string
+	projectNotice                string
+	projectGap                   *semantic.VerifiedGap
+	projectEnv                   ProjectEnv
+}
+
+// ProjectEnv records the startup environment Live View actually detected for
+// the target repository. It is diagnostic state for polling recovery and
+// startup triage; the primary view renders only mode/status/notice.
+type ProjectEnv struct {
+	Language          string `json:"language"`
+	Confident         bool   `json:"confident"`
+	ProjectName       string `json:"projectName,omitempty"`
+	WorkspaceMonorepo bool   `json:"workspaceMonorepo,omitempty"`
+	AdapterResolved   bool   `json:"adapterResolved"`
+	AdapterDetail     string `json:"adapterDetail,omitempty"`
+}
+
+// DetectProjectEnv identifies the target project's language, workspace
+// layout, and adapter resolvability from the live worktree without spawning
+// any adapter process.
+func DetectProjectEnv(repoRoot string) ProjectEnv {
+	env := ProjectEnv{}
+	det := detect.Detect(repoRoot)
+	env.Language = det.Language
+	env.Confident = det.Confident
+	env.ProjectName = det.ProjectName
+	if det.Language == "dart" {
+		if data, err := os.ReadFile(filepath.Join(repoRoot, "pubspec.yaml")); err == nil {
+			for _, line := range strings.Split(string(data), "\n") {
+				trimmed := strings.TrimSpace(line)
+				if strings.HasPrefix(trimmed, "workspace:") {
+					env.WorkspaceMonorepo = true
+					break
+				}
+			}
+		}
+	}
+	cwd, _ := filepath.Abs(".")
+	if _, err := harvest.ResolveAdapterForRepo(repoRoot, cwd, det.Language, ""); err == nil {
+		env.AdapterResolved = true
+	} else {
+		env.AdapterDetail = err.Error()
+	}
+	return env
 }
 
 func (s *Server) recordPipelineError(err error) {
@@ -123,6 +177,229 @@ func (s *Server) lastPipelineError() error {
 // is diagnostic state only and never grants current authority.
 func (s *Server) LastPipelineError() error {
 	return s.lastPipelineError()
+}
+
+func (s *Server) initialProjectGap(reason string) *semantic.VerifiedGap {
+	if reason == "" {
+		reason = "새 변경을 확인하지 못했습니다. 분석 기준을 확인하세요."
+	}
+	act := s.engine.CurrentActivity()
+	if act.TraceID == "" {
+		if head := s.engine.LiveHead(); head != nil && head.SnapshotID != "" {
+			act.TraceID = "init-" + head.SnapshotID
+		} else if act.CurrentSnapshotID != "" {
+			act.TraceID = "init-" + act.CurrentSnapshotID
+		} else {
+			act.TraceID = "init-" + strconv.FormatInt(time.Now().UTC().UnixNano(), 10)
+		}
+	}
+	if act.Timestamp.IsZero() {
+		act.Timestamp = time.Now().UTC()
+	}
+	if act.Activity == "" {
+		act.Activity = "reconciling"
+	}
+	if act.AnalysisLagMs < 0 {
+		act.AnalysisLagMs = 0
+	}
+	if act.PendingRevisions < 0 {
+		act.PendingRevisions = 0
+	}
+	latestID := act.CurrentSnapshotID
+	epoch := act.WorkspaceEpoch
+	if head := s.engine.LiveHead(); head != nil {
+		latestID = head.SnapshotID
+		epoch = head.WorkspaceEpoch
+	}
+	return &semantic.VerifiedGap{
+		SchemaID:          "https://codeflow.local/schemas/rflsc.verified-gap.v2.schema.json",
+		SchemaVersion:     2,
+		Freshness:         "last_verified",
+		Activity:          "reconciling",
+		LatestSnapshotID:  latestID,
+		WorkspaceEpoch:    epoch,
+		AffectedScope:     []string{},
+		AnalysisLagMs:     act.AnalysisLagMs,
+		PendingRevisions:  act.PendingRevisions,
+		IntersectedCauses: []string{reason},
+		Timestamp:         act.Timestamp,
+		TraceID:           act.TraceID,
+	}
+}
+
+func (s *Server) setProjectGapLocked(reason string) {
+	s.projectStatus = "gap"
+	s.projectNotice = reason
+	s.projectGap = s.initialProjectGap(reason)
+}
+
+func (s *Server) initLiveProjectState(mode string) {
+	s.projectMu.Lock()
+	s.projectMode = mode
+	s.projectMu.Unlock()
+	if mode != "project_change" {
+		return
+	}
+
+	if s.engine.LiveHead() == nil {
+		if snap, err := s.engine.Reconcile(context.Background(), nil); err == nil && snap != nil {
+			s.engine.EndAnalysis(snap.SnapshotID, true)
+		}
+	}
+
+	bundle, bundleErr := s.storage.ReadValidatedActiveProofBundle()
+	if bundleErr != nil {
+		s.projectMu.Lock()
+		s.setProjectGapLocked("새 변경을 확인하지 못했습니다. 분석 기준을 확인하세요.")
+		s.projectMu.Unlock()
+		return
+	}
+
+	if bundle != nil && bundle.Manifest != nil {
+		basis := bundle.Manifest.ValidatedAgainstSnapshotID
+		if basis == "" {
+			basis = bundle.Manifest.ComputedSnapshotID
+		}
+		snap, snapErr := s.engine.GetSnapshot(basis)
+		if snapErr != nil || snap.WorkspaceEpoch != bundle.Manifest.WorkspaceEpoch {
+			s.projectMu.Lock()
+			s.setProjectGapLocked("새 변경을 확인하지 못했습니다. 분석 기준을 확인하세요.")
+			s.projectMu.Unlock()
+			return
+		}
+		s.projectMu.Lock()
+		s.lastVerifiedBasisID = basis
+		s.projectStatus = "watching"
+		s.projectNotice = "현재 프로젝트의 변경을 감시하고 있습니다"
+		s.projectGap = nil
+		s.projectMu.Unlock()
+		_ = WriteAnalysisBasis(s.repoRoot, AnalysisBasisRecord{
+			BasisSnapshotID: basis,
+			WorkspaceEpoch:  snap.WorkspaceEpoch,
+			RootTreeID:      snap.RootTreeID,
+		})
+	} else {
+		// Check if an established analysis basis was recorded
+		basisRec, recErr := ReadAnalysisBasis(s.repoRoot)
+		if recErr != nil {
+			s.projectMu.Lock()
+			s.setProjectGapLocked("새 변경을 확인하지 못했습니다. 분석 기준을 확인하세요.")
+			s.projectMu.Unlock()
+			return
+		}
+		if basisRec != nil && basisRec.BasisSnapshotID != "" {
+			snap, snapErr := s.engine.GetSnapshot(basisRec.BasisSnapshotID)
+			if snapErr != nil || snap.WorkspaceEpoch != basisRec.WorkspaceEpoch {
+				s.projectMu.Lock()
+				s.setProjectGapLocked("새 변경을 확인하지 못했습니다. 분석 기준을 확인하세요.")
+				s.projectMu.Unlock()
+				return
+			}
+			s.projectMu.Lock()
+			s.lastVerifiedBasisID = basisRec.BasisSnapshotID
+			s.projectStatus = "watching"
+			s.projectNotice = "현재 프로젝트의 변경을 감시하고 있습니다"
+			s.projectGap = nil
+			s.projectMu.Unlock()
+		} else {
+			// First start without prior basis: enqueue exactly one baseline
+			// compile. The head is not marked verified and no basis file is
+			// written until the first publication commits.
+			if head := s.engine.LiveHead(); head != nil && s.scheduler != nil {
+				s.projectMu.Lock()
+				if !s.baselineCompileQueued {
+					s.baselineCompileQueued = true
+					s.projectStatus = "pending"
+					s.projectNotice = "변경을 확인 중입니다"
+					s.projectMu.Unlock()
+					s.scheduler.NotifyEdit(head)
+				} else {
+					s.projectMu.Unlock()
+				}
+			} else {
+				s.projectMu.Lock()
+				s.projectStatus = "watching"
+				s.projectNotice = "현재 프로젝트의 변경을 감시하고 있습니다"
+				s.projectGap = nil
+				s.projectMu.Unlock()
+			}
+		}
+	}
+
+	// Check if offline disk changes occurred or if unanalyzed edits accumulated
+	needsPending := false
+	if recSnap, err := s.engine.ReconcileIfChanged(context.Background(), nil); err == nil && recSnap != nil {
+		if s.engine.LiveHeadID() != s.LastVerifiedBasisID() {
+			needsPending = true
+		}
+	} else if s.engine.LiveHeadID() != s.LastVerifiedBasisID() {
+		needsPending = true
+	}
+	if needsPending {
+		s.projectMu.Lock()
+		// Do not override an existing gap set above.
+		if s.projectStatus == "watching" {
+			s.projectStatus = "pending"
+			s.projectNotice = "변경을 확인 중입니다"
+		}
+		s.projectMu.Unlock()
+		if head := s.engine.LiveHead(); head != nil && s.scheduler != nil {
+			s.scheduler.NotifyEdit(head)
+		}
+	}
+}
+
+// LastVerifiedBasisID returns the snapshot ID of the last verified comparison basis.
+func (s *Server) LastVerifiedBasisID() string {
+	s.projectMu.RLock()
+	defer s.projectMu.RUnlock()
+	return s.lastVerifiedBasisID
+}
+
+// ProjectEnvSnapshot returns the startup environment detected for the target.
+func (s *Server) ProjectEnvSnapshot() ProjectEnv {
+	s.projectMu.RLock()
+	defer s.projectMu.RUnlock()
+	return s.projectEnv
+}
+
+// handleLiveProject serves the project-change watch state. The primary view
+// renders only mode, status, title, and notice. basisId, lastVerifiedBasisId,
+// liveHeadId, and gap internals are diagnostic for polling recovery and are
+// never rendered as primary telemetry per INV-LIVE-09.
+func (s *Server) handleLiveProject(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	s.projectMu.RLock()
+	defer s.projectMu.RUnlock()
+
+	var clientGap any
+	if s.projectGap != nil {
+		affectedScope := s.projectGap.AffectedScope
+		if affectedScope == nil {
+			affectedScope = []string{}
+		}
+		clientGap = map[string]any{
+			"status":        "gap",
+			"affectedScope": affectedScope,
+			"notice":        s.projectNotice,
+		}
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(map[string]any{
+		"mode":                s.projectMode,
+		"status":              s.projectStatus,
+		"title":               "프로젝트 변경 감시 상태",
+		"notice":              s.projectNotice,
+		"basisId":             s.lastVerifiedBasisID,
+		"lastVerifiedBasisId": s.lastVerifiedBasisID,
+		"liveHeadId":          s.engine.LiveHeadID(),
+		"gap":                 clientGap,
+		"env":                 s.projectEnv,
+	})
 }
 
 // captureAnalysisSnapshot establishes one VS-01 lease for the complete
@@ -200,6 +477,12 @@ type Config struct {
 	// WorkspaceWatchInterval controls the coordinator-owned fallback watcher.
 	// Values at or below zero use the production default.
 	WorkspaceWatchInterval time.Duration
+	// Mode configures the FlowView mode ("project_change" or "feature").
+	Mode string
+	// LivePrototype keeps serving the archived live prototype on /live in
+	// project_change mode (MCP coordinator contract). The CLI live surface
+	// leaves this false so /live serves the 7-lane FlowView.
+	LivePrototype bool
 }
 
 // NewServer initializes a FlowView server instance.
@@ -286,6 +569,7 @@ func NewServer(cfg Config) (*Server, error) {
 		runtimeConsent:             cloneRuntimeConsent(cfg.RuntimeConsent),
 		releaseThresholdDecisions:  cfg.ReleaseThresholdDecisions,
 		watchInterval:              cfg.WorkspaceWatchInterval,
+		livePrototype:              cfg.LivePrototype,
 	}
 	if err := recoverPendingApprovalOutboxDeliveries(context.Background(), s.approvalService, s.hub); err != nil {
 		return nil, fmt.Errorf("recover approval outbox: %w", err)
@@ -316,6 +600,12 @@ func NewServer(cfg Config) (*Server, error) {
 	mux.HandleFunc("/api/workspace/stream", s.handleWorkspaceStream)
 	mux.HandleFunc("/api/workspace/proof", s.handleWorkspaceProof)
 	mux.HandleFunc("/api/live/generation", s.handleLiveGeneration)
+	mux.HandleFunc("/api/live/project", s.handleLiveProject)
+
+	s.projectMu.Lock()
+	s.projectEnv = DetectProjectEnv(cfg.RepoRoot)
+	s.projectMu.Unlock()
+	s.initLiveProjectState(cfg.Mode)
 
 	port := cfg.Port
 	ln, err := net.Listen("tcp", fmt.Sprintf("127.0.0.1:%d", port))
@@ -412,7 +702,85 @@ func (s *Server) SubmitVersionedChanges(ctx context.Context, request workspace.V
 	}
 	result, err := s.engine.ApplyVersionedChanges(ctx, request)
 	if err != nil {
-		return nil, err
+		if errors.Is(err, workspace.ErrLiveHeadConflict) {
+			s.projectMu.Lock()
+			prevStatus := s.projectStatus
+			prevNotice := s.projectNotice
+			s.projectStatus = "reconciling"
+			s.projectNotice = "변경을 다시 확인하고 있습니다"
+			s.projectMu.Unlock()
+			s.engine.SetActivity("reconciling")
+			act := s.engine.CurrentActivity()
+			if act.CurrentSnapshotID != "" {
+				basisID := act.CurrentSnapshotID
+				snapID := act.CurrentSnapshotID
+				if head := s.engine.LiveHead(); head != nil {
+					if head.ComputedBasisID != "" {
+						basisID = head.ComputedBasisID
+					}
+					if head.SnapshotID != "" {
+						snapID = head.SnapshotID
+					}
+				}
+				_, _ = s.hub.PublishChecked("activity.updated", act, &basisID, &snapID, nil)
+			}
+
+			var reloadErr error
+			const maxConflictRetries = 5
+			for attempt := 0; attempt < maxConflictRetries; attempt++ {
+				jitter := time.Duration(time.Now().UnixNano()%6) * time.Millisecond
+				backoff := (time.Duration(5+attempt*4) * time.Millisecond) + jitter
+				select {
+				case <-ctx.Done():
+					s.projectMu.Lock()
+					s.projectStatus = prevStatus
+					s.projectNotice = prevNotice
+					s.projectMu.Unlock()
+					return nil, ctx.Err()
+				case <-time.After(backoff):
+				}
+
+				reloadErr = s.engine.ReloadFromDurable()
+				if reloadErr != nil {
+					s.recordPipelineError(reloadErr)
+					break
+				}
+				result, err = s.engine.ApplyVersionedChanges(ctx, request)
+				if err == nil || !errors.Is(err, workspace.ErrLiveHeadConflict) {
+					break
+				}
+			}
+			if err == nil {
+				s.projectMu.Lock()
+				s.projectStatus = "pending"
+				s.projectNotice = "변경을 확인 중입니다"
+				s.projectMu.Unlock()
+			}
+			if err != nil {
+				// A retry failure that is no longer a head conflict (for
+				// example a document-version or validation input error) is a
+				// caller error, not a system gap. Restore the pre-recovery
+				// state and return the input error unchanged.
+				if reloadErr == nil && !errors.Is(err, workspace.ErrLiveHeadConflict) {
+					s.projectMu.Lock()
+					s.projectStatus = prevStatus
+					s.projectNotice = prevNotice
+					s.projectMu.Unlock()
+					return nil, err
+				}
+				var paths []string
+				for _, c := range request.Changes {
+					paths = append(paths, c.Path)
+				}
+				reason := "새 변경을 확인하지 못했습니다"
+				if gapErr := s.publishConflictGap(paths, reason); gapErr != nil {
+					s.recordPipelineError(gapErr)
+				}
+				return nil, err
+			}
+		} else {
+			return nil, err
+		}
 	}
 	if result.Duplicate {
 		return result, nil
@@ -421,6 +789,77 @@ func (s *Server) SubmitVersionedChanges(ctx context.Context, request workspace.V
 		return result, err
 	}
 	return result, nil
+}
+
+// publishConflictGap records a measured recoverable gap after a live-head
+// conflict retry fails. It uses the canonical gap path so SSE subscribers
+// observe the same gap state as pollers.
+func (s *Server) publishConflictGap(paths []string, reason string) error {
+	if paths == nil {
+		paths = []string{}
+	}
+	if reason == "" {
+		reason = "새 변경을 확인하지 못했습니다"
+	}
+	snap := s.engine.LiveHead()
+	act := s.engine.CurrentActivity()
+	if act.TraceID == "" {
+		if snap != nil && snap.SnapshotID != "" {
+			act.TraceID = "conflict-" + snap.SnapshotID
+		} else if act.CurrentSnapshotID != "" {
+			act.TraceID = "conflict-" + act.CurrentSnapshotID
+		} else {
+			act.TraceID = "conflict-" + strconv.FormatInt(time.Now().UTC().UnixNano(), 10)
+		}
+	}
+	if act.Timestamp.IsZero() {
+		act.Timestamp = time.Now().UTC()
+	}
+	if act.Activity == "" {
+		act.Activity = "idle"
+	}
+	if act.AnalysisLagMs < 0 {
+		act.AnalysisLagMs = 0
+	}
+	if act.PendingRevisions < 0 {
+		act.PendingRevisions = 0
+	}
+	if snap == nil {
+		s.projectMu.Lock()
+		s.projectStatus = "gap"
+		s.projectNotice = reason
+		s.projectGap = &semantic.VerifiedGap{
+			SchemaID:          "https://codeflow.local/schemas/rflsc.verified-gap.v2.schema.json",
+			SchemaVersion:     2,
+			Freshness:         "last_verified",
+			Activity:          act.Activity,
+			LatestSnapshotID:  act.CurrentSnapshotID,
+			WorkspaceEpoch:    act.WorkspaceEpoch,
+			AffectedScope:     paths,
+			AnalysisLagMs:     act.AnalysisLagMs,
+			PendingRevisions:  act.PendingRevisions,
+			IntersectedCauses: []string{reason},
+			Timestamp:         act.Timestamp,
+			TraceID:           act.TraceID,
+		}
+		s.projectMu.Unlock()
+		return fmt.Errorf("conflict gap has no live head")
+	}
+	gap := &semantic.VerifiedGap{
+		SchemaID:          "https://codeflow.local/schemas/rflsc.verified-gap.v2.schema.json",
+		SchemaVersion:     2,
+		Freshness:         "last_verified",
+		Activity:          act.Activity,
+		LatestSnapshotID:  snap.SnapshotID,
+		WorkspaceEpoch:    snap.WorkspaceEpoch,
+		AffectedScope:     paths,
+		AnalysisLagMs:     act.AnalysisLagMs,
+		PendingRevisions:  act.PendingRevisions,
+		IntersectedCauses: []string{reason},
+		Timestamp:         act.Timestamp,
+		TraceID:           act.TraceID,
+	}
+	return s.publishGapValue(gap, snap)
 }
 
 func (s *Server) notifyAcceptedSnapshot(snap *workspace.WorkspaceSnapshot) error {
@@ -454,16 +893,30 @@ func (s *Server) Start() {
 	s.startOnce.Do(func() {
 		s.startLiveConsumer()
 		go func() { _ = s.httpServer.Serve(s.listener) }()
+		_, _, _ = ClaimLiveCoordinator(s.repoRoot, LiveCoordinatorRecord{
+			URL:       s.URL(),
+			Token:     s.authToken,
+			PID:       os.Getpid(),
+			StartedAt: time.Now().UTC(),
+			RepoRoot:  s.repoRoot,
+		})
 	})
 }
 
-// Shutdown gracefully shuts down the HTTP server.
+// Shutdown gracefully shuts down the HTTP server. Callers without a
+// deadline get a 5s ceiling so in-flight artifact writes can finish; the
+// timeout is a ceiling, not a delay, and Shutdown returns as soon as done.
 func (s *Server) Shutdown(ctx context.Context) error {
 	if s == nil {
 		return nil
 	}
 	if ctx == nil {
 		ctx = context.Background()
+	}
+	if _, hasDeadline := ctx.Deadline(); !hasDeadline {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, 5*time.Second)
+		defer cancel()
 	}
 	s.shutdownMu.Lock()
 	if !s.shutdownStarted {
@@ -488,6 +941,7 @@ func (s *Server) Shutdown(ctx context.Context) error {
 		}
 		if s.httpServer != nil {
 			if shutdownErr := s.httpServer.Shutdown(ctx); shutdownErr != nil {
+				_ = s.httpServer.Close()
 				initErrors = append(initErrors, shutdownErr)
 			}
 		}
@@ -501,10 +955,12 @@ func (s *Server) Shutdown(ctx context.Context) error {
 		if waitErr := s.waitLiveConsumer(ctx); waitErr != nil {
 			waitErrors = append(waitErrors, waitErr)
 		}
+		s.closeAdapterRegistry()
 		if waitErr := s.waitModelHostRequests(ctx); waitErr != nil {
 			waitErrors = append(waitErrors, waitErr)
 		}
 		firstErr := joinLifecycleErrors(append([]error{initErr}, waitErrors...)...)
+		_ = RemoveLiveCoordinatorIfOwned(s.repoRoot, s.URL(), os.Getpid())
 		s.shutdownMu.Lock()
 		s.shutdownFirstErr = firstErr
 		close(s.shutdownResultDone)
@@ -584,6 +1040,14 @@ func (s *Server) handleIndex(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	s.projectMu.RLock()
+	mode := s.projectMode
+	prototype := s.livePrototype
+	s.projectMu.RUnlock()
+	if r.URL.Path == "/live" && mode == "project_change" && !prototype {
+		_, _ = w.Write([]byte(FlowViewHTML))
+		return
+	}
 	if r.URL.Path == "/live" || r.URL.Query().Get("live") == "1" {
 		_, _ = w.Write([]byte(LiveViewHTML))
 		return
@@ -1139,7 +1603,8 @@ func (s *Server) handleTaskView(w http.ResponseWriter, r *http.Request) {
 	if lang == "" || lang == "unknown" {
 		lang = "typescript"
 	}
-	adapterCfg, err := harvest.ResolveAdapter(lang, "")
+	cwd, _ := filepath.Abs(".")
+	adapterCfg, err := harvest.ResolveAdapterForRepo(s.repoRoot, cwd, lang, "")
 	if err != nil {
 		http.Error(w, fmt.Sprintf("resolve adapter: %v", err), http.StatusInternalServerError)
 		return
@@ -1364,6 +1829,7 @@ func (s *Server) handleWorkspaceStream(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Cache-Control", "no-cache")
 	w.Header().Set("Connection", "keep-alive")
 	w.Header().Set("X-Accel-Buffering", "no")
+	flusher.Flush()
 
 	lastEventID := r.Header.Get("Last-Event-ID")
 	if lastEventID == "" {

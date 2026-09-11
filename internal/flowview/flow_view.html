@@ -1432,6 +1432,10 @@ async function init(){
     const qi=document.getElementById('query-input');
     if(qi)qi.value=reqParam;
   }
+  const isLivePath=window.location.pathname==='/live';
+  if(isLivePath||liveParam==='1'){
+    initLiveStream();
+  }
   if(liveParam==='1'&&reqParam){
     await handleSemanticQuery(null,false);
   }
@@ -1571,6 +1575,10 @@ function initLiveStream(){
         const query=(input?input.value:'').trim();
         if(query){
           handleSemanticQuery(null,true);
+        }else if(typeof currentFlowId!=='undefined'&&currentFlowId){
+          loadFlow(currentFlowId);
+        }else{
+          init();
         }
         hideVerifiedGap();
       }catch(err){console.error(err);}

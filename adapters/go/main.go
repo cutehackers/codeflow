@@ -21,6 +21,7 @@ import (
 	"sync"
 	"time"
 
+	"codeflow/internal/rflscvs02"
 	"codeflow/internal/secret"
 )
 
@@ -479,8 +480,14 @@ func (t *analysisTracker) metadata(params map[string]any) map[string]any {
 		negative = append(negative, item)
 	}
 	sort.Slice(negative, func(i, j int) bool { return negative[i]["path"].(string) < negative[j]["path"].(string) })
+	if len(negative) == 0 && t.overlay != nil {
+		negative = append(negative, zeroMissMarker(t.operation))
+	}
 	measured := []string{}
-	if len(negative) > 0 {
+	// Zero misses with a live overlay means every lookup resolved, so the
+	// observation counts as measured. Nil overlay means no resolution scope
+	// existed, so the closure legitimately stays open.
+	if len(negative) > 0 || t.overlay != nil {
 		measured = append(measured, "negative_lookup")
 	}
 	if len(t.membership) > 0 {
@@ -729,7 +736,10 @@ func metadata(params map[string]any, operation, root string, overlay map[string]
 		})
 		break
 	}
-	status, incomplete, measured := closureState(required, negative, membership, frontier)
+	if len(negative) == 0 && overlay != nil {
+		negative = append(negative, zeroMissMarker(operation))
+	}
+	status, incomplete, measured := closureState(required, negative, membership, frontier, overlay != nil)
 	profile := map[string]any{
 		"adapter": "go", "adapterVersion": adapterVersion, "analyzerRevision": analyzerVersion,
 		"features":    []string{"symbols", "calls", "snapshot_overlay", "negative_lookup", "membership", "dependency_frontier"},
@@ -814,7 +824,16 @@ func documentPaths(documents []document) []string {
 	return out
 }
 
-func closureState(required []string, negative, membership, frontier []any) (string, []string, []string) {
+func zeroMissMarker(operation string) map[string]any {
+	return map[string]any{
+		"kind": "negative_lookup", "path": ".",
+		"valueHash": digest([]byte("zero-miss:" + operation)),
+		"detail":    rflscvs02.ZeroMissDetailPrefix + "resolution completed over snapshot scope during " + operation + " with no unresolved lookups",
+		"measured":  true,
+	}
+}
+
+func closureState(required []string, negative, membership, frontier []any, resolutionCompleted bool) (string, []string, []string) {
 	measured := []string{}
 	if len(membership) > 0 {
 		measured = append(measured, "membership")
@@ -822,7 +841,7 @@ func closureState(required []string, negative, membership, frontier []any) (stri
 	if len(frontier) > 0 {
 		measured = append(measured, "dependency_frontier")
 	}
-	if len(negative) > 0 {
+	if len(negative) > 0 || resolutionCompleted {
 		measured = append(measured, "negative_lookup")
 	}
 	incomplete := []string{}

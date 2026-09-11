@@ -16,6 +16,7 @@ import (
 
 	"codeflow/internal/contractharness"
 	"codeflow/internal/fusion"
+	"codeflow/internal/harvest"
 	"codeflow/internal/protocol"
 	"codeflow/internal/rflscvs02"
 	"codeflow/internal/semantic"
@@ -410,4 +411,135 @@ func liveDeltaCandidate(ctx context.Context, snapshot protocol.Snapshot, query *
 	closure.NormalizedQueryHash = queryIdentity(query)
 	projection := semantic.BuildFlowViewProjection(mapIR)
 	return mapIR, projection, &slicing.SlicedPayload{ValidatedResult: result}, &semantic.ResolvedTarget{FlowID: "flow-live-delta", EntrySymbolPath: "main", Title: query.Feature.Request}, intent, &closure, nil
+}
+
+func TestSelectProjectChangeCandidatePrefersActiveFlowOnHelperEdit(t *testing.T) {
+	candidates := []harvest.Candidate{
+		{CandidateID: "c-main", EntrySymbolPath: "lib/main.dart#main"},
+		{CandidateID: "c-other", EntrySymbolPath: "lib/other.dart#other"},
+	}
+	changed := map[string]struct{}{"lib/services/auth_service.dart": {}}
+	readSet := map[string]struct{}{
+		"lib/main.dart": {}, "lib/services/auth_service.dart": {},
+	}
+	best, score := selectProjectChangeCandidate(candidates, changed, readSet, "lib/main.dart#main", "dart")
+	if score <= 0 {
+		t.Fatalf("helper edit intersecting the active read set must recompile, got score %d", score)
+	}
+	if best.EntrySymbolPath != "lib/main.dart#main" {
+		t.Fatalf("helper edit must keep the active flow, got %q", best.EntrySymbolPath)
+	}
+}
+
+func TestSelectProjectChangeCandidateFallsBackWithoutActiveFlow(t *testing.T) {
+	candidates := []harvest.Candidate{
+		{CandidateID: "c-main", EntrySymbolPath: "lib/main.dart#main"},
+	}
+	changed := map[string]struct{}{"lib/services/auth_service.dart": {}}
+	if _, score := selectProjectChangeCandidate(candidates, changed, nil, "", "dart"); score <= 0 {
+		t.Fatalf("in-language source edit must recompile even without an active flow, got score %d", score)
+	}
+	changedImg := map[string]struct{}{"assets/logo.png": {}}
+	if _, score := selectProjectChangeCandidate(candidates, changedImg, nil, "", "dart"); score > 0 {
+		t.Fatalf("non-source edit must not recompile, got score %d", score)
+	}
+}
+
+func TestSelectProjectChangeCandidatePrefersEntryMatch(t *testing.T) {
+	candidates := []harvest.Candidate{
+		{CandidateID: "c-main", EntrySymbolPath: "lib/main.dart#main"},
+		{CandidateID: "c-other", EntrySymbolPath: "lib/other.dart#other"},
+	}
+	changed := map[string]struct{}{"lib/other.dart": {}}
+	best, score := selectProjectChangeCandidate(candidates, changed, nil, "lib/main.dart#main", "dart")
+	if score < 10 {
+		t.Fatalf("direct entry edit must win by entry match, got score %d", score)
+	}
+	if best.EntrySymbolPath != "lib/other.dart#other" {
+		t.Fatalf("direct entry edit must select its own flow, got %q", best.EntrySymbolPath)
+	}
+}
+
+func TestFirstStartEnqueuesBaselineWithoutFakingBasis(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "go.mod"), []byte("module example.com/baseline\n\ngo 1.24\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "main.go"), []byte("package main\n\nfunc main() {}\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	srv, err := NewServer(Config{RepoRoot: root, Port: 0, Mode: "project_change"})
+	if err != nil {
+		t.Fatalf("NewServer: %v", err)
+	}
+	t.Cleanup(func() { _ = srv.Shutdown(context.Background()) })
+	srv.projectMu.RLock()
+	queued := srv.baselineCompileQueued
+	srv.projectMu.RUnlock()
+	if !queued {
+		t.Fatalf("first start must enqueue exactly one baseline compile")
+	}
+	if got := srv.LastVerifiedBasisID(); got != "" {
+		t.Fatalf("first start must not mark the head verified, got basis %q", got)
+	}
+	select {
+	case snap, ok := <-srv.scheduler.Checkpoints():
+		if !ok || snap == nil {
+			t.Fatalf("baseline checkpoint channel closed without a snapshot")
+		}
+	case <-time.After(10 * time.Second):
+		t.Fatalf("baseline checkpoint never arrived after first start")
+	}
+}
+
+func TestWorkspaceStreamFlushesHeadersBeforeFirstEvent(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "go.mod"), []byte("module example.com/streamflush\n\ngo 1.24\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	srv, err := NewServer(Config{RepoRoot: root, Port: 0})
+	if err != nil {
+		t.Fatalf("NewServer: %v", err)
+	}
+	t.Cleanup(func() { _ = srv.Shutdown(context.Background()) })
+	stream := httptest.NewServer(http.HandlerFunc(srv.handleWorkspaceStream))
+	defer stream.Close()
+	client := &http.Client{Timeout: 6 * time.Second}
+	start := time.Now()
+	resp, err := client.Get(stream.URL)
+	if err != nil {
+		t.Fatalf("stream headers were not flushed promptly: %v", err)
+	}
+	defer resp.Body.Close()
+	if elapsed := time.Since(start); elapsed >= 6*time.Second {
+		t.Fatalf("stream headers arrived too late: %v", elapsed)
+	}
+	if ct := resp.Header.Get("Content-Type"); ct != "text/event-stream" {
+		t.Fatalf("stream content type = %q, want text/event-stream", ct)
+	}
+}
+
+func TestLiveAdapterPoolReusesWarmPoolAcrossCheckpoints(t *testing.T) {
+	srv := &Server{}
+	cfg := protocol.Config{BinPath: "go", Args: []string{"run", "./adapters/go"}}
+	first, err := srv.liveAdapterPool("go", cfg)
+	if err != nil {
+		t.Fatalf("liveAdapterPool: %v", err)
+	}
+	second, err := srv.liveAdapterPool("go", cfg)
+	if err != nil {
+		t.Fatalf("liveAdapterPool: %v", err)
+	}
+	if first != second {
+		t.Fatalf("live checkpoints must reuse one warm adapter pool, got distinct pools")
+	}
+	srv.closeAdapterRegistry()
+	third, err := srv.liveAdapterPool("go", cfg)
+	if err != nil {
+		t.Fatalf("liveAdapterPool after close: %v", err)
+	}
+	if third == first {
+		t.Fatalf("closed registry must not hand out the drained pool")
+	}
+	srv.closeAdapterRegistry()
 }

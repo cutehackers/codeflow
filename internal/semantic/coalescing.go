@@ -66,6 +66,13 @@ func (s *CoalescingScheduler) Checkpoints() <-chan *workspace.WorkspaceSnapshot 
 	return s.checkpoints
 }
 
+// HasPending reports whether an uncoalesced edit awaits a checkpoint.
+func (s *CoalescingScheduler) HasPending() bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.latestSnap != nil
+}
+
 // NotifyEdit notifies the scheduler that a new WorkspaceSnapshot has been recorded.
 func (s *CoalescingScheduler) NotifyEdit(snap *workspace.WorkspaceSnapshot) {
 	s.mu.Lock()
@@ -605,7 +612,11 @@ func validateSemanticClosureAgainstCanonical(closure *CausalObservationClosure, 
 	}
 	for i, observation := range result.Closure.NegativeObservations {
 		got := closure.NegativeObservations[i]
-		if got.Kind != observation.Kind || got.Selector != observation.Path || got.ScopeRef != observation.Path || got.ObservedAgainstIndexRevision != observation.ValueHash {
+		wantScope := observation.Path
+		if rflscvs02.IsZeroMissMarker(observation) {
+			wantScope = ""
+		}
+		if got.Kind != observation.Kind || got.Selector != observation.Path || got.ScopeRef != wantScope || got.ObservedAgainstIndexRevision != observation.ValueHash {
 			return fmt.Errorf("negative observation %q differs", observation.Path)
 		}
 	}

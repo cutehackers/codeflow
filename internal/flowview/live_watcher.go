@@ -35,9 +35,13 @@ func (s *Server) acceptWatcherChange(ctx context.Context, signal watch.ChangeSet
 	}
 
 	head := s.engine.LiveHead()
-	changes := make([]workspace.VersionedChange, 0, len(signal.Changed))
+	relChanged := s.engine.FilterUncapturedPaths(signal.Changed)
+	if len(relChanged) == 0 {
+		return nil
+	}
+	changes := make([]workspace.VersionedChange, 0, len(relChanged))
 	deleted := make([]string, 0)
-	for _, relativePath := range signal.Changed {
+	for _, relativePath := range relChanged {
 		capture := watch.CaptureFileWithStatCheck(filepath.Join(s.repoRoot, filepath.FromSlash(relativePath)), 3)
 		if capture.Error != nil || capture.Conflict {
 			snapshot, err := s.engine.Reconcile(ctx, []workspace.ReconciliationTarget{{Path: relativePath, Kind: "event_loss", Reason: "unstable watcher capture", Timestamp: time.Now().UTC()}})

@@ -439,7 +439,7 @@ func newMCPEnrichmentFactoryFixture(t *testing.T) *mcpEnrichmentFactoryFixture {
 		coordServer.Close()
 		t.Fatal(err)
 	}
-	_, snapshot, err := coord.SnapshotEngine().ApplyVersionedEdit(context.Background(), workspace.EditRequest{Path: "main.go", Content: []byte("package main\n"), DocumentVersion: 1, Source: workspace.SourceIDEVersioned})
+	_, snapshot, err := coord.SnapshotEngine().ApplyVersionedEdit(context.Background(), workspace.EditRequest{Path: "main.go", Content: []byte("package main\n"), DocumentVersion: 2, Source: workspace.SourceIDEVersioned})
 	if err != nil {
 		coordServer.Close()
 		t.Fatal(err)

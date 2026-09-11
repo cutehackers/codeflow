@@ -113,10 +113,7 @@ func (s *Server) handleQueryTaskView(ctx context.Context, args map[string]any) (
 				return "", fmt.Errorf("build FlowView URL: %w", err)
 			}
 			params := viewURL.Query()
-			viewURL.Path = "/live"
-			params.Set("live", "1")
-			params.Set("request", request)
-			params.Set("entrySymbol", entrySymbol)
+			viewURL.Path = "/"
 			viewURL.RawQuery = params.Encode()
 			return viewURL.String(), nil
 		}

@@ -35,6 +35,7 @@ func TestFlowViewAndLiveViewsAreSeparate(t *testing.T) {
 		{"/", FlowViewHTML},
 		{"/?token=test&request=checkout", FlowViewHTML},
 		{"/?live=0", FlowViewHTML},
+		{"/live", LiveViewHTML},
 		{"/live?request=checkout", LiveViewHTML},
 		{"/?live=1&request=checkout", LiveViewHTML},
 	} {
@@ -43,6 +44,26 @@ func TestFlowViewAndLiveViewsAreSeparate(t *testing.T) {
 			srv.handleIndex(r, httptest.NewRequest("GET", tc.path, nil))
 			if r.Code != 200 || r.Body.String() != tc.want {
 				t.Fatalf("wrong view at %s: status %d", tc.path, r.Code)
+			}
+		})
+	}
+	liveSrv := &Server{projectMode: "project_change"}
+	for _, path := range []string{"/live", "/live?request=checkout"} {
+		t.Run("project_change:"+path, func(t *testing.T) {
+			r := httptest.NewRecorder()
+			liveSrv.handleIndex(r, httptest.NewRequest("GET", path, nil))
+			if r.Code != 200 || r.Body.String() != FlowViewHTML {
+				t.Fatalf("live project_change must serve the 7-lane FlowView at %s: status %d", path, r.Code)
+			}
+		})
+	}
+	protoSrv := &Server{projectMode: "project_change", livePrototype: true}
+	for _, path := range []string{"/live", "/live?request=checkout"} {
+		t.Run("prototype:"+path, func(t *testing.T) {
+			r := httptest.NewRecorder()
+			protoSrv.handleIndex(r, httptest.NewRequest("GET", path, nil))
+			if r.Code != 200 || r.Body.String() != LiveViewHTML {
+				t.Fatalf("MCP prototype surface must keep the live template at %s: status %d", path, r.Code)
 			}
 		})
 	}
@@ -60,8 +81,14 @@ func TestFlowViewAndLiveViewsAreSeparate(t *testing.T) {
 		t.Fatal("FlowView initializer end was not found")
 	}
 	initializer := FlowViewHTML[initStart : initStart+initEnd]
-	if strings.Contains(initializer, "initLiveStream()") || strings.Contains(initializer, "loadWorkspaceActivity()") || strings.Contains(FlowViewHTML, `id="workspace-activity-badge"`) {
-		t.Fatal("FlowView still starts or displays workspace change state")
+	if !strings.Contains(initializer, "initLiveStream()") {
+		t.Fatal("FlowView live mode must boot the workspace stream")
+	}
+	if !strings.Contains(initializer, "'/live'") && !strings.Contains(initializer, "liveParam") {
+		t.Fatal("FlowView must gate the stream on live mode instead of always connecting")
+	}
+	if !strings.Contains(FlowViewHTML, "loadFlow(currentFlowId)") {
+		t.Fatal("FlowView must reload the active flow on generation.published with an empty query")
 	}
 	if !strings.Contains(LiveViewHTML, "new EventSource('/api/workspace/stream") {
 		t.Fatal("Live View lost its workspace stream subscription")

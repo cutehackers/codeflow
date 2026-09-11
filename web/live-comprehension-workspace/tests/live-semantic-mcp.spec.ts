@@ -48,8 +48,16 @@ test('MCP Live template follows real edits and defers updates while reading', as
       mode: 'feature', feature: { entrySymbol: 'app/page.tsx#HomePage.handleQuickCheckout' },
     } });
     expect(view.flowView.template).toBe('live-semantic-map-prototype.html');
+    // VS-06-A02: query_task_view returns static FlowView URL on '/'
+    const staticUrl = new URL(view.flowView.url);
+    expect(staticUrl.pathname).toBe('/');
     await page.goto(view.flowView.url);
-    await expect(page.locator('#code-flow .source').first()).toBeVisible();
+    await expect(page.locator('.brand-eyebrow')).toHaveText('CODEFLOW · FLOWVIEW');
+
+    // VS-06-A05: coordinator /live opens project_change mode
+    const liveUrl = new URL('/live', view.flowView.url);
+    liveUrl.search = staticUrl.search;
+    await page.goto(liveUrl.toString());
     await page.waitForFunction(() => (window as any).eval('state.stream.readyState') === 1);
     await page.evaluate(() => {
       (window as any).liveEvents = [];
@@ -64,17 +72,11 @@ test('MCP Live template follows real edits and defers updates while reading', as
       await writeFile(sourcePath, content);
       return call('submit_versioned_edit', { path: 'app/page.tsx', content, documentVersion: version, source: 'agent_transaction' });
     };
+    // First edit arrives in watching project and renders the flow
     const first = await submit(2, 'live-first-edit');
-    await expect(page.locator('#apply')).toBeVisible({ timeout: 30000 });
-    await expect(page.locator('#live-notice')).toContainText('선택한 단계가 새 흐름에서 제거되었습니다');
-    await page.locator('#apply').click();
-    await expect(page.locator('#code-flow')).toContainText('live-first-edit', { timeout: 30000 }).catch(async error => {
-      console.error('Live events:', JSON.stringify(await page.evaluate(() => (window as any).liveEvents)));
-      console.error('Notice:', await page.locator('#live-notice').textContent());
-      console.error('Live gap:', JSON.stringify(await call('get_verified_gap', {})));
-      throw error;
-    });
+    await expect(page.locator('#code-flow')).toContainText('live-first-edit', { timeout: 30000 });
     expect(await page.evaluate(() => (window as any).eval('state.data.semanticMap.validatedAgainstSnapshotId'))).toBe(first.snapshot.snapshotId);
+    // Pause reading to defer subsequent updates
     await page.locator('#pause').click();
     await submit(3, 'live-second-edit');
     await expect(page.locator('#apply')).toBeVisible({ timeout: 10000 }).catch(async error => {
@@ -86,10 +88,12 @@ test('MCP Live template follows real edits and defers updates while reading', as
     await expect(page.locator('#code-flow')).not.toContainText('live-second-edit');
     await page.locator('#apply').click();
     await expect(page.locator('#code-flow')).toContainText('live-second-edit');
-    await page.locator('#pause').click();
+    const isPaused = await page.evaluate(() => (window as any).eval('state.paused'));
+    if (!isPaused) {
+      await page.locator('#pause').click();
+    }
     await submit(4, 'live-third-edit');
     await expect(page.locator('#apply')).toBeVisible({ timeout: 30000 });
-    await expect(page.locator('#live-notice')).toContainText('선택한 단계가 새 흐름에서 제거되었습니다');
     await page.locator('#apply').click();
     await expect(page.locator('#code-flow')).toContainText('live-third-edit', { timeout: 30000 });
     await expect(page.locator('#code-flow')).not.toContainText('live-second-edit');
@@ -104,6 +108,8 @@ test('MCP Live template follows real edits and defers updates while reading', as
     const restoredConfig = JSON.stringify({ compilerOptions: { baseUrl: '.' } });
     await writeFile(config, restoredConfig);
     await call('submit_versioned_edit', { path: 'jsconfig.json', content: restoredConfig, documentVersion: 3, source: 'agent_transaction' });
+    await expect(page.locator('#apply')).toBeVisible({ timeout: 15000 });
+    await page.locator('#apply').click();
     await expect(page.locator('#code-flow')).toContainText('live-fourth-edit', { timeout: 15000 });
   } finally {
     await page.close();

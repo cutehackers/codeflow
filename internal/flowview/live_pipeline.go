@@ -12,6 +12,7 @@ import (
 
 	"codeflow/internal/contractharness"
 	"codeflow/internal/detect"
+	"codeflow/internal/fusion"
 	"codeflow/internal/harvest"
 	"codeflow/internal/protocol"
 	"codeflow/internal/rflscvs02"
@@ -97,6 +98,144 @@ func (s *Server) latestLiveRequest() *liveRequest {
 	return &copyReq
 }
 
+// liveAdapterPool returns the persistent adapter pool for lang, creating
+// and registering it once per server lifecycle instead of spawning fresh
+// adapter processes on every checkpoint.
+func (s *Server) liveAdapterPool(lang string, cfg protocol.Config) (*protocol.Pool, error) {
+	s.adapterRegistryMu.Lock()
+	defer s.adapterRegistryMu.Unlock()
+	if s.adapterRegistry == nil {
+		s.adapterRegistry = protocol.NewAdapterRegistry(2)
+	}
+	s.adapterRegistry.RegisterConfig(lang, cfg)
+	return s.adapterRegistry.GetPool(lang)
+}
+
+func (s *Server) closeAdapterRegistry() {
+	s.adapterRegistryMu.Lock()
+	defer s.adapterRegistryMu.Unlock()
+	if s.adapterRegistry != nil {
+		s.adapterRegistry.Close()
+		s.adapterRegistry = nil
+	}
+}
+
+// lastPublishedEntry returns the entry symbol path of the last committed
+// live publication, or "" when none was published yet.
+func (s *Server) lastPublishedEntry() string {
+	s.projectMu.RLock()
+	defer s.projectMu.RUnlock()
+	return s.lastPublishedEntrySymbolPath
+}
+
+// selectProjectChangeCandidate picks the recompile target for a workspace
+// edit. Entry-path matches win first. Otherwise an edit intersecting the
+// active proof bundle read set re-slices the active flow (or candidates[0]
+// when the previous entry is gone). Any other in-language source edit falls
+// back to candidates[0] instead of dropping the edit as out of scope.
+func selectProjectChangeCandidate(candidates []harvest.Candidate, changed map[string]struct{}, activeReadSet map[string]struct{}, lastEntry, lang string) (harvest.Candidate, int) {
+	var best harvest.Candidate
+	bestScore := -1
+	for _, cand := range candidates {
+		score := 0
+		entryPath := filepath.ToSlash(cand.EntrySymbolPath)
+		for changedPath := range changed {
+			if changedPath == "" {
+				continue
+			}
+			if strings.Contains(entryPath, changedPath) || strings.Contains(changedPath, entryPath) {
+				score += 10
+			}
+		}
+		if score > bestScore {
+			bestScore = score
+			best = cand
+		}
+	}
+	if bestScore <= 0 && len(activeReadSet) > 0 {
+		intersects := false
+		for changedPath := range changed {
+			if _, ok := activeReadSet[changedPath]; ok {
+				intersects = true
+				break
+			}
+		}
+		if intersects && len(candidates) > 0 {
+			best = candidates[0]
+			if lastEntry != "" {
+				for _, cand := range candidates {
+					if cand.EntrySymbolPath == lastEntry {
+						best = cand
+						break
+					}
+				}
+			}
+			bestScore = 1
+		}
+	}
+	if bestScore <= 0 {
+		isSourceChange := false
+		for changedPath := range changed {
+			ext := strings.ToLower(filepath.Ext(changedPath))
+			switch lang {
+			case "go":
+				if ext == ".go" || changedPath == "go.mod" || changedPath == "go.work" {
+					isSourceChange = true
+				}
+			case "dart":
+				if ext == ".dart" || changedPath == "pubspec.yaml" {
+					isSourceChange = true
+				}
+			case "typescript", "javascript":
+				if ext == ".ts" || ext == ".tsx" || ext == ".js" || ext == ".jsx" || changedPath == "package.json" {
+					isSourceChange = true
+				}
+			default:
+				if ext != "" && ext != ".png" && ext != ".jpg" && ext != ".jpeg" && ext != ".gif" && ext != ".md" && ext != ".txt" {
+					isSourceChange = true
+				}
+			}
+			if isSourceChange {
+				break
+			}
+		}
+		if isSourceChange && len(candidates) > 0 {
+			best = candidates[0]
+			bestScore = 1
+		}
+	}
+	return best, bestScore
+}
+
+// activeBundleReadSetPaths returns the document paths of the validated
+// active proof bundle read set, or nil when no bundle is validated.
+func (s *Server) activeBundleReadSetPaths() map[string]struct{} {
+	bundle, err := s.storage.ReadValidatedActiveProofBundle()
+	if err != nil || bundle == nil || len(bundle.AnalyzerResult) == 0 {
+		return nil
+	}
+	var decoded struct {
+		AnalysisReadSet struct {
+			Documents []struct {
+				Path string `json:"path"`
+			} `json:"documents"`
+		} `json:"analysisReadSet"`
+	}
+	if err := json.Unmarshal(bundle.AnalyzerResult, &decoded); err != nil {
+		return nil
+	}
+	if len(decoded.AnalysisReadSet.Documents) == 0 {
+		return nil
+	}
+	out := make(map[string]struct{}, len(decoded.AnalysisReadSet.Documents))
+	for _, doc := range decoded.AnalysisReadSet.Documents {
+		if doc.Path != "" {
+			out[filepath.ToSlash(doc.Path)] = struct{}{}
+		}
+	}
+	return out
+}
+
 // compileSnapshotCandidate is the same adapter/snapshot/compiler path used by
 // the background checkpoint consumer. It accepts only the immutable protocol
 // snapshot and never falls back to repository reads.
@@ -104,35 +243,77 @@ func (s *Server) compileSnapshotCandidate(ctx context.Context, snapshot protocol
 	if s.compileCandidate != nil {
 		return s.compileCandidate(ctx, snapshot, query)
 	}
-	if query == nil || query.Feature == nil {
+	if query == nil || (query.Mode != "project_change" && query.Feature == nil) {
 		return nil, nil, nil, nil, nil, nil, fmt.Errorf("missing_precondition: feature query is required")
 	}
 	det := detect.DetectSnapshot(snapshot.Files)
 	lang := det.Language
-	if lang == "" || lang == "unknown" {
-		lang = "typescript"
+	if lang == "" || lang == "unknown" || !det.Confident {
+		return nil, nil, nil, nil, nil, nil, fmt.Errorf("unsupported_project: live view needs a recognized project marker (pubspec.yaml, package.json, go.mod 등)가 스냅샷에 없습니다")
 	}
-	adapterCfg, err := harvest.ResolveAdapter(lang, "")
+	cwd, _ := filepath.Abs(".")
+	adapterCfg, err := harvest.ResolveAdapterForRepo(s.repoRoot, cwd, lang, "")
 	if err != nil {
 		return nil, nil, nil, nil, nil, nil, fmt.Errorf("resolve adapter: %w", err)
 	}
-	pool := protocol.NewPool(adapterCfg, 2)
-	defer pool.Close()
+	pool, err := s.liveAdapterPool(lang, adapterCfg)
+	if err != nil {
+		return nil, nil, nil, nil, nil, nil, fmt.Errorf("live adapter pool: %w", err)
+	}
 	harvester := harvest.NewRunnerWithPool(pool)
 	candidates, err := harvester.RunWithSnapshot(ctx, s.repoRoot, snapshot)
 	if err != nil {
 		return nil, nil, nil, nil, nil, nil, fmt.Errorf("harvest candidates: %w", err)
 	}
-	resolved, err := semantic.ResolveFeatureQueryTarget(query, candidates)
-	if err != nil {
-		return nil, nil, nil, nil, nil, nil, err
+	var resolved *semantic.ResolvedTarget
+	if query.Mode == "project_change" {
+		if len(candidates) > 0 {
+			changed := map[string]struct{}{}
+			if wsSnap, wsErr := s.engine.GetSnapshot(snapshot.SnapshotID); wsErr == nil && wsSnap != nil {
+				for _, entry := range wsSnap.ChangedEntries {
+					if entry.Path != "" {
+						changed[filepath.ToSlash(entry.Path)] = struct{}{}
+					}
+				}
+			}
+			if len(changed) == 0 {
+				for _, doc := range snapshot.Documents {
+					if doc.Path != "" {
+						changed[filepath.ToSlash(doc.Path)] = struct{}{}
+					}
+				}
+			}
+			best, bestScore := selectProjectChangeCandidate(candidates, changed, s.activeBundleReadSetPaths(), s.lastPublishedEntry(), lang)
+			if len(changed) > 0 && bestScore <= 0 {
+				return nil, nil, nil, nil, nil, nil, fmt.Errorf("이 변경은 현재 분석 범위에서 확인할 수 없습니다")
+			}
+			if len(candidates) == 0 {
+				return nil, nil, nil, nil, nil, nil, fmt.Errorf("이 변경은 현재 분석 범위에서 확인할 수 없습니다")
+			}
+			c := best
+			resolved = &semantic.ResolvedTarget{
+				EntrySymbolPath: c.EntrySymbolPath,
+				CandidateID:     c.CandidateID,
+				FlowID:          fusion.ComputeFlowID(c.EntrySymbolPath),
+				Title:           "프로젝트 변경 감시",
+			}
+		} else {
+			return nil, nil, nil, nil, nil, nil, fmt.Errorf("이 변경은 현재 분석 범위에서 확인할 수 없습니다")
+		}
+	} else {
+		resolved, err = semantic.ResolveFeatureQueryTarget(query, candidates)
+		if err != nil {
+			return nil, nil, nil, nil, nil, nil, err
+		}
 	}
 	slicePayload, err := slicing.NewRunner(pool).SliceWithSnapshot(ctx, s.repoRoot, resolved.CandidateID, resolved.EntrySymbolPath, nil, snapshot)
 	if err != nil {
 		return nil, nil, nil, nil, nil, nil, fmt.Errorf("slice: %w", err)
 	}
-	requestText := strings.TrimSpace(query.Feature.Request)
-	if requestText == "" {
+	requestText := "프로젝트 변경 감시"
+	if query.Feature != nil && strings.TrimSpace(query.Feature.Request) != "" {
+		requestText = strings.TrimSpace(query.Feature.Request)
+	} else if resolved.Title != "" {
 		requestText = resolved.Title
 	}
 	intent, err := semantic.NormalizeTaskIntent(requestText, semantic.IntentOptions{Mode: query.Mode})
@@ -230,7 +411,11 @@ func semanticClosureFromVS02(result *rflscvs02.Result, configurationFingerprint 
 		closure.PositiveDependencies.DocumentRevisionRefs = append(closure.PositiveDependencies.DocumentRevisionRefs, ref)
 	}
 	for _, observation := range result.Closure.NegativeObservations {
-		closure.NegativeObservations = append(closure.NegativeObservations, semantic.NegativeObservation{Kind: observation.Kind, Selector: observation.Path, ScopeRef: observation.Path, ObservedAgainstIndexRevision: observation.ValueHash})
+		scopeRef := observation.Path
+		if rflscvs02.IsZeroMissMarker(observation) {
+			scopeRef = ""
+		}
+		closure.NegativeObservations = append(closure.NegativeObservations, semantic.NegativeObservation{Kind: observation.Kind, Selector: observation.Path, ScopeRef: scopeRef, ObservedAgainstIndexRevision: observation.ValueHash})
 	}
 	for _, observation := range result.Closure.MembershipObservations {
 		closure.MembershipObservations = append(closure.MembershipObservations, semantic.MembershipObservation{Kind: observation.Kind, ContainerRef: observation.Path, MembershipDigest: observation.ValueHash})
@@ -414,6 +599,22 @@ func (s *Server) startLiveConsumer() {
 			s.runWorkspaceWatcher(liveCtx)
 		}()
 		defer func() { <-watcherDone }()
+		s.projectMu.RLock()
+		isProjectChange := s.projectMode == "project_change"
+		s.projectMu.RUnlock()
+		if isProjectChange {
+			if bundle, bErr := s.storage.ReadValidatedActiveProofBundle(); bErr != nil || bundle == nil || bundle.Manifest == nil {
+				needsBaseline := s.scheduler == nil || !s.scheduler.HasPending()
+				if needsBaseline {
+					s.projectMu.Lock()
+					s.baselineCompileQueued = true
+					s.projectMu.Unlock()
+					if head := s.engine.LiveHead(); head != nil && s.scheduler != nil {
+						s.scheduler.NotifyEdit(head)
+					}
+				}
+			}
+		}
 		for {
 			select {
 			case <-liveCtx.Done():
@@ -496,6 +697,17 @@ func (s *Server) processCheckpoint(ctx context.Context, snap *workspace.Workspac
 	}
 
 	req := s.latestLiveRequest()
+	if req == nil && s.projectMode == "project_change" {
+		req = &liveRequest{
+			query: &semantic.TaskViewQuery{
+				Mode: "project_change",
+				Feature: &semantic.FeatureQueryParams{
+					Request: "프로젝트 변경 감시",
+				},
+			},
+			requestText: "프로젝트 변경 감시",
+		}
+	}
 	if req == nil {
 		emitGap("no active task query")
 		return
@@ -511,7 +723,7 @@ func (s *Server) processCheckpoint(ctx context.Context, snap *workspace.Workspac
 		emitGap("snapshot protocol conversion failed: " + err.Error())
 		return
 	}
-	mapIR, projection, slicePayload, _, intent, closure, err := s.compileSnapshotCandidate(ctx, protocolSnapshot, req.query)
+	mapIR, projection, slicePayload, resolved, intent, closure, err := s.compileSnapshotCandidate(ctx, protocolSnapshot, req.query)
 	if err != nil {
 		emitGap(err.Error())
 		return
@@ -645,7 +857,7 @@ func (s *Server) processCheckpoint(ctx context.Context, snap *workspace.Workspac
 	}
 	data := map[string]any{"manifest": manifest, "projection": projection, "slice": slicePayload}
 	genID := mapIR.GenerationID
-	_, err = s.hub.PublishAtomic("generation.published", data, &mapIR.ComputedBasisID, &snap.SnapshotID, &genID, func(env *semantic.EventEnvelope, eventBytes []byte) error {
+	_, err = s.hub.PublishAtomic("generation.published", data, &mapIR.ComputedBasisID, &live.SnapshotID, &genID, func(env *semantic.EventEnvelope, eventBytes []byte) error {
 		if ctx.Err() != nil {
 			return ctx.Err()
 		}
@@ -667,6 +879,21 @@ func (s *Server) processCheckpoint(ctx context.Context, snap *workspace.Workspac
 	s.mapCache[mapIR.GenerationID] = mapIR
 	s.mapCache[mapIR.ComputedBasisID] = mapIR
 	s.mu.Unlock()
+
+	s.projectMu.Lock()
+	s.lastVerifiedBasisID = live.SnapshotID
+	if resolved != nil && resolved.EntrySymbolPath != "" {
+		s.lastPublishedEntrySymbolPath = resolved.EntrySymbolPath
+	}
+	s.projectStatus = "watching"
+	s.projectNotice = "현재 프로젝트의 변경을 감시하고 있습니다"
+	s.projectGap = nil
+	_ = WriteAnalysisBasis(s.repoRoot, AnalysisBasisRecord{
+		BasisSnapshotID: live.SnapshotID,
+		WorkspaceEpoch:  live.WorkspaceEpoch,
+		RootTreeID:      live.RootTreeID,
+	})
+	s.projectMu.Unlock()
 	return nil
 }
 
@@ -714,6 +941,23 @@ func (s *Server) publishGapValue(gap *semantic.VerifiedGap, snap *workspace.Work
 	if err := contractharness.ValidateVerifiedGapV2(gapBytes); err != nil {
 		return fmt.Errorf("verified-gap contract: %w", err)
 	}
+	s.projectMu.Lock()
+	s.projectStatus = "gap"
+	s.projectGap = gap
+	notice := "최신 변경을 확인하지 못했습니다. 이전 코드 표시 중"
+	for _, cause := range gap.IntersectedCauses {
+		lower := strings.ToLower(cause)
+		if strings.Contains(lower, "scope") || strings.Contains(cause, "범위") {
+			notice = "이 변경은 현재 분석 범위에서 확인할 수 없습니다"
+			break
+		}
+		if strings.Contains(cause, "새 변경을 확인하지 못했습니다") || strings.Contains(lower, "conflict") {
+			notice = "새 변경을 확인하지 못했습니다"
+			break
+		}
+	}
+	s.projectNotice = notice
+	s.projectMu.Unlock()
 	basis := snap.ComputedBasisID
 	snapshotID := snap.SnapshotID
 	_, err = s.hub.PublishChecked("generation.gap", gap, &basis, &snapshotID, nil)

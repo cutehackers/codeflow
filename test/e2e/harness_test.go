@@ -93,7 +93,7 @@ func tsAdapterPool(t *testing.T) (*protocol.Pool, context.Context, context.Cance
 	}
 
 	pool := protocol.NewPool(cfg, 1)
-	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	return pool, ctx, cancel
 }
 

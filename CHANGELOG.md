@@ -13,9 +13,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Live semantic compiler with evidence-bound current-or-gap publication, semantic approval, failure tracing, impact analysis, and project-domain exploration.
 - `flowmeter` fixed-corpus performance measurement and fail-closed VS-10 release evidence collection.
 - Executable VS-01 through VS-09 acceptance registries and release capability evaluation.
+- Live project-change awareness (`codeflow live`): promptless project-change mode with durable basis restore, single logical coordinator with stale-head reload and one idempotent retry, canonical `/live` URL, and legacy entry compatibility.
 
 ### Changed
 - Core and the actively changed Dart, TypeScript, and Go adapters now report version 0.4.0.
+- Second `codeflow live` invocation reports the existing coordinator URL and exits instead of blocking.
+
+### Fixed
+- Fixed conflict-retry failures dropping `generation.gap` and `activity.updated` SSE events by publishing measured canonical gaps with snapshot identities.
+- Fixed `ReloadFromDurable` leaving stale in-memory objects and silently clearing the live head; lineage mismatches now surface as errors.
+- Fixed MCP coordinators starting without project-change mode, which broke basis restore and change analysis on the MCP-only path.
+- Fixed project-change candidate selection ignoring actual changed entries when choosing the analysis target.
+- Fixed verified-basis tracking saving the captured snapshot instead of the validated head, which duplicated already-verified changes after restart.
+- Fixed coordinator record handling: claim without evicting an active coordinator, ownership-checked removal on shutdown, and 401/403 treated as alive.
+- Fixed retry failures mislabeling caller input errors as system gaps; pre-recovery state is restored instead.
+- Fixed `initLiveProjectState` holding the project lock across I/O and accepting stale-epoch bundle bases without a lineage check.
+- Fixed Live gap messaging to use spec wording with affected scope, and `/live` always opening project-change UI with hidden query inputs.
 
 ## [v0.3.6] - 2026-09-01
 

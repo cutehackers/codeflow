@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"flag"
 	"fmt"
+	"net/url"
 	"os"
 	"os/signal"
 	"path/filepath"
@@ -56,6 +57,9 @@ Usage:
                               Flags: --port <port>, --token <token>,
                               --release-decisions <sealed-json>
   codeflow serve [path]       alias for 'codeflow view'
+  codeflow live [path]        start Live View project change awareness mode.
+                              Flags: --port <port>, --token <token>,
+                              --release-decisions <sealed-json>
   codeflow mcp [path]         start MCP stdio JSON-RPC server for AI agents.
                               Flags: --release-decisions <sealed-json>
   codeflow doctor [path]      check environment, adapter, and workspace integrity.
@@ -87,6 +91,8 @@ func main() {
 		runShow(args)
 	case "view", "serve":
 		runServe(args)
+	case "live":
+		runLive(args)
 	case "mcp":
 		runMCP(args)
 	case "doctor":
@@ -505,6 +511,7 @@ func runServe(args []string) {
 		Port:                      *portFlag,
 		AuthToken:                 *tokenFlag,
 		ReleaseThresholdDecisions: releaseDecisions,
+		Mode:                      "feature",
 	})
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "start flowview: %v\n", err)
@@ -518,6 +525,76 @@ func runServe(args []string) {
 	signal.Notify(sig, os.Interrupt, syscall.SIGTERM)
 	<-sig
 	_ = srv.Shutdown(context.Background())
+}
+
+func runLive(args []string) {
+	fs := flag.NewFlagSet("live", flag.ContinueOnError)
+	portFlag := fs.Int("port", 4567, "loopback port for Live View (0 for auto)")
+	tokenFlag := fs.String("token", "", "fixed auth token for testing or headless use")
+	releaseDecisionsFlag := fs.String("release-decisions", "", "immutable approved release threshold decision JSON")
+	if err := fs.Parse(reorderFlags(fs, args)); err != nil {
+		os.Exit(2)
+	}
+	posArgs := fs.Args()
+	target := "."
+	if len(posArgs) == 1 {
+		target = posArgs[0]
+	}
+
+	absTarget, err := filepath.Abs(target)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "resolve path: %v\n", err)
+		os.Exit(1)
+	}
+
+	// Single authority: if an active coordinator is already running and
+	// responsive, report its URL and exit. The second process must not block
+	// waiting or imply ownership it does not have; the browser is the
+	// observer, so printing the existing URL is the whole value. To restart
+	// with different flags, stop the running coordinator first.
+	if rec, err := flowview.DiscoverLiveCoordinator(absTarget); err == nil && rec != nil {
+		baseURL := rec.URL
+		if idx := strings.Index(baseURL, "?"); idx != -1 {
+			baseURL = baseURL[:idx]
+		}
+		baseURL = strings.TrimRight(baseURL, "/")
+		liveURL := baseURL + "/live"
+		if rec.Token != "" {
+			liveURL += "?token=" + url.QueryEscape(rec.Token)
+		}
+		fmt.Printf("\n  CodeFlow Live coordinator already watching project at:\n  %s\n\n  Open the URL above in a browser. To restart with different flags, stop the running coordinator first.\n", liveURL)
+		return
+	}
+
+	releaseDecisions := loadReleaseThresholdDecisions(*releaseDecisionsFlag)
+	srv, err := flowview.NewServer(flowview.Config{
+		RepoRoot:                  absTarget,
+		Port:                      *portFlag,
+		AuthToken:                 *tokenFlag,
+		ReleaseThresholdDecisions: releaseDecisions,
+		Mode:                      "project_change",
+	})
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "start live view: %v\n", err)
+		os.Exit(1)
+	}
+	srv.Start()
+
+	liveURL := fmt.Sprintf("http://%s/live?token=%s", srv.Addr(), url.QueryEscape(srv.AuthToken()))
+	env := srv.ProjectEnvSnapshot()
+	fmt.Printf("\n  CodeFlow Live is watching project at:\n  %s\n", liveURL)
+	fmt.Printf("  Detected: language=%s confident=%t workspaceMonorepo=%t adapterResolved=%t\n", env.Language, env.Confident, env.WorkspaceMonorepo, env.AdapterResolved)
+	if !env.AdapterResolved && env.AdapterDetail != "" {
+		fmt.Printf("  Adapter: %s\n", env.AdapterDetail)
+	}
+	fmt.Printf("\n  Press Ctrl+C to stop.\n")
+
+	sig := make(chan os.Signal, 1)
+	signal.Notify(sig, os.Interrupt, syscall.SIGTERM)
+	<-sig
+	shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	_ = srv.Shutdown(shutdownCtx)
 }
 
 func runMCP(args []string) {

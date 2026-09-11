@@ -162,3 +162,112 @@ func TestWatchDetectsChange(t *testing.T) {
 		t.Fatal("timed out waiting for watch change notification")
 	}
 }
+
+func TestNativeWatcherDetectsYamlChange(t *testing.T) {
+	if os.Getenv("CODEFLOW_WATCH_POLL") == "1" {
+		t.Skip("native backend disabled")
+	}
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "codeflow.layers.yaml"), []byte("version: 1\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	changes := make(chan ChangeSet, 4)
+	done := make(chan error, 1)
+	go func() { done <- WatchChanges(ctx, root, 50*time.Millisecond, func(c ChangeSet) { changes <- c }) }()
+	time.Sleep(700 * time.Millisecond)
+	if err := os.WriteFile(filepath.Join(root, "codeflow.layers.yaml"), []byte("version: 2\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case c := <-changes:
+		found := false
+		for _, p := range c.Changed {
+			if p == "codeflow.layers.yaml" {
+				found = true
+			}
+		}
+		if !found {
+			t.Fatalf("native watcher missed yaml edit: %v", c.Changed)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatalf("native watcher did not report the yaml edit")
+	}
+	cancel()
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatalf("watcher did not stop")
+	}
+}
+
+func TestPollFallbackDetectsChangeWhenNativeDisabled(t *testing.T) {
+	t.Setenv("CODEFLOW_WATCH_POLL", "1")
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "main.go"), []byte("package main\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	changes := make(chan ChangeSet, 4)
+	done := make(chan error, 1)
+	go func() { done <- WatchChanges(ctx, root, 50*time.Millisecond, func(c ChangeSet) { changes <- c }) }()
+	time.Sleep(300 * time.Millisecond)
+	if err := os.WriteFile(filepath.Join(root, "main.go"), []byte("package main\nfunc X(){}\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case c := <-changes:
+		if len(c.Changed) == 0 {
+			t.Fatalf("poll fallback reported empty change")
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatalf("poll fallback did not report the edit")
+	}
+	cancel()
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatalf("watcher did not stop")
+	}
+}
+
+func TestNativeWatcherReportsIdentityReconciliation(t *testing.T) {
+	if os.Getenv("CODEFLOW_WATCH_POLL") == "1" {
+		t.Skip("native backend disabled")
+	}
+	root := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(root, ".git"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, ".git", "HEAD"), []byte("ref: refs/heads/main\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "main.go"), []byte("package main\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	signals := make(chan ChangeSet, 4)
+	done := make(chan error, 1)
+	go func() { done <- WatchChanges(ctx, root, 50*time.Millisecond, func(c ChangeSet) { signals <- c }) }()
+	time.Sleep(700 * time.Millisecond)
+	if err := os.WriteFile(filepath.Join(root, ".git", "HEAD"), []byte("ref: refs/heads/feature\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case c := <-signals:
+		if !c.Reconcile || c.Reason != "repository identity changed" {
+			t.Fatalf("branch switch was not a reconciliation signal: %+v", c)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatalf("watcher did not report repository identity reconciliation")
+	}
+	cancel()
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatalf("watcher did not stop")
+	}
+}

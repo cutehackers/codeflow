@@ -105,7 +105,7 @@ func TestMCPApprovalColdHistoryLeavesPendingCommitAndWorkspaceUntouched(t *testi
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, _, err := peer.ApplyVersionedEdit(context.Background(), workspace.EditRequest{Path: "main.go", Content: []byte("package main\nfunc Changed() {}\n"), DocumentVersion: 2, Source: workspace.SourceIDEVersioned}); err != nil {
+	if _, _, err := peer.ApplyVersionedEdit(context.Background(), workspace.EditRequest{Path: "main.go", Content: []byte("package main\nfunc Changed() {}\n"), DocumentVersion: 3, Source: workspace.SourceIDEVersioned}); err != nil {
 		t.Fatal(err)
 	}
 	query("historical")

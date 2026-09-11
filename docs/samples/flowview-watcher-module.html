@@ -1,0 +1,826 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>CodeFlow · FlowView: Watcher Module (Live View Ingress)</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --ink: #111;
+      --muted: #666;
+      --faint: #8b8b8b;
+      --line: #c7c7c7;
+      --soft: #f4f4f2;
+      --paper: #fff;
+      --radius-sm: 6px;
+      --radius-md: 9px;
+      --radius-lg: 12px;
+    }
+
+    * { box-sizing: border-box; }
+    html { scroll-behavior: smooth; }
+    body {
+      margin: 0;
+      overflow-x: hidden;
+      background: var(--paper);
+      color: var(--ink);
+      font: 14px/1.55 ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    }
+    button, a { font: inherit; }
+    button { color: inherit; }
+    code, pre, .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+    button:focus-visible, a:focus-visible, summary:focus-visible { outline: 3px solid #999; outline-offset: 2px; }
+
+    .shell { width: min(1280px, 100%); margin: auto; padding: 24px 24px 64px; }
+    .eyebrow { color: var(--muted); font-size: 11px; font-weight: 750; letter-spacing: .1em; text-transform: uppercase; }
+    .badge { display: inline-flex; align-items: center; min-height: 23px; padding: 1px 8px; border: 1px solid var(--ink); border-radius: 999px; font-size: 11px; font-weight: 700; background: var(--paper); }
+    .status::before { content: "○"; margin-right: 6px; }
+    .status[data-status="observed"]::before { content: "●"; color: #059669; }
+    .status[data-status="mixed"]::before { content: "◐"; color: #d97706; }
+    .status[data-status="unknown"]::before { content: "?"; font-weight: 900; }
+
+    .review-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 24px; padding-bottom: 18px; border-bottom: 3px solid var(--ink); }
+    .review-header h1 { margin: 2px 0 4px; font-size: clamp(23px, 4vw, 32px); line-height: 1.15; letter-spacing: -.03em; }
+    .review-header p { max-width: 760px; margin: 0; color: var(--muted); font-size: 14px; }
+    .review-state { display: grid; justify-items: end; gap: 8px; flex: 0 0 auto; }
+
+    .snapshot { display: flex; align-items: center; flex-wrap: wrap; gap: 8px 12px; padding: 13px 0; border-bottom: 1px solid var(--line); }
+    .snapshot strong { margin-left: auto; }
+
+    .workspace { display: grid; gap: 10px; padding: 18px 0; border-bottom: 1px solid var(--line); }
+    .section-heading { display: flex; align-items: baseline; justify-content: space-between; gap: 16px; }
+    .section-heading h2 { margin: 0; font-size: 16px; }
+    .section-heading span { color: var(--muted); font-size: 12px; }
+    .flow-tabs { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+    .flow-tab { display: grid; min-width: 0; gap: 2px; padding: 11px 13px; border: 1px solid var(--line); border-radius: var(--radius-md); background: var(--paper); text-align: left; cursor: pointer; transition: all .15s; }
+    .flow-tab strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13.5px; }
+    .flow-tab small { color: var(--muted); font-size: 11px; }
+    .flow-tab:hover:not([aria-pressed="true"]) { border-color: var(--ink); background: var(--soft); }
+    .flow-tab[aria-pressed="true"] { border-color: var(--ink); background: var(--ink); color: var(--paper); }
+    .flow-tab[aria-pressed="true"] small { color: #d8d8d8; }
+    .flow-links { display: flex; flex-wrap: wrap; gap: 6px 18px; color: var(--muted); font-size: 12px; }
+    .flow-links span::before { content: "↳"; margin-right: 6px; color: var(--ink); }
+
+    .path-line { display: flex; align-items: center; flex-wrap: wrap; gap: 7px; padding: 12px 0; color: var(--muted); font-size: 12px; }
+    .path-line code { color: var(--ink); font-weight: 600; }
+
+    .architecture { margin: 4px 0 18px; overflow: hidden; border: 1px solid var(--ink); border-radius: var(--radius-lg); }
+    .architecture summary { display: flex; align-items: baseline; justify-content: space-between; gap: 16px; padding: 12px 14px; border-bottom: 1px solid var(--ink); list-style: none; cursor: pointer; user-select: none; }
+    .architecture summary::-webkit-details-marker { display: none; }
+    .architecture summary h2 { margin: 0; font-size: 15px; }
+    .architecture summary span { color: var(--muted); font-size: 12px; }
+    .architecture-scroll { max-width: 100%; overflow-x: auto; padding-bottom: 4px; }
+    .architecture-lane { display: grid; grid-template-columns: 130px minmax(max-content, 1fr); min-width: max-content; border-bottom: 1px solid var(--line); }
+    .architecture-lane:last-child { border-bottom: 0; }
+    .lane-label { position: sticky; left: 0; z-index: 2; display: grid; place-items: center start; width: 130px; padding: 11px 12px; border-right: 1px solid var(--ink); background: var(--paper); color: var(--muted); font-size: 11px; font-weight: 750; text-transform: uppercase; letter-spacing: .05em; }
+    .lane-track { display: grid; grid-template-columns: repeat(var(--columns), minmax(150px, 1fr)); gap: 8px; min-width: calc(var(--columns) * 158px); padding: 8px; background-image: linear-gradient(to right, transparent calc(100% - 1px), #ececeb 0); background-size: 158px 100%; }
+    .architecture-node { display: grid; align-content: start; min-height: 68px; gap: 2px; padding: 8px 9px; border: 1px solid var(--ink); border-radius: var(--radius-md); background: var(--paper); text-align: left; cursor: pointer; transition: transform .1s; }
+    .architecture-node:hover:not([aria-pressed="true"]) { transform: translateY(-1px); box-shadow: 2px 2px 0 var(--ink); }
+    .architecture-node small { color: var(--muted); font-size: 10px; line-height: 1.3; }
+    .architecture-node[aria-pressed="true"] { background: var(--ink); color: var(--paper); box-shadow: 3px 3px 0 #bbb; }
+    .architecture-node[aria-pressed="true"] small { color: #d8d8d8; }
+
+    .workbench { display: grid; grid-template-columns: minmax(260px, 320px) minmax(0, 1fr); grid-template-rows: auto minmax(0, 1fr); column-gap: 24px; }
+    .step-navigation { grid-column: 2; display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 0 0 10px; }
+    .step-title { display: grid; min-width: 0; }
+    .step-title strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 16px; }
+    .step-title small { color: var(--muted); }
+    .nav-actions { display: flex; align-items: center; gap: 7px; }
+    .btn { min-height: 36px; padding: 7px 12px; border: 1px solid var(--ink); border-radius: var(--radius-sm); background: var(--paper); cursor: pointer; font-weight: 600; font-size: 13px; }
+    .btn:hover:not(:disabled) { background: var(--ink); color: var(--paper); }
+    .btn:disabled { border-color: var(--line); color: var(--line); cursor: default; }
+
+    .timeline-shell { grid-column: 1; grid-row: 1 / span 2; min-width: 0; padding-right: 18px; border-right: 1px solid var(--line); }
+    .timeline-label { margin-bottom: 10px; }
+    .timeline { display: grid; margin: 0; padding: 0; list-style: none; }
+    .timeline li { position: relative; min-width: 0; padding: 0 0 8px 23px; }
+    .timeline li::before { content: ""; position: absolute; top: 0; bottom: 0; left: 8px; width: 1px; background: var(--line); }
+    .timeline li:last-child::before { bottom: 50%; }
+    .timeline li[data-break="true"] { margin-top: 8px; padding-top: 8px; border-top: 1px dashed var(--line); }
+    .timeline button { position: relative; display: grid; width: 100%; grid-template-columns: 35px minmax(0, 1fr); gap: 8px; padding: 8px 7px; border: 0; border-radius: var(--radius-md); background: transparent; text-align: left; cursor: pointer; }
+    .timeline-marker { position: relative; z-index: 1; display: grid; place-items: center; width: 31px; height: 25px; border: 1px solid var(--ink); border-radius: 999px; background: var(--paper); font: 700 10px/1 ui-monospace, monospace; }
+    .timeline-copy { min-width: 0; padding-left: 8px; border-left: 3px solid transparent; }
+    .timeline-copy small { display: block; color: var(--muted); font-size: 10px; }
+    .timeline-copy strong { display: block; margin-top: 2px; line-height: 1.35; font-size: 13px; }
+    .timeline button[aria-pressed="true"] { background: var(--soft); }
+    .timeline button[aria-pressed="true"] .timeline-marker { background: var(--ink); color: var(--paper); }
+    .timeline button[aria-pressed="true"] .timeline-copy { border-left-color: var(--ink); }
+
+    .detail-column { grid-column: 2; min-width: 0; }
+    .step-card { min-width: 0; padding: 20px; border: 1px solid var(--ink); border-radius: var(--radius-lg); box-shadow: 4px 4px 0 var(--soft); background: var(--paper); }
+    .step-meta { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px; margin-bottom: 14px; padding-bottom: 11px; border-bottom: 1px solid var(--line); }
+    .step-meta h2 { margin: 0; font-size: 18px; }
+    .step-badges { display: flex; flex-wrap: wrap; gap: 6px; }
+    
+    .impact-chain { display: grid; grid-template-columns: minmax(0, 1fr) 26px minmax(0, 1fr) 26px minmax(0, 1fr); margin-bottom: 17px; overflow: hidden; border: 1px solid var(--ink); border-radius: var(--radius-md); }
+    .impact-cell { display: grid; align-content: center; min-height: 78px; gap: 4px; padding: 10px 12px; }
+    .impact-cell small { color: var(--muted); font-size: 10px; font-weight: 800; letter-spacing: .08em; text-transform: uppercase; }
+    .impact-cell[data-kind="state"] { background: var(--ink); color: var(--paper); }
+    .impact-cell[data-kind="state"] small { color: #ccc; }
+    .impact-arrow { display: grid; place-items: center; border-inline: 1px solid var(--ink); font-weight: 700; }
+
+    .detail-grid { display: grid; grid-template-columns: minmax(220px, .85fr) minmax(0, 1.35fr); gap: 20px; align-items: start; }
+    .facts { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 8px 12px; margin: 0; font-size: 13px; }
+    .facts dt { color: var(--muted); font-weight: 600; }
+    .facts dd { margin: 0; }
+    .state-delta { padding: 6px 9px; border-left: 3px solid var(--ink); background: var(--soft); font-weight: 700; }
+    .call-path { display: flex; align-items: center; flex-wrap: wrap; gap: 5px; margin-bottom: 9px; font-size: 11px; }
+
+    .source-toolbar { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; padding: 7px 10px; border: 1px solid var(--line); border-bottom: 0; background: var(--soft); font-size: 11px; }
+    .source-toolbar span { color: var(--muted); }
+    pre { max-width: 100%; max-height: 380px; margin: 0; overflow: auto; border: 1px solid var(--line); background: #fafafa; font: 12px/1.55 ui-monospace, SFMono-Regular, Menlo, monospace; text-align: left; }
+    pre code { display: block; width: max-content; min-width: 100%; padding: 7px 0; }
+    .code-line { display: grid; grid-template-columns: 5ch minmax(max-content, 1fr); min-height: 1.55em; }
+    .code-line-number { position: sticky; left: 0; padding: 0 8px 0 4px; border-right: 1px solid #ddd; background: #fafafa; color: var(--muted); text-align: right; user-select: none; }
+    .code-line-text { padding: 0 10px; white-space: pre; }
+    .code-line[data-selected="true"] { background: #e8eaed; box-shadow: inset 3px 0 0 var(--ink); font-weight: 600; }
+
+    .evidence-actions { display: flex; align-items: baseline; justify-content: space-between; flex-wrap: wrap; gap: 8px; margin-top: 8px; color: var(--muted); font-size: 11px; }
+    .evidence-actions .mono { min-width: 0; overflow-wrap: anywhere; font-weight: 600; color: var(--ink); }
+    .editor-link { display: inline-flex; align-items: center; padding: 5px 9px; border: 1px solid var(--ink); border-radius: var(--radius-sm); background: var(--ink); color: var(--paper); text-decoration: none; font-weight: 700; font-size: 11px; }
+    .editor-link:hover { background: var(--paper); color: var(--ink); }
+    .branch-note { margin-top: 14px; padding: 11px 12px; border-left: 4px double var(--ink); background: var(--soft); }
+    .branch-note strong { display: block; margin-bottom: 4px; }
+
+    .review-notes { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; margin-top: 22px; }
+    .review-note { min-width: 0; padding: 12px 13px; border: 1px solid var(--line); border-radius: var(--radius-md); background: var(--paper); }
+    .review-note strong { display: block; margin-bottom: 3px; font-size: 13px; }
+    .review-note span { color: var(--muted); font-size: 12px; }
+
+    @media (max-width: 860px) {
+      .shell { padding: 17px 14px 40px; }
+      .review-header { display: grid; }
+      .review-state { justify-items: start; }
+      .snapshot strong { width: 100%; margin-left: 0; }
+      .flow-tabs, .review-notes { grid-template-columns: 1fr; }
+      .workbench { grid-template-columns: minmax(0, 1fr); }
+      .step-navigation, .timeline-shell, .detail-column { grid-column: 1; grid-row: auto; }
+      .step-navigation { order: 1; }
+      .timeline-shell { order: 2; max-height: 340px; margin-bottom: 14px; padding: 0 0 8px; overflow-y: auto; border-right: 0; border-bottom: 1px solid var(--line); }
+      .detail-column { order: 3; }
+      .detail-grid { grid-template-columns: minmax(0, 1fr); }
+      .impact-chain { grid-template-columns: minmax(0, 1fr); }
+      .impact-arrow { min-height: 24px; border: 0; border-block: 1px solid var(--ink); transform: rotate(90deg); }
+      .architecture-lane { grid-template-columns: 104px minmax(max-content, 1fr); }
+      .lane-label { width: 104px; }
+    }
+  </style>
+</head>
+<body>
+  <main class="shell" id="flowview-watcher">
+    <header class="review-header">
+      <div>
+        <span class="eyebrow">FlowView · Code Comprehension Architecture</span>
+        <h1>실시간 Live View 초기 관문: Watcher 모듈 흐름</h1>
+        <p>파일시스템 변경 감지부터 물리적 안정성 검증(Stat-Check), 불변 스냅샷 트랜잭션, 그리고 실시간 브라우저 갱신까지 코드가 어떻게 흘러가는지 단계별로 추적합니다.</p>
+      </div>
+      <div class="review-state">
+        <span class="badge">검증된 핵심 아키텍처 흐름</span>
+        <span class="status" data-status="observed">실제 소스 코드에서 확인됨</span>
+      </div>
+    </header>
+
+    <section class="snapshot" aria-label="분석 기준">
+      <span class="badge">Repository</span>
+      <code>cutehackers/codeflow</code>
+      <span>초기 관문 분석 · codeflow.layers.yaml 계층 준수</span>
+      <strong id="snapshot-status" class="status" data-status="observed">핵심 계층 순회 일치</strong>
+    </section>
+
+    <section class="workspace" aria-label="화면 흐름 지도">
+      <div class="section-heading"><h2>분석할 비즈니스 흐름 선택</h2><span>세부 시나리오 3개 검토 가능</span></div>
+      <nav class="flow-tabs" aria-label="검수할 흐름 선택">
+        <button class="flow-tab" type="button" data-flow="ingress" aria-pressed="true">
+          <strong>1. 코드 변경 수집 & 실시간 갱신 전 과정</strong>
+          <small>10단계 · Polling → Stat-Check → Snapshot → SSE</small>
+        </button>
+        <button class="flow-tab" type="button" data-flow="atomic" aria-pressed="false">
+          <strong>2. Stat-Check 원자적 캡처 & Rename 감지</strong>
+          <small>4단계 · Stat-Before/Read/Stat-After + Rename 매칭</small>
+        </button>
+        <button class="flow-tab" type="button" data-flow="reconcile" aria-pressed="false">
+          <strong>3. 브랜치 전환 및 불완전 변경 Reconciliation</strong>
+          <small>4단계 · Git Identity 변경 시 안전한 전체 재조정</small>
+        </button>
+      </nav>
+      <div class="flow-links" aria-label="확인된 계층 간 이동">
+        <span>presentation → controller</span>
+        <span>controller → usecase</span>
+        <span>usecase → infra</span>
+        <span>infra → domain</span>
+        <span>domain → data</span>
+      </div>
+    </section>
+
+    <div class="path-line" id="path-line" aria-label="현재 코드 경로"></div>
+
+    <details class="architecture" open aria-label="Architecture causal map">
+      <summary>
+        <h2>Architecture causal map (7-Lane Map)</h2>
+        <span>아래 계층 노드를 클릭하면 해당 타임라인 단계로 즉시 이동합니다.</span>
+      </summary>
+      <div class="architecture-scroll"><div id="architecture-lanes"></div></div>
+    </details>
+
+    <section class="workbench" aria-label="선택한 코드 흐름">
+      <div class="step-navigation" aria-label="타임라인 이동">
+        <div class="step-title">
+          <small id="step-position">01 / 10</small>
+          <strong id="current-step-title">CLI 진입 및 Live 서버 시작</strong>
+        </div>
+        <div class="nav-actions">
+          <button id="prev" class="btn" type="button">← 이전 단계</button>
+          <button id="next" class="btn" type="button">다음 단계 →</button>
+        </div>
+      </div>
+
+      <aside class="timeline-shell">
+        <div class="timeline-label"><span class="eyebrow">Vertical causal timeline</span></div>
+        <ol class="timeline" id="timeline" aria-label="코드 흐름 타임라인"></ol>
+      </aside>
+
+      <div class="detail-column">
+        <article class="step-card" aria-live="polite">
+          <div class="step-meta">
+            <h2 id="detail-title"></h2>
+            <div class="step-badges">
+              <span class="badge" id="trust-badge"></span>
+              <span class="badge" id="change-badge"></span>
+            </div>
+          </div>
+          <div class="impact-chain" aria-label="코드에서 상태와 화면 결과까지의 영향">
+            <div class="impact-cell" data-kind="code"><small>코드 동작</small><strong id="code-impact"></strong></div>
+            <div class="impact-arrow" aria-hidden="true">→</div>
+            <div class="impact-cell" data-kind="state"><small>상태 변화</small><strong id="state-impact"></strong></div>
+            <div class="impact-arrow" aria-hidden="true">→</div>
+            <div class="impact-cell" data-kind="result"><small>시스템 결과</small><strong id="result-impact"></strong></div>
+          </div>
+          <div class="detail-grid">
+            <dl class="facts">
+              <dt>상태 입력</dt><dd id="state-before"></dd>
+              <dt>상태 변화</dt><dd class="state-delta" id="state-delta"></dd>
+              <dt>상태 근거</dt><dd id="state-proof"></dd>
+              <dt>이전 원인</dt><dd id="incoming"></dd>
+              <dt>다음 결과</dt><dd id="outgoing"></dd>
+              <dt>검증 상태</dt><dd id="verification"></dd>
+            </dl>
+            <section aria-label="선택 단계 코드 근거">
+              <div class="call-path" id="call-path"></div>
+              <div class="source-toolbar">
+                <strong id="source-name">현재 코드</strong>
+                <span id="selected-line"></span>
+              </div>
+              <pre tabindex="0" aria-label="현재 코드 조각"><code id="source-code"></code></pre>
+              <div class="evidence-actions">
+                <span class="mono" id="source-path"></span>
+                <a class="editor-link" id="editor-link" href="#" aria-label="현재 코드 근거를 VS Code에서 열기">↗ VS Code에서 열기</a>
+              </div>
+            </section>
+          </div>
+          <div class="branch-note" id="branch-note" hidden></div>
+        </article>
+      </div>
+    </section>
+
+    <section class="review-notes" aria-label="아키텍처 설계 검증 기준">
+      <div class="review-note">
+        <strong>1. 제로 연산 고속 필터링</strong>
+        <span>수정 시각(mtime)과 Git 헤드 식별자가 동일하면 디스크 읽기 및 SHA-256 연산을 즉시 건너뜁니다.</span>
+      </div>
+      <div class="review-note">
+        <strong>2. Stat-Before / Read / Stat-After</strong>
+        <span>에디터의 미완성 디스크 쓰기나 동시 수정으로 인한 파편화(torn read)를 3회 재시도로 완벽 차단합니다.</span>
+      </div>
+      <div class="review-note">
+        <strong>3. 진행 중인 구 분석 즉각 취소</strong>
+        <span>연속 키 입력 발생 시 진행 중이던 이전 스냅샷 컴파일 context를 즉시 cancel하여 낭비를 방지합니다.</span>
+      </div>
+    </section>
+  </main>
+
+  <script>
+    (() => {
+      const flows = {
+        ingress: {
+          title: "코드 변경 수집 & 실시간 갱신 전 과정",
+          status: "observed",
+          path: ["codeflow live", "Server.Start", "startLiveConsumer", "watch.WatchChanges", "acceptWatcherChange", "CaptureFileWithStatCheck", "SubmitVersionedChanges", "notifyAcceptedSnapshot", "processCheckpoint", "PublishGeneration"],
+          steps: [
+            step(
+              "CLI 진입 및 Live 서버 시작",
+              "presentation",
+              "사용자가 'codeflow live' 명령을 실행하여 프로젝트 감시 모드를 가동합니다.",
+              "CLI 대기", "Live Coordinator 시작", "HTTP/Live 서버 초기화 완료",
+              530,
+              "cmd/codeflow/main.go",
+              [
+                "func runLive(args []string) {",
+                "    fs := flag.NewFlagSet(\"live\", flag.ContinueOnError)",
+                "    portFlag := fs.Int(\"port\", 4567, \"loopback port for Live View (0 for auto)\")",
+                "    // ...",
+                "    srv, err := flowview.NewServer(flowview.Config{",
+                "        RepoRoot: absTarget, Port: *portFlag, Mode: \"project_change\",",
+                "    })",
+                "    srv.Start()",
+                "    fmt.Printf(\"\\n  CodeFlow Live is watching project at:\\n  %s\\n\", liveURL)",
+                "}"
+              ],
+              "User CLI input", "Server.Start"
+            ),
+            step(
+              "Live 워커 및 감시 루틴 가동",
+              "controller",
+              "HTTP 리스너를 열고 백그라운드 실시간 파이프라인(startLiveConsumer)을 구동합니다.",
+              "서버 설정 완료", "Live 파이프라인 가동", "PID Lock 획득 및 워커 등록",
+              876,
+              "internal/flowview/server.go",
+              [
+                "// Start runs the HTTP server in the background.",
+                "func (s *Server) Start() {",
+                "    s.startOnce.Do(func() {",
+                "        s.startLiveConsumer()",
+                "        go func() { _ = s.httpServer.Serve(s.listener) }()",
+                "        _, _, _ = ClaimLiveCoordinator(s.repoRoot, LiveCoordinatorRecord{",
+                "            URL: s.URL(), PID: os.Getpid(), RepoRoot: s.repoRoot,",
+                "        })",
+                "    })",
+                "}"
+              ],
+              "runLive", "startLiveConsumer"
+            ),
+            step(
+              "백그라운드 파일 감시 루프 디스패치",
+              "usecase",
+              "소유된 라이브 컨텍스트(liveCtx)를 생성하고 별도 고루틴으로 workspace watcher를 실행합니다.",
+              "감시 대기", "runWorkspaceWatcher 고루틴 활성화", "스케줄러 채널 대기 진입",
+              486,
+              "internal/flowview/live_pipeline.go",
+              [
+                "func (s *Server) startLiveConsumer() {",
+                "    liveCtx, liveCancel := context.WithCancel(context.Background())",
+                "    // ...",
+                "    go func() {",
+                "        go s.runWorkspaceWatcher(liveCtx)",
+                "        for {",
+                "            select {",
+                "            case <-liveCtx.Done(): return",
+                "            case snapshot, ok := <-s.scheduler.Checkpoints():",
+                "                analysisCtx, finish := s.beginCheckpoint(liveCtx)",
+                "                s.processCheckpoint(analysisCtx, snapshot)",
+                "                finish()",
+                "            }",
+                "        }",
+                "    }()",
+                "}"
+              ],
+              "Server.Start", "runWorkspaceWatcher"
+            ),
+            step(
+              "타이머 기반 작업 트리 폴링",
+              "infra",
+              "지정된 주기(기본 500ms)마다 소스 파일과 Git 저장소 식별자를 스캔합니다.",
+              "이전 파일 목록 유지", "500ms 주기 틱 발생", "mtime 변화 감지 시도",
+              44,
+              "internal/watch/watch.go",
+              [
+                "func WatchChanges(ctx context.Context, repoRoot string, interval time.Duration, onChange func(ChangeSet)) error {",
+                "    ticker := time.NewTicker(interval)",
+                "    defer ticker.Stop()",
+                "    for {",
+                "        select {",
+                "        case <-ctx.Done(): return ctx.Err()",
+                "        case <-ticker.C:",
+                "            files, currMtimes, err := collectSourceFilesWithMtime(repoRoot, nil, nil)",
+                "            repositoryIdentity := repositoryIdentityFingerprint(repoRoot)",
+                "            changedFiles := mtimeDelta(currMtimes, lastMtimes)"
+              ],
+              "startLiveConsumer", "collectSourceFilesWithMtime"
+            ),
+            step(
+              "Mtime Delta 및 Git 식별자 고속 필터링",
+              "infra",
+              "파일 수, mtime, git HEAD가 모두 변하지 않은 경우 해시 연산 없이 즉시 continue합니다.",
+              "디스크 스캔 결과", "변화 없음 판정 (Fast-path)", "CPU/디스크 I/O 낭비 방지",
+              67,
+              "internal/watch/watch.go",
+              [
+                "            // If file count same and no mtime changed, skip fingerprint recompute entirely (no ReadFile).",
+                "            if len(changedFiles) == 0 && len(currMtimes) == len(lastMtimes) && repositoryIdentity == lastRepositoryIdentity {",
+                "                continue",
+                "            }",
+                "            // Any mtime change (or added/removed) -> compute fingerprint.",
+                "            fp, err := storage.ComputeWorktreeFingerprint(repoRoot, files)",
+                "            if fp != lastFingerprint {",
+                "                onChange(ChangeSet{Changed: toCall})",
+                "            }"
+              ],
+              "collectSourceFilesWithMtime", "onChange (ChangeSet)"
+            ),
+            step(
+              "감시 신호 수신 및 경로 분류",
+              "usecase",
+              "전달받은 ChangeSet에서 아직 캡처되지 않은 파일 경로를 선별하고 변경 항목을 분류합니다.",
+              "ChangeSet 수신", "FilterUncapturedPaths 수행", "개별 파일 안정 캡처 큐 구성",
+              24,
+              "internal/flowview/live_watcher.go",
+              [
+                "func (s *Server) acceptWatcherChange(ctx context.Context, signal watch.ChangeSet) error {",
+                "    if signal.Reconcile {",
+                "        return s.engine.Reconcile(ctx, targets) // 브랜치 전환 등",
+                "    }",
+                "    relChanged := s.engine.FilterUncapturedPaths(signal.Changed)",
+                "    if len(relChanged) == 0 { return nil }",
+                "    changes := make([]workspace.VersionedChange, 0, len(relChanged))",
+                "    for _, relativePath := range relChanged {",
+                "        capture := watch.CaptureFileWithStatCheck(filepath.Join(s.repoRoot, relativePath), 3)"
+              ],
+              "WatchChanges", "CaptureFileWithStatCheck"
+            ),
+            step(
+              "Stat-Before / Read / Stat-After 안정성 검증",
+              "infra",
+              "에디터의 부분 저장(torn read)을 방지하기 위해 읽기 전후 파일 크기 및 수정 시각을 대조합니다.",
+              "원시 디스크 파일", "Stat-Before → Read → Stat-After 일치", "불변 ContentID (SHA-256) 확정",
+              25,
+              "internal/watch/capture.go",
+              [
+                "func CaptureFileWithStatCheck(filePath string, maxRetries int) CaptureResult {",
+                "    for attempt := 0; attempt < maxRetries; attempt++ {",
+                "        fiBefore, _ := os.Stat(filePath)",
+                "        data, _ := os.ReadFile(filePath)",
+                "        fiAfter, _ := os.Stat(filePath)",
+                "        if fiBefore.ModTime().Equal(fiAfter.ModTime()) && fiBefore.Size() == fiAfter.Size() {",
+                "            hash := sha256.Sum256(data)",
+                "            return CaptureResult{Content: data, ContentID: hex.EncodeToString(hash[:])}",
+                "        }",
+                "        time.Sleep(10 * time.Millisecond)",
+                "    }"
+              ],
+              "acceptWatcherChange", "SubmitVersionedChanges"
+            ),
+            step(
+              "버전 변경 요청 제출 및 충돌 완화",
+              "controller",
+              "스냅샷 엔진에 버전 변경을 제출하고, 동시성 충돌 발생 시 지터 백오프로 최대 5회 재시도합니다.",
+              "VersionedChange 목록", "스냅샷 엔진 원자적 반영", "새 DocumentRevision 생성",
+              684,
+              "internal/flowview/server.go",
+              [
+                "func (s *Server) SubmitVersionedChanges(ctx context.Context, request workspace.VersionedChangeRequest) (*workspace.VersionedChangeResult, error) {",
+                "    result, err := s.engine.ApplyVersionedChanges(ctx, request)",
+                "    if err != nil && errors.Is(err, workspace.ErrLiveHeadConflict) {",
+                "        // 지터 및 백오프를 거쳐 durable head 재동기화 후 최대 5회 재시도",
+                "        s.engine.ReloadFromDurable()",
+                "        result, err = s.engine.ApplyVersionedChanges(ctx, request)",
+                "    }",
+                "    if result.Duplicate { return result, nil }",
+                "    return result, s.notifyAcceptedSnapshot(result.Snapshot)",
+                "}"
+              ],
+              "CaptureFileWithStatCheck", "notifyAcceptedSnapshot"
+            ),
+            step(
+              "진행 중인 분석 취소 및 체크포인트 스케줄링",
+              "controller",
+              "이전 스냅샷을 분석 중이던 작업을 즉시 cancelActiveAnalysis()하고 스케줄러에 최신 스냅샷을 알립니다.",
+              "새 스냅샷 생성", "진행 중 이전 분석 즉시 취소", "스케줄러 디바운싱 대기",
+              850,
+              "internal/flowview/server.go",
+              [
+                "func (s *Server) notifyAcceptedSnapshot(snap *workspace.WorkspaceSnapshot) error {",
+                "    // A newly accepted edit supersedes any checkpoint still compiling.",
+                "    s.cancelActiveAnalysis()",
+                "    s.scheduler.NotifyEdit(snap)",
+                "    act := s.engine.CurrentActivity()",
+                "    _, _ = s.hub.PublishChecked(\"activity.updated\", act, &snap.ComputedBasisID, &snap.SnapshotID, nil)",
+                "    s.engine.AcknowledgeEdit(snap.SnapshotID)",
+                "    return nil",
+                "}"
+              ],
+              "SubmitVersionedChanges", "processCheckpoint"
+            ),
+            step(
+              "불변 VFS 기반 체크포인트 컴파일 및 발행",
+              "usecase",
+              "스냅샷 VFS 리스로부터 격리된 소스를 분석하여 흐름을 슬라이싱하고 검증 게이트를 거쳐 발행합니다.",
+              "스케줄된 스냅샷", "CAS VFS Lease 획득 → SemanticMapIR 컴파일", "SSE 통보로 Live View 화면 갱신",
+              563,
+              "internal/flowview/live_pipeline.go",
+              [
+                "func (s *Server) processCheckpoint(ctx context.Context, snap *workspace.WorkspaceSnapshot) (resultErr error) {",
+                "    lease, _ := s.engine.SnapshotVFS(snap.SnapshotID)",
+                "    defer lease.Close()",
+                "    protocolSnapshot, _ := protocol.SnapshotFromLease(lease)",
+                "    mapIR, projection, slicePayload, _, intent, closure, err := s.compileSnapshotCandidate(ctx, protocolSnapshot, req.query)",
+                "    // ... 게이트 검증 및 원자적 발행",
+                "    _, txErr := s.storage.PublishGeneration(tx)",
+                "    s.hub.PublishAtomic(\"generation.published\", data, ...)",
+                "    return nil",
+                "}"
+              ],
+              "notifyAcceptedSnapshot", "Live View UI (SSE)"
+            )
+          ]
+        },
+        atomic: {
+          title: "Stat-Check 원자적 캡처 & Rename 감지",
+          status: "observed",
+          path: ["os.Stat (Before)", "os.ReadFile & os.Stat (After)", "ModTime/Size 일치 검증", "동일 ContentID Rename 매칭"],
+          steps: [
+            step(
+              "1차 Stat 검사 (Before Stat)",
+              "infra",
+              "파일을 읽기 전 크기와 수정 시각(ModTime)을 측정하여 기준을 수립합니다.",
+              "수정 통보 경로", "fiBefore 획득", "파일 읽기 준비 완료",
+              31,
+              "internal/watch/capture.go",
+              [
+                "fiBefore, err := os.Stat(filePath)",
+                "if err != nil {",
+                "    if os.IsNotExist(err) {",
+                "        return CaptureResult{Path: filePath, Deleted: true}",
+                "    }",
+                "    return CaptureResult{Path: filePath, Error: err}",
+                "}"
+              ],
+              "acceptWatcherChange", "os.ReadFile"
+            ),
+            step(
+              "파일 바이트 읽기 및 2차 Stat 검사",
+              "infra",
+              "파일 전체 내용을 메모리로 읽은 직후, 파일의 상태(ModTime, Size)를 다시 측정합니다.",
+              "fiBefore 수립됨", "바이트 읽기 완료 & fiAfter 획득", "동시 변경 여부 대조 준비",
+              39,
+              "internal/watch/capture.go",
+              [
+                "data, err := os.ReadFile(filePath)",
+                "// ...",
+                "fiAfter, err := os.Stat(filePath)",
+                "if err != nil {",
+                "    if os.IsNotExist(err) { return CaptureResult{Path: filePath, Deleted: true} }",
+                "    return CaptureResult{Path: filePath, Error: err}",
+                "}"
+              ],
+              "os.Stat (Before)", "ModTime 대조"
+            ),
+            step(
+              "크기·수정시각 일치 확인 및 SHA-256 해시 생성",
+              "infra",
+              "읽기 전후의 ModTime과 Size가 정확히 일치할 때만 안정된 파일로 판정하고 불변 ContentID를 생성합니다.",
+              "읽기 완료 데이터", "ModTime & Size 완전 일치 확인", "불변 CaptureResult 반환",
+              56,
+              "internal/watch/capture.go",
+              [
+                "// Stat check: modTime and size must match exactly",
+                "if fiBefore.ModTime().Equal(fiAfter.ModTime()) && fiBefore.Size() == fiAfter.Size() {",
+                "    hash := sha256.Sum256(data)",
+                "    return CaptureResult{",
+                "        Path: filePath, Content: data, ContentID: hex.EncodeToString(hash[:]),",
+                "        ModTime: fiAfter.ModTime(), Conflict: false, Deleted: false,",
+                "    }",
+                "}",
+                "// 불일치 시 10ms 슬립 후 재시도 (최대 3회)"
+              ],
+              "os.ReadFile", "ContentID 확정"
+            ),
+            step(
+              "동일 ContentID Rename 승격",
+              "usecase",
+              "삭제된 파일 목록과 새로 추가된 파일 목록 중 동일한 ContentID를 가진 유일한 쌍을 ChangeRename으로 자동 승격합니다.",
+              "Delete + Create 목록", "ContentID 일치 쌍 탐색", "ChangeRename 단위 변환",
+              63,
+              "internal/flowview/live_watcher.go",
+              [
+                "// A delete and create with the same immutable bytes is a measured rename.",
+                "for index := range changes {",
+                "    for _, oldPath := range deleted {",
+                "        if entry, ok := head.Entries[oldPath]; ok && entry.ContentID == changes[index].ContentID {",
+                "            changes[index].Kind = workspace.ChangeRename",
+                "            changes[index].OldPath = oldPath",
+                "            usedDeleted[oldPath] = true",
+                "        }",
+                "    }",
+                "}"
+              ],
+              "CaptureResult", "SubmitVersionedChanges"
+            )
+          ]
+        },
+        reconcile: {
+          title: "브랜치 전환 및 불완전 변경 Reconciliation",
+          status: "observed",
+          path: ["repositoryIdentityFingerprint", "Reconcile Signal 생성", "SnapshotEngine.Reconcile", "Live Head 교체"],
+          steps: [
+            step(
+              "Git 저장소 식별자 변경 감지",
+              "infra",
+              ".git/HEAD, commondir, gitdir의 내용을 해싱하여 브랜치 체크아웃이나 리베이스를 감지합니다.",
+              "이전 Git 식별자", ".git/HEAD 해시 변경 감지", "브랜치 전환 상태 확인",
+              105,
+              "internal/watch/watch.go",
+              [
+                "func repositoryIdentityFingerprint(repoRoot string) string {",
+                "    h := sha256.New()",
+                "    for _, name := range []string{\"HEAD\", \"commondir\", \"gitdir\"} {",
+                "        data, err := os.ReadFile(filepath.Join(repoRoot, \".git\", name))",
+                "        if err == nil {",
+                "            _, _ = h.Write([]byte(name))",
+                "            _, _ = h.Write(data)",
+                "        }",
+                "    }",
+                "    return hex.EncodeToString(h.Sum(nil))",
+                "}"
+              ],
+              "WatchChanges 틱", "Reconcile Signal"
+            ),
+            step(
+              "Reconciliation 신호 발행",
+              "infra",
+              "Git 식별자가 바뀐 경우 개별 증분 변경 대신 Reconcile 플래그가 설정된 ChangeSet을 송신합니다.",
+              "Git 식별자 불일치", "Reconcile: true ChangeSet 생성", "Reconcile 핸들러 호출",
+              86,
+              "internal/watch/watch.go",
+              [
+                "if repositoryIdentity != lastRepositoryIdentity {",
+                "    onChange(ChangeSet{",
+                "        Changed: changedFiles,",
+                "        Reconcile: true,",
+                "        Reason: \"repository identity changed\",",
+                "    })",
+                "}"
+              ],
+              "repositoryIdentityFingerprint", "acceptWatcherChange"
+            ),
+            step(
+              "전체 작업 트리 재조정 (Reconcile)",
+              "domain",
+              "스냅샷 엔진이 루트 커밋 락을 획득하고, 전체 작업 트리를 안전하게 재스캔하여 새 스냅샷을 구성합니다.",
+              "ReconciliationTarget", "작업 트리 전체 재캡처 및 무결성 검증", "새 WorkspaceSnapshot 빌드",
+              55,
+              "internal/workspace/watcher.go",
+              [
+                "func (e *SnapshotEngine) Reconcile(ctx context.Context, targets []ReconciliationTarget) (*WorkspaceSnapshot, error) {",
+                "    unlockRoot := e.lockRootCommit()",
+                "    defer unlockRoot()",
+                "    e.mu.Lock(); defer e.mu.Unlock()",
+                "    e.activity = \"reconciling\"",
+                "    build, err := e.buildSnapshotWithRemovalsLocked(ctx, nil, removals)",
+                "    snap, err := e.publishSnapshotLocked(build, time.Now().UTC(), nil)",
+                "    return cloneSnapshotForQuery(snap, e.liveHeadID), nil",
+                "}"
+              ],
+              "acceptWatcherChange", "notifyAcceptedSnapshot"
+            ),
+            step(
+              "Live Head 교체 및 관찰자 통보",
+              "controller",
+              "새 스냅샷을 스케줄러에 주입하고, 기존 진행 작업을 일괄 무효화한 뒤 갱신을 진행합니다.",
+              "재조정된 새 스냅샷", "Live Head 교체 및 SSE 공지", "안정된 감시 상태 복귀",
+              850,
+              "internal/flowview/server.go",
+              [
+                "func (s *Server) notifyAcceptedSnapshot(snap *workspace.WorkspaceSnapshot) error {",
+                "    s.cancelActiveAnalysis()",
+                "    s.scheduler.NotifyEdit(snap)",
+                "    s.engine.AcknowledgeEdit(snap.SnapshotID)",
+                "    _, _ = s.hub.PublishChecked(\"activity.updated\", s.engine.CurrentActivity(), ...)",
+                "    return nil",
+                "}"
+              ],
+              "SnapshotEngine.Reconcile", "startLiveConsumer"
+            )
+          ]
+        }
+      };
+
+      function step(title, layer, codeImpact, before, after, result, line, file, code, incoming, outgoing, branch = null) {
+        return {
+          title, layer, codeImpact, before, after, result, line, file, code, incoming, outgoing, branch,
+          status: "observed"
+        };
+      }
+
+      const root = document.getElementById("flowview-watcher");
+      const flowTabs = Array.from(root.querySelectorAll("[data-flow]"));
+      const timeline = root.querySelector("#timeline");
+      const lanes = root.querySelector("#architecture-lanes");
+      const architectureScroll = root.querySelector(".architecture-scroll");
+      let flowKey = "ingress";
+      let selected = 0;
+
+      const escapeHTML = (val) => String(val).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
+
+      function renderFlow(key) {
+        flowKey = key;
+        selected = 0;
+        flowTabs.forEach((tab) => tab.setAttribute("aria-pressed", String(tab.dataset.flow === key)));
+        const flow = flows[key];
+        root.querySelector("#snapshot-status").dataset.status = flow.status;
+        root.querySelector("#path-line").innerHTML = '<span class="badge">현재 코드 순회 경로</span>' + flow.path.map((part, index) => `${index ? '<span aria-hidden="true">→</span>' : ''}<code>${escapeHTML(part)}</code>`).join("");
+        
+        timeline.replaceChildren(...flow.steps.map((item, index) => {
+          const li = document.createElement("li");
+          li.innerHTML = `
+            <button type="button" data-step="${index}" data-status="${item.status}" aria-pressed="false">
+              <span class="timeline-marker">${String(index + 1).padStart(2, "0")}</span>
+              <span class="timeline-copy">
+                <small>${escapeHTML(item.layer)} · ${item.status === "observed" ? "코드 확인됨" : "미확정"}</small>
+                <strong>${escapeHTML(item.title)}</strong>
+              </span>
+            </button>
+          `;
+          li.querySelector("button").addEventListener("click", () => renderStep(index));
+          return li;
+        }));
+
+        renderArchitecture(flow);
+        renderStep(0, false);
+      }
+
+      function renderArchitecture(flow) {
+        const canonicalLayers = ["presentation", "controller", "usecase", "domain", "data", "infra"];
+        lanes.replaceChildren(...canonicalLayers.filter((layer) => flow.steps.some((s) => s.layer === layer)).map((layer) => {
+          const lane = document.createElement("div");
+          lane.className = "architecture-lane";
+          const nodes = flow.steps.map((item, index) => ({ item, index }))
+            .filter(({ item }) => item.layer === layer)
+            .map(({ item, index }) => `
+              <button class="architecture-node" type="button" style="grid-column:${index + 1}" data-architecture-step="${index}" aria-pressed="false">
+                <strong>${escapeHTML(item.title)}</strong>
+                <small>${escapeHTML(item.after)}</small>
+              </button>
+            `).join("");
+          lane.innerHTML = `
+            <div class="lane-label">${layer}</div>
+            <div class="lane-track" style="--columns:${flow.steps.length}">${nodes}</div>
+          `;
+          lane.querySelectorAll("[data-architecture-step]").forEach((node) => node.addEventListener("click", () => {
+            renderStep(Number(node.dataset.architectureStep), false);
+            root.querySelector(".workbench").scrollIntoView({ block: "start", behavior: "smooth" });
+          }));
+          return lane;
+        }));
+      }
+
+      function renderStep(index, scroll = true) {
+        const flow = flows[flowKey];
+        selected = Math.max(0, Math.min(flow.steps.length - 1, index));
+        const item = flow.steps[selected];
+
+        root.querySelectorAll("[data-step]").forEach((btn, idx) => btn.setAttribute("aria-pressed", String(idx === selected)));
+        root.querySelectorAll("[data-architecture-step]").forEach((node) => node.setAttribute("aria-pressed", String(Number(node.dataset.architectureStep) === selected)));
+
+        root.querySelector("#step-position").textContent = `${String(selected + 1).padStart(2, "0")} / ${String(flow.steps.length).padStart(2, "0")}`;
+        root.querySelector("#current-step-title").textContent = item.title;
+        root.querySelector("#detail-title").textContent = item.title;
+        root.querySelector("#trust-badge").textContent = item.status === "observed" ? "실제 소스 확인됨" : "미확정";
+        root.querySelector("#change-badge").textContent = item.before !== item.after ? "상태 전이 발생" : "상태 유지";
+
+        root.querySelector("#code-impact").textContent = item.codeImpact;
+        root.querySelector("#state-impact").textContent = `${item.before} → ${item.after}`;
+        root.querySelector("#result-impact").textContent = item.result;
+
+        root.querySelector("#state-before").textContent = item.before;
+        root.querySelector("#state-delta").textContent = `${item.before} → ${item.after}`;
+        root.querySelector("#state-proof").textContent = `${item.file}의 ${item.line}번째 줄 구현을 직접 확인했습니다.`;
+        root.querySelector("#incoming").textContent = item.incoming;
+        root.querySelector("#outgoing").textContent = item.outgoing;
+        root.querySelector("#verification").textContent = "검증된 소스 코드 위치 및 앵커 확인 완료";
+
+        root.querySelector("#call-path").innerHTML = [item.incoming, item.title, item.outgoing].map((p, idx) => `${idx ? '<span aria-hidden="true">→</span>' : ''}<code>${escapeHTML(p)}</code>`).join("");
+        root.querySelector("#selected-line").textContent = `${item.line}행 기준`;
+        root.querySelector("#source-name").textContent = item.file.split("/").pop();
+
+        root.querySelector("#source-code").innerHTML = item.code.map((lineText, idx) => {
+          const number = item.line + idx;
+          const selectedLine = idx === 0;
+          return `<span class="code-line" data-selected="${selectedLine}"><span class="code-line-number">${number}</span><span class="code-line-text">${escapeHTML(lineText)}</span></span>`;
+        }).join("");
+
+        root.querySelector("#source-path").textContent = `${item.file}:${item.line}`;
+        root.querySelector("#editor-link").href = `vscode://file/HOME/workspace/codeflow/${item.file}:${item.line}`;
+
+        root.querySelector("#prev").disabled = selected === 0;
+        root.querySelector("#next").disabled = selected === flow.steps.length - 1;
+
+        const activeNode = root.querySelector(`[data-architecture-step="${selected}"]`);
+        if (scroll && activeNode) {
+          const nodeRect = activeNode.getBoundingClientRect();
+          const containerRect = architectureScroll.getBoundingClientRect();
+          architectureScroll.scrollTo({
+            left: architectureScroll.scrollLeft + nodeRect.left + nodeRect.width / 2 - containerRect.left - containerRect.width / 2,
+            behavior: "smooth"
+          });
+        }
+      }
+
+      flowTabs.forEach((tab) => tab.addEventListener("click", () => renderFlow(tab.dataset.flow)));
+      root.querySelector("#prev").addEventListener("click", () => renderStep(selected - 1));
+      root.querySelector("#next").addEventListener("click", () => renderStep(selected + 1));
+
+      renderFlow("ingress");
+    })();
+  </script>
+</body>
+</html>

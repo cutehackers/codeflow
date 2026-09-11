@@ -62,6 +62,8 @@ func (s *Server) getLiveCoordinator(absTarget string) (*flowview.Server, error) 
 	server, err := flowview.NewServer(flowview.Config{
 		RepoRoot:                   absTarget,
 		Port:                       0,
+		Mode:                       "project_change",
+		LivePrototype:              true,
 		ProposalStore:              proposalStore,
 		RuntimeObservationProvider: s.cfg.RuntimeObservationProvider,
 		RuntimeObservationStore:    s.cfg.RuntimeObservationStore,

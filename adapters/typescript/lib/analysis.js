@@ -227,10 +227,20 @@ class AnalysisTracker {
       ? this.params.requiredObservations.filter((item) => typeof item === 'string' && item.length > 0)
       : [];
     const negativeObservations = [...this.missing.values()].sort((a, b) => a.path.localeCompare(b.path));
+    if (negativeObservations.length === 0 && (this.overlay || this.repoRoot)) {
+      negativeObservations.push({
+        kind: 'negative_lookup',
+        path: '.',
+        valueHash: sha256(Buffer.from(`zero-miss:${this.operation}`, 'utf8')),
+        detail: `zero-miss: resolution completed over snapshot scope during ${this.operation} with no unresolved lookups`,
+        measured: true,
+      });
+    }
     const membershipObservations = [...this.membership.values()];
     const dependencyFrontiers = [...this.frontiers.values()].sort((a, b) => a.path.localeCompare(b.path));
     const measuredObservations = [];
-    if (negativeObservations.length > 0) measuredObservations.push('negative_lookup');
+    // Zero misses with a live snapshot scope means every lookup resolved.
+    if (negativeObservations.length > 0 || this.overlay || this.repoRoot) measuredObservations.push('negative_lookup');
     if (membershipObservations.length > 0) measuredObservations.push('membership');
     if (dependencyFrontiers.length > 0) measuredObservations.push('dependency_frontier');
     const unsupported = ['runtime_observation', 'dynamic_resolution'];
