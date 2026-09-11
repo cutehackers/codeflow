@@ -287,7 +287,7 @@ $codeflow 코드 변경 감지 시간과 최신 분석 결과를 표시하는 �
 | 기능·review·impact·debug·incident 질의 | `query_task_view` |
 | 최신 current answer 확인 | `get_current_answer` |
 | live 분석 진행상태 확인 | `get_workspace_activity` |
-| versioned edit 제출 | `submit_versioned_edit` |
+| versioned edit 제출 (선택 fast-path, live 실행 중 디스크 저장만으로 충분) | `submit_versioned_edit` |
 | current Generation Proof 확인 | `get_generation_proof` |
 | latest-vs-verified gap 확인 | `get_verified_gap` |
 | generation 간 의미 변화 비교 | `get_semantic_delta` |

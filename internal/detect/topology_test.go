@@ -70,7 +70,7 @@ func TestDetectArchitecturePattern_NextAppRouter(t *testing.T) {
 			name:        "next dependency with app directory",
 			directories: []string{"app/login", "app/api/auth", "components"},
 			files: map[string]string{
-				"package.json": `{"name":"next-app","dependencies":{"next":"14.2.0","react":"18.2.0"}}`,
+				"package.json":   `{"name":"next-app","dependencies":{"next":"14.2.0","react":"18.2.0"}}`,
 				"app/layout.tsx": "export default function Layout() {}",
 				"app/page.tsx":   "export default function Page() {}",
 			},
@@ -79,8 +79,8 @@ func TestDetectArchitecturePattern_NextAppRouter(t *testing.T) {
 			name:        "next.config.mjs with src/app",
 			directories: []string{"src/app", "src/components"},
 			files: map[string]string{
-				"package.json":    `{"name":"next-app-src"}`,
-				"next.config.mjs": "export default {}",
+				"package.json":     `{"name":"next-app-src"}`,
+				"next.config.mjs":  "export default {}",
 				"src/app/page.tsx": "export default function Page() {}",
 			},
 		},

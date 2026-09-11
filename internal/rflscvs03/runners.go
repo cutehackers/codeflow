@@ -1933,6 +1933,7 @@ func RunA17(t *testing.T) Evidence {
 // repository identity transition as reconciliation.
 func RunA18(t *testing.T) Evidence {
 	t.Helper()
+	t.Setenv("CODEFLOW_WATCH_DEBOUNCE_MS", "10")
 	root := t.TempDir()
 	original := []byte("package service\nfunc Submit() {}\n")
 	if err := os.WriteFile(filepath.Join(root, "service.go"), original, 0o644); err != nil {

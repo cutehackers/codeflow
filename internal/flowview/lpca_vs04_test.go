@@ -215,4 +215,3 @@ func TestLPCA_VS04_A06_StreamRecoverySync(t *testing.T) {
 		t.Fatalf("reconnection stream did not emit snapshot_sync")
 	}
 }
-

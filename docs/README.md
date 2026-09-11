@@ -11,6 +11,7 @@
 - [Contracts](contracts/)
 - [Validation runbooks](validation/)
 - [Versioning and release protocol](VERSIONING.md)
+- [Go coding standards](guides/CODING_STANDARDS.md)
 
 ## Categories
 

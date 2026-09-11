@@ -538,7 +538,7 @@ func CapabilityEvidenceFromVersionInfo(adapter string, info VersionInfo, conform
 		ProtocolVersion: info.ProtocolVersion, Cancellation: info.Capabilities.Cancellation,
 		Progress: info.Capabilities.Progress, BatchAck: info.Capabilities.BatchAck,
 		SnapshotOverlay: info.Capabilities.SnapshotOverlay, AnalysisMetadata: info.Capabilities.AnalysisMetadata,
-		FlowContext: info.Capabilities.FlowContext,
+		FlowContext:     info.Capabilities.FlowContext,
 		MaxMessageBytes: info.Capabilities.MaxMessageBytes, ConformancePassed: conformancePassed,
 	}
 }

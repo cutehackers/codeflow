@@ -11,6 +11,7 @@ import (
 )
 
 func TestCoordinatorWatcherFallbackCapturesDirectFilesystemChange(t *testing.T) {
+	t.Setenv("CODEFLOW_WATCH_DEBOUNCE_MS", "25")
 	root := t.TempDir()
 	path := filepath.Join(root, "main.go")
 	if err := os.WriteFile(path, []byte("package main\nconst Value = 1\n"), 0o644); err != nil {

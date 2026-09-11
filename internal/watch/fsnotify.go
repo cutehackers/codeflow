@@ -5,15 +5,21 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
 	"github.com/fsnotify/fsnotify"
 )
 
-// nativeDebounce coalesces bursts of filesystem events (save storms, editor
-// atomic renames) into one ChangeSet per quiet window.
-const nativeDebounce = 300 * time.Millisecond
+// defaultNativeDebounce is the quiet window that coalesces bursts of
+// filesystem events (save storms, editor atomic renames) into one ChangeSet.
+// CODEFLOW_WATCH_DEBOUNCE_MS overrides it in milliseconds for tests and slow
+// filesystems; unset or invalid values keep the default.
+const defaultNativeDebounce = 1 * time.Second
+
+// nativeDebounceInterval resolves the debounce once per watcher lifetime so
+// the per-event path stays allocation-free and race-safe.
 
 var ignoredDirNames = map[string]bool{
 	"node_modules": true,
@@ -28,6 +34,15 @@ var ignoredDirNames = map[string]bool{
 // CODEFLOW_WATCH_POLL=1 forces the polling fallback (tests, exotic filesystems).
 func nativeAvailable() bool {
 	return os.Getenv("CODEFLOW_WATCH_POLL") != "1"
+}
+
+func nativeDebounceInterval() time.Duration {
+	if raw := strings.TrimSpace(os.Getenv("CODEFLOW_WATCH_DEBOUNCE_MS")); raw != "" {
+		if ms, err := strconv.Atoi(raw); err == nil && ms > 0 {
+			return time.Duration(ms) * time.Millisecond
+		}
+	}
+	return defaultNativeDebounce
 }
 
 // watchNative serves WatchChanges from OS filesystem notifications with the
@@ -51,11 +66,12 @@ func watchNative(ctx context.Context, repoRoot string, onChange func(ChangeSet))
 	lastRepositoryIdentity := repositoryIdentityFingerprint(repoRoot)
 	pending := make(map[string]struct{})
 	identityDirty := false
+	debounce := nativeDebounceInterval()
 	var timer *time.Timer
 	var timerCh <-chan time.Time
 	arm := func() {
 		if timer == nil {
-			timer = time.NewTimer(nativeDebounce)
+			timer = time.NewTimer(debounce)
 		} else {
 			if !timer.Stop() {
 				select {
@@ -63,7 +79,7 @@ func watchNative(ctx context.Context, repoRoot string, onChange func(ChangeSet))
 				default:
 				}
 			}
-			timer.Reset(nativeDebounce)
+			timer.Reset(debounce)
 		}
 		timerCh = timer.C
 	}

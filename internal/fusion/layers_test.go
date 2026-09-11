@@ -117,43 +117,55 @@ func TestLoadLayersConfig_DefaultAndInvalid(t *testing.T) {
 func TestValidateLayerOrder_StrictAndBranchException(t *testing.T) {
 	cfg := defaultLayersConfig() // strict true
 	// Valid monotonic
-	steps := []struct{Layer string; Kind string}{
+	steps := []struct {
+		Layer string
+		Kind  string
+	}{
 		{"presentation", "call"},
 		{"controller", "call"},
 		{"usecase", "mutation"},
 		{"data", "call"},
 	}
-	if _, err := ValidateLayerOrder(steps, []string{"presentation","controller","usecase","data"}, cfg); err != nil {
+	if _, err := ValidateLayerOrder(steps, []string{"presentation", "controller", "usecase", "data"}, cfg); err != nil {
 		t.Errorf("valid order should not error: %v", err)
 	}
 	// Backward without branch → error when strict
-	steps2 := []struct{Layer string; Kind string}{
+	steps2 := []struct {
+		Layer string
+		Kind  string
+	}{
 		{"presentation", "call"},
 		{"data", "call"},
 		{"controller", "call"},
 	}
-	if _, err := ValidateLayerOrder(steps2, []string{"presentation","controller","usecase","data"}, cfg); err == nil {
+	if _, err := ValidateLayerOrder(steps2, []string{"presentation", "controller", "usecase", "data"}, cfg); err == nil {
 		t.Errorf("backward should error in strict mode")
 	}
 	// Backward with branch → allowed
-	steps3 := []struct{Layer string; Kind string}{
+	steps3 := []struct {
+		Layer string
+		Kind  string
+	}{
 		{"presentation", "call"},
 		{"data", "call"},
 		{"controller", "branch"},
 	}
-	if _, err := ValidateLayerOrder(steps3, []string{"presentation","controller","usecase","data"}, cfg); err != nil {
+	if _, err := ValidateLayerOrder(steps3, []string{"presentation", "controller", "usecase", "data"}, cfg); err != nil {
 		t.Errorf("branch backward should be allowed: %v", err)
 	}
 	// Non-strict → warning not error
 	cfg2 := defaultLayersConfig()
 	cfg2.StrictOrder = false
-	if warnings, err := ValidateLayerOrder(steps2, []string{"presentation","controller","usecase","data"}, cfg2); err != nil {
+	if warnings, err := ValidateLayerOrder(steps2, []string{"presentation", "controller", "usecase", "data"}, cfg2); err != nil {
 		t.Errorf("non-strict should not error: %v", err)
 	} else if len(warnings) == 0 {
 		t.Errorf("non-strict should produce warning")
 	}
 	// Inferred order (no declared) → never errors, just inferred
-	steps4 := []struct{Layer string; Kind string}{
+	steps4 := []struct {
+		Layer string
+		Kind  string
+	}{
 		{"controller", "call"},
 		{"presentation", "call"},
 	}
@@ -226,9 +238,9 @@ layers:
 }
 
 func TestMatchDoublestar(t *testing.T) {
-	cases := []struct{
+	cases := []struct {
 		path, pat string
-		want bool
+		want      bool
 	}{
 		{"lib/presentation/page.dart", "**/presentation/**", true},
 		{"lib/features/auth/presentation/join_page.dart", "**/presentation/**", true},
@@ -257,8 +269,8 @@ func TestLayerIndexAndSorted(t *testing.T) {
 	if LayerIndex("unknown") != 99 {
 		t.Errorf("unknown index")
 	}
-	sorted := SortedLayers([]string{"data","presentation","usecase"})
-	want := []string{"presentation","usecase","data"}
+	sorted := SortedLayers([]string{"data", "presentation", "usecase"})
+	want := []string{"presentation", "usecase", "data"}
 	for i, w := range want {
 		if sorted[i] != w {
 			t.Errorf("sorted[%d]=%q want %q", i, sorted[i], w)
@@ -468,4 +480,3 @@ func TestValidateLayerOrder_SPAFlow(t *testing.T) {
 		t.Errorf("expected 0 warnings on valid SPA flow, got: %v", warnings)
 	}
 }
-

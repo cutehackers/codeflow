@@ -27,7 +27,8 @@ type ChangeSet struct {
 // When the fingerprint changes, onChange is called with the current file list. Blocks until ctx cancelled.
 //
 // Optimization: maintains lastMtimes map and lastFingerprint to avoid ReadFile+sha256 when no mtime
-// changed. Polling defaults to 500ms if interval <=0. First tick establishes baseline without callback.
+// changed. Polling defaults to 2s if interval <=0, matching the downstream
+// coalescing quiet window so detection never outpaces the scheduler.
 func Watch(ctx context.Context, repoRoot string, interval time.Duration, onChange func(changed []string)) error {
 	return WatchChanges(ctx, repoRoot, interval, func(change ChangeSet) {
 		if onChange != nil {
@@ -50,7 +51,7 @@ func WatchChanges(ctx context.Context, repoRoot string, interval time.Duration, 
 
 func watchPoll(ctx context.Context, repoRoot string, interval time.Duration, onChange func(ChangeSet)) error {
 	if interval <= 0 {
-		interval = 500 * time.Millisecond
+		interval = 2 * time.Second
 	}
 	var lastFingerprint string
 	var lastRepositoryIdentity string

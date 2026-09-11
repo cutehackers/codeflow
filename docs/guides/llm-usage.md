@@ -119,16 +119,16 @@ harvest_flows 또는 analyze_flow
 
 ```text
 query_task_view(feature)
-→ 실제 코드 수정
-→ submit_versioned_edit(변경된 각 파일)
+→ 실제 코드 수정 (디스크가 진실, 이것으로 충분)
+→ [선택] submit_versioned_edit(더 빠른 반영이 필요할 때만)
 → get_workspace_activity
 → get_current_answer
 → get_generation_proof 또는 get_verified_gap
 ```
 
-`submit_versioned_edit`에는 저장소 상대 경로, 수정 후 파일 전체 내용, 증가한 `documentVersion`과 변경 출처를 전달한다. 이 호출은 semantic snapshot에 변경을 제출하며 실제 파일 수정을 대신하지 않는다.
+Live 코디네이터가 실행 중이면 디스크 저장이 감시자로 자동 전달되므로, 파일을 수정하는 것만으로 Live 갱신이 시작된다. `submit_versioned_edit`은 0ms fast-path 힌트이며 필수가 아니다. 직접 전달하는 경우 저장소 상대 경로, 수정 후 파일 전체 내용, 증가한 `documentVersion`과 변경 출처를 전달한다. 이 호출은 semantic snapshot에 변경을 제출하며 실제 파일 수정을 대신하지 않는다.
 
-현재 일반 편집기의 파일 저장은 자동으로 Live Compiler에 전달되지 않는다. AI 에이전트, IDE 연동 또는 watcher 연동이 `submit_versioned_edit`를 호출해야 한다. 버전 충돌이 발생하면 반환된 현재 버전보다 1 큰 값으로 같은 내용을 한 번 재시도한다.
+해당 저장소에 Live 코디네이터가 실행 중이면 일반 편집기의 파일 저장도 감시자(`watcher_fallback`)로 자동 전달된다. Live 코디네이터가 없을 때만 AI 에이전트, IDE 연동이 `submit_versioned_edit`를 직접 호출해야 한다. 버전 충돌이 발생하면 반환된 현재 버전보다 1 큰 값으로 같은 내용을 한 번 재시도한다.
 
 상태 확인은 다음 순서를 따른다.
 

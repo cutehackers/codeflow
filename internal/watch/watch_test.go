@@ -271,3 +271,28 @@ func TestNativeWatcherReportsIdentityReconciliation(t *testing.T) {
 		t.Fatalf("watcher did not stop")
 	}
 }
+
+func TestNativeDebounceInterval(t *testing.T) {
+	cases := []struct {
+		name  string
+		value string
+		set   bool
+		want  time.Duration
+	}{
+		{name: "default", set: false, want: time.Second},
+		{name: "override", value: "25", set: true, want: 25 * time.Millisecond},
+		{name: "blank keeps default", value: "  ", set: true, want: time.Second},
+		{name: "invalid keeps default", value: "fast", set: true, want: time.Second},
+		{name: "non-positive keeps default", value: "0", set: true, want: time.Second},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if tc.set {
+				t.Setenv("CODEFLOW_WATCH_DEBOUNCE_MS", tc.value)
+			}
+			if got := nativeDebounceInterval(); got != tc.want {
+				t.Fatalf("nativeDebounceInterval() = %v, want %v", got, tc.want)
+			}
+		})
+	}
+}

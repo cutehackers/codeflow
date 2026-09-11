@@ -54,6 +54,7 @@ Do not commit CodeGraph databases, CodeFlow runtime state, dependency caches, bu
 
 - Text files committed by this repository use LF line endings.
 - Go files use tabs as produced by `gofmt`; other source and configuration files default to two-space indentation.
+- For Go engineering conventions and architectural standards, see [Go Coding Standards](CODING_STANDARDS.md).
 - `.brv`, `.codeflow`, editor state, dependencies, generated bundles, coverage, logs, and secrets are local-only.
 - `codeflow.yaml` is not globally ignored because the product contract treats it as tracked project configuration.
 - Dart `pubspec.lock` is not globally ignored. Its tracking policy will be chosen according to whether the created Dart package is an application or a reusable package.

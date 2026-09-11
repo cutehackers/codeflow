@@ -133,6 +133,7 @@ func waitForVerifiedBasis(t *testing.T, srv *Server, timeout time.Duration) stri
 }
 
 func TestEmpirical_BurstEdits_CoalescingAndLatestBasis(t *testing.T) {
+	t.Setenv("CODEFLOW_WATCH_DEBOUNCE_MS", "25")
 	root := t.TempDir()
 	_ = os.WriteFile(filepath.Join(root, "go.mod"), []byte("module example.com/burst\n\ngo 1.22\n"), 0o644)
 	_ = os.MkdirAll(filepath.Join(root, "service"), 0o755)
@@ -273,6 +274,7 @@ func Greeting() string {
 }
 
 func TestEmpirical_BurstEdits_ConcurrentMultiProducerStress(t *testing.T) {
+	t.Setenv("CODEFLOW_WATCH_DEBOUNCE_MS", "25")
 	root := t.TempDir()
 	createSampleProject(t, root)
 
@@ -350,6 +352,7 @@ func TestEmpirical_BurstEdits_ConcurrentMultiProducerStress(t *testing.T) {
 // -----------------------------------------------------------------------------
 
 func TestEmpirical_NonEntrypointEdits_EndToEndLatency(t *testing.T) {
+	t.Setenv("CODEFLOW_WATCH_DEBOUNCE_MS", "25")
 	root := t.TempDir()
 	_ = os.WriteFile(filepath.Join(root, "go.mod"), []byte("module example.com/nonentry\n\ngo 1.22\n"), 0o644)
 	_ = os.MkdirAll(filepath.Join(root, "service"), 0o755)
@@ -537,6 +540,7 @@ func Format(s string) string {
 // -----------------------------------------------------------------------------
 
 func TestEmpirical_SyntaxError_GracefulDegradationAndRecovery(t *testing.T) {
+	t.Setenv("CODEFLOW_WATCH_DEBOUNCE_MS", "25")
 	root := t.TempDir()
 	_ = os.WriteFile(filepath.Join(root, "go.mod"), []byte("module example.com/syntax\n\ngo 1.22\n"), 0o644)
 	_ = os.MkdirAll(filepath.Join(root, "service"), 0o755)
