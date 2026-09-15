@@ -1,7 +1,6 @@
 package flowview
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"net/http"
@@ -156,11 +155,11 @@ func TestLPCA_VS06_A05_ViewServeAliasesServeStaticFlowView(t *testing.T) {
 		t.Fatal("/live must serve the 7-lane FlowView in project_change mode")
 	}
 
-	// 3. /?live=1 serves LiveViewHTML
+	// 3. /?live=1 also serves FlowViewHTML
 	reqLiveAlias := httptest.NewRequest("GET", "/?token="+srv.AuthToken()+"&live=1", nil)
 	recLiveAlias := httptest.NewRecorder()
 	srv.handleIndex(recLiveAlias, reqLiveAlias)
-	if !bytes.Contains(recLiveAlias.Body.Bytes(), []byte(`data-view="live-semantic-map"`)) {
-		t.Fatal("/?live=1 must serve LiveViewHTML")
+	if !strings.Contains(recLiveAlias.Body.String(), "CODEFLOW · FLOWVIEW") {
+		t.Fatal("/?live=1 must serve FlowViewHTML")
 	}
 }

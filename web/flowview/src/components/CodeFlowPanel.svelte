@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { flowStore, LAYER_LABELS, EDGE_LABELS } from '../stores/flowStore.svelte';
+  import { flowStore, GATEWAY_ROLES, LAYER_LABELS, EDGE_LABELS } from '../stores/flowStore.svelte';
   import type { Step, FlowContext, DisplayedLine } from '../types/flow';
 
   const steps = $derived(flowStore.steps);
@@ -7,6 +7,11 @@
   const compare = $derived(flowStore.compare);
   const expandedSet = $derived(flowStore.expanded);
   const matchingStepIds = $derived(flowStore.matchingStepIds);
+  const deltaChanges = $derived(flowStore.data?.semanticDelta?.changes || []);
+
+  function getDelta(stepId: string) {
+    return deltaChanges.find(c => c.targetStepId === stepId);
+  }
 
   function getContext(step: Step, isBaseline = false): FlowContext | null {
     const data = isBaseline ? flowStore.baseline : flowStore.data;
@@ -29,6 +34,8 @@
 
   function handleSelect(stepId: string) {
     flowStore.select(stepId);
+    const storyEl = document.querySelector(`[data-story-step="${stepId}"]`);
+    storyEl?.scrollIntoView({ behavior: 'smooth', inline: 'center' });
   }
 </script>
 
@@ -36,16 +43,19 @@
   {#if !steps.length}
     <p class="empty">이 요청에서 확인된 처리 단계가 없습니다.</p>
   {:else}
-    {#each steps as step (step.stepId)}
+    {#each steps as step, index (step.stepId)}
       {@const isSelected = selectedStepId === step.stepId}
       {@const isExpanded = expandedSet.has(step.stepId)}
       {@const currContext = getContext(step, false)}
       {@const baseContext = compare ? getContext(step, true) : null}
       {@const currLines = getDisplayedLines(currContext, isExpanded)}
       {@const baseLines = getDisplayedLines(baseContext, isExpanded)}
-      {@const layerLabel = LAYER_LABELS[step.layer] || step.layer || '계층 미확인'}
+      {@const roleName = GATEWAY_ROLES[step.layer] || LAYER_LABELS[step.layer] || step.layer.toUpperCase()}
       {@const path = currContext?.canonicalPath || step.anchor?.repoRelativePath || ''}
       {@const rels = getStepRelations(step)}
+      {@const delta = getDelta(step.stepId)}
+      {@const isSurgery = delta?.kind === 'added_behavior' || delta?.kind === 'changed_rule'}
+      {@const desc = step.description || (step.branch ? `조건 · ${step.branch}` : (step.sideEffect || '다음 구현 연결 및 계층 처리'))}
 
       <article
         class="code-card"
@@ -55,12 +65,26 @@
         data-card={step.stepId}
       >
         <header class="card-head">
-          <span class="card-ordinal">{String(step.ordinal || 1).padStart(2, '0')}</span>
-          <div>
-            <h3>{step.name}</h3>
+          <div class="card-head-top">
+            <span class="card-frame-badge">FRAME {String(step.ordinal || index + 1).padStart(2, '0')} · {roleName}</span>
+            {#if isSurgery}
+              <span class="surgery-badge">⚡ ACTIVE SURGERY</span>
+            {/if}
+            {#if delta}
+              {#if delta.kind === 'changed_rule'}
+                <span class="delta-tag mod">~ RULE CHG</span>
+              {:else if delta.kind === 'added_behavior'}
+                <span class="delta-tag add">+ NEW SURGERY</span>
+              {:else if delta.kind === 'removed_behavior'}
+                <span class="delta-tag del">- REMOVED</span>
+              {/if}
+            {/if}
+          </div>
+          <div class="card-head-body">
+            <h3>{#if isSurgery}⚡ {/if}{step.name}</h3>
+            <p class="card-narrative">{desc}</p>
             <div class="path">{path} · {step.technicalName || step.anchor?.enclosingSymbolPath || ''}</div>
           </div>
-          <span class="tag">{layerLabel}</span>
         </header>
 
         {#if compare && baseContext}
@@ -148,34 +172,76 @@
     box-shadow: inset 4px 0 #171717;
   }
   .card-head {
-    padding: 12px 15px;
+    padding: 12px 16px;
     border-bottom: 1px solid #ddd;
     display: flex;
-    align-items: start;
-    gap: 10px;
+    flex-direction: column;
+    gap: 6px;
   }
-  .card-ordinal {
-    font: 11px/1.8 ui-monospace, monospace;
-    color: #666;
-    min-width: 20px;
+  .card-head-top {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
   }
-  .card-head h3 {
-    font-size: 13px;
-    font-weight: 650;
-    margin: 0;
+  .card-frame-badge {
+    font-family: ui-monospace, monospace;
+    font-size: 9.5px;
+    font-weight: 800;
+    color: #444;
+    background: #eee;
+    padding: 2px 7px;
+    border-radius: 4px;
+    letter-spacing: .3px;
+  }
+  .surgery-badge {
+    font-family: ui-monospace, monospace;
+    font-size: 9px;
+    font-weight: 900;
+    background: #171717;
+    color: #fff;
+    padding: 2px 7px;
+    border-radius: 999px;
+    letter-spacing: .4px;
+  }
+  .delta-tag {
+    font-size: 8.5px;
+    font-weight: 800;
+    padding: 1.5px 6px;
+    border-radius: 3px;
+    white-space: nowrap;
+  }
+  .delta-tag.mod {
+    background: #ffffff;
+    color: #171717;
+    border: 1px solid #171717;
+  }
+  .delta-tag.add {
+    background: #171717;
+    color: #ffffff;
+    border: 1px solid #171717;
+  }
+  .delta-tag.del {
+    background: #ffe3e3;
+    color: #c92a2a;
+    border: 1px solid #ffa8a8;
+  }
+  .card-head-body h3 {
+    font-size: 13.5px;
+    font-weight: 750;
+    margin: 3px 0 2px;
+    color: #171717;
+  }
+  .card-narrative {
+    font-size: 11px;
+    color: #555;
+    margin: 2px 0 4px;
+    line-height: 1.45;
   }
   .card-head .path {
     font: 10px/1.8 ui-monospace, monospace;
-    color: #666;
+    color: #777;
     overflow-wrap: anywhere;
-  }
-  .tag {
-    margin-left: auto;
-    font-size: 10px;
-    border: 1px solid #ccc;
-    padding: 2px 6px;
-    border-radius: 4px;
-    white-space: nowrap;
   }
   .source {
     margin: 0;

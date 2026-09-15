@@ -8,14 +8,14 @@
 | Content-Addressable Storage | Immutable typed-object storage in which content identity determines the object reference and durable roots determine its lifecycle. It is an infrastructure adapter, not semantic authority. | 콘텐츠 주소 기반 저장소 |
 | Live Project Change Analysis | Historical project-change mode retained for compatibility. The current product direction is request-driven FlowView. | 기존 실시간 프로젝트 변경 분석 |
 
-`Requested Flow` remains the domain term for the execution flow selected by a user's intent. It is not part of the product name.
+Storyboard는 사용자가 이해하려는 코드 동작을 장면 단위로 표현하는 FlowView의 기본 화면 모델이다. architecture는 장면을 구성하는 기준이 아니라, 관측된 경우에만 보조 정보로 표시한다.
 
 ## Core Semantic Terms
 
 | Term | Operational Definition | Scope | Source | Status | Related Contract |
 |---|---|---|---|---|---|
 | Task Intent | 불변 `rawRequest`, 정규화된 목적·결과·수용 조건·scope hint와 `parsed`, `needs_confirmation`, `user_confirmed` lifecycle을 가진 versioned 사용자 의도다. 구현 완료 상태와 분리한다. | task-scoped query와 requirement alignment | Raw §3.1, §10.1, D29 | Confirmed | `docs/design/specs/2026-09-02-requested-flow-live-semantic-compiler-ko.md` |
-| Requested Flow | Task Intent가 선택한 entry부터 decision, state, external effect, failure와 result까지의 핵심 실행 흐름이다. | feature, review, impact, debug, incident, onboarding | Raw §3.2, §8 | Confirmed | `docs/design/specs/2026-09-02-requested-flow-live-semantic-compiler-ko.md` |
+| Storyboard | 사용자가 이해하려는 코드 동작을 시작, 판단, 처리, 외부 효과, 결과 또는 분석 경계 장면으로 묶어 보여 주는 FlowView 기본 projection이다. 장면은 함수·파일·architecture와 일대일 대응하지 않는다. | FlowView 기본 화면 | 사용자 지시 2026-09-15 | Confirmed | `docs/design/specs/2026-09-14-flowview-code-comprehension-ko.md` |
 | Exact Step Evidence | 선택한 flow step을 실행하는 statement node임을 같은 snapshot에서 adapter가 검증한 byte range다. enclosing callback, condition, builder, function 또는 class 전체 범위는 이 Evidence가 아니다. 정확한 statement를 구별할 수 없으면 `unavailable` 또는 `unknown`이다. | Semantic Map code view | D37 | Confirmed | `docs/design/specs/2026-09-02-requested-flow-live-semantic-compiler-ko.md` |
 | Flow Context | Exact Step Evidence, 존재할 때 이를 감싸는 condition·callback·builder, enclosing callable signature와 직접 predecessor/successor 또는 call relation을 함께 보여 주는 코드 이해용 projection이다. 직접 enclosing 구조가 없으면 그 부재를 표시한다. 전체 callable 또는 file은 명시적 확장으로만 연다. | Semantic Map code view | D37 | Confirmed | `docs/design/specs/2026-09-02-requested-flow-live-semantic-compiler-ko.md` |
 | Workspace Epoch | 서로 current로 비교·재사용할 수 있는 repository와 worktree lineage를 식별하는 0 이상의 durable integer다. 같은 lineage에서 단조 증가하고 branch, worktree 또는 incompatible configuration/toolchain 전환 시 새 값이 필요하다. snapshot, generation, event, document sequence와 별개다. | 모든 canonical snapshot, analysis, map, proof, pointer와 event boundary | D33, user decision 2026-09-04 | Confirmed | `docs/design/specs/2026-09-02-requested-flow-live-semantic-compiler-ko.md` |

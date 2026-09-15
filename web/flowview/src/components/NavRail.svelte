@@ -1,39 +1,45 @@
 <script lang="ts">
-  import { flowStore, LAYER_LABELS } from '../stores/flowStore.svelte';
+  import { flowStore, GATEWAY_ROLES, LAYER_LABELS } from '../stores/flowStore.svelte';
 
   const steps = $derived(flowStore.steps);
   const selectedStepId = $derived(flowStore.selectedStepId);
+  const deltaChanges = $derived(flowStore.data?.semanticDelta?.changes || []);
 
   function handleSelect(stepId: string) {
     flowStore.select(stepId);
     const targetEl = document.querySelector(`[data-card="${stepId}"], [data-process="${stepId}"]`);
     targetEl?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    const storyEl = document.querySelector(`[data-story-step="${stepId}"]`);
+    storyEl?.scrollIntoView({ behavior: 'smooth', inline: 'center' });
   }
 </script>
 
-<nav class="rail" aria-label="흐름의 처리 단계">
-  <h2>처리 순서</h2>
+<nav class="rail" aria-label="스토리보드 관문 실행 타임라인">
+  <h2>실행 타임라인 (STORYBOARD)</h2>
   <div id="step-nav">
-    {#each steps as step (step.stepId)}
+    {#each steps as step, index (step.stepId)}
       {@const isSelected = selectedStepId === step.stepId}
-      {@const layerLabel = LAYER_LABELS[step.layer] || step.layer || '계층 미확인'}
+      {@const roleName = GATEWAY_ROLES[step.layer] || LAYER_LABELS[step.layer] || step.layer.toUpperCase()}
+      {@const delta = deltaChanges.find(c => c.targetStepId === step.stepId)}
+      {@const isSurgery = delta?.kind === 'added_behavior' || delta?.kind === 'changed_rule'}
       <button
         type="button"
         class="step-link"
+        class:is-surgery={isSurgery}
         data-select={step.stepId}
         aria-pressed={isSelected}
         onclick={() => handleSelect(step.stepId)}
       >
-        <span class="idx">{String(step.ordinal || 1).padStart(2, '0')}</span>
+        <span class="idx">FRAME {String(step.ordinal || index + 1).padStart(2, '0')}</span>
         <span>
-          <strong>{step.name}</strong>
-          <small>{layerLabel}</small>
+          <strong>{#if isSurgery}⚡ {/if}{step.name}</strong>
+          <small>{roleName}</small>
         </span>
       </button>
     {/each}
   </div>
   <p class="rail-note">
-    단계를 선택하면 중앙의 같은 단계로 이동합니다.<br><br>
+    스토리보드 관문을 선택하면 중앙의 해당 코드 위치로 이동합니다.<br><br>
     연결은 분석에서 확인한 관계만 표시합니다.
   </p>
 </nav>

@@ -1,7 +1,8 @@
 # FlowView Svelte 파이프라인 및 MCP 연동 복구 스펙
 
 - Contract ID: `FLOWVIEW-SVELTE-PIPELINE-MCP`
-- Contract Status: Approved
+- Contract Status: Superseded
+- Superseded By: `docs/design/specs/2026-09-14-flowview-code-comprehension-ko.md`
 - Created: 2026-09-14
 - Intent Status: Hardened
 - Source: 사용자 요청 ("Now i get it. this cause in the process of improving frontend to svelt. 그럼 이 문제를 해결하기 위한 slices들을 바로 작성하라.")

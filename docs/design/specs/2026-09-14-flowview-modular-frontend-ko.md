@@ -1,7 +1,8 @@
 # FlowView 모듈형 프론트엔드 아키텍처 스펙
 
 - Contract ID: `FLOWVIEW-MODULAR-FRONTEND`
-- Contract Status: Approved
+- Contract Status: Superseded
+- Superseded By: `docs/design/specs/2026-09-14-flowview-code-comprehension-ko.md`
 - Created: 2026-09-14
 - Intent Status: Hardened
 - Source: 사용자 요청 ("FlowView는 완전 live-semantic-map-prototype.html 으로 탈피하는 것이다", "하드코드된 화면을 더 이상 사용하지 않고 reusable하고 모듈화된 유지보수 관리 가능한 형태의 화면을 작성하려는 계획")

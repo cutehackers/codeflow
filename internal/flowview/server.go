@@ -1049,20 +1049,10 @@ func (s *Server) handleIndex(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	s.projectMu.RLock()
-	mode := s.projectMode
-	prototype := s.livePrototype
 	svelte := s.svelteUI
 	s.projectMu.RUnlock()
 	if svelte || r.URL.Query().Get("ui") == "svelte" {
 		_, _ = w.Write([]byte(SvelteFlowViewHTML))
-		return
-	}
-	if r.URL.Path == "/live" && mode == "project_change" && !prototype {
-		_, _ = w.Write([]byte(FlowViewHTML))
-		return
-	}
-	if r.URL.Path == "/live" || r.URL.Query().Get("live") == "1" {
-		_, _ = w.Write([]byte(LiveViewHTML))
 		return
 	}
 	_, _ = w.Write([]byte(FlowViewHTML))

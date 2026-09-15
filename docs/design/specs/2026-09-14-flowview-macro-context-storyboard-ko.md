@@ -1,9 +1,11 @@
 # FlowView Macro Context Storyboard 비즈니스 관문 시퀀스 스펙
 
 - Contract ID: `FLOWVIEW-MACRO-CONTEXT-STORYBOARD`
-- Contract Status: Approved
+- Contract Status: Superseded
+- Superseded By: `docs/design/specs/2026-09-14-flowview-code-comprehension-ko.md`
 - Created: 2026-09-14
 - Intent Status: Hardened
+- Retirement Note: 고정 5개 관문 역할과 Live 변경 배지를 전제로 하므로 더 이상 구현 기준이 아니다. 현재 디자인 요소의 보존 요구는 후속 정본 계약에 통합됐다.
 - Source: 사용자 요청 ("우리가 과거에 architecture map으로 보여줬던걸 ' Macro Context Storyboard' 으로 보여주려하는데 너느 ㄴ아직까지 아키텍쳐 모듈들을 그대로 보여주고 있는데 이건 아니올시다. 올바른 흐름의 예는 Screenshot 2026-09-14 at 6.30.35 PM.png 이런 이미지라고 볼 수 있겠다. /codify 스팩으로 먼저 구현내용을 고정하라.")
 - Decision Records: [`docs/design/decisions/2026-09-14-flowview-macro-context-storyboard-ko.md`](../decisions/2026-09-14-flowview-macro-context-storyboard-ko.md)
 - Glossary: [`docs/design/glossary.md`](../glossary.md)

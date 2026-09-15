@@ -17,7 +17,6 @@ Operate the installed CodeFlow MCP using the smallest workflow that satisfies th
 ## Route the User Request
 
 - When the user asks how an existing feature works or wants to see its code path, read [references/static-flowview.md](references/static-flowview.md).
-- When the user requests a Live Semantic View or Live Semantic Map, wants the explanation to follow ongoing code edits, or asks whether the latest result is current, read [references/live-semantic-map.md](references/live-semantic-map.md).
 - When the user asks what changed, what is affected, why something failed, whether requirements are met, whether an explanation should be approved, how an unfamiliar project is organized, or whether a release is ready, read [references/semantic-operations.md](references/semantic-operations.md).
 
 Read only the references required by the request. Do not start the live edit loop for a static flow request or load specialized semantic operations for ordinary flow visualization.

@@ -67,4 +67,34 @@ describe('FlowStore (Svelte 5 Runes)', () => {
     expect(matches?.has('validate_cart')).toBe(true);
     expect(matches?.has('check_stock')).toBe(true); // connected edge
   });
+
+  it('maps Storyboard Gateway roles correctly for each layer', () => {
+    const data = samplePayload(1);
+    flowStore.receive(data);
+
+    const steps = flowStore.steps;
+    expect(steps[0].layer).toBe('ui_event');
+    expect(steps[1].layer).toBe('gateway');
+    expect(steps[2].layer).toBe('domain_core');
+    expect(steps[3].layer).toBe('application');
+    expect(steps[4].layer).toBe('external_pg');
+  });
+
+  it('toggles view mode between code and process', () => {
+    expect(flowStore.viewMode).toBe('code');
+    flowStore.setViewMode('process');
+    expect(flowStore.viewMode).toBe('process');
+    flowStore.setViewMode('code');
+    expect(flowStore.viewMode).toBe('code');
+  });
+
+  it('toggles compare mode and locks reading baseline', () => {
+    flowStore.receive(samplePayload(1));
+    expect(flowStore.compare).toBe(false);
+
+    flowStore.toggleCompare();
+    expect(flowStore.compare).toBe(true);
+    expect(flowStore.paused).toBe(true);
+    expect(flowStore.baseline).not.toBeNull();
+  });
 });

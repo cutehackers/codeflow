@@ -1,7 +1,8 @@
 # FlowView 프로젝트 적응형 Lane 스펙
 
 - Contract ID: `FLOWVIEW-ADAPTIVE-LANES`
-- Contract Status: Proposed
+- Contract Status: Superseded
+- Superseded By: `docs/design/specs/2026-09-14-flowview-code-comprehension-ko.md`
 - Parent: `FLOWVIEW-CODE-COMPREHENSION` (Approved, `docs/design/specs/2026-09-14-flowview-code-comprehension-ko.md`)
 - Created: 2026-09-14
 - Glossary: `docs/design/glossary.md`의 Requested Flow 정의를 따른다

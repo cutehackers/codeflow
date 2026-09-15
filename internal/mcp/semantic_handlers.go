@@ -397,7 +397,7 @@ func (s *Server) handleQueryTaskView(ctx context.Context, args map[string]any) (
 		// require a user to repeat the query before live updates are visible.
 		response["flowView"] = map[string]any{
 			"status":   "ready",
-			"mode":     "live_semantic_map",
+			"mode":     "flowview",
 			"autoOpen": true,
 			"url":      viewURL,
 			"template": flowview.LiveSemanticTemplate,

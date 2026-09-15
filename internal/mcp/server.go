@@ -797,7 +797,7 @@ func (s *Server) listTools() []map[string]any {
 		},
 		{
 			"name":        "query_task_view",
-			"description": "Execute a task-scoped query against the workspace. For Live Semantic View or Live Semantic Map creation, use feature mode and open or present the returned flowView.url. It serves the fixed live-semantic-map-prototype.html template with workspace data. Do not generate an alternative HTML layout or open the sample as a live result. Feature/review/impact modes use task-view-query; debug/incident modes require an explicit rflsc.failure-query.v2 with exact basis, generation, snapshot, freshness, and server-resolved runtime observation identity.",
+			"description": "Execute a task-scoped query against the workspace. For FlowView presentation, use feature mode and open or present the returned flowView.url. It serves FlowView with Macro Context Storyboard and Blast Radius Radar with workspace data. Feature/review/impact modes use task-view-query; debug/incident modes require an explicit rflsc.failure-query.v2 with exact basis, generation, snapshot, freshness, and server-resolved runtime observation identity.",
 			"inputSchema": map[string]any{
 				"type":     "object",
 				"required": []string{"query"},
