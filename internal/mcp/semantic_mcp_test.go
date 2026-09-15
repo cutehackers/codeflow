@@ -175,6 +175,9 @@ func TestVS02A7_MCPSemanticTools(t *testing.T) {
 	if _, ok := payload["projection"]; !ok {
 		t.Errorf("missing projection in query_task_view response: %s", resText)
 	}
+	if flowContexts, ok := payload["flowContexts"].(map[string]any); !ok || len(flowContexts) == 0 {
+		t.Errorf("missing or empty flowContexts in query_task_view response: %s", resText)
+	}
 	flowView, ok := payload["flowView"].(map[string]any)
 	if !ok {
 		t.Fatalf("missing Live Semantic Map FlowView response: %s", resText)

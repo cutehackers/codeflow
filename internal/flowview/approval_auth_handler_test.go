@@ -568,6 +568,7 @@ func TestEmbeddedOverlappingSemanticRequestsKeepLatestIdentity(t *testing.T) {
 		"globalThis.document={getElementById(id){return id==='query-input'?queryInput:element(id);}};",
 		"globalThis.alert=(value)=>alerts.push(value);",
 		"function showDisambiguation(){}",
+		"function showTaskError(){};function hideTaskError(){};",
 		"function response(tag){return {ok:true,json:async()=>({tag:tag,enrichment:{state:{status:'available'},proposal:{proposalId:'proposal-'+tag},pack:{evidencePackId:'pack-'+tag}}})};}",
 		"function api(url){apiCalls.push(url);return new Promise((resolve,reject)=>pending.push({resolve:resolve,reject:reject,url:url}));}",
 		"function renderSemanticTaskView(data){rendered.push(data.tag);renderSemanticEnrichment(data);}",

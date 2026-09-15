@@ -119,7 +119,7 @@ graph TD
 ## 4. 관련 문서 색인
 
 * **영문 프로젝트 개요**: [`docs/PROJECT.md`](PROJECT.md)
-* **아키텍처 및 내부 구조**: [`docs/architecture/architecture.md`](architecture/architecture.md)
+* **아키텍처 및 내부 구조**: [`docs/ARCHITECTURE.md`](ARCHITECTURE.md)
 * **LLM / 코딩 에이전트 연동 가이드**: [`docs/guides/llm-usage.md`](guides/llm-usage.md)
 * **개발 환경 및 CLI 가이드**: [`docs/guides/development.md`](guides/development.md)
 * **다중 언어 어댑터 프로토콜 사양**: [`docs/design/specs/llm-language-adapter-protocol.md`](design/specs/llm-language-adapter-protocol.md)

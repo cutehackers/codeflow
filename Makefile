@@ -1,4 +1,4 @@
-.PHONY: build build-flowmeter build-adapter build-all package test fmt vet clean
+.PHONY: build build-flowmeter build-adapter build-ui test-ui build-all package test fmt vet check-naming clean
 
 build:
 	mkdir -p bin
@@ -12,6 +12,13 @@ build-flowmeter:
 build-adapter:
 	mkdir -p bin
 	dart compile exe adapters/dart/bin/codeflow_dart_adapter.dart -o bin/dart-adapter
+
+build-ui:
+	cd web/flowview && npm run check && npm run build
+	cp web/flowview/dist/index.html internal/flowview/svelte_flow_view.html
+
+test-ui:
+	cd web/flowview && npm test
 
 build-all: build build-adapter
 
@@ -27,6 +34,9 @@ fmt:
 
 vet:
 	go vet ./...
+
+check-naming:
+	bash scripts/check-naming-conventions.sh
 
 clean:
 	rm -rf bin dist

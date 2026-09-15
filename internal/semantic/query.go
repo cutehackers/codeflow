@@ -209,9 +209,16 @@ func ResolveFeatureQueryTarget(query *TaskViewQuery, candidates []harvest.Candid
 	}
 
 	if len(matches) == 0 {
+		var availableTargets []string
+		for _, c := range candidates {
+			if c.ManifestOverride != "excluded" {
+				availableTargets = append(availableTargets, c.EntrySymbolPath)
+			}
+		}
 		return nil, &QueryError{
-			Code:    ErrCodeMissingPrecondition,
-			Message: fmt.Sprintf("no matching flow candidates found for query %q", searchTerm),
+			Code:             ErrCodeMissingPrecondition,
+			Message:          fmt.Sprintf("no matching flow candidates found for query %q", searchTerm),
+			CandidateTargets: availableTargets,
 		}
 	}
 

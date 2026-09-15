@@ -12,6 +12,7 @@ import (
 
 	"codeflow/internal/contractharness"
 	"codeflow/internal/detect"
+	"codeflow/internal/flowview"
 	"codeflow/internal/harvest"
 	"codeflow/internal/protocol"
 	"codeflow/internal/semantic"
@@ -190,6 +191,13 @@ func executeQuery(args []string, stdout, stderr io.Writer) int {
 
 	evidenceRecords, _ := semantic.ExtractAndRedactEvidenceFromProtocolSnapshot(target, slicePayload, snapshot)
 
+	adapterHasFlowContext := false
+	if conn, connErr := pool.Get(ctx); connErr == nil {
+		adapterHasFlowContext = conn.Version().Capabilities.FlowContext
+		pool.Put(conn)
+	}
+	flowContexts := flowview.BuildFlowContexts(mapIR, slicePayload, snapshot, adapterHasFlowContext)
+
 	if *jsonFlag {
 		output := map[string]any{
 			"candidateAnswer": map[string]string{
@@ -204,6 +212,7 @@ func executeQuery(args []string, stdout, stderr io.Writer) int {
 			"semanticMap":         mapIR,
 			"projection":          proj,
 			"evidence":            evidenceRecords,
+			"flowContexts":        flowContexts,
 			"unknowns":            mapIR.Unknowns,
 		}
 		enc := json.NewEncoder(stdout)

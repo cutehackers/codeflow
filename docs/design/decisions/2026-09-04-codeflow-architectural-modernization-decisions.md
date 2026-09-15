@@ -1,10 +1,11 @@
 # CodeFlow Architectural Modernization Decision Records
 
-- Record Status: Proposed (Auto-accepted upon Intent Hardening Gate)
+- Record Status: Historical. Not a prerequisite implementation plan for the current FlowView product direction.
 - Created: 2026-09-04
 - Parent Contract: `docs/design/specs/2026-09-04-codeflow-architectural-modernization.md`
-- Source: `docs/architecture/architectural-maturity-review.md`, `docs/architecture/architecture.md`, user prompt 2026-09-04
+- Source: `docs/ARCHITECTURE.md`, user prompt 2026-09-04
 - Approval Basis: Intent Hardening Interview confirmed 2026-09-04
+- Current Product Contract: `docs/design/specs/2026-09-14-flowview-code-comprehension-ko.md`
 
 This document records the architectural decisions for transitioning CodeFlow from an early monolithic prototype to a hardened, enterprise-grade Hexagonal (Ports & Adapters) system.
 
@@ -19,7 +20,7 @@ This document records the architectural decisions for transitioning CodeFlow fro
 - Rejected Alternative: Maintain existing layered package structure and apply ad-hoc package refactoring.
 - Rationale: Hexagonal architecture decouples pure business invariants from transport and storage details, allowing identical engine behavior across CLI, Web, and MCP.
 - Consequences: Domain models have zero external dependencies. Infrastructure components implement domain ports.
-- Source / Evidence: architectural-maturity-review.md §7; architecture.md §2; User approval 2026-09-04.
+- Source / Evidence: ARCHITECTURE.md §2; User approval 2026-09-04.
 - Contract Trace: INT-01, GOAL-01–GOAL-03, FA-01.
 
 ---
@@ -33,7 +34,7 @@ This document records the architectural decisions for transitioning CodeFlow fro
 - Rejected Alternative: Keep separate handlers and extract helper utility functions.
 - Rationale: Shared application services guarantee zero logic drift in gate evaluation, proof construction, and Content-Addressable Storage commits across all interfaces.
 - Consequences: Eliminates triple maintenance overhead. Any compilation change applies uniformly to CLI, Web, and MCP.
-- Source / Evidence: architectural-maturity-review.md §2.1; architecture.md §3.2.
+- Source / Evidence: ARCHITECTURE.md §3.2.
 - Contract Trace: INT-01, GOAL-01, FA-01, FA-02.
 
 ---
@@ -47,7 +48,7 @@ This document records the architectural decisions for transitioning CodeFlow fro
 - Rejected Alternative: Retain duplicate structs and maintain manual copying functions in `server.go`.
 - Rationale: Circular import evasion by code duplication breaks Go type safety and causes silent schema drift.
 - Consequences: `semantic`, `storage`, and `flowview` import the canonical domain types directly.
-- Source / Evidence: architectural-maturity-review.md §2.3; architecture.md §3.1.
+- Source / Evidence: ARCHITECTURE.md §3.1.
 - Contract Trace: INT-01, GOAL-02, FA-03.
 
 ---
@@ -61,7 +62,7 @@ This document records the architectural decisions for transitioning CodeFlow fro
 - Rejected Alternative: Keep lane logic in FlowView and expose an internal HTTP endpoint for CLI/MCP.
 - Rationale: Architecture lane classification is core domain knowledge, not a presentation styling concern.
 - Consequences: CLI, Web UI, and AI agents obtain identical layer assignments for all analyzed codebases.
-- Source / Evidence: architectural-maturity-review.md §2.4; architecture.md §3.1.
+- Source / Evidence: ARCHITECTURE.md §3.1.
 - Contract Trace: INT-01, GOAL-03, FA-04.
 
 ---
@@ -75,7 +76,7 @@ This document records the architectural decisions for transitioning CodeFlow fro
 - Rejected Alternative: Increase OS process limits and retain monolithic server struct.
 - Rationale: HTTP request handlers must not spawn and destroy worker pools on each query.
 - Consequences: Eliminates 500ms–2s latency penalty per query; prevents process table exhaustion.
-- Source / Evidence: architectural-maturity-review.md §2.2, D-04; architecture.md §3.4.
+- Source / Evidence: ARCHITECTURE.md §3.4.
 - Contract Trace: INT-01, GOAL-03, FA-05.
 
 ---
@@ -89,7 +90,7 @@ This document records the architectural decisions for transitioning CodeFlow fro
 - Rejected Alternative: Disable Content-Addressable Storage garbage collection entirely.
 - Rationale: Proof manifests and settlement evaluations are permanent epistemic audit records that must never be deleted by workspace revision cleanup.
 - Consequences: Historical proofs and settlement evaluations remain intact across all workspace transactions.
-- Source / Evidence: architectural-maturity-review.md §3.4, D-03; architecture.md §5.
+- Source / Evidence: ARCHITECTURE.md §5.
 - Contract Trace: INT-02, GOAL-04, FA-06.
 
 ---
@@ -103,7 +104,7 @@ This document records the architectural decisions for transitioning CodeFlow fro
 - Rejected Alternative: Increase `WriteTimeout` to a larger value (e.g. 1 hour).
 - Rationale: SSE connections are indefinite streaming channels that cannot operate under fixed write timeouts.
 - Consequences: SSE connections remain open indefinitely until explicitly disconnected by clients.
-- Source / Evidence: architectural-maturity-review.md §3.5, D-06; architecture.md §3.4.
+- Source / Evidence: ARCHITECTURE.md §3.4.
 - Contract Trace: INT-02, GOAL-05, FA-07.
 
 ---
@@ -117,7 +118,7 @@ This document records the architectural decisions for transitioning CodeFlow fro
 - Rejected Alternative: Run a background daemon process that CLI and MCP communicate with via Unix domain socket.
 - Rationale: Disk-backed JSON persistence provides simple, robust multi-process state sharing without daemon management complexity.
 - Consequences: CLI status commands accurately reflect current workspace state; MCP edits are immediately visible in FlowView.
-- Source / Evidence: architectural-maturity-review.md §3.2, D-12; architecture.md §5.
+- Source / Evidence: ARCHITECTURE.md §5.
 - Contract Trace: INT-02, GOAL-06, FA-08.
 
 ---
@@ -131,7 +132,7 @@ This document records the architectural decisions for transitioning CodeFlow fro
 - Rejected Alternative: Rely solely on synchronous on-demand compilation during manual HTTP GET queries.
 - Rationale: Sub-second reactive feedback is a core product capability. The compilation loop must be automatic.
 - Consequences: Code edits automatically generate updated semantic flows within 2–3 seconds without user manual refresh.
-- Source / Evidence: architectural-maturity-review.md §2.2, D-13; architecture.md §1.
+- Source / Evidence: ARCHITECTURE.md §1.
 - Contract Trace: INT-02, GOAL-07, FA-09.
 
 ---
@@ -145,7 +146,7 @@ This document records the architectural decisions for transitioning CodeFlow fro
 - Rejected Alternative: Rely on client-side frontend sanitization.
 - Rationale: Server-side defense-in-depth ensures credentials never leave the local boundary, and loopback enforcement blocks cross-origin exploitation.
 - Consequences: Outbound payloads are stripped of Bearer tokens, private keys, and credentials. CSRF attacks are blocked.
-- Source / Evidence: architectural-maturity-review.md §4.2, §4.3, D-01, D-02; architecture.md §1, §3.3.
+- Source / Evidence: ARCHITECTURE.md §1, §3.3.
 - Contract Trace: INT-03, GOAL-08–GOAL-10, FA-10, FA-11.
 
 ---
@@ -159,7 +160,7 @@ This document records the architectural decisions for transitioning CodeFlow fro
 - Rejected Alternative: Exclude Go from supported slicing targets and keep it discovery-only.
 - Rationale: Go is CodeFlow's primary implementation language and must have first-class feature slicing parity with TypeScript and Dart.
 - Consequences: CodeFlow can slice and visualize Go backend services and idiomatic struct methods.
-- Source / Evidence: architectural-maturity-review.md §4.2, D-09; architecture.md §4.
+- Source / Evidence: ARCHITECTURE.md §4.
 - Contract Trace: INT-04, GOAL-12, FA-12.
 
 ---
@@ -173,5 +174,5 @@ This document records the architectural decisions for transitioning CodeFlow fro
 - Rejected Alternative: Rely on OS init (PID 1) process reaper to clean up orphaned workers.
 - Rationale: Uncontrolled subprocess creation and leaking processes cause host exhaustion and degraded analysis performance.
 - Consequences: Language adapter workers are strictly bounded and reliably reaped upon shutdown or failure.
-- Source / Evidence: architectural-maturity-review.md §4.1, D-08; architecture.md §3.3.
+- Source / Evidence: ARCHITECTURE.md §3.3.
 - Contract Trace: INT-04, GOAL-13, FA-13.

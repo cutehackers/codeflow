@@ -31,6 +31,26 @@ func TestVS02A2_QueryPreconditionsAndAmbiguity(t *testing.T) {
 		t.Fatalf("expected error code %q, got %v", ErrCodeMissingPrecondition, err)
 	}
 
+	// 1-b. Unmatched natural language query returns candidate targets
+	unmatchedQuery := TaskViewQuery{
+		SchemaID:      "https://codeflow.local/schemas/task-view-query.schema.json",
+		SchemaVersion: 1,
+		Mode:          "feature",
+		Feature: &FeatureQueryParams{
+			Request: "세균전 게임 흐름",
+		},
+	}
+	sampleCands := []harvest.Candidate{
+		{EntrySymbolPath: "game/controller.go#Start", IntentSignals: harvest.IntentSignals{DerivedName: "Start"}},
+	}
+	_, err = ResolveFeatureQueryTarget(&unmatchedQuery, sampleCands)
+	if err == nil {
+		t.Fatal("expected error for unmatched query")
+	}
+	if !errors.As(err, &qErr) || len(qErr.CandidateTargets) != 1 || qErr.CandidateTargets[0] != "game/controller.go#Start" {
+		t.Fatalf("expected CandidateTargets to contain available candidates, got %+v", qErr)
+	}
+
 	// 2. Ambiguous target when multiple candidates match equally
 	ambiguousQuery := TaskViewQuery{
 		SchemaID:      "https://codeflow.local/schemas/task-view-query.schema.json",

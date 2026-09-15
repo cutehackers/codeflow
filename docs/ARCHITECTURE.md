@@ -1,7 +1,8 @@
 # CodeFlow Target Architecture & System Blueprint
 
-> **Status**: Authoritative Target Architecture & Design Blueprint  
-> **Based on**: [`docs/architecture/architectural-maturity-review.md`](architectural-maturity-review.md) and [`docs/design/raw/requested-flow-live-semantic-compiler-architecture-draft-ko.md`](../design/raw/requested-flow-live-semantic-compiler-architecture-draft-ko.md)  
+> **Status**: Historical Supporting Blueprint
+> **Based on**: [`docs/design/raw/requested-flow-live-semantic-compiler-architecture-draft-ko.md`](design/raw/requested-flow-live-semantic-compiler-architecture-draft-ko.md)
+> **Current Product Contract**: [`docs/design/specs/2026-09-14-flowview-code-comprehension-ko.md`](design/specs/2026-09-14-flowview-code-comprehension-ko.md)
 > **Scope**: Entire CodeFlow Subsystem (`cmd/`, `internal/`, `adapters/`, `schemas/`)
 
 ---

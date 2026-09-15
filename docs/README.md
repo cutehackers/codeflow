@@ -5,7 +5,7 @@
 ## Start here
 
 - [Project overview](PROJECT.md) · [한국어](PROJECT-ko.md)
-- [Architecture](architecture/architecture.md)
+- [Architecture](ARCHITECTURE.md)
 - [LLM and agent guide](guides/llm-usage.md)
 - [Design specifications](design/specs/)
 - [Contracts](contracts/)
@@ -17,7 +17,6 @@
 
 | Directory | Purpose |
 |---|---|
-| `architecture/` | 현재 아키텍처 청사진과 구조 검토 |
 | `contracts/` | 런타임·프로토콜·스키마 계약 |
 | `design/specs/` | 구현 기준이 되는 설계 명세 |
 | `design/decisions/` | 설계 결정 기록 |

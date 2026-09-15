@@ -512,6 +512,7 @@ func runServe(args []string) {
 		AuthToken:                 *tokenFlag,
 		ReleaseThresholdDecisions: releaseDecisions,
 		Mode:                      "feature",
+		SvelteUI:                  true,
 	})
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "start flowview: %v\n", err)
@@ -573,6 +574,7 @@ func runLive(args []string) {
 		AuthToken:                 *tokenFlag,
 		ReleaseThresholdDecisions: releaseDecisions,
 		Mode:                      "project_change",
+		SvelteUI:                  true,
 	})
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "start live view: %v\n", err)

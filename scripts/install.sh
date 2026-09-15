@@ -412,6 +412,122 @@ if [ -d "$SKILL_SOURCE" ]; then
   fi
 fi
 
+# Antigravity CLI MCP tool schemas
+AGY_MCP_DIR="$GEMINI_DIR/antigravity-cli/mcp/$MCP_NAME"
+mkdir -p "$AGY_MCP_DIR"
+cat <<'EOF' > "$AGY_MCP_DIR/query_task_view.json"
+{
+  "name": "query_task_view",
+  "description": "Execute a task-scoped query against the workspace. In feature mode, returns candidateAnswer, semanticMap, projection, evidence, flowContexts (source code snippets), and flowView.url for interactive FlowView visualization.",
+  "parameters": {
+    "type": "object",
+    "required": ["query"],
+    "properties": {
+      "query": {
+        "type": "object",
+        "description": "TaskViewQuery object with mode='feature' and feature object containing request, flowId, or entrySymbol",
+        "properties": {
+          "mode": {"type": "string", "enum": ["feature", "review", "impact", "debug", "incident", "onboarding"]},
+          "feature": {
+            "type": "object",
+            "properties": {
+              "request": {"type": "string", "description": "Natural language user request"},
+              "flowId": {"type": "string", "description": "Target flow ID"},
+              "entrySymbol": {"type": "string", "description": "Target entry symbol path (e.g. app/page.tsx#HomePage.submit)"},
+              "domain": {"type": "string", "description": "Domain name filter"}
+            }
+          }
+        }
+      },
+      "target": {
+        "type": "string",
+        "description": "Target repository path or subdirectory (defaults to working directory)"
+      },
+      "token": {
+        "type": "string",
+        "description": "Auth token when required"
+      }
+    }
+  }
+}
+EOF
+
+cat <<'EOF' > "$AGY_MCP_DIR/harvest_flows.json"
+{
+  "name": "harvest_flows",
+  "description": "Find candidate entry points for a natural-language flow request. Returns ranked candidate list with candidateId, entrySymbolPath, and intentSignals.",
+  "parameters": {
+    "type": "object",
+    "properties": {
+      "target": {
+        "type": "string",
+        "description": "Target repository path"
+      },
+      "query": {
+        "type": "string",
+        "description": "Optional substring filter across entrySymbolPath, intentSignals, triggerClass"
+      }
+    }
+  }
+}
+EOF
+
+cat <<'EOF' > "$AGY_MCP_DIR/open_review.json"
+{
+  "name": "open_review",
+  "description": "Open FlowView for a persisted flowId. Returns the FlowView URL with auth token.",
+  "parameters": {
+    "type": "object",
+    "required": ["flowId"],
+    "properties": {
+      "flowId": {
+        "type": "string",
+        "description": "The exact flowId returned by analyze_flow, publish_core_flow, or query_task_view"
+      },
+      "target": {
+        "type": "string",
+        "description": "Target repository path"
+      }
+    }
+  }
+}
+EOF
+
+cat <<'EOF' > "$AGY_MCP_DIR/analyze_flow.json"
+{
+  "name": "analyze_flow",
+  "description": "Slice and publish one exact entry point. Returns a persisted FlowSpec containing flowId.",
+  "parameters": {
+    "type": "object",
+    "required": ["entrySymbolPath"],
+    "properties": {
+      "entrySymbolPath": {
+        "type": "string",
+        "description": "Exact entry symbol path from harvest_flows"
+      },
+      "target": {
+        "type": "string",
+        "description": "Target repository path"
+      }
+    }
+  }
+}
+EOF
+
+cat <<'EOF' > "$AGY_MCP_DIR/instructions.md"
+# CodeFlow MCP Server
+
+CodeFlow provides business-flow-first code intelligence, Macro Context Storyboards, code comprehension, and verified visual FlowView inspection.
+
+## Key Tools:
+1. `query_task_view`: Analyze code flows and obtain Live Semantic Map / FlowView URL with complete `flowContexts` (verbatim code snippets) and `semanticMap`.
+2. `harvest_flows`: Discover candidate business entry points for a query or explore candidate flows.
+3. `analyze_flow`: Slice and publish an exact entry symbol.
+4. `open_review`: Open FlowView interactive web UI for a given flowId.
+5. `publish_core_flow`: Publish verified architecture-layer core flow.
+EOF
+info "Installed Antigravity MCP tool schemas ($AGY_MCP_DIR)"
+
 SKILL_SHA256=""
 if [ -f "$SKILL_DEST/SKILL.md" ]; then
   SKILL_SHA256="$(calc_sha256 "$SKILL_DEST/SKILL.md")"

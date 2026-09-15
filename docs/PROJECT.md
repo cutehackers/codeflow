@@ -118,7 +118,7 @@ graph TD
 
 ## 4. Documentation Index
 
-* **Architecture & Internals**: [`docs/architecture/architecture.md`](architecture/architecture.md)
+* **Architecture & Internals**: [`docs/ARCHITECTURE.md`](ARCHITECTURE.md)
 * **LLM & Coding Agent Guide**: [`docs/guides/llm-usage.md`](guides/llm-usage.md)
 * **Development and CLI Guide**: [`docs/guides/development.md`](guides/development.md)
 * **Multi-Language Adapter Protocol**: [`docs/design/specs/llm-language-adapter-protocol.md`](design/specs/llm-language-adapter-protocol.md)

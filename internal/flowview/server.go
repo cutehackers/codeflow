@@ -52,6 +52,8 @@ type Server struct {
 	mu                  sync.Mutex
 	addr                string
 	genCache            *generationCache
+	taskViewRecords     map[string]taskViewRecord
+	taskViewOrder       []string
 	hub                 *EventHub
 	gate                *semantic.PublicationGate
 	scheduler           *semantic.CoalescingScheduler
@@ -106,6 +108,7 @@ type Server struct {
 	projectMu                    sync.RWMutex
 	lastVerifiedBasisID          string
 	livePrototype                bool
+	svelteUI                     bool
 	adapterRegistry              *protocol.AdapterRegistry
 	adapterRegistryMu            sync.Mutex
 	baselineCompileQueued        bool
@@ -483,6 +486,8 @@ type Config struct {
 	// project_change mode (MCP coordinator contract). The CLI live surface
 	// leaves this false so /live serves the 7-lane FlowView.
 	LivePrototype bool
+	// SvelteUI enables serving the modular Svelte 5 FlowView application.
+	SvelteUI bool
 }
 
 // NewServer initializes a FlowView server instance.
@@ -570,6 +575,7 @@ func NewServer(cfg Config) (*Server, error) {
 		releaseThresholdDecisions:  cfg.ReleaseThresholdDecisions,
 		watchInterval:              cfg.WorkspaceWatchInterval,
 		livePrototype:              cfg.LivePrototype,
+		svelteUI:                   cfg.SvelteUI,
 	}
 	if err := recoverPendingApprovalOutboxDeliveries(context.Background(), s.approvalService, s.hub); err != nil {
 		return nil, fmt.Errorf("recover approval outbox: %w", err)
@@ -586,6 +592,8 @@ func NewServer(cfg Config) (*Server, error) {
 	mux.HandleFunc("/api/map/override", s.handlePostLaneOverride)
 	mux.HandleFunc("/api/task/view", s.handleTaskView)
 	mux.HandleFunc("/api/task/review", s.handleTaskReview)
+	mux.HandleFunc("/api/task/requirement", s.handleTaskRequirement)
+	mux.HandleFunc("/api/task/analyses", s.handleTaskAnalyses)
 	mux.HandleFunc("/api/task/impact", s.handleTaskImpact)
 	mux.HandleFunc("/api/task/debug", s.handleTaskDebug)
 	mux.HandleFunc("/api/task/incident", s.handleTaskIncident)
@@ -1043,7 +1051,12 @@ func (s *Server) handleIndex(w http.ResponseWriter, r *http.Request) {
 	s.projectMu.RLock()
 	mode := s.projectMode
 	prototype := s.livePrototype
+	svelte := s.svelteUI
 	s.projectMu.RUnlock()
+	if svelte || r.URL.Query().Get("ui") == "svelte" {
+		_, _ = w.Write([]byte(SvelteFlowViewHTML))
+		return
+	}
 	if r.URL.Path == "/live" && mode == "project_change" && !prototype {
 		_, _ = w.Write([]byte(FlowViewHTML))
 		return
@@ -1497,6 +1510,100 @@ func (s *Server) handleApprove(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// writeTaskViewError reports a task/view failure as a structured error screen
+// payload. A result-less failure never masquerades as a candidate result.
+func writeTaskViewError(w http.ResponseWriter, err error, status int) {
+	code := "internal_error"
+	message := ""
+	if err != nil {
+		message = err.Error()
+		for _, candidate := range []string{"missing_precondition", "invalid_precondition", "ambiguous_target", "incomparable_basis", "unavailable", "unknown", "conflict"} {
+			if strings.HasPrefix(message, candidate+":") || message == candidate {
+				code = candidate
+				break
+			}
+		}
+	}
+	if status == 0 {
+		status = http.StatusInternalServerError
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(status)
+	_ = json.NewEncoder(w).Encode(map[string]any{"code": code, "message": message})
+}
+
+// taskViewRecord binds one explicit view request to the snapshot basis it
+// analyzed. The same request ID with the same input and basis reuses the
+// stored payload; the same ID with different input is a conflict.
+type taskViewRecord struct {
+	inputHash    string
+	basisID      string
+	generationID string
+	payload      []byte
+}
+
+// taskViewInputHash identifies the user-supplied portion of a view request.
+// Snapshot basis is tracked separately so an edit between retries produces a
+// new analysis instead of a stale reuse.
+func taskViewInputHash(mode, query, flowID, entrySymbol, domain string) string {
+	raw := strings.Join([]string{mode, query, flowID, entrySymbol, domain}, "\x00")
+	sum := sha256.Sum256([]byte(raw))
+	return hex.EncodeToString(sum[:])
+}
+
+// lookupTaskViewRecord returns the stored payload when the request repeats the
+// same input against the same snapshot basis. A differing input is a
+// conflict; a new basis means the caller must analyze again.
+func (s *Server) lookupTaskViewRecord(requestID, inputHash, basisID string) ([]byte, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.taskViewRecords == nil {
+		return nil, nil
+	}
+	rec, ok := s.taskViewRecords[requestID]
+	if !ok {
+		return nil, nil
+	}
+	if rec.inputHash != inputHash {
+		return nil, errors.New("conflict: request ID was reused with different input")
+	}
+	if rec.basisID != basisID || len(rec.payload) == 0 {
+		return nil, nil
+	}
+	out := make([]byte, len(rec.payload))
+	copy(out, rec.payload)
+	return out, nil
+}
+
+func (s *Server) storeTaskViewRecord(requestID, inputHash, basisID, generationID string, payload []byte) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.taskViewRecords == nil {
+		s.taskViewRecords = make(map[string]taskViewRecord)
+	}
+	if _, ok := s.taskViewRecords[requestID]; !ok {
+		s.taskViewOrder = append(s.taskViewOrder, requestID)
+	}
+	dup := make([]byte, len(payload))
+	copy(dup, payload)
+	s.taskViewRecords[requestID] = taskViewRecord{inputHash: inputHash, basisID: basisID, generationID: generationID, payload: dup}
+	for len(s.taskViewOrder) > 32 {
+		oldest := s.taskViewOrder[0]
+		s.taskViewOrder = s.taskViewOrder[1:]
+		if _, ok := s.taskViewRecords[oldest]; ok && oldest != requestID {
+			delete(s.taskViewRecords, oldest)
+		}
+	}
+}
+
+func newTaskViewRequestID() string {
+	var b [8]byte
+	if _, err := rand.Read(b[:]); err != nil {
+		return fmt.Sprintf("req-%d", time.Now().UTC().UnixNano())
+	}
+	return "req-" + hex.EncodeToString(b[:])
+}
+
 func (s *Server) handleTaskView(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet && r.Method != http.MethodPost {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
@@ -1514,12 +1621,16 @@ func (s *Server) handleTaskView(w http.ResponseWriter, r *http.Request) {
 	flowID := r.URL.Query().Get("flowId")
 	entrySymbol := r.URL.Query().Get("entrySymbol")
 	domain := r.URL.Query().Get("domain")
+	requestID := strings.TrimSpace(r.URL.Query().Get("requestId"))
 	var taskViewBody map[string]any
 
 	if r.Method == http.MethodPost {
 		var body map[string]any
 		if err := json.NewDecoder(r.Body).Decode(&body); err == nil {
 			taskViewBody = body
+			if rid, ok := body["requestId"].(string); ok && strings.TrimSpace(rid) != "" {
+				requestID = strings.TrimSpace(rid)
+			}
 			if m, ok := body["mode"].(string); ok && m != "" {
 				mode = m
 			}
@@ -1593,10 +1704,23 @@ func (s *Server) handleTaskView(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	snapshot, _, releaseSnapshot, err := s.captureAnalysisSnapshot(ctx)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		writeTaskViewError(w, err, http.StatusInternalServerError)
 		return
 	}
 	defer releaseSnapshot()
+
+	if strings.TrimSpace(requestID) == "" {
+		requestID = newTaskViewRequestID()
+	}
+	inputHash := taskViewInputHash(mode, reqQuery, flowID, entrySymbol, domain)
+	if cached, err := s.lookupTaskViewRecord(requestID, inputHash, snapshot.ComputedBasisID); err != nil {
+		writeTaskViewError(w, err, http.StatusConflict)
+		return
+	} else if cached != nil {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write(cached)
+		return
+	}
 
 	det := detect.DetectSnapshot(snapshot.Files)
 	lang := det.Language
@@ -1606,7 +1730,7 @@ func (s *Server) handleTaskView(w http.ResponseWriter, r *http.Request) {
 	cwd, _ := filepath.Abs(".")
 	adapterCfg, err := harvest.ResolveAdapterForRepo(s.repoRoot, cwd, lang, "")
 	if err != nil {
-		http.Error(w, fmt.Sprintf("resolve adapter: %v", err), http.StatusInternalServerError)
+		writeTaskViewError(w, fmt.Errorf("unavailable: resolve adapter: %w", err), http.StatusInternalServerError)
 		return
 	}
 	pool := protocol.NewPool(adapterCfg, 2)
@@ -1615,7 +1739,7 @@ func (s *Server) handleTaskView(w http.ResponseWriter, r *http.Request) {
 	harvester := harvest.NewRunnerWithPool(pool)
 	candidates, err := harvester.RunWithSnapshot(ctx, s.repoRoot, snapshot)
 	if err != nil {
-		http.Error(w, fmt.Sprintf("harvest candidates: %v", err), http.StatusInternalServerError)
+		writeTaskViewError(w, fmt.Errorf("unavailable: harvest candidates: %w", err), http.StatusInternalServerError)
 		return
 	}
 
@@ -1632,14 +1756,14 @@ func (s *Server) handleTaskView(w http.ResponseWriter, r *http.Request) {
 			})
 			return
 		}
-		http.Error(w, err.Error(), http.StatusBadRequest)
+		writeTaskViewError(w, err, http.StatusBadRequest)
 		return
 	}
 
 	slicer := slicing.NewRunner(pool)
 	slicePayload, err := slicer.SliceWithSnapshot(ctx, s.repoRoot, resolved.CandidateID, resolved.EntrySymbolPath, nil, snapshot)
 	if err != nil {
-		http.Error(w, fmt.Sprintf("slice error: %v", err), http.StatusInternalServerError)
+		writeTaskViewError(w, fmt.Errorf("unavailable: slice error: %w", err), http.StatusInternalServerError)
 		return
 	}
 
@@ -1650,12 +1774,12 @@ func (s *Server) handleTaskView(w http.ResponseWriter, r *http.Request) {
 
 	intent, err := semantic.NormalizeTaskIntent(reqText, semantic.IntentOptions{Mode: mode})
 	if err != nil {
-		http.Error(w, fmt.Sprintf("normalize intent: %v", err), http.StatusInternalServerError)
+		writeTaskViewError(w, err, http.StatusInternalServerError)
 		return
 	}
 	snapshotInput, err := snapshot.AnalyzerInput()
 	if err != nil {
-		http.Error(w, fmt.Sprintf("validated snapshot input: %v", err), http.StatusInternalServerError)
+		writeTaskViewError(w, fmt.Errorf("unavailable: validated snapshot input: %w", err), http.StatusInternalServerError)
 		return
 	}
 
@@ -1668,25 +1792,25 @@ func (s *Server) handleTaskView(w http.ResponseWriter, r *http.Request) {
 		SnapshotFiles: snapshot.Files, SnapshotInput: &snapshotInput,
 	})
 	if err != nil {
-		http.Error(w, fmt.Sprintf("compile map: %v", err), http.StatusInternalServerError)
+		writeTaskViewError(w, fmt.Errorf("unavailable: compile map: %w", err), http.StatusInternalServerError)
 		return
 	}
 	mapBytes, err := json.Marshal(mapIR)
 	if err != nil {
-		http.Error(w, fmt.Sprintf("marshal map: %v", err), http.StatusInternalServerError)
+		writeTaskViewError(w, err, http.StatusInternalServerError)
 		return
 	}
 	if err := contractharness.ValidateSemanticMapIR(mapBytes); err != nil {
-		http.Error(w, fmt.Sprintf("semantic map contract: %v", err), http.StatusInternalServerError)
+		writeTaskViewError(w, err, http.StatusInternalServerError)
 		return
 	}
 	projectionBytes, err := json.Marshal(proj)
 	if err != nil {
-		http.Error(w, fmt.Sprintf("marshal projection: %v", err), http.StatusInternalServerError)
+		writeTaskViewError(w, err, http.StatusInternalServerError)
 		return
 	}
 	if err := contractharness.ValidateFlowViewProjection(projectionBytes); err != nil {
-		http.Error(w, fmt.Sprintf("projection contract: %v", err), http.StatusInternalServerError)
+		writeTaskViewError(w, err, http.StatusInternalServerError)
 		return
 	}
 
@@ -1722,7 +1846,8 @@ func (s *Server) handleTaskView(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(map[string]any{
+	payload, err := json.Marshal(map[string]any{
+		"requestId":   requestID,
 		"workspaceId": s.approvalWorkspaceID,
 		"candidateAnswer": map[string]string{
 			"requested":  mapIR.Summary.Requested,
@@ -1738,10 +1863,17 @@ func (s *Server) handleTaskView(w http.ResponseWriter, r *http.Request) {
 		"evidence":            evidenceRecords,
 		"flowContexts":        flowContexts,
 		"unknowns":            mapIR.Unknowns,
+		"baseline":            map[string]any{"status": "none", "reason": "no comparison baseline selected; current flow only"},
 		"publicationGate":     map[string]any{"eligibility": "not_evaluated", "reason": "VS03 current proof required"},
 		"proofManifest":       nil,
 		"verifiedGap":         nil,
 	})
+	if err != nil {
+		writeTaskViewError(w, err, http.StatusInternalServerError)
+		return
+	}
+	s.storeTaskViewRecord(requestID, inputHash, snapshot.ComputedBasisID, mapIR.GenerationID, payload)
+	_, _ = w.Write(payload)
 }
 
 func (s *Server) handleWorkspaceActivity(w http.ResponseWriter, r *http.Request) {
@@ -1998,13 +2130,22 @@ func (s *Server) handleTaskReview(w http.ResponseWriter, r *http.Request) {
 
 	changePulse := make([]map[string]any, 0, len(delta.Changes))
 	for _, ch := range delta.Changes {
-		changePulse = append(changePulse, map[string]any{
+		item := map[string]any{
 			"time":            time.Now().UTC().Format("15:04:05"),
 			"summary":         ch.Summary,
 			"kind":            ch.Kind,
 			"targetStepId":    ch.TargetStepID,
 			"epistemicStatus": ch.EpistemicStatus,
-		})
+		}
+		symbol, side, sideMap := pulseNavigationTarget(ch, baseMap, currMap)
+		item["symbol"] = symbol
+		item["side"] = side
+		item["navigable"] = symbol != "" && sideMap != nil
+		if sideMap != nil {
+			item["sideGenerationId"] = sideMap.GenerationID
+			item["sideBasisId"] = sideMap.ComputedBasisID
+		}
+		changePulse = append(changePulse, item)
 	}
 
 	resp := map[string]any{
@@ -2012,6 +2153,8 @@ func (s *Server) handleTaskReview(w http.ResponseWriter, r *http.Request) {
 		"requirementAlignment": alignments,
 		"changePulse":          changePulse,
 		"structuralSummary":    delta.StructuralSummary,
+		"baseline":             analysisDescriptor(baseMap, "preserved"),
+		"current":              analysisDescriptor(currMap, "explicit"),
 	}
 
 	w.Header().Set("Content-Type", "application/json")

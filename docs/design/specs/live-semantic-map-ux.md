@@ -1,5 +1,9 @@
 # Live Semantic Map UX 최종 설계
 
+- Contract Status: Historical for Live View product behavior (2026-09-14).
+- Superseded By: `docs/design/specs/2026-09-14-flowview-code-comprehension-ko.md`
+- Scope Note: 아래 flow-first 기본 화면과 자동 갱신 방향은 현재 Live View 구현 기준이 아니다. 기존 template 생성·parity 검증과 URL/protocol은 호환성 근거로 보존하며 변경 시 새 FlowView 계약 §2·§7·§11를 따른다. 아래 채택 표현은 당시 기록이다.
+
 상태: `live-semantic-map-prototype.html`을 Live Semantic Map의 고정 화면 템플릿으로 지정. 이해도 향상 효과와 백엔드 지원 범위는 별도 검증 필요.
 
 스킬과 MCP의 Live Semantic View/Map 요청은 이 템플릿의 제품 화면을 사용한다. `query_task_view`의 feature 응답은 `flowView.template`과 같은 coordinator의 `/live` URL을 반환한다. 화면 변경은 `docs/samples/live-semantic-map-prototype.html`에서 수행한 뒤 `go generate ./internal/flowview`로 제품 HTML을 갱신한다. 제품에서는 샘플 초기화만 실제 API·이벤트 초기화로 교체한다. Go 테스트가 템플릿과 제품 렌더러의 일치를 검증한다.

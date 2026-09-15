@@ -1,0 +1,102 @@
+:root {
+  color-scheme: light;
+  --ink: #171717;
+  --muted: #666666;
+  --line: #dddddd;
+  --soft: #f5f5f5;
+  --paper: #ffffff;
+  --tag-mod-bg: #fff3bf;
+  --tag-mod-ink: #d9480f;
+  --tag-add-bg: #d3f9d8;
+  --tag-add-ink: #2b8a3e;
+  --tag-del-bg: #ffe3e3;
+  --tag-del-ink: #c92a2a;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  background: #fafafa;
+  color: var(--ink);
+  font: 14px/1.6 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+
+button, input, a, select {
+  font: inherit;
+}
+
+button {
+  cursor: pointer;
+  color: inherit;
+  border: 1px solid #cccccc;
+  background: #ffffff;
+  padding: 6px 10px;
+  border-radius: 5px;
+}
+
+button:hover {
+  background: #eeeeee;
+  border-color: #888888;
+}
+
+button:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible, summary:focus-visible {
+  outline: 2px solid #111111;
+  outline-offset: 3px;
+}
+
+button[aria-pressed=true] {
+  background: #171717;
+  color: #ffffff;
+  border-color: #171717;
+}
+
+a {
+  color: inherit;
+}
+
+h1, h2, h3, p {
+  margin: 0;
+}
+
+code, pre, .mono {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+}
+
+.muted {
+  color: var(--muted);
+}
+
+.eyebrow {
+  font-size: 10px;
+  letter-spacing: 1.4px;
+  font-weight: 750;
+}
+
+.tag {
+  font-size: 10px;
+  border: 1px solid #cccccc;
+  padding: 2px 6px;
+  border-radius: 4px;
+  white-space: nowrap;
+}
+
+[hidden] {
+  display: none !important;
+}
+
+@media (min-width: 1600px) {
+  .app-container {
+    max-width: 1540px;
+    margin-left: auto;
+    margin-right: auto;
+  }
+}

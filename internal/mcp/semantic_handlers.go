@@ -85,6 +85,44 @@ func (s *Server) handleQueryTaskView(ctx context.Context, args map[string]any) (
 		return res, nil
 	}
 
+	if str, ok := rawQuery.(string); ok && strings.TrimSpace(str) != "" {
+		str = strings.TrimSpace(str)
+		isSymbol := strings.Contains(str, "#") || (strings.Contains(str, ".") && strings.Contains(str, "/"))
+		feat := map[string]any{}
+		if isSymbol {
+			feat["entrySymbol"] = str
+		} else {
+			feat["request"] = str
+		}
+		rawQuery = map[string]any{
+			"schemaId":      "https://codeflow.local/schemas/task-view-query.schema.json",
+			"schemaVersion": 1,
+			"mode":          "feature",
+			"feature":       feat,
+		}
+	} else if qMap, ok := rawQuery.(map[string]any); ok {
+		if _, hasSchema := qMap["schemaId"]; !hasSchema {
+			qMap["schemaId"] = "https://codeflow.local/schemas/task-view-query.schema.json"
+		}
+		if _, hasVersion := qMap["schemaVersion"]; !hasVersion {
+			qMap["schemaVersion"] = 1
+		}
+		if _, hasMode := qMap["mode"]; !hasMode {
+			qMap["mode"] = "feature"
+		}
+		if _, hasFeature := qMap["feature"]; !hasFeature && qMap["mode"] == "feature" {
+			feat := map[string]any{}
+			for _, k := range []string{"request", "entrySymbol", "flowId", "domain"} {
+				if v, exists := qMap[k]; exists {
+					feat[k] = v
+				}
+			}
+			if len(feat) > 0 {
+				qMap["feature"] = feat
+			}
+		}
+	}
+
 	queryBytes, err := json.Marshal(rawQuery)
 	if err != nil {
 		return nil, coreFlowError(semantic.ErrCodeMissingPrecondition, fmt.Sprintf("invalid query JSON: %v", err), nil, false)
@@ -248,7 +286,7 @@ func (s *Server) handleQueryTaskView(ctx context.Context, args map[string]any) (
 	}
 	defer releaseSnapshot()
 
-	_, harvester, slicer, err := s.getPoolAndRunnersForSnapshot(ctx, targetRoot, "", &snapshot)
+	pool, harvester, slicer, err := s.getPoolAndRunnersForSnapshot(ctx, targetRoot, "", &snapshot)
 	if err != nil {
 		return nil, coreFlowError("adapter_error", fmt.Sprintf("adapter error: %v", err), nil, false)
 	}
@@ -326,6 +364,13 @@ func (s *Server) handleQueryTaskView(ctx context.Context, args map[string]any) (
 		evidenceRecords = []semantic.EvidenceRecord{}
 	}
 
+	adapterHasFlowContext := false
+	if conn, connErr := pool.Get(ctx); connErr == nil {
+		adapterHasFlowContext = conn.Version().Capabilities.FlowContext
+		pool.Put(conn)
+	}
+	flowContexts := flowview.BuildFlowContexts(mapIR, slicePayload, snapshot, adapterHasFlowContext)
+
 	response := map[string]any{
 		"candidateAnswer": map[string]string{
 			"requested":  mapIR.Summary.Requested,
@@ -339,6 +384,7 @@ func (s *Server) handleQueryTaskView(ctx context.Context, args map[string]any) (
 		"semanticMap":         mapIR,
 		"projection":          proj,
 		"evidence":            evidenceRecords,
+		"flowContexts":        flowContexts,
 		"unknowns":            mapIR.Unknowns,
 	}
 	if liveReviewURL != nil {

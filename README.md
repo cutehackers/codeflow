@@ -81,7 +81,7 @@ AI 에이전트에게 다음과 같이 자연어로 요청하세요:
 ## 📚 관련 문서
 
 - **프로젝트 개요 (Core Capabilities & Product Surfaces)**: [`docs/PROJECT.md`](docs/PROJECT.md) ([한국어](docs/PROJECT-ko.md))
-- **아키텍처 및 유지보수 가이드**: [`docs/architecture/architecture.md`](docs/architecture/architecture.md)
+- **아키텍처 및 유지보수 가이드**: [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md)
 - **LLM / 에이전트 계약 가이드**: [`docs/guides/llm-usage.md`](docs/guides/llm-usage.md)
 - **전체 기능 및 프롬프트 가이드**: [`docs/guides/feature.md`](docs/guides/feature.md)
 - **선택적 Semantic Enrichment 가이드**: [`docs/guides/semantic-enrichment.md`](docs/guides/semantic-enrichment.md)

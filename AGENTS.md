@@ -8,16 +8,28 @@ For a comprehensive explanation of CodeFlow's **Core Capabilities** and **Produc
 
 ## Naming Rules
 
-- Use descriptive domain names. Do not introduce internal acronyms, ticket identifiers, or vertical-slice labels such as `RFLSC`, `LPCA`, or `VS01` in new package, directory, file, type, function, variable, or test names.
+- Use descriptive domain names. Do not introduce internal acronyms, ticket identifiers, or vertical-slice labels such as `RFLSC`, `LPCA`, or `VS01` in new package, directory, file, type, function, variable, or test names. `make check-naming` enforces this for changed code paths and declarations.
 - Use the full official terms defined in [`docs/design/glossary.md`](docs/design/glossary.md). Do not add an acronym in parentheses after them.
 - Keep `Requested Flow` as the domain term for the execution flow selected by a user's intent. It is not part of the `Live Semantic Compiler` product name.
 - Preserve existing schema IDs, protocol values, storage keys, public API names, and compatibility fixtures when renaming would break consumers. Rename legacy internal names only when the surrounding code is already being changed.
+- Design-plan labels remain valid only as external metadata, such as registry IDs, acceptance IDs, schema IDs, protocol values, and compatibility mappings. They must not be copied into implementation identifiers.
 
 ## Code Comprehension First & Anti-Telemetry Guard
 
 │ "NEVER leak internal compiler, benchmark, or engine telemetry (such as epochs, lag, or internal settlement flags) into the
 │ primary view; prioritize developer code comprehension by presenting only business flow traversals, architecture layers, and
 │ verifiable source code."
+
+## FlowView Code Comprehension Premises (Mandatory)
+
+The current product is one FlowView for new and existing features, explicit reanalysis, optional before/after comparison, and evidence-backed direct relation exploration. The canonical contract is [FlowView code comprehension](docs/design/specs/2026-09-14-flowview-code-comprehension-ko.md).
+
+1. Code comprehension requires navigation and context restoration. Show relevant source and nearby context directly.
+2. Understanding current execution and understanding changes are distinct tasks. Current flow is the default. Comparison requires an explicitly selected baseline and is optional for new features.
+3. More visual structure does not guarantee comprehension. Prioritize focus, source evidence and controlled disclosure.
+4. Preserve reading position, selection and baseline during updates. Only an explicit analysis/comparison request may replace the view after successful validation.
+
+Standalone Live View, watcher-triggered analysis, near-live latency targets and the previous Live storage redesign are not prerequisites for this direction. Partial analysis must distinguish verified code, missing connections and analysis failures without declaring a feature complete or unimplemented without evidence. Existing public protocols, persisted data, source read-only behavior and security/proof invariants remain protected.
 
 ## Workspace Rules
 

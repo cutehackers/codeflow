@@ -94,3 +94,24 @@ func TestFlowViewAndLiveViewsAreSeparate(t *testing.T) {
 		t.Fatal("Live View lost its workspace stream subscription")
 	}
 }
+
+func TestLiveViewContainsStoryboardAndRadar(t *testing.T) {
+	requiredMarkers := []string{
+		"id=\"macro-storyboard\"",
+		"class=\"storyboard-track\"",
+		"id=\"storyboard-status-pill\"",
+		"id=\"radar-card\"",
+		"id=\"radar-svg\"",
+		"id=\"radar-pill\"",
+		"function renderStoryboard(",
+		"function renderRadar(",
+		"function loadImpact(",
+		"data-story-step=",
+		"data-radar-symbol=",
+	}
+	for _, marker := range requiredMarkers {
+		if !strings.Contains(LiveViewHTML, marker) {
+			t.Fatalf("LiveViewHTML missing required Storyboard/Radar marker %q", marker)
+		}
+	}
+}

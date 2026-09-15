@@ -5,8 +5,8 @@
 | Term | Operational Definition | Korean Term |
 |---|---|---|
 | Live Semantic Compiler | CodeFlow's engine for extracting, verifying, compiling, and presenting semantic execution flows. | 실시간 의미 컴파일러 |
-| Content-Addressable Storage | Persistence in which content identity determines the stored object reference. | 콘텐츠 주소 기반 저장소 |
-| Live Project Change Analysis | The product mode that detects project changes, analyzes their semantic impact, verifies the result, and presents the change. | 실시간 프로젝트 변경 분석 |
+| Content-Addressable Storage | Immutable typed-object storage in which content identity determines the object reference and durable roots determine its lifecycle. It is an infrastructure adapter, not semantic authority. | 콘텐츠 주소 기반 저장소 |
+| Live Project Change Analysis | Historical project-change mode retained for compatibility. The current product direction is request-driven FlowView. | 기존 실시간 프로젝트 변경 분석 |
 
 `Requested Flow` remains the domain term for the execution flow selected by a user's intent. It is not part of the product name.
 
@@ -32,19 +32,30 @@
 | Workspace Change Ingress | IDE, coding agent 또는 watcher fallback이 관측한 upsert, delete, rename을 source, batch identity, canonical path와 stable capture로 coordinator의 단일 snapshot lineage에 제출하는 boundary다. | Live Semantic View의 edit-driven snapshot 생성 | D39, D40 | Confirmed | `docs/design/specs/2026-09-02-requested-flow-live-semantic-compiler-ko.md` |
 | Watcher Fallback | 직접 IDE·agent 제출이 없거나 누락됐을 때 filesystem event를 capture signal로 사용하고 stable capture 또는 reconciliation 결과만 Workspace Change Ingress에 제출하는 coordinator 기능이다. | Live Semantic View의 변경 누락 복구 | D40 | Confirmed | `docs/design/specs/2026-09-02-requested-flow-live-semantic-compiler-ko.md` |
 | Generation-bound Live View | `generation.published` event의 generation, basis, snapshot identity와 일치하는 proof-backed artifact만 렌더하는 Live Semantic View 응답이다. | 검증된 변경 반영과 reconnect | D41 | Confirmed | `docs/design/specs/2026-09-02-requested-flow-live-semantic-compiler-ko.md` |
-| Live Project Change Analysis | 기능 요청 없이 프로젝트 코드 변경을 감시하고, 재시작 시 마지막 검증 분석 기준과 현재 source의 차이를 검증해 표시하는 사용 모드다. 사용자 읽음·미확인 이력을 저장하거나 표시 기준으로 사용하지 않는다. | `codeflow live [path]`와 `/live` | D-LIVE-01, D-LIVE-08 | Confirmed | `docs/design/specs/2026-09-10-live-project-change-awareness-ko.md` |
-| Live Analysis Basis | 마지막으로 검증된 코드 분석이 사용한 source 상태다. 재시작 시 현재 stable source와 비교하며, 아직 분석되지 않은 최신 수집 head나 사용자의 읽음 여부와 구별한다. | Live Project Change Analysis 재시작 비교 | D-LIVE-08 | Confirmed | `docs/design/specs/2026-09-10-live-project-change-awareness-ko.md` |
-| Logical Live coordinator | 특정 프로젝트의 workspace lineage, watcher, scheduler, event stream과 stale recovery를 단일 authority로 소유하는 논리 서비스다. MCP process는 이 coordinator의 producer이며 별도 authority가 아니다. | Live Project Change Analysis | D-LIVE-02 | Confirmed | `docs/design/specs/2026-09-10-live-project-change-awareness-ko.md` |
-| Semantic Change Batch | 가까운 시간에 발생한 관련 source change를 같은 업무 변화로 묶고, 검증된 behavior·branch·state·external effect·call relation·Evidence update 또는 unresolved move를 표시하는 Live View 분석 단위다. | Live Project Change Analysis Change Pulse | D-LIVE-03 | Confirmed | `docs/design/specs/2026-09-10-live-project-change-awareness-ko.md` |
+| Live Project Change Analysis | 기능 요청 없이 프로젝트 코드 변경을 감시하고, 재시작 시 마지막 검증 분석 기준과 현재 source의 차이를 검증해 표시하는 사용 모드다. 사용자 읽음·미확인 이력을 저장하거나 표시 기준으로 사용하지 않는다. | 기존 Live 계약·데이터 호환. 신규 FlowView 필수 architecture 아님 | §2·§7–§8 | Historical / compatibility only | `docs/design/specs/2026-09-14-flowview-code-comprehension-ko.md` |
+| Live Analysis Basis | 마지막으로 검증된 분석에 결합된 snapshot·configuration·dependency·capability identity다. 성공한 publication만 전진시키며 candidate basis, 화면 baseline, 수집 head와 구별한다. 재시작 시 현재 stable source와 비교한다. | 기존 Live 계약·데이터 호환. 신규 FlowView 필수 architecture 아님 | §2·§7–§8 | Historical / compatibility only | `docs/design/specs/2026-09-14-flowview-code-comprehension-ko.md` |
+| Logical Live coordinator | 특정 프로젝트의 workspace lineage, watcher, scheduler, event stream과 stale recovery를 단일 authority로 소유하는 논리 서비스다. MCP process는 이 coordinator의 producer이며 별도 authority가 아니다. | 기존 Live 계약·데이터 호환. 신규 FlowView 필수 architecture 아님 | §2·§7–§8 | Historical / compatibility only | `docs/design/specs/2026-09-14-flowview-code-comprehension-ko.md` |
+| Semantic Change Batch | 안정된 Change Episode에서 facts·Evidence로 검증한 behavior·condition·state·external effect·relationship 변화와 unknown을 비교별로 묶은 출력이다. 시간적 근접성만으로 같은 업무 변화라고 확정하지 않는다. | 기존 Live 계약·데이터 호환. 신규 FlowView 필수 architecture 아님 | §2·§7–§8 | Historical / compatibility only | `docs/design/specs/2026-09-14-flowview-code-comprehension-ko.md` |
+| Change Episode | 관련 편집을 안정화된 하나의 변경 묶음으로 표현한 객체다. 파일 이벤트 목록이 아니라 baseline·current 비교와 Semantic Delta 분석의 입력이다. | 기존 Live 계약·데이터 호환. 신규 FlowView 필수 architecture 아님 | §2·§7–§8 | Historical / compatibility only | `docs/design/specs/2026-09-14-flowview-code-comprehension-ko.md` |
+| Comparison Root | 한 Live View 비교의 baseline/current generation·basis·comparison proof·Evidence와 lease를 보존하는 versioned root다. 전역 last-verified와 독립적이며 pending은 최신 후보만 가리킨다. | 기존 Live 계약·데이터 호환. 신규 FlowView 필수 architecture 아님 | §2·§7–§8 | Historical / compatibility only | `docs/design/specs/2026-09-14-flowview-code-comprehension-ko.md` |
+| Comparison Proof | 이미 검증된 baseline/current generation에 대해 delta·Evidence·projection과 판정 profile을 결합한 비교 증명이다. project last-verified를 갱신하지 않는다. | 기존 Live 계약·데이터 호환. 신규 FlowView 필수 architecture 아님 | §2·§7–§8 | Historical / compatibility only | `docs/design/specs/2026-09-14-flowview-code-comprehension-ko.md` |
 | Release Ready | 승인된 release profile의 versioned corpus에서 contract, correctness, security, resilience, comprehension, semantic quality와 end-to-end SLO evidence를 모두 충족한 상태다. 입력이나 threshold가 없으면 false다. | capability declaration | Raw §16–§18, D36 | Confirmed | `docs/design/specs/2026-09-02-requested-flow-live-semantic-compiler-ko.md` |
 
 ## Architectural Modernization & Target Blueprint
 
 | Term | Operational Definition | Scope | Source | Status | Related Contract |
 |---|---|---|---|---|---|
-| Hexagonal Architecture | Domain Core (proof, semir, archmap)를 프레젠테이션(CLI, HTTP, MCP) 및 인프라(Content-Addressable Storage, Process, Watcher)로부터 격리하는 Ports & Adapters 아키텍처 패턴. | 전체 CodeFlow 서브시스템 | ARCH-D01, ARCHITECTURE.md §2 | Confirmed | `docs/design/specs/2026-09-04-codeflow-architectural-modernization.md` |
-| CompilerService | 의도 정규화부터 하베스팅, AST 슬라이싱, 세맨틱 맵 컴파일, 서브게이트 평가, Generation Proof 생성 및 Content-Addressable Storage 커밋까지의 15단계 컴파일 파이프라인을 단일 실행하는 Application Layer 서비스. | CLI, FlowView, MCP | ARCH-D02, ARCHITECTURE.md §3.2 | Confirmed | `docs/design/specs/2026-09-04-codeflow-architectural-modernization.md` |
+| Hexagonal Architecture | 각 vertical feature slice 안에서 Domain Core와 외부 adapter를 Ports & Adapters 경계로 분리하는 구조. 전체 시스템에 하나의 거대한 계층을 만드는 방식이 아니다. | 전체 CodeFlow 서브시스템 | §2·§7–§8 | Confirmed | `docs/design/specs/2026-09-14-flowview-code-comprehension-ko.md` |
+| Vertical Feature Slice | 하나의 기능을 입력, domain rule, application use case, port, adapter와 contract test까지 함께 소유하며 다른 slice와 공개 contract로만 연결하는 독립 기능 단위. | 전체 CodeFlow 서브시스템 | §2·§7–§8 | Confirmed | `docs/design/specs/2026-09-14-flowview-code-comprehension-ko.md` |
+| CompilerService | 여러 vertical slice를 정해진 순서로 조합하고 cancellation, conflict retry와 publication을 조정하는 단일 Application coordinator. 개별 분석·표시·저장 규칙은 각 slice가 소유한다. | CLI, FlowView, MCP | §2·§7–§8 | Confirmed | `docs/design/specs/2026-09-14-flowview-code-comprehension-ko.md` |
 | Epistemic Segregation | 결정론적 AST 사실, SLM의 확률적 제안, 런타임 관측치, 인간 승인자 서명을 데이터 구조 및 런타임 수준에서 엄격히 분리하는 불변식. | SemanticStep, ModelProposal, Approval | Raw §9, §10, ARCHITECTURE.md §1 | Confirmed | `docs/design/specs/2026-09-04-codeflow-architectural-modernization.md` |
-| Content-Addressable Storage Dual-Namespace | `.codeflow/cas/blobs/`(불변 파일 리비전)과 `.codeflow/cas/manifests/`(증명 매니페스트)로 디렉터리를 분리하여 GC 실행 시 매니페스트 삭제를 방지하는 스토리지 격리 구조. | Storage, WorkspaceSnapshot | ARCH-D06, ARCHITECTURE.md §5 | Confirmed | `docs/design/specs/2026-09-04-codeflow-architectural-modernization.md` |
+| Content-Addressable Storage Dual-Namespace | 과거의 `.codeflow/cas/blobs/`와 `.codeflow/cas/manifests/` 분리 결정. 현재 기준에서는 content, tree, revision, snapshot, episode, semantic, proof의 typed object namespace와 참조 그래프의 하위 규칙이다. | 기존 Live 계약·데이터 호환. 신규 FlowView 필수 architecture 아님 | §2·§7–§8 | Historical / compatibility only | `docs/design/specs/2026-09-14-flowview-code-comprehension-ko.md` |
 | Egress Redaction | FlowView HTTP 응답, 실시간 SSE 이벤트, MCP JSON-RPC 표준 출력 등 시스템 외부로 나가는 모든 데이터 스트림에 시크릿 마스킹 필터를 적용하는 보안 경계. | Presentation Layer, Security Filter | ARCH-D10, ARCHITECTURE.md §3.3 | Confirmed | `docs/design/specs/2026-09-04-codeflow-architectural-modernization.md` |
 | Process Group Isolation | 언어 어댑터 서브프로세스 스폰 시 `Setpgid: true`를 강제하고 종료 시 음수 PID(`-cmd.Process.Pid`)로 시그널을 전달하여 좀비 프로세스 누수를 원천 차단하는 OS 레벨 프로세스 격리 기법. | Protocol Pool, Subprocess Lifecycle | ARCH-D12, ARCHITECTURE.md §3.3 | Confirmed | `docs/design/specs/2026-09-04-codeflow-architectural-modernization.md` |
+| Server-Sent Events | 서버가 HTTP 연결을 통해 event를 보내는 전송 방식이다. 기존 사용은 호환성 대상이며 새 FlowView의 상시 갱신을 요구하지 않는다. | 기존 event transport | §2·§7–§8 | Confirmed | `docs/design/specs/2026-09-14-flowview-code-comprehension-ko.md` |
+
+## Storage Efficiency
+
+| Term | Operational Definition | Scope | Source | Status | Related Contract |
+|---|---|---|---|---|---|
+| Storage Retention Budget | active pointer, last-verified, active comparison root와 lease를 보존하면서 무참조 객체만 정리하는 참조 기반 용량·개수 보존 메커니즘이다. 숫자 기본값은 설정으로 조정한다. | Content-Addressable Storage GC, `codeflow gc`, `doctor` | §2·§7–§8 | Confirmed | `docs/design/specs/2026-09-14-flowview-code-comprehension-ko.md` |
