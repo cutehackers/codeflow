@@ -107,9 +107,17 @@ export interface FlowContext {
   displayedLines: DisplayedLine[];
 }
 
+import type { Storyboard, StoryboardFrame } from './storyboard';
+export type { Storyboard, StoryboardFrame };
+
 export interface FlowTaskViewData {
+  viewId?: string;
+  request?: { request?: string; entrySymbol?: string; flowId?: string; domain?: string };
+  sourceNotice?: string;
+  sourceFiles?: Record<string, DisplayedLine[]>;
   requestId?: string;
   semanticMap: SemanticMap;
+  storyboard?: Storyboard;
   semanticDelta?: SemanticDelta;
   flowContexts?: Record<string, FlowContext>;
   unknowns?: Array<{ reason?: string; subject?: string } | string>;

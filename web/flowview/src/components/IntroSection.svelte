@@ -11,7 +11,8 @@
 
   const flowTitle = $derived(flowStore.flowTitle);
   const steps = $derived(flowStore.steps);
-  const deltaChanges = $derived(flowStore.activeDeltaChanges);
+  const compare = $derived(flowStore.compare);
+  const deltaChanges = $derived(compare ? flowStore.activeDeltaChanges : []);
 
   const scopeText = $derived.by(() => {
     if (!steps.length) return '';
@@ -20,7 +21,7 @@
   });
 
   const changeText = $derived.by(() => {
-    if (!deltaChanges.length) return '';
+    if (!compare || !deltaChanges.length) return '';
     return `변경 · 검증된 의미 변경 ${deltaChanges.length}건이 감지되었습니다.`;
   });
 
@@ -40,7 +41,7 @@
   }
 </script>
 
-<section class="intro" aria-label="Live 흐름 요청">
+<section class="intro" aria-label="흐름 요청">
   <div class="eyebrow">CODEFLOW · FLOWVIEW / CODE COMPREHENSION</div>
   <h1 id="flow-title">{flowTitle}</h1>
   <p id="intro-note">호출한 코드에서 다음 구현까지. 조건과 변경을 같은 위치에서 확인합니다.</p>

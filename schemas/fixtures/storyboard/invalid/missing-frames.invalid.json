@@ -1,0 +1,7 @@
+{
+  "schemaId": "https://codeflow.local/schemas/storyboard.schema.json",
+  "schemaVersion": 1,
+  "generationId": "gen-test-01",
+  "computedBasisId": "basis-test-01",
+  "snapshotId": "snap-test-01"
+}

@@ -1,8 +1,5 @@
 <script lang="ts">
-  import HeaderBar from './components/HeaderBar.svelte';
-  import IntroSection from './components/IntroSection.svelte';
   import NoticeBar from './components/NoticeBar.svelte';
-  import ChangePulse from './components/ChangePulse.svelte';
   import MacroStoryboard from './components/MacroStoryboard.svelte';
   import ViewToolbar from './components/ViewToolbar.svelte';
   import NavRail from './components/NavRail.svelte';
@@ -13,9 +10,18 @@
 
   const viewMode = $derived(flowStore.viewMode);
   const steps = $derived(flowStore.steps);
-  const hasData = $derived(steps.length > 0);
-  const branchSteps = $derived(steps.filter(s => !!s.branch));
+  const branchSteps = $derived(flowStore.sceneSteps.filter(s => !!s.branch));
   const unknowns = $derived(flowStore.data?.semanticMap?.unknowns || []);
+
+  function boundaryDescription(value: {reason?: string; subject?: string} | string) {
+    const reason = typeof value === 'string' ? value : value.reason || '';
+    const subject = typeof value === 'string' ? '' : value.subject || '';
+    let description = '소스 근거가 부족해 처리 연결을 확인하지 못했습니다.';
+    if (reason.includes('outside the selected')) description = '선택한 코드 범위 밖의 호출입니다.';
+    else if (reason.includes('multiple canonical')) description = '호출 대상을 하나로 확인하지 못했습니다.';
+    else if (reason.includes('closure')) description = '요청한 흐름의 끝까지 연결을 확인하지 못했습니다.';
+    return subject ? `${subject} · ${description}` : description;
+  }
 
   function handleConditionChange(event: Event) {
     const target = event.target as HTMLSelectElement;
@@ -23,24 +29,60 @@
   }
 
   function handleQuerySubmit(query: string) {
-    // In live SSE or standalone mode, dispatched to main.ts listener via window custom event or query fn
     const event = new CustomEvent('codeflow:query', { detail: { query } });
     window.dispatchEvent(event);
+  }
+
+  function handleFormSubmit(e: SubmitEvent) {
+    e.preventDefault();
+    const input = document.getElementById('query-input') as HTMLInputElement | null;
+    const q = input?.value?.trim();
+    if (q) {
+      handleQuerySubmit(q);
+    }
   }
 </script>
 
 <div class="app-container">
-  <!-- Top Navigation Bar -->
-  <HeaderBar />
-
-  <!-- Intro & User Query Form -->
-  <IntroSection onSubmitQuery={handleQuerySubmit} />
-
+  <header class="entry-header">
+    <button type="button" onclick={() => window.showFlowHome()}>CodeFlow</button>
+    {#if !flowStore.home}<strong>{flowStore.flowTitle}</strong>{/if}
+  </header>
+  {#if flowStore.home}
+    <section class="home" aria-label="FlowView 시작">
+      <h1>어떤 코드 흐름을 이해하고 싶나요?</h1>
+      <form id="request-form" onsubmit={handleFormSubmit}>
+        <label for="query-input">흐름 요청</label>
+        <input id="query-input" type="text" placeholder="처리 목적 또는 진입 심볼" required />
+        <button id="request-submit" type="submit" disabled={flowStore.busy}>흐름 보기</button>
+      </form>
+      <p role="status">{flowStore.notice}</p>
+      {#if flowStore.busy}<button onclick={() => window.cancelFlowRequest()}>취소</button>{/if}
+      {#if flowStore.candidates.length}
+        <p>분석할 진입점을 선택하세요.</p>
+        {#each flowStore.candidates as candidate}<button onclick={() => window.fetchTaskView('', candidate)}>{candidate}</button>{/each}
+      {/if}
+      <h2>기존 FlowView</h2>
+      {#if flowStore.listError}
+        <p role="alert">{flowStore.listError}</p>
+        <button onclick={() => window.showFlowHome()}>목록 다시 불러오기</button>
+      {:else if !flowStore.views.length && !flowStore.legacyFlows.length}
+        <p>아직 분석한 흐름이 없습니다.</p>
+        <p>위에서 흐름을 입력하거나, MCP가 연결된 에이전트에게 “이 프로젝트의 원하는 기능을 CodeFlow로 분석하고 FlowView를 열어줘”라고 요청하세요.</p>
+      {:else}
+        <ul>
+          {#each flowStore.views as view (view.viewId)}
+            <li><button onclick={() => window.openFlowView(view.viewId)}>{view.title || '저장된 흐름'}{view.savedAt ? ` · ${new Date(view.savedAt).toLocaleString()}` : ''}</button></li>
+          {/each}
+          {#each flowStore.legacyFlows as flow (flow.flowId)}
+            <li><button onclick={() => window.openFlowView(flow.flowId, true)}>{flow.title} · 기존 흐름</button></li>
+          {/each}
+        </ul>
+      {/if}
+    </section>
+  {:else}
   <!-- Live Notice & Status Controls -->
   <NoticeBar />
-
-  <!-- Change Pulse (Verified Semantic Changes) -->
-  <ChangePulse />
 
   <!-- 2. MACRO CONTEXT STORYBOARD -->
   <MacroStoryboard />
@@ -88,10 +130,10 @@
 
       {#if unknowns.length > 0}
         <div id="boundaries" class="boundaries">
-          <strong>확인하지 못한 처리</strong>
-          {#each unknowns as u}
-            <p>{typeof u === 'string' ? u : u.reason || u.subject || '처리 경계 미확인'}</p>
-          {/each}
+          <details>
+            <summary>확인하지 못한 연결 {unknowns.length}건</summary>
+            {#each [...new Set(unknowns.map(boundaryDescription))] as description}<p>{description}</p>{/each}
+          </details>
         </div>
       {/if}
     </section>
@@ -99,6 +141,8 @@
     <!-- Right Aside (with 2. BLAST RADIUS RADAR) -->
     <ContextAside />
   </main>
+
+  {/if}
 
   <!-- Footer -->
   <footer class="footer">
@@ -108,9 +152,17 @@
 </div>
 
 <style>
+  .entry-header { display:flex; align-items:center; gap:16px; padding:16px 30px; }
+  .home { max-width:850px; margin:40px auto; padding:24px; }
+  .home h1 { font-size:24px; margin-bottom:24px; }
+  .home h2 { margin-top:32px; }
+  .home form { display:flex; flex-wrap:wrap; gap:10px; align-items:center; }
+  .home input { flex:1; min-width:180px; padding:10px; border:1px solid #bbb; border-radius:5px; }
+  .home li { margin:8px 0; }
+
   .layout {
     display: grid;
-    grid-template-columns: 210px minmax(0, 1fr) 260px;
+    grid-template-columns: 210px minmax(0, 1fr) 275px;
     margin: 0 30px;
     border-top: 1px solid var(--line, #dddddd);
     gap: 24px;
@@ -186,7 +238,7 @@
       margin-right: auto;
     }
     .layout {
-      grid-template-columns: 220px minmax(0, 1fr) 275px;
+      grid-template-columns: 220px minmax(0, 1fr) 290px;
     }
   }
   @media (max-width: 1150px) {

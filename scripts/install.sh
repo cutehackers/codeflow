@@ -384,7 +384,29 @@ fi
 register_json_mcp "$CLAUDE_CONFIG_DIR/claude_desktop_config.json" "$MCP_NAME" "$INSTALL_PATH" "$RUNTIME_PATH"
 info "Configured Claude Desktop MCP ($CLAUDE_CONFIG_DIR/claude_desktop_config.json)"
 
-# 3. Cursor IDE Registration
+# 3. Claude Code CLI Registration
+if command -v claude >/dev/null 2>&1; then
+  if claude mcp get "$MCP_NAME" >/dev/null 2>&1; then
+    info "Claude Code MCP '$MCP_NAME' is already registered"
+  else
+    claude mcp add -s user "$MCP_NAME" "$INSTALL_PATH" mcp >/dev/null 2>&1 || true
+    info "Registered Claude Code MCP '$MCP_NAME'"
+  fi
+  if [ -d "$SKILL_SOURCE" ]; then
+    CLAUDE_CODE_SKILL="$HOME/.claude/skills/codeflow"
+    mkdir -p "$(dirname "$CLAUDE_CODE_SKILL")"
+    if [ ! -e "$CLAUDE_CODE_SKILL" ]; then
+      cp -R "$SKILL_SOURCE" "$CLAUDE_CODE_SKILL"
+      info "Installed CodeFlow skill for Claude Code ($CLAUDE_CODE_SKILL)"
+    elif ! cmp -s "$SKILL_SOURCE/SKILL.md" "$CLAUDE_CODE_SKILL/SKILL.md"; then
+      rm -rf "$CLAUDE_CODE_SKILL"
+      cp -R "$SKILL_SOURCE" "$CLAUDE_CODE_SKILL"
+      info "Updated CodeFlow skill for Claude Code ($CLAUDE_CODE_SKILL)"
+    fi
+  fi
+fi
+
+# 4. Cursor IDE Registration
 CURSOR_CONFIG_DIR="$HOME/.cursor"
 register_json_mcp "$CURSOR_CONFIG_DIR/mcp.json" "$MCP_NAME" "$INSTALL_PATH" "$RUNTIME_PATH"
 if [ -d "$SKILL_SOURCE" ]; then
@@ -393,23 +415,37 @@ if [ -d "$SKILL_SOURCE" ]; then
   if [ ! -e "$CURSOR_SKILL" ]; then
     cp -R "$SKILL_SOURCE" "$CURSOR_SKILL"
     info "Installed CodeFlow skill for Cursor"
+  elif ! cmp -s "$SKILL_SOURCE/SKILL.md" "$CURSOR_SKILL/SKILL.md"; then
+    rm -rf "$CURSOR_SKILL"
+    cp -R "$SKILL_SOURCE" "$CURSOR_SKILL"
+    info "Updated CodeFlow skill for Cursor"
   fi
 fi
 info "Configured Cursor MCP ($CURSOR_CONFIG_DIR/mcp.json)"
 
-# 4. Antigravity / Gemini CLI Registration
+# 5. Antigravity / Gemini CLI Registration
 GEMINI_DIR="$HOME/.gemini"
 GEMINI_CONFIG_DIR="$GEMINI_DIR/config"
 register_json_mcp "$GEMINI_CONFIG_DIR/mcp_config.json" "$MCP_NAME" "$INSTALL_PATH" "$RUNTIME_PATH"
 info "Configured Antigravity MCP ($GEMINI_CONFIG_DIR/mcp_config.json)"
 
 if [ -d "$SKILL_SOURCE" ]; then
-  GEMINI_SKILL="$GEMINI_DIR/antigravity-cli/skills/codeflow"
+  GEMINI_SKILL="$GEMINI_CONFIG_DIR/skills/codeflow"
   mkdir -p "$(dirname "$GEMINI_SKILL")"
   if [ ! -e "$GEMINI_SKILL" ]; then
     cp -R "$SKILL_SOURCE" "$GEMINI_SKILL"
-    info "Installed CodeFlow skill for Antigravity"
+    info "Installed CodeFlow skill for Antigravity ($GEMINI_SKILL)"
+  elif ! cmp -s "$SKILL_SOURCE/SKILL.md" "$GEMINI_SKILL/SKILL.md"; then
+    rm -rf "$GEMINI_SKILL"
+    cp -R "$SKILL_SOURCE" "$GEMINI_SKILL"
+    info "Updated CodeFlow skill for Antigravity ($GEMINI_SKILL)"
   fi
+
+  # Also sync to antigravity-cli/skills if present for backward compatibility
+  LEGACY_AGY_SKILL="$GEMINI_DIR/antigravity-cli/skills/codeflow"
+  mkdir -p "$(dirname "$LEGACY_AGY_SKILL")"
+  rm -rf "$LEGACY_AGY_SKILL"
+  cp -R "$SKILL_SOURCE" "$LEGACY_AGY_SKILL"
 fi
 
 # Antigravity CLI MCP tool schemas
@@ -550,6 +586,7 @@ cat <<EOF
   Auto-configured for all detected agents:
   - Codex: $CODEX_HOME_DIR/skills/codeflow
   - Claude Desktop: $CLAUDE_CONFIG_DIR/claude_desktop_config.json
+  - Claude Code: $HOME/.claude/skills/codeflow
   - Cursor: $CURSOR_CONFIG_DIR/mcp.json
   - Antigravity: $GEMINI_CONFIG_DIR/mcp_config.json
 

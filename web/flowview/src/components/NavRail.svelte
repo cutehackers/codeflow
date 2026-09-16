@@ -1,15 +1,17 @@
 <script lang="ts">
   import { flowStore, GATEWAY_ROLES, LAYER_LABELS } from '../stores/flowStore.svelte';
 
-  const steps = $derived(flowStore.steps);
+  const frames = $derived(flowStore.frames);
+  const selectedFrameId = $derived(flowStore.selectedFrameId);
   const selectedStepId = $derived(flowStore.selectedStepId);
-  const deltaChanges = $derived(flowStore.data?.semanticDelta?.changes || []);
+  const compare = $derived(flowStore.compare);
+  const deltaChanges = $derived(compare ? (flowStore.data?.semanticDelta?.changes || []) : []);
 
-  function handleSelect(stepId: string) {
-    flowStore.select(stepId);
-    const targetEl = document.querySelector(`[data-card="${stepId}"], [data-process="${stepId}"]`);
+  function handleSelect(frameId: string) {
+    flowStore.select(frameId);
+    const targetEl = document.querySelector(`[data-card="${frameId}"], [data-card="${flowStore.selectedStepId}"], [data-process="${flowStore.selectedStepId}"]`);
     targetEl?.scrollIntoView({ behavior: 'smooth', block: 'start' });
-    const storyEl = document.querySelector(`[data-story-step="${stepId}"]`);
+    const storyEl = document.querySelector(`[data-story-frame="${frameId}"], [data-story-step="${flowStore.selectedStepId}"]`);
     storyEl?.scrollIntoView({ behavior: 'smooth', inline: 'center' });
   }
 </script>
@@ -17,25 +19,34 @@
 <nav class="rail" aria-label="스토리보드 관문 실행 타임라인">
   <h2>실행 타임라인 (STORYBOARD)</h2>
   <div id="step-nav">
-    {#each steps as step, index (step.stepId)}
-      {@const isSelected = selectedStepId === step.stepId}
-      {@const roleName = GATEWAY_ROLES[step.layer] || LAYER_LABELS[step.layer] || step.layer.toUpperCase()}
-      {@const delta = deltaChanges.find(c => c.targetStepId === step.stepId)}
-      {@const isSurgery = delta?.kind === 'added_behavior' || delta?.kind === 'changed_rule'}
+    {#each frames as frame, index (frame.frameId)}
+      {@const isSelected = selectedFrameId === frame.frameId || (!selectedFrameId && selectedStepId === frame.primaryStepRef)}
+      {@const roleName = GATEWAY_ROLES[frame.role] || (frame.architecture ? `${frame.role.toUpperCase()} (${LAYER_LABELS[frame.architecture] || frame.architecture})` : frame.role.toUpperCase())}
+      {@const delta = deltaChanges.find(c => c.targetStepId === frame.primaryStepRef)}
+      {@const isSurgery = compare && (delta?.kind === 'added_behavior' || delta?.kind === 'changed_rule')}
       <button
         type="button"
         class="step-link"
         class:is-surgery={isSurgery}
-        data-select={step.stepId}
+        data-select={frame.primaryStepRef}
+        data-frame={frame.frameId}
         aria-pressed={isSelected}
-        onclick={() => handleSelect(step.stepId)}
+        onclick={() => handleSelect(frame.frameId)}
       >
-        <span class="idx">FRAME {String(step.ordinal || index + 1).padStart(2, '0')}</span>
+        <span class="idx">FRAME {String(frame.ordinal || index + 1).padStart(2, '0')}</span>
         <span>
-          <strong>{#if isSurgery}⚡ {/if}{step.name}</strong>
+          <strong>{#if isSurgery}⚡ {/if}{frame.title}</strong>
           <small>{roleName}</small>
         </span>
       </button>
+      {#if flowStore.selectedFrame?.frameId === frame.frameId && frame.stepRefs.length > 1}
+        <details class="scene-details">
+          <summary>내부 처리 {frame.stepRefs.length}단계</summary>
+          {#each flowStore.sceneSteps as step (step.stepId)}
+            <button class="step-link" aria-pressed={selectedStepId === step.stepId} onclick={() => flowStore.select(step.stepId)}>{step.name}</button>
+          {/each}
+        </details>
+      {/if}
     {/each}
   </div>
   <p class="rail-note">
@@ -98,7 +109,6 @@
     color: #666;
     padding: 14px 8px;
     border-top: 1px solid #ddd;
-    margin-top: 16px;
-    line-height: 1.8;
+    line-height: 1.5;
   }
 </style>

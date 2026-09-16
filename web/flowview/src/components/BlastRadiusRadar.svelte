@@ -6,82 +6,55 @@
   const selectedStep = $derived(flowStore.selectedStep);
   const data = $derived(flowStore.data);
 
-  let impactGraph = $state<ChangeImpactGraph | null>(null);
+  const impactGraph = $derived.by((): ChangeImpactGraph | null => {
+    if (!selectedStep) return null;
+    const relations = (data?.semanticMap.edges || []).filter(e => e.resolutionStatus === 'resolved' && (e.toStepId === selectedStep.stepId || e.fromStepId === selectedStep.stepId));
+    const connected = relations.map(e => flowStore.steps.find(s => s.stepId === (e.toStepId === selectedStep.stepId ? e.fromStepId : e.toStepId))).filter((s): s is Step => !!s);
+    const unique = [...new Map(connected.map(s => [s.stepId, s])).values()];
+    return { directImpact: { callers: unique.map(s => ({name:s.name, symbolPath:s.stepId})), tests:[] }, indirectImpact: {callers:[]} };
+  });
 
-  // Fallback impact generator when API is not available
-  function getFallbackImpact(step: Step): ChangeImpactGraph {
-    const incoming = (data?.semanticMap?.edges || []).filter(
-      e => e.toStepId === step.stepId && ['call', 'calls'].includes(e.kind)
-    );
-    const callers = incoming.map(e => {
-      const from = flowStore.steps.find(s => s.stepId === e.fromStepId);
-      return {
-        name: from?.technicalName || from?.name || 'Caller',
-        symbolPath: from?.technicalName || ''
-      };
-    });
-    return {
-      directImpact: { callers, tests: [] },
-      indirectImpact: { callers: [] }
-    };
+  function cleanLabel(raw: string, maxLen = 13): string {
+    if (!raw) return '';
+    const withoutExt = raw.replace(/\.[a-zA-Z0-9]+$/, '');
+    const lastSeg = withoutExt.split(/[./\\]/).pop() || withoutExt;
+    if (lastSeg.length <= maxLen) return lastSeg;
+    return lastSeg.slice(0, maxLen - 1) + '…';
   }
 
-  // Effect to load impact data when selected step changes
-  $effect(() => {
-    if (!selectedStep) {
-      impactGraph = null;
-      return;
-    }
-
-    if (flowStore.impactCache.has(selectedStep.stepId)) {
-      impactGraph = flowStore.impactCache.get(selectedStep.stepId)!;
-      return;
-    }
-
-    // Check sample mock impact data
-    const sampleImpact = data?.sampleImpacts?.[selectedStep.stepId];
-    if (sampleImpact) {
-      impactGraph = sampleImpact;
-      flowStore.impactCache.set(selectedStep.stepId, sampleImpact);
-      return;
-    }
-
-    // Fallback based on incoming edges
-    const fallback = getFallbackImpact(selectedStep);
-    impactGraph = fallback;
-
-    // Asynchronously try live /api/task/impact if running in server mode
-    if (window.location.protocol.startsWith('http')) {
-      const token = new URLSearchParams(window.location.search).get('token') || '';
-      const symbol = selectedStep.technicalName || selectedStep.name;
-      fetch(`/api/task/impact?target=${encodeURIComponent(symbol)}${token ? `&token=${encodeURIComponent(token)}` : ''}`)
-        .then(r => r.ok ? r.json() : null)
-        .then(res => {
-          if (res?.directImpact) {
-            impactGraph = res;
-            flowStore.impactCache.set(selectedStep.stepId, res);
-          }
-        })
-        .catch(() => {});
-    }
-  });
-
-  const ring1Nodes = $derived.by(() => {
+  const ring1Callers = $derived.by(() => {
     if (!impactGraph) return [];
-    const callers = impactGraph.directImpact?.callers || [];
-    const mutations = impactGraph.directImpact?.stateMutations || [];
-    return [
-      ...callers.map(c => ({ name: c.name || c.symbolPath, symbol: c.symbolPath, kind: 'caller' })),
-      ...mutations.map(m => ({ name: m.targetState || 'State', symbol: m.targetState, kind: 'state' }))
-    ];
+    return (impactGraph.directImpact?.callers || []).map(c => ({
+      name: c.name || c.symbolPath,
+      symbol: c.symbolPath,
+      label: cleanLabel(c.name || c.symbolPath, 12),
+      kind: 'caller' as const
+    }));
   });
+
+  const ring1Mutations = $derived.by(() => {
+    if (!impactGraph) return [];
+    return (impactGraph.directImpact?.stateMutations || []).map(m => {
+      const full = m.targetState || 'State';
+      const label = cleanLabel(full.split('.').pop() || full, 10);
+      return {
+        name: full,
+        symbol: full,
+        label,
+        kind: 'state' as const
+      };
+    });
+  });
+
+  const ring1Nodes = $derived([...ring1Callers, ...ring1Mutations]);
 
   const ring2Nodes = $derived.by(() => {
     if (!impactGraph) return [];
     return (impactGraph.indirectImpact?.callers || []).map(c => ({
       name: c.name || c.symbolPath,
       symbol: c.symbolPath,
-      kind: 'indirect'
+      label: cleanLabel(c.name || c.symbolPath, 12),
+      kind: 'indirect' as const
     }));
   });
 
@@ -91,12 +64,16 @@
       ...(impactGraph.directImpact?.tests || []),
       ...(impactGraph.indirectImpact?.tests || [])
     ];
-    return tests.map(t => ({
-      name: t.testSymbolPath || t.testFile || 'test',
-      symbol: t.testSymbolPath,
-      broken: !!t.broken,
-      kind: 'test'
-    }));
+    return tests.map(t => {
+      const raw = t.testSymbolPath || t.testFile || 'test';
+      return {
+        name: raw,
+        symbol: t.testSymbolPath,
+        label: cleanLabel(raw, 14),
+        broken: !!t.broken,
+        kind: 'test' as const
+      };
+    });
   });
 
   const activeRingsCount = $derived(
@@ -107,55 +84,76 @@
 
   const statusPillText = $derived.by(() => {
     if (!selectedStep) return 'Impact: None';
-    if (hasBrokenTest) return 'Impact: High (Broken Test)';
-    if (activeRingsCount > 0) return `Impact: ${activeRingsCount} Ring${activeRingsCount > 1 ? 's' : ''}`;
-    return 'Impact: Direct Only';
+    if (hasBrokenTest) return 'Broken Test';
+    if (activeRingsCount > 0) return '검증된 직접 관계';
+    return '직접 관계 미확인';
   });
 
   const targetLabel = $derived.by(() => {
     if (!selectedStep) return '대기 중';
     const sym = selectedStep.technicalName || selectedStep.name;
-    return sym.split('.').pop()?.slice(0, 14) || sym;
+    return cleanLabel(sym, 14);
   });
 
-  function getNodeCoordinates(total: number, index: number, radius: number, angleOffset: number) {
-    const theta = (2 * Math.PI * index / total) + angleOffset;
+  function getQuadrantCoords(radius: number, total: number, index: number, baseAngle: number) {
+    if (total <= 1) {
+      return {
+        x: Math.round(radius * Math.cos(baseAngle)),
+        y: Math.round(radius * Math.sin(baseAngle))
+      };
+    }
+    const spread = Math.min(Math.PI * 0.8, (total - 1) * 0.55);
+    const start = baseAngle - spread / 2;
+    const step = spread / (total - 1);
+    const theta = start + step * index;
     return {
       x: Math.round(radius * Math.cos(theta)),
       y: Math.round(radius * Math.sin(theta))
     };
   }
 
-  function handleNodeClick(symbol: string) {
-    const matched = flowStore.steps.find(s => s.technicalName === symbol || s.stepId === symbol);
-    if (matched) {
-      flowStore.select(matched.stepId);
-    }
+  function getNodeBoxWidth(label: string): number {
+    return Math.min(68, Math.max(38, Math.round(label.length * 5.6 + 12)));
+  }
+
+  function handleNodeClick(stepId: string) {
+    if (!flowStore.steps.some(s => s.stepId === stepId)) return;
+    flowStore.saveNavigationState();
+    flowStore.select(stepId);
   }
 </script>
 
 <section class="radar-card" id="radar-card" aria-label="파급 영향 레이더">
   <div class="radar-head">
     <span class="radar-title">Blast Radius Radar</span>
-    <span class="pill invert" id="radar-pill">{statusPillText}</span>
+    <span class="pill {hasBrokenTest ? 'pill-broken' : 'invert'}" id="radar-pill">{statusPillText}</span>
   </div>
 
   <div class="radar-viewport">
-    <svg id="radar-svg" viewBox="-125 -125 250 250" preserveAspectRatio="xMidYMid meet" role="img" aria-label="파급 영향 동심원 그래프">
+    <svg id="radar-svg" viewBox="-100 -100 200 200" preserveAspectRatio="xMidYMid meet" role="img" aria-label="파급 영향 동심원 그래프">
+      <!-- Crosshairs (Ray guides) -->
+      <line x1="0" y1="-95" x2="0" y2="95" stroke="#ecece6" stroke-dasharray="2 3" stroke-width="0.8" />
+      <line x1="-95" y1="0" x2="95" y2="0" stroke="#ecece6" stroke-dasharray="2 3" stroke-width="0.8" />
+
       <!-- 3 Concentric Rings -->
-      <circle cx="0" cy="0" r="28" fill="none" stroke="#dcdcd8" stroke-dasharray="3 3"></circle>
-      <circle cx="0" cy="0" r="58" fill="none" stroke="#dcdcd8" stroke-dasharray="3 3"></circle>
-      <circle cx="0" cy="0" r="88" fill="none" stroke="#dcdcd8" stroke-dasharray="3 3"></circle>
+      <circle cx="0" cy="0" r="30" fill="none" stroke="#dcdcd8" stroke-dasharray="3 3" stroke-width="0.9"></circle>
+      <circle cx="0" cy="0" r="62" fill="none" stroke="#dcdcd8" stroke-dasharray="3 3" stroke-width="0.9"></circle>
+      <circle cx="0" cy="0" r="90" fill="none" stroke="#dcdcd8" stroke-dasharray="3 3" stroke-width="0.9"></circle>
+
+      <!-- Ring Sub-labels -->
+      <text x="2" y="-32" font-size="5" font-weight="700" fill="#c0c0b8">R1</text>
+      <text x="2" y="-64" font-size="5" font-weight="700" fill="#c0c0b8">R2</text>
+      <text x="2" y="-92" font-size="5" font-weight="700" fill="#c0c0b8">R3</text>
 
       <!-- Center Target Node -->
       <circle cx="0" cy="0" r="11" fill="#171717"></circle>
-      <text x="0" y="3" text-anchor="middle" fill="#ffffff" font-size="7" font-weight="900">TARGET</text>
-      <text id="radar-target-label" x="0" y="19" text-anchor="middle" font-size="7.5" font-weight="700">{targetLabel}</text>
+      <text x="0" y="3" text-anchor="middle" fill="#ffffff" font-size="6.5" font-weight="900" letter-spacing="0.5">TARGET</text>
+      <text id="radar-target-label" x="0" y="19" text-anchor="middle" font-size="7.5" font-weight="800" fill="#171717">{targetLabel}</text>
 
-      <!-- Ring 1 Nodes (Direct Callers / State Mutations) -->
-      {#each ring1Nodes as node, i}
-        {@const coords = getNodeCoordinates(ring1Nodes.length, i, 28, -Math.PI / 2)}
-        {@const shortName = node.name.split('.').pop()?.slice(0, 8) || node.name}
+      <!-- Ring 1 Callers: Placed in North-West quadrant (~10 o'clock) -->
+      {#each ring1Callers as node, i}
+        {@const coords = getQuadrantCoords(30, ring1Callers.length, i, -Math.PI * 0.82)}
+        {@const bw = getNodeBoxWidth(node.label)}
         <g
           class="radar-node"
           transform="translate({coords.x}, {coords.y})"
@@ -165,15 +163,33 @@
           onclick={() => handleNodeClick(node.symbol)}
           onkeydown={(e) => e.key === 'Enter' && handleNodeClick(node.symbol)}
         >
-          <rect x="-20" y="-6" width="40" height="12" rx="3" fill="#ffffff" stroke="#171717" stroke-width="1"></rect>
-          <text x="0" y="3" text-anchor="middle" font-size="6.5" font-weight="750" fill="#171717">{shortName}</text>
+          <rect x={-bw / 2} y="-6.5" width={bw} height="13" rx="3" fill="#ffffff" stroke="#171717" stroke-width="1.2"></rect>
+          <text x="0" y="0.5" text-anchor="middle" dominant-baseline="central" font-size="6.5" font-weight="750" fill="#171717">{node.label}</text>
         </g>
       {/each}
 
-      <!-- Ring 2 Nodes (Indirect Callers) -->
+      <!-- Ring 1 State Mutations: Placed in South-West quadrant (~7:30 o'clock) -->
+      {#each ring1Mutations as node, i}
+        {@const coords = getQuadrantCoords(30, ring1Mutations.length, i, Math.PI * 0.75)}
+        {@const bw = getNodeBoxWidth(node.label)}
+        <g
+          class="radar-node"
+          transform="translate({coords.x}, {coords.y})"
+          data-radar-symbol={node.symbol}
+          role="button"
+          tabindex="0"
+          onclick={() => handleNodeClick(node.symbol)}
+          onkeydown={(e) => e.key === 'Enter' && handleNodeClick(node.symbol)}
+        >
+          <rect x={-bw / 2} y="-6.5" width={bw} height="13" rx="3" fill="#fff3bf" stroke="#d9480f" stroke-width="1"></rect>
+          <text x="0" y="0.5" text-anchor="middle" dominant-baseline="central" font-size="6.5" font-weight="750" fill="#d9480f">{node.label}</text>
+        </g>
+      {/each}
+
+      <!-- Ring 2 Nodes (Indirect Callers): Placed in North-East quadrant (~1:30 o'clock) -->
       {#each ring2Nodes as node, i}
-        {@const coords = getNodeCoordinates(ring2Nodes.length, i, 58, -Math.PI / 4)}
-        {@const shortName = node.name.split('.').pop()?.slice(0, 9) || node.name}
+        {@const coords = getQuadrantCoords(62, ring2Nodes.length, i, -Math.PI * 0.25)}
+        {@const bw = getNodeBoxWidth(node.label)}
         <g
           class="radar-node"
           transform="translate({coords.x}, {coords.y})"
@@ -183,15 +199,15 @@
           onclick={() => handleNodeClick(node.symbol)}
           onkeydown={(e) => e.key === 'Enter' && handleNodeClick(node.symbol)}
         >
-          <rect x="-22" y="-6" width="44" height="12" rx="3" fill="#ffffff" stroke="#666666" stroke-dasharray="2 2" stroke-width="1"></rect>
-          <text x="0" y="3" text-anchor="middle" font-size="6.5" font-weight="700" fill="#555555">{shortName}</text>
+          <rect x={-bw / 2} y="-6.5" width={bw} height="13" rx="3" fill="#ffffff" stroke="#555555" stroke-dasharray="2 2" stroke-width="1"></rect>
+          <text x="0" y="0.5" text-anchor="middle" dominant-baseline="central" font-size="6.5" font-weight="700" fill="#444444">{node.label}</text>
         </g>
       {/each}
 
-      <!-- Ring 3 Nodes (Tests) -->
+      <!-- Ring 3 Nodes (Tests): Placed in South-East quadrant (~4:30 o'clock) -->
       {#each ring3Nodes as testNode, i}
-        {@const coords = getNodeCoordinates(ring3Nodes.length, i, 88, -Math.PI / 4)}
-        {@const shortName = testNode.name.split('/').pop()?.slice(0, 10) || testNode.name}
+        {@const coords = getQuadrantCoords(90, ring3Nodes.length, i, Math.PI * 0.28)}
+        {@const bw = getNodeBoxWidth(testNode.label)}
         <g
           class="radar-node"
           transform="translate({coords.x}, {coords.y})"
@@ -201,8 +217,17 @@
           onclick={() => handleNodeClick(testNode.symbol)}
           onkeydown={(e) => e.key === 'Enter' && handleNodeClick(testNode.symbol)}
         >
-          <rect x="-26" y="-7" width="52" height="14" rx="3" fill={testNode.broken ? '#c92a2a' : '#171717'}></rect>
-          <text x="0" y="3" text-anchor="middle" font-size="6.5" font-weight="750" fill="#ffffff">{shortName}</text>
+          <rect
+            x={-bw / 2}
+            y="-7"
+            width={bw}
+            height="14"
+            rx="3"
+            fill={testNode.broken ? '#c92a2a' : '#171717'}
+            stroke={testNode.broken ? '#a61e1e' : 'none'}
+            stroke-width="0.5"
+          ></rect>
+          <text x="0" y="0.5" text-anchor="middle" dominant-baseline="central" font-size="6.5" font-weight="750" fill="#ffffff">{testNode.label}</text>
         </g>
       {/each}
     </svg>
@@ -210,7 +235,8 @@
 
   <div class="radar-caption" id="radar-caption">
     {#if selectedStep}
-      심볼 {targetLabel}의 상위 호출자 {ring1Nodes.length + ring2Nodes.length}개 및 테스트 {ring3Nodes.length}개 추적
+      <code>{targetLabel}</code> · {ring1Nodes.length ? `검증된 직접 연결 ${ring1Nodes.length}개` : '이 분석에서 직접 연결을 확인하지 못했습니다.'}
+      <br />관련 테스트의 실행 결과는 이 분석에 없습니다.
     {:else}
       단계를 선택하면 직접 호출자와 관련 테스트가 레이더에 표시됩니다.
     {/if}
@@ -222,7 +248,7 @@
     border: 1px solid var(--line, #ddd);
     border-radius: 8px;
     background: var(--paper, #fff);
-    padding: 12px;
+    padding: 12px 14px;
     margin-bottom: 16px;
     box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04);
   }
@@ -230,29 +256,44 @@
     display: flex;
     align-items: center;
     justify-content: space-between;
-    margin-bottom: 8px;
+    border-bottom: 1px solid var(--line, #e6e6e0);
+    padding-bottom: 7px;
+    margin-bottom: 9px;
   }
   .radar-title {
     font-size: 11px;
     font-weight: 800;
-    letter-spacing: 0.5px;
+    letter-spacing: 0.6px;
+    text-transform: uppercase;
+    white-space: nowrap;
   }
   .pill {
-    font-size: 10px;
+    font-size: 9px;
     font-weight: 700;
-    padding: 2px 8px;
+    padding: 2px 7px;
     border-radius: 999px;
+    white-space: nowrap;
   }
   .pill.invert {
     background: var(--ink, #171717);
     color: #fff;
     border: 1px solid var(--ink, #171717);
   }
+  .pill.pill-broken {
+    background: #c92a2a;
+    color: #fff;
+    border: 1px solid #a61e1e;
+  }
   .radar-viewport {
     width: 100%;
-    aspect-ratio: 1 / 1;
-    max-width: 230px;
-    margin: 0 auto;
+    height: 185px;
+    border: 1px solid var(--line, #e2e2dc);
+    border-radius: 6px;
+    background: #fafaf8;
+    display: grid;
+    place-items: center;
+    position: relative;
+    overflow: hidden;
   }
   .radar-viewport svg {
     width: 100%;
@@ -264,13 +305,23 @@
     color: var(--muted, #666);
     margin-top: 8px;
     line-height: 1.5;
-    text-align: center;
+    text-align: left;
+  }
+  .radar-caption code {
+    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+    font-size: 9.5px;
+    background: #f0f0ed;
+    padding: 1px 4px;
+    border-radius: 3px;
+    color: var(--ink, #171717);
+    font-weight: 600;
   }
   .radar-node {
     cursor: pointer;
-    transition: opacity .15s, transform .15s;
+    transition: transform .12s ease-out, filter .12s ease-out;
   }
   .radar-node:hover {
-    filter: drop-shadow(0 1px 3px rgba(0, 0, 0, 0.25));
+    filter: drop-shadow(0 2px 4px rgba(0, 0, 0, 0.22));
+    transform: scale(1.04);
   }
 </style>

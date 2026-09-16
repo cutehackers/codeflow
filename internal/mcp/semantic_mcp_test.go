@@ -12,7 +12,6 @@ import (
 	"strings"
 	"testing"
 
-	"codeflow/internal/flowview"
 	"codeflow/internal/mcp"
 )
 
@@ -182,13 +181,11 @@ func TestVS02A7_MCPSemanticTools(t *testing.T) {
 	if !ok {
 		t.Fatalf("missing Live Semantic Map FlowView response: %s", resText)
 	}
-	if flowView["status"] != "ready" || flowView["mode"] != "live_semantic_map" || flowView["autoOpen"] != true {
-		t.Errorf("unexpected Live Semantic Map FlowView state: %+v", flowView)
+	viewID, _ := flowView["viewId"].(string)
+	if viewID == "" || payload["viewId"] != viewID {
+		t.Fatal("MCP result must identify the saved view")
 	}
 	flowViewURL, _ := flowView["url"].(string)
-	if flowView["template"] != flowview.LiveSemanticTemplate {
-		t.Fatalf("MCP must identify the designated Live template: %+v", flowView)
-	}
 	parsedViewURL, parseErr := url.Parse(flowViewURL)
 	if parseErr != nil || (parsedViewURL.Path != "/" && parsedViewURL.Path != "") {
 		t.Fatalf("feature request must return the static FlowView URL: %v (path: %s)", parseErr, parsedViewURL.Path)
@@ -203,19 +200,23 @@ func TestVS02A7_MCPSemanticTools(t *testing.T) {
 		t.Fatalf("MCP URL did not serve static FlowView: status %d, read error %v", viewResponse.StatusCode, readErr)
 	}
 
-	// Coordinator /live endpoint serves the Live Semantic Map
-	liveURL := parsedViewURL.Scheme + "://" + parsedViewURL.Host + "/live"
-	if tok := parsedViewURL.Query().Get("token"); tok != "" {
-		liveURL += "?token=" + tok
-	}
-	liveResponse, err := http.Get(liveURL)
+	savedURL := parsedViewURL.Scheme + "://" + parsedViewURL.Host + "/api/view?" + parsedViewURL.RawQuery
+	savedResponse, err := http.Get(savedURL)
 	if err != nil {
-		t.Fatalf("coordinator did not serve /live: %v", err)
+		t.Fatal(err)
 	}
-	liveBody, readErr := io.ReadAll(liveResponse.Body)
-	liveResponse.Body.Close()
-	if readErr != nil || liveResponse.StatusCode != http.StatusOK || !bytes.Contains(liveBody, []byte(`data-view="live-semantic-map"`)) {
-		t.Fatalf("coordinator URL did not serve the Live Semantic Map: status %d, read error %v", liveResponse.StatusCode, readErr)
+	defer savedResponse.Body.Close()
+	var saved map[string]any
+	if err := json.NewDecoder(savedResponse.Body).Decode(&saved); err != nil {
+		t.Fatal(err)
+	}
+	if savedResponse.StatusCode != 200 || saved["viewId"] != viewID {
+		t.Fatal("saved result cannot be restored")
+	}
+	gotMap, _ := json.Marshal(saved["semanticMap"])
+	expectedMap, _ := json.Marshal(payload["semanticMap"])
+	if !bytes.Equal(gotMap, expectedMap) {
+		t.Fatal("MCP and HTTP maps differ")
 	}
 
 	// 5. Test get_current_answer tool with unambiguous entry

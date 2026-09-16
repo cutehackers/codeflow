@@ -1,67 +1,44 @@
 <script lang="ts">
-  import { flowStore } from '../stores/flowStore.svelte';
-
-  const notice = $derived(flowStore.notice);
-  const paused = $derived(flowStore.paused);
-  const compare = $derived(flowStore.compare);
-  const hasBaseline = $derived(!!flowStore.baseline);
-  const hasPending = $derived(!!flowStore.pending);
-
-  function handleCompare() {
-    flowStore.toggleCompare();
-  }
-
-  function handlePause() {
-    flowStore.togglePause();
-  }
-
-  function handleApply() {
-    if (flowStore.pending) {
-      flowStore.adopt(flowStore.pending, true);
-    }
-  }
+  import { flowStore, DELTA_LABELS } from '../stores/flowStore.svelte';
+  let baselineId = $state('');
 </script>
-
-<section class="notice" aria-label="코드 갱신 안내">
-  <span id="live-notice" role="status" aria-live="polite">{notice}</span>
+<section class="notice" aria-label="분석 안내">
+  <span role="status">{flowStore.notice}</span>
   <div class="controls">
-    <button
-      id="compare"
-      type="button"
-      aria-pressed={compare}
-      disabled={!hasBaseline}
-      onclick={handleCompare}
-    >
-      이전 코드 비교
-    </button>
-    <button
-      id="pause"
-      type="button"
-      aria-pressed={paused}
-      onclick={handlePause}
-    >
-      읽기 고정
-    </button>
-    {#if hasPending}
-      <button
-        id="apply"
-        type="button"
-        onclick={handleApply}
-      >
-        새 변경 적용
-      </button>
+    {#if flowStore.savedNavigationState}<button onclick={() => flowStore.restoreNavigationState()}>원래 장면 복귀</button>{/if}
+    {#if flowStore.busy}
+      <button onclick={() => window.cancelFlowRequest()}>취소</button>
+    {:else}
+      <button id="reanalyze" onclick={() => window.fetchTaskView(flowStore.flowTitle, '', '', true)}>다시 분석</button>
     {/if}
+    <label for="baseline">비교 기준</label>
+    <select id="baseline" bind:value={baselineId} disabled={flowStore.busy}>
+      <option value="">분석 선택</option>
+      {#each flowStore.views.filter(v => v.viewId !== flowStore.data?.viewId) as view (view.viewId)}
+        <option value={view.viewId}>{view.title} · {view.savedAt ? new Date(view.savedAt).toLocaleString() : '저장된 분석'}</option>
+      {/each}
+    </select>
+    <button id="compare" disabled={!baselineId || !flowStore.data?.viewId || flowStore.busy} onclick={() => window.compareFlowViews(baselineId)}>변경 전후 비교</button>
+    {#if flowStore.compare}<button onclick={() => { flowStore.compare = false; }}>비교 닫기</button>{/if}
+    {#if flowStore.pending?.viewId}<button onclick={() => window.openFlowView(flowStore.pending!.viewId!)}>새 분석 열기</button>{/if}
   </div>
+  {#if flowStore.compare}
+    <details><summary>변경 {flowStore.activeDeltaChanges.length}건</summary>
+      {#each flowStore.activeDeltaChanges as change}
+        <p>{DELTA_LABELS[change.kind]} · {flowStore.steps.find(s => s.stepId === change.targetStepId)?.name || flowStore.baseline?.semanticMap.steps.find(s => s.stepId === change.targetStepId)?.name || '대상 미확인'}</p>
+      {/each}
+    </details>
+  {/if}
 </section>
-
 <style>
   .notice {
-    margin: 0 30px 19px;
+    margin: 16px 30px 14px;
     border: 1px solid var(--line, #dddddd);
     background: #ffffff;
     border-radius: 6px;
     padding: 9px 13px;
     display: flex;
+    flex-wrap: wrap;
     align-items: center;
     gap: 14px;
     font-size: 11px;
@@ -71,9 +48,11 @@
   .notice .controls {
     margin-left: auto;
     display: flex;
+    flex-wrap: wrap;
     gap: 6px;
-    flex-shrink: 0;
+    min-width: 0;
   }
+  .notice select { max-width: min(240px, 100%); }
   .notice button {
     font-size: 10px;
     padding: 4px 8px;
@@ -91,17 +70,11 @@
     opacity: 0.45;
     cursor: default;
   }
-  .notice button[aria-pressed=true] {
-    background: #171717;
-    color: #ffffff;
-    border-color: #171717;
-  }
 
   @media (max-width: 650px) {
     .notice {
       margin-left: 15px;
       margin-right: 15px;
-      flex-wrap: wrap;
     }
   }
 </style>

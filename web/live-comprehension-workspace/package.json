@@ -4,7 +4,8 @@
   "private": true,
   "scripts": {
     "test:e2e": "playwright test tests/e2e.spec.ts tests/approval.spec.ts tests/live-semantic.spec.ts tests/live-semantic-mcp.spec.ts",
-    "test:a11y": "playwright test tests/a11y.spec.ts"
+    "test:a11y": "playwright test tests/a11y.spec.ts",
+    "test:flowview": "playwright test --config flowview.config.ts"
   },
   "devDependencies": {
     "@axe-core/playwright": "^4.10.1",

@@ -13,7 +13,7 @@
   const incomingCallers = $derived.by(() => {
     if (!selectedStep) return [];
     return (flowStore.data?.semanticMap?.edges || []).filter(
-      e => e.toStepId === selectedStep.stepId && e.resolutionStatus === 'resolved' && ['call', 'calls'].includes(e.kind)
+      e => e.toStepId === selectedStep.stepId && e.resolutionStatus === 'resolved' && ['call', 'calls', 'resolved_cross_file'].includes(e.kind)
     ).map(e => {
       const from = flowStore.steps.find(s => s.stepId === e.fromStepId);
       return from ? { stepId: from.stepId, label: from.technicalName || from.name } : null;
@@ -25,6 +25,7 @@
   }
 
   function handleSelect(stepId: string) {
+    flowStore.saveNavigationState();
     flowStore.select(stepId);
   }
 </script>

@@ -2,6 +2,8 @@ package flowview
 
 import (
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -47,5 +49,14 @@ func TestFlowViewServesSvelteUI(t *testing.T) {
 
 	if recLive.Code != 200 || recLive.Body.String() != SvelteFlowViewHTML {
 		t.Fatal("expected SvelteFlowViewHTML to be served on /live when svelteUI is enabled")
+	}
+
+	// Verify docs/samples/live-semantic-map-prototype.html matches SvelteFlowViewHTML
+	prototypeData, err := os.ReadFile(filepath.Join("..", "..", "docs", "samples", "live-semantic-map-prototype.html"))
+	if err != nil {
+		t.Fatalf("failed to read live-semantic-map-prototype.html: %v", err)
+	}
+	if string(prototypeData) != SvelteFlowViewHTML {
+		t.Fatal("expected docs/samples/live-semantic-map-prototype.html to match SvelteFlowViewHTML")
 	}
 }

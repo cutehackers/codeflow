@@ -2,7 +2,7 @@
   import { flowStore, LAYER_LABELS, EDGE_LABELS } from '../stores/flowStore.svelte';
   import type { Step } from '../types/flow';
 
-  const steps = $derived(flowStore.steps);
+  const steps = $derived(flowStore.sceneSteps);
   const selectedStepId = $derived(flowStore.selectedStepId);
   const matchingStepIds = $derived(flowStore.matchingStepIds);
 

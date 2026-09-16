@@ -584,6 +584,10 @@ func NewServer(cfg Config) (*Server, error) {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/", s.handleIndex)
 	mux.HandleFunc("/api/flows", s.handleListFlows)
+	mux.HandleFunc("/api/views", s.handleSavedViews)
+	mux.HandleFunc("/api/view/legacy", s.handleLegacyView)
+	mux.HandleFunc("/api/view", s.handleSavedView)
+	mux.HandleFunc("/api/view/compare", s.handleSavedComparison)
 	mux.HandleFunc("/api/flow", s.handleGetFlow)
 	mux.HandleFunc("/api/flow/context", s.handleFlowContext)
 	mux.HandleFunc("/api/source", s.handleGetSource)
@@ -1049,8 +1053,13 @@ func (s *Server) handleIndex(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	s.projectMu.RLock()
+	prototype := s.livePrototype
 	svelte := s.svelteUI
 	s.projectMu.RUnlock()
+	if r.URL.Path == "/live" && prototype {
+		_, _ = w.Write([]byte(LiveViewHTML))
+		return
+	}
 	if svelte || r.URL.Query().Get("ui") == "svelte" {
 		_, _ = w.Write([]byte(SvelteFlowViewHTML))
 		return
@@ -1858,6 +1867,23 @@ func (s *Server) handleTaskView(w http.ResponseWriter, r *http.Request) {
 		"proofManifest":       nil,
 		"verifiedGap":         nil,
 	})
+	if err != nil {
+		writeTaskViewError(w, err, http.StatusInternalServerError)
+		return
+	}
+	var result map[string]any
+	if err := json.Unmarshal(payload, &result); err != nil {
+		writeTaskViewError(w, err, http.StatusInternalServerError)
+		return
+	}
+	result["sourceFiles"] = BuildSourceFiles(mapIR, snapshot)
+	result["request"] = &semantic.FeatureQueryParams{Request: reqText, EntrySymbol: resolved.EntrySymbolPath, FlowID: resolved.CandidateID, Domain: domain}
+	saved, err := s.SaveTaskView(ctx, result)
+	if err != nil {
+		writeTaskViewError(w, err, http.StatusInternalServerError)
+		return
+	}
+	payload, err = json.Marshal(saved)
 	if err != nil {
 		writeTaskViewError(w, err, http.StatusInternalServerError)
 		return

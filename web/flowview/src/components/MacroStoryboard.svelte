@@ -1,10 +1,12 @@
 <script lang="ts">
   import { flowStore, GATEWAY_ROLES, LAYER_LABELS } from '../stores/flowStore.svelte';
-  import type { Step } from '../types/flow';
+  import type { StoryboardFrame } from '../types/storyboard';
 
-  const steps = $derived(flowStore.steps);
+  const frames = $derived(flowStore.frames);
+  const selectedFrameId = $derived(flowStore.selectedFrameId);
   const selectedStepId = $derived(flowStore.selectedStepId);
-  const deltaChanges = $derived(flowStore.data?.semanticDelta?.changes || []);
+  const compare = $derived(flowStore.compare);
+  const deltaChanges = $derived(compare ? (flowStore.data?.semanticDelta?.changes || []) : []);
 
   const modifiedCount = $derived(
     deltaChanges.filter(c => c.kind === 'changed_rule').length
@@ -14,22 +16,23 @@
   );
 
   const statusPillText = $derived.by(() => {
-    if (addedCount > 0 || modifiedCount > 0) {
+    if (compare && (addedCount > 0 || modifiedCount > 0)) {
       const parts = [];
       if (addedCount > 0) parts.push(`+${addedCount} Step Added`);
       if (modifiedCount > 0) parts.push(`${modifiedCount} Rule Modified`);
       return parts.join(' · ');
     }
-    return steps.length ? `${steps.length}개 관문 확인됨` : '확인된 단계 없음';
+    return frames.length ? `${frames.length}개 주요 장면` : '확인된 단계 없음';
   });
 
   function getDelta(stepId: string) {
+    if (!compare) return undefined;
     return deltaChanges.find(c => c.targetStepId === stepId);
   }
 
-  function handleSelect(stepId: string) {
-    flowStore.select(stepId);
-    const cardEl = document.querySelector(`[data-card="${stepId}"], [data-process="${stepId}"]`);
+  function handleSelect(frameId: string) {
+    flowStore.select(frameId);
+    const cardEl = document.querySelector(`[data-card="${frameId}"], [data-card="${flowStore.selectedStepId}"], [data-process="${flowStore.selectedStepId}"]`);
     cardEl?.scrollIntoView({ behavior: 'smooth', block: 'start' });
   }
 </script>
@@ -38,38 +41,39 @@
   <div class="section-head">
     <div class="section-head-title">
       <strong>2. MACRO CONTEXT STORYBOARD</strong>
-      <span class="muted">· 전체 비즈니스 흐름 조망 ({steps.length ? `${steps.length}개 관문 엔드투엔드 시퀀스` : '대기 중'})</span>
+      <span class="muted">· 시작부터 결과까지 ({frames.length ? `${frames.length}개 주요 장면` : '대기 중'})</span>
     </div>
     <span class="pill" id="storyboard-status-pill">{statusPillText}</span>
   </div>
 
   <!-- svelte-ignore a11y_no_noninteractive_tabindex -->
   <div class="storyboard-track" id="storyboard-track" role="region" aria-label="스토리보드 단계 목록" tabindex="0">
-    {#if !steps.length}
+    {#if !frames.length}
       <p class="muted" style="font-size:11px;padding:8px 0">흐름을 선택하면 단계별 시퀀스 카드가 표시됩니다.</p>
     {:else}
-      {#each steps as step, index (step.stepId)}
-        {@const isSelected = selectedStepId === step.stepId}
-        {@const delta = getDelta(step.stepId)}
-        {@const roleName = GATEWAY_ROLES[step.layer] || LAYER_LABELS[step.layer] || step.layer.toUpperCase()}
-        {@const desc = step.description || (step.branch ? `조건 · ${step.branch}` : (step.sideEffect || '다음 구현 연결 및 계층 처리'))}
-        {@const isSurgery = delta?.kind === 'added_behavior' || delta?.kind === 'changed_rule'}
+      {#each frames as frame, index (frame.frameId)}
+        {@const isSelected = selectedFrameId === frame.frameId || (!selectedFrameId && selectedStepId === frame.primaryStepRef)}
+        {@const delta = getDelta(frame.primaryStepRef)}
+        {@const roleName = GATEWAY_ROLES[frame.role] || (frame.architecture ? `${frame.role.toUpperCase()} (${LAYER_LABELS[frame.architecture] || frame.architecture})` : frame.role.toUpperCase())}
+        {@const desc = frame.narrative || (frame.condition ? `조건 · ${frame.condition}` : (frame.collapsedDetail ? `${frame.collapsedDetail.count}개 내부 단계 접힘` : '다음 구현 연결 및 처리'))}
+        {@const isSurgery = compare && (delta?.kind === 'added_behavior' || delta?.kind === 'changed_rule')}
 
         <button
           type="button"
           class="story-card"
           class:active-selected={isSelected}
           class:surgery-badge={isSurgery && isSelected}
-          data-story-step={step.stepId}
+          data-story-step={frame.primaryStepRef}
+          data-story-frame={frame.frameId}
           aria-pressed={isSelected}
-          onclick={() => handleSelect(step.stepId)}
+          onclick={() => handleSelect(frame.frameId)}
         >
           <div>
             <div class="story-header">
               <span class="story-step-num">
-                FRAME {String(step.ordinal || index + 1).padStart(2, '0')} · {roleName}
+                FRAME {String(frame.ordinal || index + 1).padStart(2, '0')} · {roleName}
               </span>
-              {#if delta}
+              {#if compare && delta}
                 {#if delta.kind === 'changed_rule'}
                   <span class="step-tag mod">~ RULE CHG</span>
                 {:else if delta.kind === 'added_behavior'}
@@ -79,15 +83,19 @@
                 {:else}
                   <span class="step-tag mod">~ MOD</span>
                 {/if}
+              {:else if frame.status === 'partial'}
+                <span class="step-tag mod">PARTIAL</span>
+              {:else if frame.status === 'unknown'}
+                <span class="step-tag del">UNKNOWN</span>
               {/if}
             </div>
             <div class="story-title">
-              {#if isSurgery}⚡ {/if}{step.name}
+              {#if isSurgery}⚡ {/if}{frame.title}
             </div>
             <div class="story-desc">{desc}</div>
           </div>
           <div class="story-footer">
-            {#if isSurgery}⚡ {/if}{step.technicalName || ''}
+            {#if isSurgery}⚡ {/if}{frame.technicalAnchor || ''}
           </div>
         </button>
       {/each}
@@ -97,14 +105,16 @@
 
 <style>
   .macro-storyboard-section {
-    margin: 0 30px 18px;
-    border: 2px solid var(--ink, #171717);
-    border-radius: 9px;
+    min-width: 0;
+    margin: 0 30px 16px;
+    border: 1.5px solid var(--ink, #171717);
+    border-radius: 8px;
     padding: 12px 16px;
     background: var(--paper, #ffffff);
-    box-shadow: 3px 3px 0 var(--soft, #dddddd);
   }
   .section-head {
+    flex-wrap: wrap;
+    gap: 8px;
     display: flex;
     align-items: baseline;
     justify-content: space-between;
@@ -114,6 +124,7 @@
     font-size: 11px;
   }
   .section-head-title {
+    flex-wrap: wrap;
     display: flex;
     align-items: center;
     gap: 8px;
@@ -137,12 +148,20 @@
     border: 1.5px solid var(--ink, #171717);
   }
   .storyboard-track {
-    display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+    display: flex;
+    flex-direction: row;
+    flex-wrap: nowrap;
+    overflow-x: auto;
     gap: 10px;
     padding-top: 6px;
+    padding-bottom: 6px;
+    scrollbar-width: thin;
+    overscroll-behavior-x: contain;
   }
   .story-card {
+    overflow-wrap: anywhere;
+    flex: 0 0 215px;
+    min-width: 200px;
     border: 1px solid var(--line, #dddddd);
     border-radius: 7px;
     padding: 10px 12px;
@@ -249,13 +268,11 @@
     font-weight: 800;
   }
 
-  @media (max-width: 900px) {
+  @media (max-width: 650px) {
     .macro-storyboard-section {
+    min-width: 0;
       margin-left: 15px;
       margin-right: 15px;
-    }
-    .storyboard-track {
-      grid-template-columns: 1fr;
     }
   }
 </style>

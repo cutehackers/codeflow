@@ -12,6 +12,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net/url"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -489,6 +490,12 @@ func (s *Server) Serve(ctx context.Context, in io.Reader, out io.Writer) error {
 			continue
 		}
 
+		// A Notification is a Request object without an "id" member or method starting with notifications/.
+		// Per JSON-RPC 2.0 and MCP specification, the server MUST NOT reply to a Notification.
+		if req.ID == nil || strings.HasPrefix(req.Method, "notifications/") {
+			continue
+		}
+
 		resp := s.handleRequest(ctx, req)
 		if err := enc.Encode(resp); err != nil {
 			return err
@@ -514,6 +521,13 @@ func (s *Server) handleRequest(ctx context.Context, req rpcRequest) rpcResponse 
 					"tools": map[string]any{},
 				},
 			},
+		}
+
+	case "ping":
+		return rpcResponse{
+			JSONRPC: "2.0",
+			ID:      req.ID,
+			Result:  map[string]any{},
 		}
 
 	case "tools/list":
@@ -786,10 +800,11 @@ func (s *Server) listTools() []map[string]any {
 		},
 		{
 			"name":        "open_review",
-			"description": "Open FlowView for a persisted flowId. Use the exact flowId returned by analyze_flow or publish_core_flow; do not call it for an unselected candidate.",
+			"description": "Return the URL for a saved viewId or a persisted flowId. Open the returned URL immediately in the browser to show the result. A saved view is restored without analysis.",
 			"inputSchema": map[string]any{
 				"type": "object",
 				"properties": map[string]any{
+					"viewId": map[string]any{"type": "string", "description": "Saved FlowView result ID. Open the returned URL immediately to show that exact result without analysis."},
 					"flowId": map[string]any{"type": "string"},
 					"target": targetProp,
 				},
@@ -797,7 +812,7 @@ func (s *Server) listTools() []map[string]any {
 		},
 		{
 			"name":        "query_task_view",
-			"description": "Execute a task-scoped query against the workspace. For FlowView presentation, use feature mode and open or present the returned flowView.url. It serves FlowView with Macro Context Storyboard and Blast Radius Radar with workspace data. Feature/review/impact modes use task-view-query; debug/incident modes require an explicit rflsc.failure-query.v2 with exact basis, generation, snapshot, freshness, and server-resolved runtime observation identity.",
+			"description": "Execute a task-scoped query against the workspace. For FlowView presentation, use feature mode and immediately open the returned flowView.url. The viewId identifies the saved analysis and opening it must not run another query. It serves FlowView with Macro Context Storyboard and Blast Radius Radar with workspace data. Feature/review/impact modes use task-view-query; debug/incident modes require an explicit rflsc.failure-query.v2 with exact basis, generation, snapshot, freshness, and server-resolved runtime observation identity.",
 			"inputSchema": map[string]any{
 				"type":     "object",
 				"required": []string{"query"},
@@ -1438,12 +1453,30 @@ func (s *Server) executeTool(ctx context.Context, name string, args map[string]a
 		if err != nil {
 			return nil, err
 		}
-		url := fv.URL() + "&flow=" + flowID
+		viewURL := fv.URL() + "&flow=" + url.QueryEscape(flowID)
+		viewID, _ := args["viewId"].(string)
+		if viewID != "" {
+			if _, err := fv.RestoreTaskView(ctx, viewID); err != nil {
+				return nil, err
+			}
+			viewURL = fv.SavedViewURL(viewID)
+		} else if flowID != "" {
+			restored, err := fv.RestoreLegacyFlow(ctx, flowID)
+			if err != nil {
+				return nil, err
+			}
+			if id, ok := restored["viewId"].(string); ok {
+				viewID = id
+				viewURL = fv.SavedViewURL(id)
+			}
+		}
 		return map[string]any{
-			"status": "ready",
-			"flowId": flowID,
-			"url":    url,
-			"token":  fv.AuthToken(),
+			"status":  "ready",
+			"flowId":  flowID,
+			"url":     viewURL,
+			"viewUrl": viewURL,
+			"viewId":  viewID,
+			"token":   fv.AuthToken(),
 		}, nil
 
 	case "query_task_view":

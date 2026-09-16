@@ -1,12 +1,17 @@
 package flowview
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"reflect"
 	"testing"
+
+	"codeflow/internal/semantic"
+	"codeflow/internal/storage"
 )
 
 func TestFlowViewTaskViewEndpoint(t *testing.T) {
@@ -79,6 +84,17 @@ func TestFlowViewTaskViewEndpoint(t *testing.T) {
 	if _, ok := resDoc["projection"]; !ok {
 		t.Error("missing projection in response")
 	}
+	sbDoc, ok := resDoc["storyboard"].(map[string]any)
+	if !ok || sbDoc == nil {
+		t.Fatal("missing or invalid storyboard in response")
+	}
+	if sbDoc["schemaId"] != semantic.StoryboardSchemaID {
+		t.Errorf("expected storyboard schemaId %s, got %v", semantic.StoryboardSchemaID, sbDoc["schemaId"])
+	}
+	frames, ok := sbDoc["frames"].([]any)
+	if !ok || len(frames) == 0 {
+		t.Errorf("expected at least 1 frame in storyboard, got %v", sbDoc["frames"])
+	}
 	baseline, _ := resDoc["baseline"].(map[string]any)
 	if baseline == nil || baseline["status"] != "none" {
 		t.Errorf("expected explicit baseline none marker, got %v", resDoc["baseline"])
@@ -146,5 +162,88 @@ func TestFlowViewTaskViewRequestIdentity(t *testing.T) {
 	rid, _ := anonymousDoc["requestId"].(string)
 	if rid == "" {
 		t.Error("expected server-assigned requestId when the caller omits it")
+	}
+}
+
+func TestSavedTaskViewSurvivesRestartWithoutAnalysis(t *testing.T) {
+	root := copyFixtureWithoutCodeflow(t, "nextjs-app-fixture")
+	moduleRoot, _ := filepath.Abs("../..")
+	t.Setenv("CODEFLOW_ADAPTER_TYPESCRIPT_BIN", "noderun:"+filepath.Join(moduleRoot, "adapters", "typescript"))
+	srv, err := NewServer(Config{RepoRoot: root, Port: 0})
+	if err != nil {
+		t.Fatal(err)
+	}
+	rec := httptest.NewRecorder()
+	srv.httpServer.Handler.ServeHTTP(rec, httptest.NewRequest("GET", "http://127.0.0.1/api/task/view?token="+srv.AuthToken()+"&entrySymbol=app/page.tsx%23HomePage.handleQuickCheckout", nil))
+	if rec.Code != 200 {
+		t.Fatalf("analysis: %d %s", rec.Code, rec.Body.String())
+	}
+	var result map[string]any
+	if err := json.Unmarshal(rec.Body.Bytes(), &result); err != nil {
+		t.Fatal(err)
+	}
+	id, _ := result["viewId"].(string)
+	if id == "" {
+		t.Fatal("missing saved view")
+	}
+	if err := srv.Shutdown(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	// The adapter and current source are unavailable. Reading must still succeed.
+	t.Setenv("CODEFLOW_ADAPTER_TYPESCRIPT_BIN", "missing-adapter")
+	if err := os.Remove(filepath.Join(root, "app", "page.tsx")); err != nil {
+		t.Fatal(err)
+	}
+	reopened, err := NewServer(Config{RepoRoot: root, Port: 0})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer reopened.Shutdown(context.Background())
+	restored := httptest.NewRecorder()
+	reopened.httpServer.Handler.ServeHTTP(restored, httptest.NewRequest("GET", "http://127.0.0.1/api/view?token="+reopened.AuthToken()+"&viewId="+id, nil))
+	if restored.Code != 200 {
+		t.Fatalf("restore: %d %s", restored.Code, restored.Body.String())
+	}
+	var actual map[string]any
+	if err := json.Unmarshal(restored.Body.Bytes(), &actual); err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(result, actual) {
+		t.Fatal("restored result differs from analysis")
+	}
+	denied := httptest.NewRecorder()
+	reopened.httpServer.Handler.ServeHTTP(denied, httptest.NewRequest("GET", "http://127.0.0.1/api/view?viewId="+id, nil))
+	if denied.Code == 200 {
+		t.Fatal("unauthenticated read accepted")
+	}
+}
+
+func TestLegacyFlowRestorationKeepsFactsWithoutCurrentSource(t *testing.T) {
+	store := storage.New(t.TempDir())
+	session, err := store.BeginGeneration("legacy-basis")
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw := []byte(`{"flowId":"flow-legacy","title":"기존 주문 처리","basisSha":"legacy-basis","steps":[{"stepId":"legacy-entry","ordinal":1,"name":"주문 요청","anchor":{"repoRelativePath":"order.ts","enclosingSymbolPath":"submit"}}],"unknowns":[]}`)
+	if err := session.AddFlowSpec("flow-legacy", raw, storage.FlowSummary{FlowID: "flow-legacy", Title: "기존 주문 처리"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := session.Commit(); err != nil {
+		t.Fatal(err)
+	}
+	srv := &Server{storage: store}
+	result, err := srv.RestoreLegacyFlow(context.Background(), "flow-legacy")
+	if err != nil {
+		t.Fatal(err)
+	}
+	m := result["semanticMap"].(*semantic.SemanticMapIR)
+	if len(m.Steps) != 1 || m.Steps[0].StepID != "legacy-entry" {
+		t.Fatal("legacy facts changed")
+	}
+	if result["sourceNotice"] == "" || len(result["flowContexts"].(map[string]any)) != 0 {
+		t.Fatal("missing source must be explicit")
+	}
+	if _, err := srv.RestoreLegacyFlow(context.Background(), "../pointer"); err == nil {
+		t.Fatal("unsafe flow ID accepted")
 	}
 }

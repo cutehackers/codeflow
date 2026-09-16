@@ -97,3 +97,24 @@ func (s *Server) rememberFlowContexts(m *semantic.SemanticMapIR, payload *slicin
 	s.mu.Unlock()
 	return result
 }
+
+// BuildSourceFiles retains each referenced, redacted snapshot file once so
+// source expansion remains available after cache eviction or server restart.
+func BuildSourceFiles(m *semantic.SemanticMapIR, snapshot protocol.Snapshot) map[string][]FlowContextLine {
+	files := make(map[string][]FlowContextLine)
+	if m == nil {
+		return files
+	}
+	sourceBytes := SnapshotSourceBytes(snapshot)
+	for _, step := range m.Steps {
+		path := step.Anchor.RepoRelativePath
+		if _, found := files[path]; found {
+			continue
+		}
+		projection := DeriveFlowContext(DeriveFlowContextParams{Step: step, SemanticMap: m, SnapshotFiles: sourceBytes, SourceSnapshotID: snapshot.SnapshotID, Expansion: ExpansionFile})
+		if projection.CanonicalPath != "" && len(projection.DisplayedLines) > 0 {
+			files[path] = projection.DisplayedLines
+		}
+	}
+	return files
+}

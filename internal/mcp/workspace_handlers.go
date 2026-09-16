@@ -64,6 +64,7 @@ func (s *Server) getLiveCoordinator(absTarget string) (*flowview.Server, error) 
 		Port:                       0,
 		Mode:                       "project_change",
 		LivePrototype:              true,
+		SvelteUI:                   true,
 		ProposalStore:              proposalStore,
 		RuntimeObservationProvider: s.cfg.RuntimeObservationProvider,
 		RuntimeObservationStore:    s.cfg.RuntimeObservationStore,

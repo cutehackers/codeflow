@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"net/url"
 	"strings"
 
 	"codeflow/internal/contractharness"
@@ -135,26 +134,6 @@ func (s *Server) handleQueryTaskView(ctx context.Context, args map[string]any) (
 	var query semantic.TaskViewQuery
 	if err := json.Unmarshal(queryBytes, &query); err != nil {
 		return nil, coreFlowError(semantic.ErrCodeMissingPrecondition, fmt.Sprintf("unmarshal query: %v", err), nil, false)
-	}
-	var liveReviewURL func(request, entrySymbol string) (string, error)
-	if query.Mode == "feature" && query.Feature != nil {
-		coordinator, err := s.getLiveCoordinator(targetRoot)
-		if err != nil {
-			return nil, coreFlowError("live_coordinator_error", err.Error(), nil, false)
-		}
-		if err := coordinator.RememberTaskQuery(&query, query.Feature.Request); err != nil {
-			return nil, coreFlowError(semantic.ErrCodeMissingPrecondition, err.Error(), nil, false)
-		}
-		liveReviewURL = func(request, entrySymbol string) (string, error) {
-			viewURL, err := url.Parse(coordinator.URL())
-			if err != nil {
-				return "", fmt.Errorf("build FlowView URL: %w", err)
-			}
-			params := viewURL.Query()
-			viewURL.Path = "/"
-			viewURL.RawQuery = params.Encode()
-			return viewURL.String(), nil
-		}
 	}
 
 	if query.Mode == "impact" {
@@ -387,22 +366,21 @@ func (s *Server) handleQueryTaskView(ctx context.Context, args map[string]any) (
 		"flowContexts":        flowContexts,
 		"unknowns":            mapIR.Unknowns,
 	}
-	if liveReviewURL != nil {
-		viewURL, err := liveReviewURL(reqText, resolved.EntrySymbolPath)
+	if query.Mode == "feature" {
+		coordinator, err := s.getLiveCoordinator(targetRoot)
 		if err != nil {
-			return nil, coreFlowError("live_coordinator_error", err.Error(), nil, false)
+			return nil, err
 		}
-		// A feature query establishes the Live Semantic Map before edits arrive.
-		// The URL restores that exact request in FlowView, so opening it does not
-		// require a user to repeat the query before live updates are visible.
-		response["flowView"] = map[string]any{
-			"status":   "ready",
-			"mode":     "flowview",
-			"autoOpen": true,
-			"url":      viewURL,
-			"template": flowview.LiveSemanticTemplate,
+		response["sourceFiles"] = flowview.BuildSourceFiles(mapIR, snapshot)
+		response["request"] = &semantic.FeatureQueryParams{Request: reqText, EntrySymbol: resolved.EntrySymbolPath, FlowID: resolved.CandidateID}
+		response, err = coordinator.SaveTaskView(ctx, response)
+		if err != nil {
+			return nil, err
 		}
+		id := response["viewId"].(string)
+		response["flowView"] = map[string]any{"viewId": id, "url": coordinator.SavedViewURL(id), "status": "ready", "autoOpen": true, "mode": "flowview"}
 	}
+
 	return response, nil
 }
 

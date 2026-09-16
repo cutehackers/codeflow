@@ -1,0 +1,45 @@
+{
+  "schemaId": "https://codeflow.local/schemas/storyboard.schema.json",
+  "schemaVersion": 1,
+  "generationId": "gen-test-01",
+  "computedBasisId": "basis-test-01",
+  "snapshotId": "snap-test-01",
+  "frames": [
+    {
+      "frameId": "frame-1",
+      "ordinal": 1,
+      "role": "entry",
+      "title": "Checkout Entry",
+      "narrative": "User initiates checkout action",
+      "technicalAnchor": "CheckoutButton.onClick",
+      "stepRefs": ["step-1"],
+      "primaryStepRef": "step-1",
+      "sourceAnchor": {
+        "repoRelativePath": "src/checkout.ts",
+        "enclosingSymbolPath": "CheckoutButton.onClick"
+      },
+      "architecture": "UI",
+      "status": "verified",
+      "frameMatchKey": "entry|CheckoutButton.onClick"
+    },
+    {
+      "frameId": "frame-2",
+      "ordinal": 2,
+      "role": "decision",
+      "title": "Validate Cart",
+      "narrative": "Verify items in cart are available",
+      "technicalAnchor": "CartService.validate",
+      "stepRefs": ["step-2", "step-3"],
+      "primaryStepRef": "step-2",
+      "condition": "cart.isValid()",
+      "outcomes": ["valid", "empty_cart"],
+      "collapsedDetail": {
+        "count": 1,
+        "reason": "1 continuous validation step collapsed"
+      },
+      "architecture": "Service",
+      "status": "verified",
+      "frameMatchKey": "decision|CartService.validate"
+    }
+  ]
+}

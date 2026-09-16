@@ -495,6 +495,9 @@ func runServe(args []string) {
 	portFlag := fs.Int("port", 4567, "loopback port for FlowView UI")
 	tokenFlag := fs.String("token", "", "fixed auth token for testing or headless use")
 	releaseDecisionsFlag := fs.String("release-decisions", "", "immutable approved release threshold decision JSON")
+	flowFlag := fs.String("flow", "", "flow ID to view")
+	queryFlag := fs.String("query", "", "feature query or intent to view")
+	entryFlag := fs.String("entry", "", "entry symbol to view")
 	if err := fs.Parse(reorderFlags(fs, args)); err != nil {
 		os.Exit(2)
 	}
@@ -520,7 +523,18 @@ func runServe(args []string) {
 	}
 	srv.Start()
 
-	fmt.Printf("\n  CodeFlow View is live at:\n  %s\n\n  Press Ctrl+C to stop.\n", srv.URL())
+	viewURL := srv.URL()
+	if *flowFlag != "" {
+		viewURL += "&flow=" + url.QueryEscape(*flowFlag)
+	}
+	if *queryFlag != "" {
+		viewURL += "&request=" + url.QueryEscape(*queryFlag)
+	}
+	if *entryFlag != "" {
+		viewURL += "&entrySymbol=" + url.QueryEscape(*entryFlag)
+	}
+
+	fmt.Printf("\n  CodeFlow View is live at:\n  %s\n\n  Press Ctrl+C to stop.\n", viewURL)
 
 	sig := make(chan os.Signal, 1)
 	signal.Notify(sig, os.Interrupt, syscall.SIGTERM)

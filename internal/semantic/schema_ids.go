@@ -19,6 +19,10 @@ const (
 	DomainCandidateSchemaID           = "https://codeflow.local/schemas/rflsc.domain-candidate.v2.schema.json"
 	RepresentativeFlowCatalogSchemaID = "https://codeflow.local/schemas/rflsc.representative-flow-catalog.v2.schema.json"
 	OnboardingFlowDrilldownSchemaID   = "https://codeflow.local/schemas/rflsc.onboarding-flow-drilldown.v2.schema.json"
+	StoryboardSchemaID                = "https://codeflow.local/schemas/storyboard.schema.json"
 )
 
-const SemanticSchemaVersion = 2
+const (
+	SemanticSchemaVersion   = 2
+	StoryboardSchemaVersion = 1
+)

@@ -1,0 +1,85 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://codeflow.local/schemas/storyboard.schema.json",
+  "title": "CodeFlow Storyboard Projection",
+  "type": "object",
+  "required": [
+    "schemaId",
+    "schemaVersion",
+    "generationId",
+    "computedBasisId",
+    "snapshotId",
+    "frames"
+  ],
+  "properties": {
+    "schemaId": {
+      "type": "string",
+      "enum": [
+        "https://codeflow.local/schemas/storyboard.schema.json",
+        "codeflow.storyboard"
+      ]
+    },
+    "schemaVersion": { "const": 1 },
+    "generationId": { "type": "string", "minLength": 1 },
+    "computedBasisId": { "type": "string", "minLength": 1 },
+    "snapshotId": { "type": "string", "minLength": 1 },
+    "frames": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "frameId",
+          "ordinal",
+          "role",
+          "title",
+          "stepRefs",
+          "primaryStepRef",
+          "status",
+          "frameMatchKey"
+        ],
+        "properties": {
+          "frameId": { "type": "string", "minLength": 1 },
+          "ordinal": { "type": "integer", "minimum": 1 },
+          "role": {
+            "type": "string",
+            "enum": ["entry", "decision", "process", "effect", "result", "boundary"]
+          },
+          "title": { "type": "string", "minLength": 1 },
+          "narrative": { "type": "string" },
+          "technicalAnchor": { "type": "string" },
+          "stepRefs": {
+            "type": "array",
+            "items": { "type": "string" }
+          },
+          "primaryStepRef": { "type": "string", "minLength": 1 },
+          "sourceAnchor": {
+            "type": "object",
+            "properties": {
+              "repoRelativePath": { "type": "string" },
+              "enclosingSymbolPath": { "type": "string" }
+            }
+          },
+          "condition": { "type": "string" },
+          "outcomes": {
+            "type": "array",
+            "items": { "type": "string" }
+          },
+          "collapsedDetail": {
+            "type": "object",
+            "required": ["count", "reason"],
+            "properties": {
+              "count": { "type": "integer", "minimum": 0 },
+              "reason": { "type": "string" }
+            }
+          },
+          "architecture": { "type": "string" },
+          "status": {
+            "type": "string",
+            "enum": ["verified", "partial", "unknown"]
+          },
+          "frameMatchKey": { "type": "string", "minLength": 1 }
+        }
+      }
+    }
+  }
+}

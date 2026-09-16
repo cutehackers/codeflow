@@ -11,7 +11,7 @@
   }
 </script>
 
-{#if changes.length > 0}
+{#if flowStore.compare && changes.length > 0}
   <section id="change-pulse" class="change-pulse" aria-label="검증된 의미 변경">
     <h2>CHANGE PULSE · 검증된 의미 변경</h2>
     <div id="pulse-list" class="pulse-list">

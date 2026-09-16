@@ -11,9 +11,9 @@
 
   let {
     title = 'CodeFlow',
-    mode = 'Live Semantic Map',
-    staticLinkUrl = '/',
-    staticLinkLabel = 'Static FlowView 열기 ↗'
+    mode = 'FlowView Storyboard',
+    staticLinkUrl = '',
+    staticLinkLabel = ''
   }: Props = $props();
 
   function handleReset() {

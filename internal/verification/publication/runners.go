@@ -1777,7 +1777,7 @@ func RunA16(t *testing.T) Evidence {
 	if err := os.WriteFile(filepath.Join(root, "service.go"), []byte("package service\nfunc Submit() {}\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	srv, err := flowview.NewServer(flowview.Config{RepoRoot: root, Port: 0, AuthToken: "vs03-a16"})
+	srv, err := flowview.NewServer(flowview.Config{RepoRoot: root, Port: 0, AuthToken: "vs03-a16", LivePrototype: true})
 	if err != nil {
 		t.Fatal(err)
 	}

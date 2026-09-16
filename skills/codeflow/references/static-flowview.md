@@ -4,12 +4,12 @@ Use this mode to discover, publish, retrieve, explain, and visually review an ex
 
 ## Discover and Analyze
 
-1. If the user supplies an exact entry symbol, call `analyze_flow` for adapter-driven slicing and publication.
-2. If the user asks to show, open, add, or view a new or different flow without an exact entry symbol, call `harvest_flows` first. Use the requested business behavior as `query`; do not include presentation verbs such as “show” or “open” in that query.
-3. From the returned candidates, select only a candidate whose intent signals unambiguously match the request. Call `analyze_flow` with its exact `entrySymbolPath`; do not substitute a previously displayed flow or a manually inferred code path.
-4. If no candidate matches, report the empty candidate result. If multiple candidates remain plausible, present those candidates and ask the user to choose. Do not claim that a new flow is being generated.
-5. Treat the request as completed only after `analyze_flow` or `publish_core_flow` returns a persisted `flowId`. When the user requested a visual result, call `open_review` with that exact `flowId` and the same target.
-6. When the agent must author a complete architecture-layer flow, inspect the implementation and call `publish_core_flow` with a verified intermediate artifact.
+1. For a requested FlowView, call `query_task_view` in feature mode with the exact entry symbol or the user's business request and the project root as `target`.
+2. If the result reports ambiguous candidates, select only an unambiguous match or ask the user to choose. Preserve analysis failures and missing evidence.
+3. Open the returned `flowView.url` immediately using the host's browser tool. The returned `viewId` restores that exact saved result, including storyboard and source context. Do not create a separate HTML file or issue another analysis to display it.
+4. To reopen a saved result, pass its exact `viewId` and target to `open_review`, then open the returned URL. Existing `flowId` links remain supported, with missing historical source shown explicitly.
+5. Use `analyze_flow` or `publish_core_flow` when the user requests persisted core-flow publication. When showing that result, use its returned `flowId` with `open_review`.
+6. Reanalysis creates a new saved result only on an explicit request. Do not watch edits or replace the open view automatically.
 
 Do not describe anchor verification as an asynchronous FlowView state. `publish_core_flow` either returns a concrete verification error or a published `flowId`; report only that returned result.
 

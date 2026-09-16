@@ -557,3 +557,52 @@ func TestMCPServer_DynamicTarget(t *testing.T) {
 		t.Fatalf("expected successful harvest on dynamic target, got error: %v", resp.Result.Content)
 	}
 }
+
+func TestMCPServer_NotificationsAndLifecycle(t *testing.T) {
+	srv, err := mcp.NewServer(mcp.Config{RepoRoot: t.TempDir()})
+	if err != nil {
+		t.Fatalf("NewServer failed: %v", err)
+	}
+	defer srv.Close()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	var inBuf, outBuf bytes.Buffer
+
+	// Standard MCP client sequence:
+	// 1. initialize (request)
+	// 2. notifications/initialized (notification - MUST NOT reply)
+	// 3. ping (request)
+	// 4. notifications/cancelled (notification - MUST NOT reply)
+	// 5. tools/list (request)
+	inBuf.WriteString(`{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}` + "\n")
+	inBuf.WriteString(`{"jsonrpc":"2.0","method":"notifications/initialized"}` + "\n")
+	inBuf.WriteString(`{"jsonrpc":"2.0","id":2,"method":"ping","params":{}}` + "\n")
+	inBuf.WriteString(`{"jsonrpc":"2.0","method":"notifications/cancelled","params":{"requestId":99}}` + "\n")
+	inBuf.WriteString(`{"jsonrpc":"2.0","id":3,"method":"tools/list","params":{}}` + "\n")
+
+	if err := srv.Serve(ctx, &inBuf, &outBuf); err != nil {
+		t.Fatalf("Serve failed: %v", err)
+	}
+
+	lines := strings.Split(strings.TrimSpace(outBuf.String()), "\n")
+	if len(lines) != 3 {
+		t.Fatalf("expected exactly 3 responses for 3 requests + 2 notifications, got %d:\n%s", len(lines), outBuf.String())
+	}
+
+	// Verify IDs match the 3 requests (1, 2, 3) in order
+	var r1, r2, r3 struct {
+		ID    int `json:"id"`
+		Error any `json:"error"`
+	}
+	if err := json.Unmarshal([]byte(lines[0]), &r1); err != nil || r1.ID != 1 {
+		t.Errorf("expected response 1 to have ID 1, got ID=%d, err=%v", r1.ID, err)
+	}
+	if err := json.Unmarshal([]byte(lines[1]), &r2); err != nil || r2.ID != 2 {
+		t.Errorf("expected response 2 to have ID 2, got ID=%d, err=%v", r2.ID, err)
+	}
+	if err := json.Unmarshal([]byte(lines[2]), &r3); err != nil || r3.ID != 3 {
+		t.Errorf("expected response 3 to have ID 3, got ID=%d, err=%v", r3.ID, err)
+	}
+}
