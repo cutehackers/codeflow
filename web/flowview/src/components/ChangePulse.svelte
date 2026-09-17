@@ -3,7 +3,7 @@
 
   const changes = $derived(flowStore.data?.semanticDelta?.changes || []);
 
-  function handleSelect(targetStepId?: string) {
+  function onStepSelect(targetStepId?: string) {
     if (!targetStepId) return;
     flowStore.select(targetStepId);
     const targetEl = document.querySelector(`[data-card="${targetStepId}"], [data-process="${targetStepId}"]`);
@@ -24,7 +24,7 @@
           class:pulse-low-priority={!isPriority}
           data-kind={change.kind}
           data-select={change.targetStepId}
-          onclick={() => handleSelect(change.targetStepId)}
+          onclick={() => onStepSelect(change.targetStepId)}
         >
           <b>{label}</b>
           <span>{change.summary || change.description || ''}</span>

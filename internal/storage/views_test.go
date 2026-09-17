@@ -9,7 +9,7 @@ import (
 	"testing"
 )
 
-func TestSavedViewPersistence(t *testing.T) {
+func TestTaskViewPersistence(t *testing.T) {
 	root := t.TempDir()
 	ctx := context.Background()
 	store := New(root)
@@ -53,7 +53,7 @@ func TestSavedViewPersistence(t *testing.T) {
 	}
 }
 
-func TestSavedViewRejectsOutsideSymlink(t *testing.T) {
+func TestTaskViewRejectsOutsideSymlink(t *testing.T) {
 	root := t.TempDir()
 	if err := os.Symlink(t.TempDir(), filepath.Join(root, ".codeflow")); err != nil {
 		t.Skip(err)

@@ -14,6 +14,7 @@ const (
 	ErrCodeAmbiguousTarget       = "ambiguous_target"
 	ErrCodeIncomparableBasis     = "incomparable_basis"
 	ErrCodeUnsupportedCapability = "unsupported_capability"
+	ErrCodeNoEntrypointsFound    = "no_entrypoints_found"
 )
 
 // TaskViewQuery mirrors schemas/task-view-query.schema.json.
@@ -159,6 +160,13 @@ func ResolveFeatureQueryTarget(query *TaskViewQuery, candidates []harvest.Candid
 			FlowID:          fusion.ComputeFlowID(entrySymbol),
 			Title:           entrySymbol,
 		}, nil
+	}
+
+	if len(candidates) == 0 {
+		return nil, &QueryError{
+			Code:    ErrCodeNoEntrypointsFound,
+			Message: "no entrypoints found in repository; provide an explicit entrySymbol or re-index",
+		}
 	}
 
 	// 2. Explicit flowId match

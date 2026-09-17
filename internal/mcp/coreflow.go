@@ -95,7 +95,7 @@ func boundedDiagnostic(value string, max int) string {
 	return clean
 }
 
-func (s *Server) handlePublishCoreFlow(ctx context.Context, args map[string]any) (any, error) {
+func (s *Server) processPublishCoreFlow(ctx context.Context, args map[string]any) (any, error) {
 	if err := s.checkAuth(args["token"]); err != nil {
 		return nil, coreFlowError("unauthorized", err.Error(), nil, false)
 	}

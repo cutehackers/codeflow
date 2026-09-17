@@ -24,7 +24,7 @@
     flowStore.setViewMode('code');
   }
 
-  function handleSelect(stepId: string) {
+  function onStepSelect(stepId: string) {
     flowStore.saveNavigationState();
     flowStore.select(stepId);
   }
@@ -100,7 +100,7 @@
         <h3>이곳을 호출한 코드</h3>
         {#if incomingCallers.length}
           {#each incomingCallers as caller (caller!.stepId)}
-            <button type="button" data-select={caller!.stepId} onclick={() => handleSelect(caller!.stepId)}>
+            <button type="button" data-select={caller!.stepId} onclick={() => onStepSelect(caller!.stepId)}>
               ← {caller!.label}
             </button>
           {/each}

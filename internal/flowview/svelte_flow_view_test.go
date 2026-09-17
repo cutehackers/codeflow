@@ -33,7 +33,7 @@ func TestFlowViewServesSvelteUI(t *testing.T) {
 	srv := &Server{svelteUI: true}
 	req := httptest.NewRequest("GET", "/?token=test", nil)
 	rec := httptest.NewRecorder()
-	srv.handleIndex(rec, req)
+	srv.serveIndex(rec, req)
 
 	if rec.Code != 200 {
 		t.Fatalf("expected 200 OK, got %d", rec.Code)
@@ -45,7 +45,7 @@ func TestFlowViewServesSvelteUI(t *testing.T) {
 	// Also verify /live serves SvelteFlowViewHTML when svelteUI is enabled
 	reqLive := httptest.NewRequest("GET", "/live?token=test", nil)
 	recLive := httptest.NewRecorder()
-	srv.handleIndex(recLive, reqLive)
+	srv.serveIndex(recLive, reqLive)
 
 	if recLive.Code != 200 || recLive.Body.String() != SvelteFlowViewHTML {
 		t.Fatal("expected SvelteFlowViewHTML to be served on /live when svelteUI is enabled")

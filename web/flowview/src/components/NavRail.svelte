@@ -7,7 +7,7 @@
   const compare = $derived(flowStore.compare);
   const deltaChanges = $derived(compare ? (flowStore.data?.semanticDelta?.changes || []) : []);
 
-  function handleSelect(frameId: string) {
+  function onFrameSelect(frameId: string) {
     flowStore.select(frameId);
     const targetEl = document.querySelector(`[data-card="${frameId}"], [data-card="${flowStore.selectedStepId}"], [data-process="${flowStore.selectedStepId}"]`);
     targetEl?.scrollIntoView({ behavior: 'smooth', block: 'start' });
@@ -16,8 +16,8 @@
   }
 </script>
 
-<nav class="rail" aria-label="스토리보드 관문 실행 타임라인">
-  <h2>실행 타임라인 (STORYBOARD)</h2>
+<nav class="rail" aria-label="FlowSequence">
+  <h2>FlowSequence</h2>
   <div id="step-nav">
     {#each frames as frame, index (frame.frameId)}
       {@const isSelected = selectedFrameId === frame.frameId || (!selectedFrameId && selectedStepId === frame.primaryStepRef)}
@@ -31,17 +31,21 @@
         data-select={frame.primaryStepRef}
         data-frame={frame.frameId}
         aria-pressed={isSelected}
-        onclick={() => handleSelect(frame.frameId)}
+        onclick={() => onFrameSelect(frame.frameId)}
       >
         <span class="idx">FRAME {String(frame.ordinal || index + 1).padStart(2, '0')}</span>
         <span>
-          <strong>{#if isSurgery}⚡ {/if}{frame.title}</strong>
+          <strong>
+            {#if isSurgery}⚡ {/if}
+            {#if frame.isRecursion}<span class="badge-recursion">↺ RECURSION</span> {/if}
+            {frame.title}
+          </strong>
           <small>{roleName}</small>
         </span>
       </button>
       {#if flowStore.selectedFrame?.frameId === frame.frameId && frame.stepRefs.length > 1}
         <details class="scene-details">
-          <summary>내부 처리 {frame.stepRefs.length}단계</summary>
+          <summary>실행 타임라인 ({frame.stepRefs.length}단계)</summary>
           {#each flowStore.sceneSteps as step (step.stepId)}
             <button class="step-link" aria-pressed={selectedStepId === step.stepId} onclick={() => flowStore.select(step.stepId)}>{step.name}</button>
           {/each}
@@ -103,6 +107,17 @@
   }
   .step-link[aria-pressed=true] small {
     color: #444;
+  }
+  .badge-recursion {
+    display: inline-block;
+    font-size: 9px;
+    font-weight: 700;
+    color: #b45309;
+    background: #fef3c7;
+    border: 1px solid #fcd34d;
+    padding: 1px 4px;
+    border-radius: 3px;
+    margin-right: 4px;
   }
   .rail-note {
     font-size: 10px;

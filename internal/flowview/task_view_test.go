@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"strings"
 	"testing"
 
 	"codeflow/internal/semantic"
@@ -245,5 +246,152 @@ func TestLegacyFlowRestorationKeepsFactsWithoutCurrentSource(t *testing.T) {
 	}
 	if _, err := srv.RestoreLegacyFlow(context.Background(), "../pointer"); err == nil {
 		t.Fatal("unsafe flow ID accepted")
+	}
+}
+
+func TestLegacyFlowRestorationBidirectionalAndContextPreservation(t *testing.T) {
+	store := storage.New(t.TempDir())
+	session, err := store.BeginGeneration("gen-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Stored under "cand-abcdef123456"
+	raw := []byte(`{"flowId":"cand-abcdef123456","title":"주문 검증","basisSha":"gen-1","steps":[{"stepId":"step-1","ordinal":1,"name":"주문 확인"}],"unknowns":[]}`)
+	if err := session.AddFlowSpec("cand-abcdef123456", raw, storage.FlowSummary{FlowID: "cand-abcdef123456", Title: "주문 검증"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := session.Commit(); err != nil {
+		t.Fatal(err)
+	}
+
+	// Also save a view that has flowContexts and sourceFiles
+	savedPayload := map[string]any{
+		"flowId": "cand-abcdef123456",
+		"flowContexts": map[string]any{
+			"step-1": map[string]any{"filePath": "order.go", "lineStart": 10, "lineEnd": 20},
+		},
+		"sourceFiles": map[string]any{
+			"order.go": "package main\nfunc Order() {}",
+		},
+	}
+	savedBytes, err := json.Marshal(savedPayload)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := store.SaveView(context.Background(), savedBytes); err != nil {
+		t.Fatal(err)
+	}
+
+	srv := &Server{storage: store}
+
+	// Request using "flow-abcdef123456" (matching "cand-abcdef123456" via bidirectional normalizer)
+	result, err := srv.RestoreLegacyFlow(context.Background(), "flow-abcdef123456")
+	if err != nil {
+		t.Fatalf("expected successful restoration via bidirectional matching, got: %v", err)
+	}
+
+	contexts, ok := result["flowContexts"].(map[string]any)
+	if !ok || len(contexts) == 0 {
+		t.Fatalf("expected preserved flowContexts, got: %+v", result["flowContexts"])
+	}
+
+	sources, ok := result["sourceFiles"].(map[string]any)
+	if !ok || len(sources) == 0 {
+		t.Fatalf("expected preserved sourceFiles, got: %+v", result["sourceFiles"])
+	}
+
+	if result["flowId"] != "flow-abcdef123456" {
+		t.Errorf("expected normalized flowId %q, got %q", "flow-abcdef123456", result["flowId"])
+	}
+}
+
+func TestRestoreTaskViewSourceContextMissingTriggersReanalysisFlag(t *testing.T) {
+	store := storage.New(t.TempDir())
+	savedPayload := map[string]any{
+		"flowId":       "flow-missing-context",
+		"title":        "결제 승인",
+		"flowContexts": map[string]any{},
+		"sourceFiles":  map[string]any{},
+		"semanticMap": map[string]any{
+			"steps": []any{
+				map[string]any{"stepId": "step-1", "name": "승인 요청"},
+			},
+		},
+	}
+	savedBytes, err := json.Marshal(savedPayload)
+	if err != nil {
+		t.Fatal(err)
+	}
+	viewID, _, err := store.SaveView(context.Background(), savedBytes)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	srv := &Server{storage: store}
+	restored, err := srv.RestoreTaskView(context.Background(), viewID)
+	if err != nil {
+		t.Fatalf("failed to restore view: %v", err)
+	}
+
+	if restored["sourceContextMissing"] != true {
+		t.Fatalf("expected sourceContextMissing to be true, got: %v", restored["sourceContextMissing"])
+	}
+	if restored["needsReanalysis"] != true {
+		t.Fatalf("expected needsReanalysis to be true, got: %v", restored["needsReanalysis"])
+	}
+	if notice, ok := restored["sourceNotice"].(string); !ok || notice == "" {
+		t.Fatalf("expected non-empty sourceNotice, got: %v", restored["sourceNotice"])
+	}
+}
+
+func TestRestoreTaskViewSourceDeletedOnDiskTriggersReanalysis(t *testing.T) {
+	tempRepo := t.TempDir()
+	store := storage.New(tempRepo)
+
+	// A saved view pointing to a file "deleted_module.go" that does NOT exist in tempRepo
+	savedPayload := map[string]any{
+		"viewId": "view-deleted-disk",
+		"flowId": "flow-deleted-disk",
+		"title":  "삭제된 모듈 흐름",
+		"flowContexts": map[string]any{
+			"step-1": map[string]any{
+				"canonicalPath": "deleted_module.go",
+				"filePath":      "deleted_module.go",
+			},
+		},
+		"sourceFiles": map[string]any{
+			"deleted_module.go": []any{"line 1", "line 2"},
+		},
+		"semanticMap": map[string]any{
+			"steps": []any{
+				map[string]any{"stepId": "step-1", "name": "모듈 호출"},
+			},
+		},
+	}
+	savedBytes, err := json.Marshal(savedPayload)
+	if err != nil {
+		t.Fatal(err)
+	}
+	viewID, _, err := store.SaveView(context.Background(), savedBytes)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	srv := &Server{storage: store, repoRoot: tempRepo}
+	restored, err := srv.RestoreTaskView(context.Background(), viewID)
+	if err != nil {
+		t.Fatalf("failed to restore view: %v", err)
+	}
+
+	if restored["sourceContextMissing"] != true {
+		t.Fatalf("expected sourceContextMissing=true when source files are deleted from disk, got: %v", restored["sourceContextMissing"])
+	}
+	if restored["needsReanalysis"] != true {
+		t.Fatalf("expected needsReanalysis=true when source files are deleted from disk, got: %v", restored["needsReanalysis"])
+	}
+	notice, _ := restored["sourceNotice"].(string)
+	if !strings.Contains(notice, "삭제") && !strings.Contains(notice, "재분석") {
+		t.Fatalf("expected informative notice mentioning deletion/reanalysis, got: %q", notice)
 	}
 }

@@ -116,7 +116,7 @@
     return Math.min(68, Math.max(38, Math.round(label.length * 5.6 + 12)));
   }
 
-  function handleNodeClick(stepId: string) {
+  function onNodeClick(stepId: string) {
     if (!flowStore.steps.some(s => s.stepId === stepId)) return;
     flowStore.saveNavigationState();
     flowStore.select(stepId);
@@ -160,8 +160,8 @@
           data-radar-symbol={node.symbol}
           role="button"
           tabindex="0"
-          onclick={() => handleNodeClick(node.symbol)}
-          onkeydown={(e) => e.key === 'Enter' && handleNodeClick(node.symbol)}
+          onclick={() => onNodeClick(node.symbol)}
+          onkeydown={(e) => e.key === 'Enter' && onNodeClick(node.symbol)}
         >
           <rect x={-bw / 2} y="-6.5" width={bw} height="13" rx="3" fill="#ffffff" stroke="#171717" stroke-width="1.2"></rect>
           <text x="0" y="0.5" text-anchor="middle" dominant-baseline="central" font-size="6.5" font-weight="750" fill="#171717">{node.label}</text>
@@ -178,8 +178,8 @@
           data-radar-symbol={node.symbol}
           role="button"
           tabindex="0"
-          onclick={() => handleNodeClick(node.symbol)}
-          onkeydown={(e) => e.key === 'Enter' && handleNodeClick(node.symbol)}
+          onclick={() => onNodeClick(node.symbol)}
+          onkeydown={(e) => e.key === 'Enter' && onNodeClick(node.symbol)}
         >
           <rect x={-bw / 2} y="-6.5" width={bw} height="13" rx="3" fill="#fff3bf" stroke="#d9480f" stroke-width="1"></rect>
           <text x="0" y="0.5" text-anchor="middle" dominant-baseline="central" font-size="6.5" font-weight="750" fill="#d9480f">{node.label}</text>
@@ -196,8 +196,8 @@
           data-radar-symbol={node.symbol}
           role="button"
           tabindex="0"
-          onclick={() => handleNodeClick(node.symbol)}
-          onkeydown={(e) => e.key === 'Enter' && handleNodeClick(node.symbol)}
+          onclick={() => onNodeClick(node.symbol)}
+          onkeydown={(e) => e.key === 'Enter' && onNodeClick(node.symbol)}
         >
           <rect x={-bw / 2} y="-6.5" width={bw} height="13" rx="3" fill="#ffffff" stroke="#555555" stroke-dasharray="2 2" stroke-width="1"></rect>
           <text x="0" y="0.5" text-anchor="middle" dominant-baseline="central" font-size="6.5" font-weight="700" fill="#444444">{node.label}</text>
@@ -214,8 +214,8 @@
           data-radar-symbol={testNode.symbol}
           role="button"
           tabindex="0"
-          onclick={() => handleNodeClick(testNode.symbol)}
-          onkeydown={(e) => e.key === 'Enter' && handleNodeClick(testNode.symbol)}
+          onclick={() => onNodeClick(testNode.symbol)}
+          onkeydown={(e) => e.key === 'Enter' && onNodeClick(testNode.symbol)}
         >
           <rect
             x={-bw / 2}
@@ -318,10 +318,9 @@
   }
   .radar-node {
     cursor: pointer;
-    transition: transform .12s ease-out, filter .12s ease-out;
+    transition: filter .12s ease-out;
   }
   .radar-node:hover {
     filter: drop-shadow(0 2px 4px rgba(0, 0, 0, 0.22));
-    transform: scale(1.04);
   }
 </style>

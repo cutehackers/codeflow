@@ -15,10 +15,10 @@ import (
 	"codeflow/internal/storage"
 )
 
-// handleTaskImpact serves an evidence-bounded impact graph. Current reads use
+// serveTaskImpact serves an evidence-bounded impact graph. Current reads use
 // the strict active proof bundle; historical reads require an exact cached map
 // identity and remain capability-incomplete unless a proof is available.
-func (s *Server) handleTaskImpact(w http.ResponseWriter, r *http.Request) {
+func (s *Server) serveTaskImpact(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return

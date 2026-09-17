@@ -23,22 +23,22 @@
     return subject ? `${subject} · ${description}` : description;
   }
 
-  function handleConditionChange(event: Event) {
+  function onConditionChange(event: Event) {
     const target = event.target as HTMLSelectElement;
     flowStore.setConditionFilter(target.value || null);
   }
 
-  function handleQuerySubmit(query: string) {
+  function onQuerySubmit(query: string) {
     const event = new CustomEvent('codeflow:query', { detail: { query } });
     window.dispatchEvent(event);
   }
 
-  function handleFormSubmit(e: SubmitEvent) {
+  function onFormSubmit(e: SubmitEvent) {
     e.preventDefault();
     const input = document.getElementById('query-input') as HTMLInputElement | null;
     const q = input?.value?.trim();
     if (q) {
-      handleQuerySubmit(q);
+      onQuerySubmit(q);
     }
   }
 </script>
@@ -51,14 +51,40 @@
   {#if flowStore.home}
     <section class="home" aria-label="FlowView 시작">
       <h1>어떤 코드 흐름을 이해하고 싶나요?</h1>
-      <form id="request-form" onsubmit={handleFormSubmit}>
+      <form id="request-form" onsubmit={onFormSubmit}>
         <label for="query-input">흐름 요청</label>
         <input id="query-input" type="text" placeholder="처리 목적 또는 진입 심볼" required />
         <button id="request-submit" type="submit" disabled={flowStore.busy}>흐름 보기</button>
       </form>
       <p role="status">{flowStore.notice}</p>
       {#if flowStore.busy}<button onclick={() => window.cancelFlowRequest()}>취소</button>{/if}
-      {#if flowStore.candidates.length}
+      {#if flowStore.errorCode === 'no_entrypoints_found'}
+        <div class="recovery-box" role="region" aria-label="진입점 복구 안내">
+          <p><strong>진입점이 발견되지 않았습니다.</strong> 아래 3가지 방법으로 분석을 진행할 수 있습니다:</p>
+          <ol class="recovery-list">
+            <li>
+              <strong>1. 직접 진입 심볼 입력</strong>
+              <p>상단 입력창에 메인 함수나 엔트리포인트를 직접 입력하세요. (예: <code>main.go#main</code>, <code>server.ts#bootstrap</code>)</p>
+            </li>
+            <li>
+              <strong>2. CodeGraph 색인 실행</strong>
+              <p>터미널에서 <code>codegraph index</code>를 실행하여 전역 호출 그래프를 생성하세요.</p>
+            </li>
+            <li>
+              <strong>3. 프로젝트 최상위 심볼 선택</strong>
+              {#if flowStore.candidates.length}
+                <div class="recovery-buttons">
+                  {#each flowStore.candidates as candidate}
+                    <button type="button" onclick={() => window.fetchTaskView('', candidate)}>{candidate}</button>
+                  {/each}
+                </div>
+              {:else}
+                <p class="muted">감지된 공개 심볼이 없습니다. 진입 심볼을 직접 입력해 주세요.</p>
+              {/if}
+            </li>
+          </ol>
+        </div>
+      {:else if flowStore.candidates.length}
         <p>분석할 진입점을 선택하세요.</p>
         {#each flowStore.candidates as candidate}<button onclick={() => window.fetchTaskView('', candidate)}>{candidate}</button>{/each}
       {/if}
@@ -106,11 +132,14 @@
         <label for="condition-focus">조건 위치 </label>
         <select
           id="condition-focus"
-          disabled={!branchSteps.length}
+          disabled={!branchSteps.length && !flowStore.conditionFilter}
           value={flowStore.conditionFilter || ''}
-          onchange={handleConditionChange}
+          onchange={onConditionChange}
         >
-          <option value="">전체 흐름</option>
+          <option value="">{branchSteps.length === 0 ? (flowStore.conditionFilter ? '필터 해제 (전체 흐름)' : '분기 조건 없는 순차 실행') : '전체 흐름'}</option>
+          {#if flowStore.conditionFilter && !branchSteps.some(s => s.stepId === flowStore.conditionFilter)}
+            <option value={flowStore.conditionFilter}>선택된 이전 조건 (필터 해제 가능)</option>
+          {/if}
           {#each branchSteps as step (step.stepId)}
             <option value={step.stepId}>
               {step.name}: {step.branch}
@@ -267,5 +296,30 @@
       padding: 20px 15px;
       gap: 15px;
     }
+  }
+  .recovery-box {
+    margin: 16px 0;
+    padding: 16px;
+    border: 1px solid #dcdcd8;
+    border-radius: 6px;
+    background: #fafaf8;
+  }
+  .recovery-list {
+    margin: 12px 0 0 16px;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+  }
+  .recovery-list li p {
+    margin: 4px 0 0 0;
+    font-size: 12px;
+    color: #555;
+  }
+  .recovery-buttons {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-top: 6px;
   }
 </style>

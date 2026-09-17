@@ -45,7 +45,7 @@
     return (flowStore.data?.semanticMap?.edges || []).filter(e => e.fromStepId === stepId);
   }
 
-  function handleSelect(frameId: string) {
+  function onFrameSelect(frameId: string) {
     if (flowStore.selectedFrameId !== frameId) flowStore.select(frameId);
     const storyEl = document.querySelector(`[data-story-frame="${frameId}"], [data-story-step="${flowStore.selectedStepId}"]`);
 
@@ -79,7 +79,7 @@
         class:condition-match={matchingStepIds !== null && matchingStepIds.has(frame.primaryStepRef)}
         data-card={frame.frameId}
         data-step-card={frame.primaryStepRef}
-        onclick={() => handleSelect(frame.frameId)}
+        onclick={() => onFrameSelect(frame.frameId)}
       >
         <header class="card-head">
           <div class="card-head-top">
@@ -135,7 +135,11 @@
             <p class="code-note">관련 코드 {currLines.length}줄 표시 · 코드 더 보기로 전체 문맥 확인</p>
           {/if}
         {:else}
-          <p class="source-empty">이 분석에 연결된 소스가 없습니다. 코드 내용을 추정하지 않습니다.</p>
+          {#if flowStore.isAutoReanalyzing}
+            <p class="source-empty">과거 세션 소스 컨텍스트가 누락되어 최신 워킹 트리 기반으로 자동 재분석 중입니다…</p>
+          {:else}
+            <p class="source-empty">이 분석에 연결된 소스가 없습니다. 코드 내용을 추정하지 않습니다.</p>
+          {/if}
         {/if}
 
         {#if currContext?.sourceLimitation}<p class="code-note">{currContext.sourceLimitation}</p>{/if}

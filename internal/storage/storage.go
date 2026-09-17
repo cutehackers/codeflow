@@ -194,6 +194,18 @@ func (s *Storage) ReadFlowSpec(genID, flowID string) ([]byte, error) {
 	flowPath := filepath.Join(s.baseDir, "generations", genID, "flows", flowID+".json")
 	data, err := os.ReadFile(flowPath)
 	if err != nil {
+		altID := ""
+		if strings.HasPrefix(flowID, "flow-") {
+			altID = "cand-" + strings.TrimPrefix(flowID, "flow-")
+		} else if strings.HasPrefix(flowID, "cand-") {
+			altID = "flow-" + strings.TrimPrefix(flowID, "cand-")
+		}
+		if altID != "" {
+			altPath := filepath.Join(s.baseDir, "generations", genID, "flows", altID+".json")
+			if altData, altErr := os.ReadFile(altPath); altErr == nil {
+				return altData, nil
+			}
+		}
 		return nil, fmt.Errorf("read flowspec %s: %w", flowPath, err)
 	}
 	return data, nil

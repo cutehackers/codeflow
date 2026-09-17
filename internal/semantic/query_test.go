@@ -117,3 +117,45 @@ func TestVS02A2_QueryPreconditionsAndAmbiguity(t *testing.T) {
 		t.Fatalf("query schema validation failed: %v", err)
 	}
 }
+
+func TestResolveFeatureQueryTarget_ZeroEntrypoints(t *testing.T) {
+	// Query with request text but 0 candidates in repository
+	query := TaskViewQuery{
+		SchemaID:      "https://codeflow.local/schemas/task-view-query.schema.json",
+		SchemaVersion: 1,
+		Mode:          "feature",
+		Feature: &FeatureQueryParams{
+			Request: "사용자 로그인 흐름",
+		},
+	}
+
+	_, err := ResolveFeatureQueryTarget(&query, nil)
+	if err == nil {
+		t.Fatal("expected error when candidates list is empty")
+	}
+
+	var qErr *QueryError
+	if !errors.As(err, &qErr) {
+		t.Fatalf("expected *QueryError, got %T: %v", err, err)
+	}
+	if qErr.Code != ErrCodeNoEntrypointsFound {
+		t.Fatalf("expected error code %q, got %q", ErrCodeNoEntrypointsFound, qErr.Code)
+	}
+
+	// But if an explicit entrySymbol is provided, it should succeed directly even with 0 candidates
+	explicitQuery := TaskViewQuery{
+		SchemaID:      "https://codeflow.local/schemas/task-view-query.schema.json",
+		SchemaVersion: 1,
+		Mode:          "feature",
+		Feature: &FeatureQueryParams{
+			EntrySymbol: "auth/service.go#Login",
+		},
+	}
+	target, err := ResolveFeatureQueryTarget(&explicitQuery, nil)
+	if err != nil {
+		t.Fatalf("explicit entrySymbol should bypass empty candidates, got: %v", err)
+	}
+	if target.EntrySymbolPath != "auth/service.go#Login" {
+		t.Fatalf("expected entrySymbol %q, got %q", "auth/service.go#Login", target.EntrySymbolPath)
+	}
+}

@@ -1,13 +1,8 @@
-.PHONY: build build-flowmeter build-adapter build-ui test-ui build-all package test fmt vet check-naming clean
+.PHONY: build build-adapter build-ui test-ui build-all package test fmt vet check-naming clean
 
 build:
 	mkdir -p bin
 	go build -o bin/codeflow ./cmd/codeflow
-	go build -o bin/flowmeter ./cmd/flowmeter
-
-build-flowmeter:
-	mkdir -p bin
-	go build -o bin/flowmeter ./cmd/flowmeter
 
 build-adapter:
 	mkdir -p bin
@@ -26,10 +21,10 @@ build-all: build build-adapter
 
 package: build-all
 	mkdir -p dist
-	tar -czvf dist/codeflow-local.tar.gz -C . bin/codeflow bin/flowmeter bin/dart-adapter skills/codeflow adapters/typescript
+	tar -czvf dist/codeflow-local.tar.gz -C . bin/codeflow bin/dart-adapter skills/codeflow adapters/typescript
 
 test:
-	go test -p 1 -count=1 ./...
+	CGO_ENABLED=0 go test -p 1 -count=1 ./...
 
 fmt:
 	go fmt ./...

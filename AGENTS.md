@@ -9,6 +9,14 @@ For a comprehensive explanation of CodeFlow's **Core Capabilities** and **Produc
 ## Naming Rules
 
 - Use descriptive domain names. Do not introduce internal acronyms, ticket identifiers, or vertical-slice labels such as `RFLSC`, `LPCA`, or `VS01` in new package, directory, file, type, function, variable, or test names. `make check-naming` enforces this for changed code paths and declarations.
+- Follow the structured **Domain Component + Role / Context** naming pattern for files, types, and variables (e.g. `task_view_persistence.go`, `TaskViewSummary`, `serveTaskViewList`). Never use past-verb (past participle) + noun patterns (e.g. `saved_views.go`, `saved_view`, `cached_*`, `loaded_*`) as ad-hoc identifiers; name components by their architectural domain and role rather than transient lifecycle states.
+- Never use generic `handle***` method/function names. Use expressive, role-specific verbs:
+  - Event listeners & UI callbacks: `on***` (e.g. `onFlowSelect`, `onStepClick`, `onViewRestore`, `onFormSubmit`).
+  - HTTP endpoints & server responses: `serve***` (e.g. `serveTaskViewList`, `serveTaskViewDetail`, `serveFlowContext`).
+  - Request routing & dispatching: `dispatch***` or `route***` (e.g. `dispatchRequest`, `routeRPC`).
+  - Business logic & ingestion pipelines: `process***` (e.g. `processPublishCoreFlow`, `processAnalysis`).
+  - Contract validation & proof checks: `validate***` or `verify***` (e.g. `validateRequest`, `verifyEvidence`).
+  - Representation formatting & template rendering: `format***` or `render***` (e.g. `formatTaskViewResponse`, `renderViewHTML`).
 - Use the full official terms defined in [`docs/design/glossary.md`](docs/design/glossary.md). Do not add an acronym in parentheses after them.
 - Keep `Requested Flow` as the domain term for the execution flow selected by a user's intent. It is not part of the `Live Semantic Compiler` product name.
 - Preserve existing schema IDs, protocol values, storage keys, public API names, and compatibility fixtures when renaming would break consumers. Rename legacy internal names only when the surrounding code is already being changed.

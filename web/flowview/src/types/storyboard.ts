@@ -5,7 +5,7 @@ export interface CollapsedDetail {
   reason: string;
 }
 
-export interface StoryboardFrame {
+export interface FlowFrame {
   frameId: string;
   ordinal: number;
   role: StoryboardRole;
@@ -24,7 +24,10 @@ export interface StoryboardFrame {
   architecture?: string;
   status: 'verified' | 'partial' | 'unknown';
   frameMatchKey: string;
+  isRecursion?: boolean;
 }
+
+export type StoryboardFrame = FlowFrame;
 
 export interface Storyboard {
   schemaId: string;
@@ -32,5 +35,5 @@ export interface Storyboard {
   generationId: string;
   computedBasisId: string;
   snapshotId: string;
-  frames: StoryboardFrame[];
+  frames: FlowFrame[];
 }

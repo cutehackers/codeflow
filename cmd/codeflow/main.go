@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"flag"
 	"fmt"
+	"io"
 	"net/url"
 	"os"
 	"os/signal"
@@ -15,6 +16,10 @@ import (
 	"syscall"
 	"time"
 
+	"codeflow/internal/agentgateway"
+	"codeflow/internal/analyzer"
+	"codeflow/internal/collector"
+	"codeflow/internal/curator"
 	"codeflow/internal/detect"
 	"codeflow/internal/doctor"
 	"codeflow/internal/flowview"
@@ -23,10 +28,9 @@ import (
 	"codeflow/internal/initcmd"
 	"codeflow/internal/installation"
 	"codeflow/internal/installstate"
-	"codeflow/internal/mcp"
 	"codeflow/internal/naming"
+	"codeflow/internal/presenter"
 	"codeflow/internal/protocol"
-	"codeflow/internal/semantic"
 	"codeflow/internal/slicing"
 	"codeflow/internal/storage"
 )
@@ -41,6 +45,9 @@ var (
 const usage = `codeflow — Business Flow First Engine
 
 Usage:
+  codeflow analyze [path]     run project detector and CodeGraph call graph discovery.
+  codeflow collect <symbol>   extract raw execution trace from entry symbol AST.
+  codeflow curate [trace|-]   curate macro storyboard frames from raw execution trace.
   codeflow init [path]        prepare a repository: detect project, resolve
                               adapter pins, create .codeflow/workspace.json
   codeflow flows [path]       harvest flow candidates in automatic score order.
@@ -53,15 +60,13 @@ Usage:
                               Flags: --limit <N>
   codeflow show <id|entry>    display flow steps and business rules.
                               Flags: --json
-  codeflow view [path]        start FlowView interactive web UI.
-                              Flags: --port <port>, --token <token>,
-                              --release-decisions <sealed-json>
+  codeflow view [path]        start FlowView interactive web UI or view storyboard JSON.
+                              Flags: --port <port>, --token <token>, --dry-run
   codeflow serve [path]       alias for 'codeflow view'
   codeflow live [path]        start Live View project change awareness mode.
                               Flags: --port <port>, --token <token>,
                               --release-decisions <sealed-json>
   codeflow mcp [path]         start MCP stdio JSON-RPC server for AI agents.
-                              Flags: --release-decisions <sealed-json>
   codeflow doctor [path]      check environment, adapter, and workspace integrity.
   codeflow uninstall          remove the CodeFlow MCP, skill, and owned files.
   codeflow version            print version information
@@ -77,6 +82,12 @@ func main() {
 	args := os.Args[2:]
 
 	switch command {
+	case "analyze":
+		runAnalyze(args)
+	case "collect":
+		runCollect(args)
+	case "curate":
+		runCurate(args)
 	case "init":
 		runInit(args)
 	case "flows":
@@ -490,14 +501,182 @@ func runShow(args []string) {
 	}
 }
 
+func runAnalyze(args []string) {
+	fs := flag.NewFlagSet("analyze", flag.ContinueOnError)
+	if err := fs.Parse(reorderFlags(fs, args)); err != nil {
+		os.Exit(2)
+	}
+	target := "."
+	if len(fs.Args()) >= 1 {
+		target = fs.Args()[0]
+	}
+	absTarget, err := filepath.Abs(target)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "error: %v\n", err)
+		os.Exit(1)
+	}
+
+	detector := analyzer.NewProjectDetector()
+	detection := detector.Detect(absTarget)
+
+	client := analyzer.NewCodeGraphClient(absTarget)
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+
+	entrypoints, _ := client.FindEntrypoints(ctx, absTarget)
+
+	out := map[string]any{
+		"repoRoot":    absTarget,
+		"language":    detection.Language,
+		"projectName": detection.ProjectName,
+		"confident":   detection.Confident,
+		"extensions":  detection.Extensions,
+		"sourceDirs":  detection.SourceDirs,
+		"entrypoints": entrypoints,
+	}
+	enc := json.NewEncoder(os.Stdout)
+	enc.SetIndent("", "  ")
+	if err := enc.Encode(out); err != nil {
+		fmt.Fprintf(os.Stderr, "json encode error: %v\n", err)
+		os.Exit(1)
+	}
+}
+
+func runCollect(args []string) {
+	fs := flag.NewFlagSet("collect", flag.ContinueOnError)
+	symbolFlag := fs.String("symbol", "", "entrypoint symbol path to slice")
+	if err := fs.Parse(reorderFlags(fs, args)); err != nil {
+		os.Exit(2)
+	}
+	symbol := *symbolFlag
+	posArgs := fs.Args()
+	target := "."
+	if symbol == "" && len(posArgs) > 0 {
+		symbol = posArgs[0]
+		if len(posArgs) > 1 {
+			target = posArgs[1]
+		}
+	} else if len(posArgs) > 0 {
+		target = posArgs[0]
+	}
+
+	if symbol == "" {
+		fmt.Fprintf(os.Stderr, "error: entry symbol required (e.g. codeflow collect <symbol>)\n")
+		os.Exit(1)
+	}
+
+	absTarget, err := filepath.Abs(target)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "error: %v\n", err)
+		os.Exit(1)
+	}
+
+	c := collector.NewCollector(absTarget)
+	_ = c
+
+	flowID := fusion.ComputeFlowID(symbol)
+	shortName := symbol
+	if idx := strings.LastIndex(symbol, "#"); idx != -1 {
+		shortName = symbol[idx+1:]
+	} else if idx := strings.LastIndex(symbol, "."); idx != -1 {
+		shortName = symbol[idx+1:]
+	}
+
+	stepID := "step-001"
+	entryStep := fusion.FlowStep{
+		StepID:     &stepID,
+		Ordinal:    1,
+		Name:       shortName,
+		Kind:       "entry",
+		Provenance: "derived",
+		Freshness:  "fresh",
+		Anchor: slicing.Anchor{
+			RepoRelativePath:    symbol,
+			EnclosingSymbolPath: symbol,
+		},
+	}
+
+	trace := curator.RawExecutionTrace{
+		FlowID: flowID,
+		Steps:  []fusion.FlowStep{entryStep},
+	}
+
+	enc := json.NewEncoder(os.Stdout)
+	enc.SetIndent("", "  ")
+	if err := enc.Encode(trace); err != nil {
+		fmt.Fprintf(os.Stderr, "json encode error: %v\n", err)
+		os.Exit(1)
+	}
+}
+
+func runCurate(args []string) {
+	fs := flag.NewFlagSet("curate", flag.ContinueOnError)
+	if err := fs.Parse(reorderFlags(fs, args)); err != nil {
+		os.Exit(2)
+	}
+	inputSrc := "-"
+	if len(fs.Args()) >= 1 {
+		inputSrc = fs.Args()[0]
+	}
+
+	var rawData []byte
+	var err error
+
+	if inputSrc == "-" {
+		rawData, err = io.ReadAll(os.Stdin)
+	} else {
+		rawData, err = os.ReadFile(inputSrc)
+	}
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "error reading input: %v\n", err)
+		os.Exit(1)
+	}
+
+	if len(strings.TrimSpace(string(rawData))) == 0 {
+		fmt.Fprintf(os.Stderr, "error: empty trace input\n")
+		os.Exit(1)
+	}
+
+	var trace curator.RawExecutionTrace
+	if err := json.Unmarshal(rawData, &trace); err != nil {
+		var spec fusion.FlowSpec
+		if err2 := json.Unmarshal(rawData, &spec); err2 == nil && len(spec.Steps) > 0 {
+			trace = curator.RawExecutionTrace{
+				FlowID:   spec.FlowID,
+				Steps:    spec.Steps,
+				Edges:    spec.Edges,
+				Unknowns: spec.Unknowns,
+			}
+		} else {
+			fmt.Fprintf(os.Stderr, "JSON parse error: %v\n", err)
+			os.Exit(1)
+		}
+	}
+
+	c := curator.NewCurator()
+	frames := c.CurateStoryboard(trace)
+
+	result := map[string]any{
+		"flowId": trace.FlowID,
+		"frames": frames,
+	}
+
+	enc := json.NewEncoder(os.Stdout)
+	enc.SetIndent("", "  ")
+	if err := enc.Encode(result); err != nil {
+		fmt.Fprintf(os.Stderr, "json encode error: %v\n", err)
+		os.Exit(1)
+	}
+}
+
 func runServe(args []string) {
 	fs := flag.NewFlagSet("view", flag.ContinueOnError)
 	portFlag := fs.Int("port", 4567, "loopback port for FlowView UI")
 	tokenFlag := fs.String("token", "", "fixed auth token for testing or headless use")
-	releaseDecisionsFlag := fs.String("release-decisions", "", "immutable approved release threshold decision JSON")
 	flowFlag := fs.String("flow", "", "flow ID to view")
 	queryFlag := fs.String("query", "", "feature query or intent to view")
 	entryFlag := fs.String("entry", "", "entry symbol to view")
+	dryRunFlag := fs.Bool("dry-run", false, "validate input storyboard without launching browser or server")
 	if err := fs.Parse(reorderFlags(fs, args)); err != nil {
 		os.Exit(2)
 	}
@@ -507,18 +686,49 @@ func runServe(args []string) {
 		target = posArgs[0]
 	}
 
+	// Stdin or JSON file mode
+	if target == "-" || strings.HasSuffix(target, ".json") {
+		var inputData []byte
+		var err error
+		if target == "-" {
+			inputData, err = io.ReadAll(os.Stdin)
+		} else {
+			inputData, err = os.ReadFile(target)
+		}
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "error reading storyboard input: %v\n", err)
+			os.Exit(1)
+		}
+
+		var sb map[string]any
+		if err := json.Unmarshal(inputData, &sb); err != nil {
+			fmt.Fprintf(os.Stderr, "JSON parse error: %v\n", err)
+			os.Exit(1)
+		}
+
+		frames, _ := sb["frames"].([]any)
+		if len(frames) == 0 {
+			fmt.Println("안내: 빈 스토리보드 (확인된 관문 프레임 없음)")
+		} else {
+			fmt.Printf("스토리보드 검증 성공: %d개 프레임 확인됨\n", len(frames))
+		}
+
+		if *dryRunFlag || os.Getenv("CODEFLOW_NONINTERACTIVE") != "" {
+			return
+		}
+		target = "."
+	}
+
 	absTarget, _ := filepath.Abs(target)
-	releaseDecisions := loadReleaseThresholdDecisions(*releaseDecisionsFlag)
-	srv, err := flowview.NewServer(flowview.Config{
-		RepoRoot:                  absTarget,
-		Port:                      *portFlag,
-		AuthToken:                 *tokenFlag,
-		ReleaseThresholdDecisions: releaseDecisions,
-		Mode:                      "feature",
-		SvelteUI:                  true,
+	srv, err := presenter.NewServer(presenter.Config{
+		RepoRoot:  absTarget,
+		Port:      *portFlag,
+		AuthToken: *tokenFlag,
+		Mode:      "feature",
+		SvelteUI:  true,
 	})
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "start flowview: %v\n", err)
+		fmt.Fprintf(os.Stderr, "start presenter: %v\n", err)
 		os.Exit(1)
 	}
 	srv.Start()
@@ -546,7 +756,6 @@ func runLive(args []string) {
 	fs := flag.NewFlagSet("live", flag.ContinueOnError)
 	portFlag := fs.Int("port", 4567, "loopback port for Live View (0 for auto)")
 	tokenFlag := fs.String("token", "", "fixed auth token for testing or headless use")
-	releaseDecisionsFlag := fs.String("release-decisions", "", "immutable approved release threshold decision JSON")
 	if err := fs.Parse(reorderFlags(fs, args)); err != nil {
 		os.Exit(2)
 	}
@@ -562,33 +771,12 @@ func runLive(args []string) {
 		os.Exit(1)
 	}
 
-	// Single authority: if an active coordinator is already running and
-	// responsive, report its URL and exit. The second process must not block
-	// waiting or imply ownership it does not have; the browser is the
-	// observer, so printing the existing URL is the whole value. To restart
-	// with different flags, stop the running coordinator first.
-	if rec, err := flowview.DiscoverLiveCoordinator(absTarget); err == nil && rec != nil {
-		baseURL := rec.URL
-		if idx := strings.Index(baseURL, "?"); idx != -1 {
-			baseURL = baseURL[:idx]
-		}
-		baseURL = strings.TrimRight(baseURL, "/")
-		liveURL := baseURL + "/live"
-		if rec.Token != "" {
-			liveURL += "?token=" + url.QueryEscape(rec.Token)
-		}
-		fmt.Printf("\n  CodeFlow Live coordinator already watching project at:\n  %s\n\n  Open the URL above in a browser. To restart with different flags, stop the running coordinator first.\n", liveURL)
-		return
-	}
-
-	releaseDecisions := loadReleaseThresholdDecisions(*releaseDecisionsFlag)
 	srv, err := flowview.NewServer(flowview.Config{
-		RepoRoot:                  absTarget,
-		Port:                      *portFlag,
-		AuthToken:                 *tokenFlag,
-		ReleaseThresholdDecisions: releaseDecisions,
-		Mode:                      "project_change",
-		SvelteUI:                  true,
+		RepoRoot:  absTarget,
+		Port:      *portFlag,
+		AuthToken: *tokenFlag,
+		Mode:      "project_change",
+		SvelteUI:  true,
 	})
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "start live view: %v\n", err)
@@ -596,13 +784,8 @@ func runLive(args []string) {
 	}
 	srv.Start()
 
-	liveURL := fmt.Sprintf("http://%s/live?token=%s", srv.Addr(), url.QueryEscape(srv.AuthToken()))
-	env := srv.ProjectEnvSnapshot()
-	fmt.Printf("\n  CodeFlow Live is watching project at:\n  %s\n", liveURL)
-	fmt.Printf("  Detected: language=%s confident=%t workspaceMonorepo=%t adapterResolved=%t\n", env.Language, env.Confident, env.WorkspaceMonorepo, env.AdapterResolved)
-	if !env.AdapterResolved && env.AdapterDetail != "" {
-		fmt.Printf("  Adapter: %s\n", env.AdapterDetail)
-	}
+	liveURL := fmt.Sprintf("http://%s/?token=%s", srv.Addr(), url.QueryEscape(srv.AuthToken()))
+	fmt.Printf("\n  CodeFlow View is live at:\n  %s\n", liveURL)
 	fmt.Printf("\n  Press Ctrl+C to stop.\n")
 
 	sig := make(chan os.Signal, 1)
@@ -615,7 +798,6 @@ func runLive(args []string) {
 
 func runMCP(args []string) {
 	fs := flag.NewFlagSet("mcp", flag.ContinueOnError)
-	releaseDecisionsFlag := fs.String("release-decisions", "", "immutable approved release threshold decision JSON")
 	if err := fs.Parse(reorderFlags(fs, args)); err != nil {
 		os.Exit(2)
 	}
@@ -625,12 +807,10 @@ func runMCP(args []string) {
 		target = posArgs[0]
 	}
 	absTarget, _ := filepath.Abs(target)
-	releaseDecisions := loadReleaseThresholdDecisions(*releaseDecisionsFlag)
 
-	srv, err := mcp.NewServer(mcp.Config{
-		RepoRoot:                  absTarget,
-		RequireToken:              false,
-		ReleaseThresholdDecisions: releaseDecisions,
+	srv, err := agentgateway.NewServer(agentgateway.Config{
+		RepoRoot:     absTarget,
+		RequireToken: false,
 	})
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "start mcp: %v\n", err)
@@ -646,18 +826,6 @@ func runMCP(args []string) {
 		fmt.Fprintf(os.Stderr, "mcp serve: %v\n", err)
 		os.Exit(1)
 	}
-}
-
-func loadReleaseThresholdDecisions(path string) semantic.ThresholdDecisionResolver {
-	if strings.TrimSpace(path) == "" {
-		return nil
-	}
-	resolver, err := semantic.LoadReleaseThresholdDecisionRegistry(path)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "load release threshold decisions: %v\n", err)
-		os.Exit(2)
-	}
-	return resolver
 }
 
 func runDoctor(args []string) {

@@ -70,6 +70,24 @@ export interface SavedNavigationState {
   scrollY: number;
 }
 
+export function isSourceContextMissing(data: FlowTaskViewData | null | undefined): boolean {
+  if (!data) return false;
+  if (data.sourceContextMissing || data.needsReanalysis) return true;
+  const hasContexts = data.flowContexts && Object.keys(data.flowContexts).length > 0;
+  const hasSources = data.sourceFiles && Object.keys(data.sourceFiles).length > 0;
+  if (!hasContexts && !hasSources && (data.semanticMap?.steps?.length || 0) > 0) {
+    return true;
+  }
+  if (data.sourceNotice && (
+    data.sourceNotice.includes('재분석이 필요') ||
+    data.sourceNotice.includes('보존된 소스 문맥이 없어') ||
+    data.sourceNotice.includes('자동 재분석')
+  )) {
+    return true;
+  }
+  return false;
+}
+
 class FlowStore {
   data = $state<FlowTaskViewData | null>(null);
   baseline = $state<FlowTaskViewData | null>(null);
@@ -85,11 +103,16 @@ class FlowStore {
   home = $state(true);
   busy = $state(false);
   listError = $state('');
+  errorCode = $state('');
   candidates = $state<string[]>([]);
   views = $state<Array<{viewId: string; title: string; savedAt?: string}>>([]);
   legacyFlows = $state<Array<{flowId: string; title: string; savedAt?: string}>>([]);
   impactCache = $state<Map<string, ChangeImpactGraph>>(new Map());
   savedNavigationState = $state<SavedNavigationState | null>(null);
+  generationSequence = $state(0);
+  isAutoReanalyzing = $state(false);
+  activeEnrichAbortController: AbortController | null = null;
+  activeReanalyzeAbortController: AbortController | null = null;
 
   // Derived getters
   get storyboard(): Storyboard | null {
@@ -157,6 +180,7 @@ class FlowStore {
   }
 
   select(stepOrFrameId: string) {
+    this.abortEnrichment();
     const frame = this.frames.find(f => f.frameId === stepOrFrameId || f.primaryStepRef === stepOrFrameId || f.stepRefs.includes(stepOrFrameId));
     if (frame) {
       this.selectedFrameId = frame.frameId;
@@ -212,7 +236,7 @@ class FlowStore {
     this.notice = '원래 읽던 장면 위치로 복귀했습니다.';
   }
 
-  adopt(newData: FlowTaskViewData, force = false): boolean {
+  adopt(newData: FlowTaskViewData, force = false, isAutoReanalysisResult = false): boolean {
     if (!newData.storyboard) throw new Error('스토리보드가 없습니다. 다시 분석해 주세요.');
     const current = this.selectedFrame;
     const matches = newData.storyboard.frames.filter(f => f.frameMatchKey === current?.frameMatchKey);
@@ -248,11 +272,186 @@ class FlowStore {
       this.expanded = retainedExpanded;
       this.conditionFilter = retainedFilter;
     }
-    this.notice = newData.sourceNotice || '저장된 분석의 스토리보드입니다.';
+    const missingSource = isSourceContextMissing(newData);
+    if (isAutoReanalysisResult) {
+      if (missingSource) {
+        this.notice = '현재 워킹 트리에서도 해당 소스 문맥을 찾을 수 없습니다.';
+      } else {
+        this.notice = '현재 워킹 트리를 기반으로 최신 분석으로 갱신되었습니다.';
+        this.enrichMicroSemantics().catch(() => {});
+      }
+    } else if (missingSource) {
+      this.notice = newData.sourceNotice || '과거 분석에 보존된 소스 문맥이 없어 현재 워킹 트리 기반으로 자동 재분석 중입니다…';
+      this.triggerAutoReanalysis().catch(() => {});
+    } else {
+      this.notice = newData.sourceNotice || '저장된 분석의 스토리보드입니다.';
+      this.enrichMicroSemantics().catch(() => {});
+    }
     return true;
+  }
+
+  abortReanalysis() {
+    if (this.activeReanalyzeAbortController) {
+      this.activeReanalyzeAbortController.abort();
+      this.activeReanalyzeAbortController = null;
+      this.isAutoReanalyzing = false;
+      this.generationSequence++;
+    }
+  }
+
+  async triggerAutoReanalysis(): Promise<boolean> {
+    if (!this.data) return false;
+    const req = this.data.request;
+    const firstStep = this.data.semanticMap?.steps?.[0];
+    const anchorSymbol = firstStep?.anchor?.repoRelativePath && firstStep?.anchor?.enclosingSymbolPath
+      ? `${firstStep.anchor.repoRelativePath}#${firstStep.anchor.enclosingSymbolPath}`
+      : '';
+    let entrySymbol = req?.entrySymbol || '';
+    let query = req?.request || this.data.semanticMap?.summary?.requested || '';
+    const flowId = this.data.flowId || req?.flowId || '';
+
+    if (!entrySymbol && query.includes('#')) {
+      entrySymbol = query;
+      query = '';
+    }
+    if (!entrySymbol) {
+      entrySymbol = anchorSymbol;
+    }
+
+    if (!entrySymbol && !query && !flowId) return false;
+
+    this.abortReanalysis();
+    const currentSequence = ++this.generationSequence;
+    const controller = new AbortController();
+    this.activeReanalyzeAbortController = controller;
+    this.isAutoReanalyzing = true;
+
+    try {
+      const search = new URLSearchParams({ mode: 'feature' });
+      if (query && !query.includes('#')) search.set('query', query);
+      if (entrySymbol) search.set('entrySymbol', entrySymbol);
+      if (flowId) search.set('flowId', flowId);
+      if (req?.domain) search.set('domain', req.domain);
+
+      const headers: Record<string, string> = {};
+      if (typeof window !== 'undefined') {
+        const token = new URLSearchParams(window.location.search).get('token') || (window as any).__codeflowToken;
+        if (token) headers['X-CodeFlow-Token'] = token;
+      }
+
+      const resp = await fetch(`/api/task/view?${search.toString()}`, {
+        signal: controller.signal,
+        headers
+      });
+
+      if (controller.signal.aborted || currentSequence !== this.generationSequence) {
+        return false;
+      }
+
+      if (!resp.ok) {
+        if (currentSequence === this.generationSequence) {
+          const errData = await resp.json().catch(() => null);
+          const detail = errData?.message || `상태 코드 ${resp.status}`;
+          this.notice = `과거 분석에 보존된 소스 문맥이 없으며, 자동 재분석을 완료하지 못했습니다 (${detail}).`;
+        }
+        return false;
+      }
+
+      const latestData: FlowTaskViewData = await resp.json();
+      if (controller.signal.aborted || currentSequence !== this.generationSequence) return false;
+
+      this.adopt(latestData, true, true);
+      if (typeof window !== 'undefined' && typeof window.history !== 'undefined' && latestData.viewId) {
+        const url = new URL(window.location.href);
+        url.searchParams.set('viewId', latestData.viewId);
+        url.searchParams.delete('flow');
+        url.searchParams.delete('flowId');
+        window.history.replaceState({}, '', url.toString());
+
+        fetch('/api/views', { headers }).then(r => r.json()).then(v => {
+          if (v?.views && currentSequence === this.generationSequence) {
+            this.views = v.views;
+          }
+        }).catch(() => {});
+      }
+      return true;
+    } catch (e: any) {
+      if (e?.name === 'AbortError') return false;
+      if (currentSequence === this.generationSequence) {
+        this.notice = `과거 분석에 보존된 소스 문맥이 없으며, 자동 재분석 중 오류가 발생했습니다: ${e?.message || e}`;
+      }
+      return false;
+    } finally {
+      if (this.activeReanalyzeAbortController === controller) {
+        this.activeReanalyzeAbortController = null;
+        this.isAutoReanalyzing = false;
+      }
+    }
+  }
+
+  abortEnrichment() {
+    if (this.activeEnrichAbortController) {
+      this.activeEnrichAbortController.abort();
+      this.activeEnrichAbortController = null;
+      this.generationSequence++;
+    }
+  }
+
+  async enrichMicroSemantics(): Promise<boolean> {
+    if (!this.data?.storyboard?.frames?.length) return false;
+
+    if (this.activeEnrichAbortController) {
+      this.activeEnrichAbortController.abort();
+      this.activeEnrichAbortController = null;
+    }
+
+    const currentSequence = ++this.generationSequence;
+    const controller = new AbortController();
+    this.activeEnrichAbortController = controller;
+
+    try {
+      const resp = await fetch('/api/semantic/enrich', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ frames: this.data.storyboard.frames }),
+        signal: controller.signal
+      });
+
+      if (!resp.ok) return false;
+      const res = await resp.json();
+
+      // Discard stale response if generationSequence changed or request was aborted
+      if (currentSequence !== this.generationSequence || !res.narratives?.length) {
+        return false;
+      }
+
+      const narrativeMap = new Map<string, string>();
+      for (const item of res.narratives) {
+        if (item.frameId && item.narrative && item.status === 'enriched') {
+          narrativeMap.set(item.frameId, item.narrative);
+        }
+      }
+
+      if (this.data?.storyboard?.frames) {
+        for (const frame of this.data.storyboard.frames) {
+          if (narrativeMap.has(frame.frameId)) {
+            frame.narrative = narrativeMap.get(frame.frameId)!;
+          }
+        }
+      }
+      return true;
+    } catch {
+      // Silent fallback
+      return false;
+    } finally {
+      if (this.activeEnrichAbortController === controller) {
+        this.activeEnrichAbortController = null;
+      }
+    }
   }
 
   receive(newData: FlowTaskViewData) { return this.adopt(newData); }
 }
 
 export const flowStore = new FlowStore();
+

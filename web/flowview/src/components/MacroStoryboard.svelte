@@ -30,7 +30,7 @@
     return deltaChanges.find(c => c.targetStepId === stepId);
   }
 
-  function handleSelect(frameId: string) {
+  function onFrameSelect(frameId: string) {
     flowStore.select(frameId);
     const cardEl = document.querySelector(`[data-card="${frameId}"], [data-card="${flowStore.selectedStepId}"], [data-process="${flowStore.selectedStepId}"]`);
     cardEl?.scrollIntoView({ behavior: 'smooth', block: 'start' });
@@ -66,7 +66,7 @@
           data-story-step={frame.primaryStepRef}
           data-story-frame={frame.frameId}
           aria-pressed={isSelected}
-          onclick={() => handleSelect(frame.frameId)}
+          onclick={() => onFrameSelect(frame.frameId)}
         >
           <div>
             <div class="story-header">

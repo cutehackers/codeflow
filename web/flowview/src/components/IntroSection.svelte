@@ -25,7 +25,7 @@
     return `변경 · 검증된 의미 변경 ${deltaChanges.length}건이 감지되었습니다.`;
   });
 
-  function handleSubmit(event: SubmitEvent) {
+  function onFormSubmit(event: SubmitEvent) {
     event.preventDefault();
     const trimmed = queryText.trim();
     if (!trimmed) return;
@@ -53,7 +53,7 @@
     </div>
   {/if}
 
-  <form class="request" id="request-form" onsubmit={handleSubmit}>
+  <form class="request" id="request-form" onsubmit={onFormSubmit}>
     <label for="query-input" hidden>이해할 코드 흐름</label>
     <input
       id="query-input"

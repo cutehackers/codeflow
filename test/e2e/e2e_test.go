@@ -484,42 +484,30 @@ func TestTier5_Compiler_EndToEndSLOAndTrace(t *testing.T) {
 
 	ctx := context.Background()
 
-	// 1. Single edit SLO trace: edit -> activity updated P95 <= 300ms, publication/gap P95 <= 3s (VS04-A11)
-	t0 := time.Now()
+	// 1. Removed endpoints return 404 per VS-02 AC-04
 	editURL := "http://" + srv.Addr() + "/api/workspace/edit?token=" + srv.AuthToken()
-	editReq, _ := http.NewRequestWithContext(ctx, http.MethodPost, editURL, strings.NewReader(`{
-		"path": "page.tsx",
-		"content": "export default function Page(){ return <h1>Updated</h1>; }",
-		"documentVersion": 1,
-		"source": "agent_transaction"
-	}`))
-	editReq.Header.Set("Content-Type", "application/json")
+	editReq, _ := http.NewRequestWithContext(ctx, http.MethodPost, editURL, strings.NewReader(`{}`))
 	editResp, err := http.DefaultClient.Do(editReq)
 	if err != nil {
 		t.Fatalf("edit request failed: %v", err)
 	}
+	if editResp.StatusCode != http.StatusNotFound {
+		t.Errorf("expected 404 on removed /api/workspace/edit, got %d", editResp.StatusCode)
+	}
 	_ = editResp.Body.Close()
 
-	// Activity update latency
 	actURL := "http://" + srv.Addr() + "/api/workspace/activity?token=" + srv.AuthToken()
 	actReq, _ := http.NewRequestWithContext(ctx, http.MethodGet, actURL, nil)
 	actResp, err := http.DefaultClient.Do(actReq)
 	if err != nil {
 		t.Fatalf("activity query failed: %v", err)
 	}
-	actLatency := time.Since(t0)
-	var actDoc workspace.ActivityStatus
-	_ = json.NewDecoder(actResp.Body).Decode(&actDoc)
+	if actResp.StatusCode != http.StatusNotFound {
+		t.Errorf("expected 404 on removed /api/workspace/activity, got %d", actResp.StatusCode)
+	}
 	_ = actResp.Body.Close()
 
-	if actLatency > 300*time.Millisecond {
-		t.Errorf("activity latency exceeded 300ms SLO: %v", actLatency)
-	}
-	if actDoc.Activity != "editing" {
-		t.Errorf("expected editing activity, got %s", actDoc.Activity)
-	}
-
-	// 2. Query verified gap via MCP tool
+	// 2. Removed MCP tool returns -32601 Method not found per VS-02 AC-03
 	mcpServer, _ := mcp.NewServer(mcp.Config{RepoRoot: tempDir})
 	callReq := `{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"get_verified_gap","arguments":{"target":"` + tempDir + `"}}}` + "\n"
 	inBuf := bytes.NewBufferString(callReq)
@@ -527,25 +515,14 @@ func TestTier5_Compiler_EndToEndSLOAndTrace(t *testing.T) {
 	_ = mcpServer.Serve(ctx, inBuf, outBuf)
 
 	var callResp struct {
-		Result struct {
-			Content []struct {
-				Text string `json:"text"`
-			} `json:"content"`
-		} `json:"result"`
+		Error *struct {
+			Code    int    `json:"code"`
+			Message string `json:"message"`
+		} `json:"error"`
 	}
 	_ = json.Unmarshal(outBuf.Bytes(), &callResp)
-	if len(callResp.Result.Content) == 0 {
-		t.Fatalf("missing content in tool response: %s", outBuf.String())
-	}
-	var gapDoc map[string]any
-	_ = json.Unmarshal([]byte(callResp.Result.Content[0].Text), &gapDoc)
-	if gapDoc["freshness"] != "last_verified" && gapDoc["status"] != "no_generation_published" {
-		t.Errorf("unexpected gap result: %+v", gapDoc)
-	}
-
-	totalLatency := time.Since(t0)
-	if totalLatency > 3*time.Second {
-		t.Errorf("total publication/gap latency exceeded 3s SLO: %v", totalLatency)
+	if callResp.Error == nil || callResp.Error.Code != -32601 {
+		t.Fatalf("expected -32601 error for removed tool, got: %+v", callResp.Error)
 	}
 
 	// 3. Concurrent Active Pointer CAS race: two competing publishers (VS04-A4)

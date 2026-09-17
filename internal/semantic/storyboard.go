@@ -13,8 +13,8 @@ type CollapsedDetail struct {
 	Reason string `json:"reason"`
 }
 
-// StoryboardFrame represents an end-to-end business gateway scene.
-type StoryboardFrame struct {
+// FlowFrame represents an end-to-end business gateway scene.
+type FlowFrame struct {
 	FrameID         string           `json:"frameId"`
 	Ordinal         int              `json:"ordinal"`
 	Role            string           `json:"role"` // entry | decision | process | effect | result | boundary
@@ -30,16 +30,20 @@ type StoryboardFrame struct {
 	Architecture    string           `json:"architecture,omitempty"`
 	Status          string           `json:"status"` // verified | partial | unknown
 	FrameMatchKey   string           `json:"frameMatchKey"`
+	IsRecursion     bool             `json:"isRecursion,omitempty"`
 }
+
+// StoryboardFrame is an alias for FlowFrame for backward compatibility.
+type StoryboardFrame = FlowFrame
 
 // Storyboard holds the canonical projection of business gateway scenes derived from SemanticMapIR.
 type Storyboard struct {
-	SchemaID        string            `json:"schemaId"`
-	SchemaVersion   int               `json:"schemaVersion"`
-	GenerationID    string            `json:"generationId"`
-	ComputedBasisID string            `json:"computedBasisId"`
-	SnapshotID      string            `json:"snapshotId"`
-	Frames          []StoryboardFrame `json:"frames"`
+	SchemaID        string      `json:"schemaId"`
+	SchemaVersion   int         `json:"schemaVersion"`
+	GenerationID    string      `json:"generationId"`
+	ComputedBasisID string      `json:"computedBasisId"`
+	SnapshotID      string      `json:"snapshotId"`
+	Frames          []FlowFrame `json:"frames"`
 }
 
 // NormalizeFrameMatchKey constructs a stable frame-matching key using canonical
@@ -113,6 +117,44 @@ func BuildStoryboard(mapIR *SemanticMapIR) *Storyboard {
 		boundaryTargets[bt] = true
 	}
 
+	// Index evidence by evidenceId
+	evidenceMap := make(map[string]SemanticEvidence, len(mapIR.Evidence))
+	for _, ev := range mapIR.Evidence {
+		evidenceMap[ev.EvidenceID] = ev
+	}
+
+	computeStepStatus := func(s SemanticStep) string {
+		if unknownSubjects[s.TechnicalName] || unknownSubjects[s.Name] {
+			return "unknown"
+		}
+		if len(s.EvidenceRefs) == 0 {
+			return "partial"
+		}
+		verifiedCount := 0
+		unknownCount := 0
+		for _, ref := range s.EvidenceRefs {
+			ev, ok := evidenceMap[ref]
+			if !ok {
+				return "partial"
+			}
+			switch ev.ValidationStatus {
+			case "verified":
+				verifiedCount++
+			case "unknown", "invalid":
+				unknownCount++
+			default:
+				// partial or unstated
+			}
+		}
+		if unknownCount == len(s.EvidenceRefs) {
+			return "unknown"
+		}
+		if verifiedCount == len(s.EvidenceRefs) && unknownCount == 0 {
+			return "verified"
+		}
+		return "partial"
+	}
+
 	for i, step := range steps {
 		role := ""
 		isIntermediate := false
@@ -152,6 +194,12 @@ func BuildStoryboard(mapIR *SemanticMapIR) *Storyboard {
 			sb.Frames[lastIdx].CollapsedDetail.Count++
 			if sb.Frames[lastIdx].Condition == nil && step.Branch != nil && *step.Branch != "" {
 				sb.Frames[lastIdx].Condition = step.Branch
+			}
+			collapsedStatus := computeStepStatus(step)
+			if collapsedStatus == "unknown" && sb.Frames[lastIdx].Status == "verified" {
+				sb.Frames[lastIdx].Status = "partial"
+			} else if collapsedStatus == "partial" && sb.Frames[lastIdx].Status == "verified" {
+				sb.Frames[lastIdx].Status = "partial"
 			}
 			continue
 		}
@@ -193,10 +241,7 @@ func BuildStoryboard(mapIR *SemanticMapIR) *Storyboard {
 		}
 
 		// Status determination: lack of evidence -> partial / unknown
-		status := "verified"
-		if unknownSubjects[step.TechnicalName] || unknownSubjects[step.Name] || len(step.EvidenceRefs) == 0 {
-			status = "partial"
-		}
+		status := computeStepStatus(step)
 		if role == "boundary" {
 			status = "unknown"
 		}
@@ -232,6 +277,11 @@ func BuildStoryboard(mapIR *SemanticMapIR) *Storyboard {
 func isStepBoundary(step SemanticStep, boundaries map[string]bool, unknowns map[string]bool) bool {
 	if boundaries[step.StepID] || boundaries[step.TechnicalName] {
 		return true
+	}
+	for _, r := range step.Rules {
+		if strings.HasPrefix(r, "boundary:") {
+			return true
+		}
 	}
 	if unknowns[step.TechnicalName] || unknowns[step.Name] {
 		for _, r := range step.Rules {

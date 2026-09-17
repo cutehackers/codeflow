@@ -10,7 +10,7 @@
     return (flowStore.data?.semanticMap?.edges || []).filter(e => e.fromStepId === step.stepId);
   }
 
-  function handleSelect(stepId: string) {
+  function onStepSelect(stepId: string) {
     flowStore.select(stepId);
   }
 </script>
@@ -35,7 +35,7 @@
           type="button"
           class="process-select"
           data-select={step.stepId}
-          onclick={() => handleSelect(step.stepId)}
+          onclick={() => onStepSelect(step.stepId)}
         >
           <span class="card-ordinal">{String(step.ordinal || 1).padStart(2, '0')}</span>
           <span>
@@ -62,7 +62,7 @@
               {@const label = EDGE_LABELS[edge.kind] || '연결'}
               {#if target && edge.resolutionStatus === 'resolved'}
                 <span>{label} →</span>
-                <button type="button" data-select={target.stepId} onclick={() => handleSelect(target.stepId)}>
+                <button type="button" data-select={target.stepId} onclick={() => onStepSelect(target.stepId)}>
                   {target.technicalName || target.name}
                 </button>
               {:else}

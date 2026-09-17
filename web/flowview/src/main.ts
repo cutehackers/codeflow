@@ -21,6 +21,7 @@ declare global {
 window.flowStore = flowStore;
 const params = new URLSearchParams(location.search);
 const token = params.get('token') || '';
+(window as any).__codeflowToken = token;
 let sequence = 0;
 let controller: AbortController | null = null;
 
@@ -28,7 +29,7 @@ async function api(path: string, signal?: AbortSignal) {
   const url = new URL(path, location.origin);
   const response = await fetch(url, { signal, headers: token ? { 'X-CodeFlow-Token': token } : {} });
   const data = await response.json().catch(() => null);
-  if (!response.ok) throw Object.assign(new Error(data?.message || `요청 실패 (${response.status})`), { candidates:data?.candidateTargets || [] });
+  if (!response.ok) throw Object.assign(new Error(data?.message || `요청 실패 (${response.status})`), { candidates: data?.candidateTargets || [], code: data?.code || data?.error || '' });
   return data;
 }
 
@@ -47,6 +48,7 @@ async function load(path: string, preserve: boolean, legacyId?: string): Promise
   const ticket = ++sequence;
   flowStore.busy = true;
   flowStore.candidates = [];
+  flowStore.errorCode = '';
   flowStore.notice = preserve ? '다시 분석 중…' : '흐름을 여는 중…';
   try {
     const data: FlowTaskViewData = await api(path, controller.signal);
@@ -59,7 +61,12 @@ async function load(path: string, preserve: boolean, legacyId?: string): Promise
     }
     return adopted;
   } catch (error) {
-    if (ticket === sequence) { flowStore.notice = `흐름을 열지 못했습니다: ${(error as Error).message}`; flowStore.candidates = (error as Error & {candidates?:string[]}).candidates || []; }
+    if (ticket === sequence) {
+      const err = error as Error & { candidates?: string[]; code?: string };
+      flowStore.notice = `흐름을 열지 못했습니다: ${err.message}`;
+      flowStore.candidates = err.candidates || [];
+      flowStore.errorCode = err.code || '';
+    }
     return false;
   } finally {
     if (ticket === sequence) flowStore.busy = false;
@@ -69,6 +76,7 @@ async function load(path: string, preserve: boolean, legacyId?: string): Promise
 window.cancelFlowRequest = () => {
   ++sequence;
   controller?.abort();
+  flowStore.abortReanalysis();
   flowStore.busy = false;
   flowStore.notice = '요청을 취소했습니다. 기존 화면을 유지합니다.';
 };
@@ -92,6 +100,7 @@ window.showFlowHome = async () => {
   flowStore.home = true;
   flowStore.notice = '';
   flowStore.listError = '';
+  flowStore.errorCode = '';
   flowStore.candidates = [];
   setURL();
   try {

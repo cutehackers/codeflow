@@ -65,9 +65,9 @@ func pulseNavigationTarget(ch semantic.DeltaChange, baseMap, currMap *semantic.S
 	return "", "unknown", nil
 }
 
-// handleTaskAnalyses lists actually preserved analyses. An empty list means
+// serveTaskAnalyses lists actually preserved analyses. An empty list means
 // no baseline exists; the caller must not synthesize one.
-func (s *Server) handleTaskAnalyses(w http.ResponseWriter, r *http.Request) {
+func (s *Server) serveTaskAnalyses(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return

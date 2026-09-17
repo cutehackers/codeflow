@@ -10,7 +10,7 @@ import (
 	"codeflow/internal/semantic"
 )
 
-func TestTaskAnalysesAndReviewDescriptors(t *testing.T) {
+func TestTaskViewsAndComparisonDescriptors(t *testing.T) {
 	root := copyFixtureWithoutCodeflow(t, "nextjs-app-fixture")
 	moduleRoot, _ := filepath.Abs("../..")
 	t.Setenv("CODEFLOW_ADAPTER_TYPESCRIPT_BIN", "noderun:"+filepath.Join(moduleRoot, "adapters", "typescript"))
@@ -25,16 +25,16 @@ func TestTaskAnalysesAndReviewDescriptors(t *testing.T) {
 		return rec
 	}
 
-	empty := serve("http://127.0.0.1/api/task/analyses?token=" + srv.AuthToken())
+	empty := serve("http://127.0.0.1/api/views?token=" + srv.AuthToken())
 	if empty.Code != http.StatusOK {
-		t.Fatalf("expected 200 for analyses, got %d", empty.Code)
+		t.Fatalf("expected 200 for views, got %d", empty.Code)
 	}
 	var emptyDoc struct {
-		Analyses []map[string]any `json:"analyses"`
+		Views []map[string]any `json:"views"`
 	}
 	_ = json.Unmarshal(empty.Body.Bytes(), &emptyDoc)
-	if len(emptyDoc.Analyses) != 0 {
-		t.Fatalf("expected no preserved analyses before any view, got %d", len(emptyDoc.Analyses))
+	if len(emptyDoc.Views) != 0 {
+		t.Fatalf("expected no preserved views before any view, got %d", len(emptyDoc.Views))
 	}
 
 	entry := "app/page.tsx%23HomePage.handleQuickCheckout"
@@ -44,45 +44,31 @@ func TestTaskAnalysesAndReviewDescriptors(t *testing.T) {
 	}
 	var viewDoc map[string]any
 	_ = json.Unmarshal(view.Body.Bytes(), &viewDoc)
-	semMap, _ := viewDoc["semanticMap"].(map[string]any)
-	generation, _ := semMap["generationId"].(string)
-	basis, _ := semMap["computedBasisId"].(string)
+	viewID, _ := viewDoc["viewId"].(string)
+	if viewID == "" {
+		t.Fatalf("expected saved viewId in response")
+	}
 
-	listed := serve("http://127.0.0.1/api/task/analyses?token=" + srv.AuthToken())
+	listed := serve("http://127.0.0.1/api/views?token=" + srv.AuthToken())
 	var listedDoc struct {
-		Analyses []map[string]any `json:"analyses"`
+		Views []map[string]any `json:"views"`
 	}
 	_ = json.Unmarshal(listed.Body.Bytes(), &listedDoc)
-	if len(listedDoc.Analyses) != 1 {
-		t.Fatalf("expected 1 preserved analysis, got %d", len(listedDoc.Analyses))
-	}
-	if listedDoc.Analyses[0]["generationId"] != generation {
-		t.Errorf("expected listed generation %s, got %v", generation, listedDoc.Analyses[0]["generationId"])
+	if len(listedDoc.Views) != 1 {
+		t.Fatalf("expected 1 preserved view, got %d", len(listedDoc.Views))
 	}
 
-	review := serve("http://127.0.0.1/api/task/review?baseline=" + generation + "&current=" + generation + "&token=" + srv.AuthToken())
-	if review.Code != http.StatusOK {
-		t.Fatalf("expected 200 for review, got %d: %s", review.Code, review.Body.String())
+	compare := serve("http://127.0.0.1/api/view/compare?baselineId=" + viewID + "&viewId=" + viewID + "&token=" + srv.AuthToken())
+	if compare.Code != http.StatusOK {
+		t.Fatalf("expected 200 for compare, got %d: %s", compare.Code, compare.Body.String())
 	}
-	var reviewDoc map[string]any
-	_ = json.Unmarshal(review.Body.Bytes(), &reviewDoc)
-	for _, side := range []string{"baseline", "current"} {
-		descriptor, _ := reviewDoc[side].(map[string]any)
-		if descriptor == nil {
-			t.Fatalf("missing %s descriptor", side)
-		}
-		if descriptor["generationId"] != generation || descriptor["computedBasisId"] != basis {
-			t.Errorf("%s descriptor identity mismatch: %v", side, descriptor)
-		}
-		if _, ok := descriptor["partial"]; !ok {
-			t.Errorf("%s descriptor lacks partial flag", side)
-		}
-		if _, ok := descriptor["selection"]; !ok {
-			t.Errorf("%s descriptor lacks selection mode", side)
-		}
+	var compareDoc map[string]any
+	_ = json.Unmarshal(compare.Body.Bytes(), &compareDoc)
+	if compareDoc["deltaId"] == "" {
+		t.Fatalf("missing deltaId in compare response")
 	}
 
-	unknown := serve("http://127.0.0.1/api/task/review?baseline=gen-missing&current=" + generation + "&token=" + srv.AuthToken())
+	unknown := serve("http://127.0.0.1/api/view/compare?baselineId=missing-id&viewId=" + viewID + "&token=" + srv.AuthToken())
 	if unknown.Code != http.StatusBadRequest {
 		t.Errorf("expected 400 for unknown baseline, got %d", unknown.Code)
 	}

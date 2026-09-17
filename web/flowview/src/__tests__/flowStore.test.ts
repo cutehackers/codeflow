@@ -135,9 +135,8 @@ describe('FlowStore (Svelte 5 Runes)', () => {
     expect(flowStore.selectedFrameId).toBe('frame-02');
     expect(flowStore.savedNavigationState).toBeNull();
   });
-});
 
-it('keeps an internal step selected and restores it after relation navigation', () => {
+  it('keeps an internal step selected and restores it after relation navigation', () => {
   const data = samplePayload(1);
   const detail = {...data.semanticMap.steps[0], stepId:'detail', structuralIdentity:'detail', name:'내부 처리'};
   data.semanticMap.steps.push(detail);
@@ -152,13 +151,240 @@ it('keeps an internal step selected and restores it after relation navigation', 
   expect(flowStore.selectedStep?.stepId).toBe('detail');
 });
 
-it('does not invent scenes from raw steps or replace selection on ambiguous matching', () => {
-  const data = samplePayload(1);
-  flowStore.adopt(data,true);
-  const missing = {...data, storyboard:undefined};
-  expect(() => flowStore.adopt(missing)).toThrow('스토리보드');
-  const ambiguous = samplePayload(2);
-  ambiguous.storyboard!.frames.push({...ambiguous.storyboard!.frames[0], frameId:'duplicate'});
-  expect(flowStore.adopt(ambiguous)).toBe(false);
-  expect(flowStore.data?.semanticMap.generationId).toBe('sample-v1');
+  it('does not invent scenes from raw steps or replace selection on ambiguous matching', () => {
+    const data = samplePayload(1);
+    flowStore.adopt(data, true);
+    const missing = { ...data, storyboard: undefined };
+    expect(() => flowStore.adopt(missing)).toThrow('스토리보드');
+    const ambiguous = samplePayload(2);
+    ambiguous.storyboard!.frames.push({ ...ambiguous.storyboard!.frames[0], frameId: 'duplicate' });
+    expect(flowStore.adopt(ambiguous)).toBe(false);
+    expect(flowStore.data?.semanticMap.generationId).toBe('sample-v1');
+  });
+
+  it('enriches storyboard frames with micro-semantic narratives', async () => {
+    const data = samplePayload(1);
+    flowStore.adopt(data, true);
+
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = async () => ({
+      ok: true,
+      json: async () => ({
+        narratives: [
+          { frameId: data.storyboard!.frames[0].frameId, narrative: '고객 주문 요청 접수 및 검증', status: 'enriched' }
+        ]
+      })
+    }) as any;
+
+    try {
+      const enriched = await flowStore.enrichMicroSemantics();
+      expect(enriched).toBe(true);
+      expect(flowStore.storyboard?.frames[0].narrative).toBe('고객 주문 요청 접수 및 검증');
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+
+  it('discards stale SLM response when scene selection aborts in-flight request', async () => {
+    const data = samplePayload(1);
+    flowStore.adopt(data, true);
+
+    const originalFetch = globalThis.fetch;
+    // Simulate slow network request
+    globalThis.fetch = async () => {
+      await new Promise(resolve => setTimeout(resolve, 50));
+      return {
+        ok: true,
+        json: async () => ({
+          narratives: [
+            { frameId: data.storyboard!.frames[0].frameId, narrative: '뒤늦게 도착한 과거 응답', status: 'enriched' }
+          ]
+        })
+      } as any;
+    };
+
+    try {
+      const p = flowStore.enrichMicroSemantics();
+      // User switches selection, triggering abortEnrichment
+      flowStore.select('validate_cart');
+      const result = await p;
+      // Stale response must be discarded (false) and not overwrite narrative
+      expect(result).toBe(false);
+      expect(flowStore.storyboard?.frames[0].narrative).not.toBe('뒤늦게 도착한 과거 응답');
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+
+  it('triggers background automatic reanalysis when past session source context is missing', async () => {
+    const historical = samplePayload(1);
+    // Simulate missing source context from disk/past session
+    historical.flowContexts = {};
+    historical.sourceFiles = {};
+    historical.sourceContextMissing = true;
+    historical.sourceNotice = '과거 분석에 보존된 소스 문맥이 없어 재분석이 필요합니다. 현재 워킹 트리 기반으로 자동 재분석을 진행합니다.';
+    historical.request = { request: '주문 결제', entrySymbol: 'checkout.go#Checkout', flowId: 'flow-checkout-1' };
+
+    const reanalyzed = samplePayload(2);
+    reanalyzed.flowContexts = {
+      'checkout': {
+        stepId: 'checkout',
+        canonicalPath: 'checkout.go',
+        displayedLines: [{ lineNumber: 1, text: 'func Checkout() {}', isHit: true }]
+      }
+    };
+    reanalyzed.sourceFiles = {
+      'checkout.go': [{ lineNumber: 1, text: 'func Checkout() {}', isHit: true }]
+    };
+
+    const originalFetch = globalThis.fetch;
+    const requestedUrls: string[] = [];
+    globalThis.fetch = async (url: any) => {
+      requestedUrls.push(String(url));
+      return {
+        ok: true,
+        json: async () => reanalyzed
+      } as any;
+    };
+
+    try {
+      flowStore.adopt(historical);
+      expect(flowStore.isAutoReanalyzing).toBe(true);
+      expect(flowStore.notice).toContain('자동 재분석');
+
+      const reanalyzedSuccess = await flowStore.triggerAutoReanalysis();
+      expect(reanalyzedSuccess).toBe(true);
+      const reanalysisUrl = requestedUrls.find(u => u.includes('/api/task/view'));
+      expect(reanalysisUrl).toBeDefined();
+      expect(reanalysisUrl).toContain('entrySymbol=checkout.go%23Checkout');
+      expect(flowStore.notice).toBe('현재 워킹 트리를 기반으로 최신 분석으로 갱신되었습니다.');
+      expect(Object.keys(flowStore.data?.flowContexts || {}).length).toBeGreaterThan(0);
+      expect(flowStore.isAutoReanalyzing).toBe(false);
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+
+  it('safely handles background auto-reanalysis failure without crashing', async () => {
+    const historical = samplePayload(1);
+    historical.flowContexts = {};
+    historical.sourceFiles = {};
+    historical.sourceContextMissing = true;
+    historical.request = { request: '주문 결제', entrySymbol: 'checkout.go#Checkout' };
+
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = async () => ({
+      ok: false,
+      status: 500,
+      json: async () => ({ message: 'adapter unavailable' })
+    }) as any;
+
+    try {
+      flowStore.adopt(historical);
+      const result = await flowStore.triggerAutoReanalysis();
+      expect(result).toBe(false);
+      expect(flowStore.notice).toContain('자동 재분석을 완료하지 못했습니다');
+      expect(flowStore.storyboard).not.toBeNull(); // Historical structure remains intact
+      expect(flowStore.isAutoReanalyzing).toBe(false);
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+
+  it('discards stale auto-reanalysis response when aborted', async () => {
+    const historical = samplePayload(1);
+    historical.flowContexts = {};
+    historical.sourceFiles = {};
+    historical.sourceContextMissing = true;
+    historical.request = { request: '주문 결제', entrySymbol: 'checkout.go#Checkout' };
+
+    const fresh = samplePayload(2);
+
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = async () => {
+      await new Promise(resolve => setTimeout(resolve, 40));
+      return {
+        ok: true,
+        json: async () => fresh
+      } as any;
+    };
+
+    try {
+      flowStore.adopt(historical);
+      const p = flowStore.triggerAutoReanalysis();
+      flowStore.abortReanalysis();
+      const result = await p;
+      expect(result).toBe(false);
+      expect(flowStore.isAutoReanalyzing).toBe(false);
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+
+  it('terminates reanalysis without infinite loops when reanalyzed result still has missing context', async () => {
+    const historical = samplePayload(1);
+    historical.flowContexts = {};
+    historical.sourceFiles = {};
+    historical.sourceContextMissing = true;
+    historical.request = { request: 'deleted/file.go#DeletedMethod' };
+
+    // Fresh response also has no source files (e.g. deleted file on disk)
+    const freshMissing = samplePayload(2);
+    freshMissing.flowContexts = {};
+    freshMissing.sourceFiles = {};
+
+    let fetchCount = 0;
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = async () => {
+      fetchCount++;
+      return {
+        ok: true,
+        json: async () => freshMissing
+      } as any;
+    };
+
+    try {
+      flowStore.adopt(historical);
+      // Wait for any asynchronous reanalysis tasks
+      await new Promise(resolve => setTimeout(resolve, 50));
+      // Fetch should be invoked exactly once, not looping indefinitely
+      expect(fetchCount).toBe(1);
+      expect(flowStore.isAutoReanalyzing).toBe(false);
+      expect(flowStore.notice).toContain('현재 워킹 트리에서도 해당 소스 문맥을 찾을 수 없습니다');
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+
+  it('normalizes query containing # into entrySymbol for reanalysis', async () => {
+    const historical = samplePayload(1);
+    historical.flowContexts = {};
+    historical.sourceFiles = {};
+    historical.sourceContextMissing = true;
+    historical.request = { request: 'service/handler.go#HandleOrder' };
+
+    const requestedUrls: string[] = [];
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = async (url: any) => {
+      requestedUrls.push(String(url));
+      return {
+        ok: true,
+        json: async () => samplePayload(2)
+      } as any;
+    };
+
+    try {
+      flowStore.adopt(historical);
+      await flowStore.triggerAutoReanalysis();
+      const taskViewUrl = requestedUrls.find(u => u.includes('/api/task/view'));
+      expect(taskViewUrl).toBeDefined();
+      expect(taskViewUrl).toContain('entrySymbol=service%2Fhandler.go%23HandleOrder');
+      expect(taskViewUrl).not.toContain('query=');
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
 });
+
+
+

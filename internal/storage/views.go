@@ -17,8 +17,8 @@ import (
 	"codeflow/internal/secret"
 )
 
-// SavedViewSummary identifies an immutable, self-contained FlowView result.
-type SavedViewSummary struct {
+// TaskViewSummary identifies an immutable, self-contained FlowView result.
+type TaskViewSummary struct {
 	ViewID       string `json:"viewId"`
 	SavedAt      string `json:"savedAt"`
 	Title        string `json:"title"`
@@ -120,8 +120,8 @@ func (s *Storage) ReadView(ctx context.Context, id string) ([]byte, error) {
 	return data, nil
 }
 
-func (s *Storage) ListViews(ctx context.Context) ([]SavedViewSummary, error) {
-	result := []SavedViewSummary{}
+func (s *Storage) ListViews(ctx context.Context) ([]TaskViewSummary, error) {
+	result := []TaskViewSummary{}
 	root, err := os.OpenRoot(s.repoRoot)
 	if err != nil {
 		return nil, err
@@ -146,7 +146,7 @@ func (s *Storage) ListViews(ctx context.Context) ([]SavedViewSummary, error) {
 		}
 		data, err := s.ReadView(ctx, id)
 		if err != nil {
-			return nil, fmt.Errorf("read saved view: %w", err)
+			return nil, fmt.Errorf("read task view: %w", err)
 		}
 		var doc struct {
 			SemanticMap struct {
@@ -163,7 +163,7 @@ func (s *Storage) ListViews(ctx context.Context) ([]SavedViewSummary, error) {
 		if err != nil {
 			return nil, err
 		}
-		result = append(result, SavedViewSummary{SavedAt: info.ModTime().UTC().Format(time.RFC3339Nano), ViewID: id, Title: doc.SemanticMap.Summary.Requested, GenerationID: doc.SemanticMap.GenerationID})
+		result = append(result, TaskViewSummary{SavedAt: info.ModTime().UTC().Format(time.RFC3339Nano), ViewID: id, Title: doc.SemanticMap.Summary.Requested, GenerationID: doc.SemanticMap.GenerationID})
 	}
 	sort.Slice(result, func(i, j int) bool { return result[i].SavedAt > result[j].SavedAt })
 	return result, nil

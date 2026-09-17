@@ -35,9 +35,33 @@ recorded_skill_sha256() {
   fi
 }
 
+skill_needs_update() {
+  local src="$1"
+  local dest="$2"
+  if [ ! -e "$dest" ]; then
+    return 0
+  fi
+  if [ ! -f "$dest/SKILL.md" ] || ! cmp -s "$src/SKILL.md" "$dest/SKILL.md"; then
+    return 0
+  fi
+  if [ -d "$src/references" ]; then
+    if [ ! -d "$dest/references" ]; then
+      return 0
+    fi
+    for ref_file in "$src/references"/*; do
+      [ -e "$ref_file" ] || continue
+      local base="$(basename "$ref_file")"
+      if [ ! -f "$dest/references/$base" ] || ! cmp -s "$ref_file" "$dest/references/$base"; then
+        return 0
+      fi
+    done
+  fi
+  return 1
+}
+
 preflight_skill_update() {
   local source="$1"
-  if [ ! -e "$SKILL_DEST" ] || [ ! -f "$source/SKILL.md" ] || cmp -s "$source/SKILL.md" "$SKILL_DEST/SKILL.md"; then
+  if [ ! -e "$SKILL_DEST" ] || ! skill_needs_update "$source" "$SKILL_DEST"; then
     return 0
   fi
 
@@ -353,7 +377,7 @@ if [ -d "$SKILL_SOURCE" ]; then
   if [ ! -e "$SKILL_DEST" ]; then
     cp -R "$SKILL_SOURCE" "$SKILL_DEST"
     info "Installed CodeFlow skill for Codex"
-  elif ! cmp -s "$SKILL_SOURCE/SKILL.md" "$SKILL_DEST/SKILL.md"; then
+  elif skill_needs_update "$SKILL_SOURCE" "$SKILL_DEST"; then
     rm -rf "$SKILL_DEST"
     cp -R "$SKILL_SOURCE" "$SKILL_DEST"
     info "Updated CodeFlow skill for Codex"
@@ -398,7 +422,7 @@ if command -v claude >/dev/null 2>&1; then
     if [ ! -e "$CLAUDE_CODE_SKILL" ]; then
       cp -R "$SKILL_SOURCE" "$CLAUDE_CODE_SKILL"
       info "Installed CodeFlow skill for Claude Code ($CLAUDE_CODE_SKILL)"
-    elif ! cmp -s "$SKILL_SOURCE/SKILL.md" "$CLAUDE_CODE_SKILL/SKILL.md"; then
+    elif skill_needs_update "$SKILL_SOURCE" "$CLAUDE_CODE_SKILL"; then
       rm -rf "$CLAUDE_CODE_SKILL"
       cp -R "$SKILL_SOURCE" "$CLAUDE_CODE_SKILL"
       info "Updated CodeFlow skill for Claude Code ($CLAUDE_CODE_SKILL)"
@@ -415,7 +439,7 @@ if [ -d "$SKILL_SOURCE" ]; then
   if [ ! -e "$CURSOR_SKILL" ]; then
     cp -R "$SKILL_SOURCE" "$CURSOR_SKILL"
     info "Installed CodeFlow skill for Cursor"
-  elif ! cmp -s "$SKILL_SOURCE/SKILL.md" "$CURSOR_SKILL/SKILL.md"; then
+  elif skill_needs_update "$SKILL_SOURCE" "$CURSOR_SKILL"; then
     rm -rf "$CURSOR_SKILL"
     cp -R "$SKILL_SOURCE" "$CURSOR_SKILL"
     info "Updated CodeFlow skill for Cursor"
@@ -435,7 +459,7 @@ if [ -d "$SKILL_SOURCE" ]; then
   if [ ! -e "$GEMINI_SKILL" ]; then
     cp -R "$SKILL_SOURCE" "$GEMINI_SKILL"
     info "Installed CodeFlow skill for Antigravity ($GEMINI_SKILL)"
-  elif ! cmp -s "$SKILL_SOURCE/SKILL.md" "$GEMINI_SKILL/SKILL.md"; then
+  elif skill_needs_update "$SKILL_SOURCE" "$GEMINI_SKILL"; then
     rm -rf "$GEMINI_SKILL"
     cp -R "$SKILL_SOURCE" "$GEMINI_SKILL"
     info "Updated CodeFlow skill for Antigravity ($GEMINI_SKILL)"

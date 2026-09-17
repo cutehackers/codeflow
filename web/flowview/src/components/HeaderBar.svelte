@@ -16,7 +16,7 @@
     staticLinkLabel = ''
   }: Props = $props();
 
-  function handleReset() {
+  function onReset() {
     flowStore.receive(samplePayload(1));
   }
 </script>
@@ -26,8 +26,8 @@
     class="brand"
     role="button"
     tabindex="0"
-    onclick={handleReset}
-    onkeydown={(e) => e.key === 'Enter' && handleReset()}
+    onclick={onReset}
+    onkeydown={(e) => e.key === 'Enter' && onReset()}
     style="cursor: pointer"
     title="온보딩 허브로 이동"
   >

@@ -107,13 +107,16 @@ export interface FlowContext {
   displayedLines: DisplayedLine[];
 }
 
-import type { Storyboard, StoryboardFrame } from './storyboard';
-export type { Storyboard, StoryboardFrame };
+import type { Storyboard, StoryboardFrame, FlowFrame } from './storyboard';
+export type { Storyboard, StoryboardFrame, FlowFrame };
 
 export interface FlowTaskViewData {
   viewId?: string;
+  flowId?: string;
   request?: { request?: string; entrySymbol?: string; flowId?: string; domain?: string };
   sourceNotice?: string;
+  sourceContextMissing?: boolean;
+  needsReanalysis?: boolean;
   sourceFiles?: Record<string, DisplayedLine[]>;
   requestId?: string;
   semanticMap: SemanticMap;

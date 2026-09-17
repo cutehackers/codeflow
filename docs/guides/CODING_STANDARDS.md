@@ -188,7 +188,46 @@ Acronyms and initialisms (e.g., `ID`, `URL`, `HTTP`, `JSON`, `AST`, `MCP`, `RPC`
 - **Changed-Code Enforcement:** Run `make check-naming` for every change. The check examines changed code paths and added or modified declarations for design-plan labels and internal acronyms. It intentionally does not reject labels in external registry metadata, acceptance IDs, schema IDs, protocol values, compatibility mappings, or documentation.
 - **Naming Test Behavior:** Test names must describe the behavior or business rule under test. Keep acceptance IDs in the registry-to-test mapping rather than in the Go, Dart, or TypeScript test identifier.
 
-### 4.4 Variable & Constant Naming
+### 4.4 Domain-Role-Context Structural Naming & Anti-Pattern Guard
+CodeFlow structures all identifiers, files, types, and variables around **Domain Component + Role / Context**. Names must state *what* entity is being modeled and *what architectural responsibility* it fulfills.
+
+- **File Naming Pattern:** `[domain_component]_[role_or_context].go`
+  - Name the file after its business domain entity followed by its architectural or UI role:
+    - `task_view_persistence.go`: Domain (`task_view`) + Role (`persistence`).
+    - `compare_endpoint.go`: Domain (`compare`) + Role (`endpoint`).
+    - `flow_context_source.go`: Domain (`flow_context`) + Context (`source`).
+    - `view_state.go`: Domain (`view`) + Role (`state`).
+- **Type / Struct / Class Naming Pattern:** `[DomainComponent][Role]`
+  - Types represent domain models or role actors:
+    - `TaskViewSummary`: Domain (`TaskView`) + Role (`Summary`).
+    - `FlowContext`: Domain (`Flow`) + Role (`Context`).
+    - `SemanticDelta`: Domain (`Semantic`) + Role (`Delta`).
+- **Function / Method Naming Pattern:** `[ActionVerb][DomainComponent][Role/Context]`
+  - Operations and endpoints name the resource and intent:
+    - `serveTaskViewList`: HTTP endpoint to list catalog of task views.
+    - `serveTaskViewDetail`: HTTP endpoint to fetch single task view.
+    - `serveTaskViewComparison`: HTTP endpoint to compare two task views.
+    - `SaveTaskView` / `RestoreTaskView`: Action verb + Domain entity.
+    - `TaskViewURL()`: Domain entity + accessor.
+- **Variable Naming Pattern:**
+  - Variables must identify what domain data they hold:
+    - `taskViewDoc`, `persistedView`, `viewSummaries`, `viewArchive`.
+
+- **Strictly Forbid Past-Verb (Past Participle) + Noun Anti-Pattern:**
+  - Never name files, types, or variables using past participles as ad-hoc adjectives (e.g. `saved_views.go`, `saved_view`, `cached_items.go`, `loaded_configs.go`, `SavedView`, `SavedViewSummary`, `handleSavedViews`, `saved := ...`).
+  - **Why:** A past participle (e.g., *saved*, *cached*, *loaded*) merely describes a transient lifecycle state or past side-effect rather than the architectural identity, domain boundary, and UI responsibility of the component.
+  - **Remediation Table:**
+    | Anti-Pattern (Strictly Forbidden) | Structured Domain + Role (Required) | Rationale |
+    |---|---|---|
+    | `saved_views.go` | `task_view_persistence.go` | Identifies domain (`task_view`) and persistence role. |
+    | `SavedViewSummary` | `TaskViewSummary` | Domain entity (`TaskView`) + role (`Summary`). |
+    | `SavedViewURL()` | `TaskViewURL()` | Domain entity (`TaskView`) + property (`URL`). |
+    | `handleSavedViews` | `serveTaskViewList` | HTTP handler for listing task views. |
+    | `handleSavedView` | `serveTaskViewDetail` | HTTP handler for retrieving a task view. |
+    | `handleSavedComparison` | `serveTaskViewComparison` | HTTP handler for task view comparison. |
+    | `saved := ...` | `persistedView := ...` / `taskViewDoc := ...` | Identifies domain content, not a past action. |
+
+### 4.5 Variable & Constant Naming
 - **No Type Encoding (Hungarian Notation):** Never embed the Go type name into the variable:
   ```go
   // Preferred:
@@ -226,7 +265,7 @@ Acronyms and initialisms (e.g., `ID`, `URL`, `HTTP`, `JSON`, `AST`, `MCP`, `RPC`
   const MAX_BUFFER_BYTES = 4 * 1024 * 1024
   ```
 
-### 4.5 Function & Method Naming
+### 4.6 Function & Method Naming
 - **No "Get" Prefix on Standard Accessors (Getters):**
   In Go, getters are named directly after the property/noun without a `Get` prefix:
   ```go
@@ -260,19 +299,34 @@ Acronyms and initialisms (e.g., `ID`, `URL`, `HTTP`, `JSON`, `AST`, `MCP`, `RPC`
   - Use `To<Type>()` for transformations that create a new representation: `ToSlash()`, `ToJSON()`.
   - Use `As<Type>()` for type assertions or wrapper conversions: `AsMap()`, `AsString()`.
 
-### 4.6 Receiver Naming
+### 4.6.1 Prohibition of Generic `handle***` Method Names & Action Verb Taxonomy
+> **Rule:** Never name functions or methods with the generic `handle***` pattern (e.g. `handleIndex`, `handleTaskView`, `handleSelect`, `handleRequest`).
+
+The word "handle" is vague: it obscures whether a function is a UI event listener, an HTTP transport endpoint, an RPC dispatcher, a business logic processor, or an invariant validator. Instead, use precise, expressive action verbs tailored to the architectural responsibility:
+
+| Architectural Role | Recommended Prefix / Pattern | Examples | Anti-Pattern (Forbidden) |
+|---|---|---|---|
+| **UI Event Handlers & Callbacks** | `on<Event>` / `on<Target><Action>` | `onFlowSelect`, `onStepClick`, `onViewRestore`, `onFormSubmit`, `onConditionChange`, `onReset` | `handleSelect`, `handleClick`, `handleSubmit`, `handleReset` |
+| **HTTP Transport Endpoints** | `serve<Resource>` / `serve<Action>` | `serveIndex`, `serveTaskViewList`, `serveTaskViewDetail`, `serveTaskViewComparison`, `serveFlowContext`, `serveSourceCode`, `serveApproval`, `serveTaskImpact` | `handleIndex`, `handleTaskView`, `handleFlowContext`, `handleApprove` |
+| **Routers & Multiplexers** | `dispatch<Target>` / `route<Target>` | `dispatchRequest`, `routeRPC`, `dispatchCommand` | `handleRequest`, `handleRPC` |
+| **Business Logic Pipelines** | `process<DomainEntity>` | `processPublishCoreFlow`, `processAnalysis`, `processTaskQuery` | `handlePublish`, `handleAnalysis` |
+| **Validation & Invariant Checks** | `validate<Entity>` / `verify<Evidence>` | `validateRequest`, `verifyEvidence`, `validateContract` | `handleValidation` |
+| **Data Formatting & UI Rendering** | `format<Data>` / `render<Template>` | `formatTaskViewResponse`, `renderViewHTML`, `deriveFlowContext` | `handleFormat`, `handleRender` |
+| **Direct Domain Action / Storage** | Active verb (`Save*`, `Restore*`, `Publish*`) | `SaveTaskView`, `RestoreTaskView`, `PublishCoreFlow` | `handleSave`, `handleRestore` |
+
+### 4.7 Receiver Naming
 - **Short, 1–2 Character Abbreviations:** Reflect the type name directly (`s *Storage`, `e *SnapshotEngine`, `m *Server`, `r *AdapterRegistry`).
 - **Absolute Consistency:** Every method belonging to the same type must use the exact same receiver name. Never mix `s` in one method and `st` in another.
 - **Never Use Generic Names:** Do not use `this`, `self`, `me`, `ptr`, `obj`, or `v` as receiver names.
 
-### 4.7 Interface Naming
+### 4.8 Interface Naming
 - **Single-Method Interfaces:** Name after the method with an `-er` or `-able` suffix:
   - `io.Reader`, `io.Writer`, `io.Closer`, `fmt.Stringer`, `ThresholdDecisionResolver`.
 - **Multi-Method Interfaces:** Name after the role or capability being abstracted:
   - `VFS`, `SnapshotLease`, `SourceAuditProvider`, `Persistence`.
 - **No "I" Prefix:** Never prefix interface names with `I` (e.g., avoid `IStorage`, `IVFS`, `IReader`).
 
-### 4.8 Error & Sentinel Naming
+### 4.9 Error & Sentinel Naming
 - **Sentinel Errors:** Package-level error variables must start with the prefix `Err`:
   ```go
   var (
@@ -294,7 +348,7 @@ Acronyms and initialisms (e.g., `ID`, `URL`, `HTTP`, `JSON`, `AST`, `MCP`, `RPC`
   }
   ```
 
-### 4.9 Boolean Variables & Functions
+### 4.10 Boolean Variables & Functions
 - **Predicate Phrasing:** Boolean names must read like assertions or questions:
   - `isConfident`, `hasStaleSteps`, `hasUnknownSteps`, `canProceed`, `shouldRetry`, `ok`.
 - **Avoid Negative Names:** Never name booleans negatively, as negations create double-negatives:
@@ -308,7 +362,7 @@ Acronyms and initialisms (e.g., `ID`, `URL`, `HTTP`, `JSON`, `AST`, `MCP`, `RPC`
   if !isNotFound { ... }
   ```
 
-### 4.10 Test Naming Conventions
+### 4.11 Test Naming Conventions
 - **Test Functions:** `Test<Target>` or `Test<Target>_<Scenario>`:
   - `TestStorageAtomicPublishAndRecovery`
   - `TestDetect_DartProject`

@@ -98,7 +98,7 @@ func CompileDeterministicFeatureMap(target *ResolvedTarget, intent *TaskIntent, 
 	semanticSteps := make([]SemanticStep, 0, len(sliceResult.Steps))
 	evidence := make([]SemanticEvidence, 0, len(sliceResult.Steps))
 	unknowns := make([]fusion.Unknown, 0)
-	stepByOrdinal := make(map[int]SemanticStep, len(sliceResult.Steps))
+	stepByOrdinal := make(map[int]*SemanticStep, len(sliceResult.Steps))
 	stepBySymbol := make(map[string][]SemanticStep, len(sliceResult.Steps))
 	stepIDs := make(map[string]bool, len(sliceResult.Steps))
 	boundaryTargets := make([]string, 0)
@@ -146,7 +146,7 @@ func CompileDeterministicFeatureMap(target *ResolvedTarget, intent *TaskIntent, 
 			semanticStep.StateDelta = &fusion.StateDelta{Before: deref(sourceStep.StateBefore), After: deref(sourceStep.StateAfter)}
 		}
 		semanticSteps = append(semanticSteps, semanticStep)
-		stepByOrdinal[sourceStep.Ordinal] = semanticStep
+		stepByOrdinal[sourceStep.Ordinal] = &semanticSteps[len(semanticSteps)-1]
 		if sourceStep.SymbolPath != "" {
 			stepBySymbol[sourceStep.SymbolPath] = append(stepBySymbol[sourceStep.SymbolPath], semanticStep)
 			// Adapters carry canonical relation identities as
@@ -212,6 +212,7 @@ func CompileDeterministicFeatureMap(target *ResolvedTarget, intent *TaskIntent, 
 			if !containsString(boundaryTargets, toID) {
 				boundaryTargets = append(boundaryTargets, toID)
 			}
+			from.Rules = append(from.Rules, "boundary:"+sourceEdge.ToSymbolPath)
 			unknowns = append(unknowns, fusion.Unknown{Subject: sourceEdge.ToSymbolPath, Reason: "edge target matches multiple canonical steps; relation remains unresolved"})
 			continue
 		} else {
@@ -223,6 +224,7 @@ func CompileDeterministicFeatureMap(target *ResolvedTarget, intent *TaskIntent, 
 			if !containsString(boundaryTargets, toID) {
 				boundaryTargets = append(boundaryTargets, toID)
 			}
+			from.Rules = append(from.Rules, "boundary:"+sourceEdge.ToSymbolPath)
 			unknowns = append(unknowns, fusion.Unknown{Subject: sourceEdge.ToSymbolPath, Reason: "edge target is outside the selected structural slice"})
 			continue
 		}

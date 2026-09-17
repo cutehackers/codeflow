@@ -177,7 +177,7 @@ func TestRFLSCR2VS11_A06(t *testing.T) {
 func TestRFLSCR2VS11_A07(t *testing.T) {
 	params, srv := contextServer(t)
 	r := httptest.NewRecorder()
-	srv.handleFlowContext(r, httptest.NewRequest("GET", "/api/flow/context?stepId=step-logout&generationId=gen-fixture", nil))
+	srv.serveFlowContext(r, httptest.NewRequest("GET", "/api/flow/context?stepId=step-logout&generationId=gen-fixture", nil))
 	var p FlowContextProjection
 	if r.Code != http.StatusOK || json.Unmarshal(r.Body.Bytes(), &p) != nil {
 		t.Fatal(r.Body.String())
@@ -276,7 +276,7 @@ func TestFlowContextRetainsOriginalSnapshotAndRejectsWrongGeneration(t *testing.
 	release()
 	for _, scope := range []string{"flow_context", "callable", "file"} {
 		r := httptest.NewRecorder()
-		srv.handleFlowContext(r, httptest.NewRequest("GET", "/api/flow/context?stepId=step-logout&generationId=gen-fixture&expand="+scope, nil))
+		srv.serveFlowContext(r, httptest.NewRequest("GET", "/api/flow/context?stepId=step-logout&generationId=gen-fixture&expand="+scope, nil))
 		var p FlowContextProjection
 		json.Unmarshal(r.Body.Bytes(), &p)
 		requireExact(t, &p)
@@ -286,7 +286,7 @@ func TestFlowContextRetainsOriginalSnapshotAndRejectsWrongGeneration(t *testing.
 	}
 	for _, gen := range []string{"missing", ""} {
 		r := httptest.NewRecorder()
-		srv.handleFlowContext(r, httptest.NewRequest("GET", "/api/flow/context?stepId=step-logout&generationId="+gen, nil))
+		srv.serveFlowContext(r, httptest.NewRequest("GET", "/api/flow/context?stepId=step-logout&generationId="+gen, nil))
 		if r.Code == http.StatusOK {
 			t.Fatal("unknown generation silently replaced")
 		}
@@ -296,13 +296,13 @@ func TestFlowContextCapabilityAndProducerMutation(t *testing.T) {
 	params, srv := contextServer(t)
 	params.Metadata.Statement.NodeKind = "class"
 	r := httptest.NewRecorder()
-	srv.handleFlowContext(r, httptest.NewRequest("GET", "/api/flow/context?stepId=step-logout&generationId=gen-fixture", nil))
+	srv.serveFlowContext(r, httptest.NewRequest("GET", "/api/flow/context?stepId=step-logout&generationId=gen-fixture", nil))
 	var p FlowContextProjection
 	json.Unmarshal(r.Body.Bytes(), &p)
 	requireExact(t, &p)
 	srv.rememberFlowContexts(params.SemanticMap, nil, false)
 	r = httptest.NewRecorder()
-	srv.handleFlowContext(r, httptest.NewRequest("GET", "/api/flow/context?stepId=step-logout&generationId=gen-fixture", nil))
+	srv.serveFlowContext(r, httptest.NewRequest("GET", "/api/flow/context?stepId=step-logout&generationId=gen-fixture", nil))
 	json.Unmarshal(r.Body.Bytes(), &p)
 	if p.Precision != PrecisionUnavailable {
 		t.Fatal("language inferred capability")

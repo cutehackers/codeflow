@@ -35,7 +35,7 @@ func TestFlowContextDartProductionIntegration(t *testing.T) {
 	}
 	t.Cleanup(func() { srv.Shutdown(context.Background()) })
 	r := httptest.NewRecorder()
-	srv.handleTaskView(r, httptest.NewRequest("GET", "/api/task/view?mode=feature&entrySymbol=lib/service.dart%23Service.run", nil))
+	srv.serveTaskView(r, httptest.NewRequest("GET", "/api/task/view?mode=feature&entrySymbol=lib/service.dart%23Service.run", nil))
 	if r.Code != 200 {
 		t.Fatalf("Dart task request failed: %d %s", r.Code, r.Body.String())
 	}
@@ -61,7 +61,7 @@ func TestFlowContextDartProductionIntegration(t *testing.T) {
 	requireExact(t, &selected)
 	for _, scope := range []string{"flow_context", "callable", "file"} {
 		r = httptest.NewRecorder()
-		srv.handleFlowContext(r, httptest.NewRequest("GET", "/api/flow/context?stepId="+m.Steps[0].StepID+"&generationId="+m.GenerationID+"&expand="+scope, nil))
+		srv.serveFlowContext(r, httptest.NewRequest("GET", "/api/flow/context?stepId="+m.Steps[0].StepID+"&generationId="+m.GenerationID+"&expand="+scope, nil))
 		var p FlowContextProjection
 		if r.Code != 200 || json.Unmarshal(r.Body.Bytes(), &p) != nil {
 			t.Fatal(r.Body.String())
