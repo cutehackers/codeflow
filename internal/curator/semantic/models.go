@@ -1,0 +1,228 @@
+package semantic
+
+import (
+	"codeflow/internal/collector/fusion"
+	"codeflow/internal/collector/slicing"
+)
+
+// SemanticMapIR mirrors schemas/semantic-map-ir.schema.json.
+type SemanticMapIR struct {
+	SchemaID                   string                 `json:"schemaId"`
+	SchemaVersion              int                    `json:"schemaVersion"`
+	MapID                      string                 `json:"mapId"`
+	GenerationID               string                 `json:"generationId"`
+	ComputedBasisID            string                 `json:"computedBasisId"`
+	ValidatedAgainstSnapshotID string                 `json:"validatedAgainstSnapshotId,omitempty"`
+	GenerationSequence         int                    `json:"generationSequence,omitempty"`
+	DerivationParent           string                 `json:"derivationParent,omitempty"`
+	Supersedes                 string                 `json:"supersedes,omitempty"`
+	PublicationKind            string                 `json:"publicationKind"`  // initial | checkpoint | refinement
+	Freshness                  string                 `json:"freshness"`        // current | historical | invalid
+	Settlement                 string                 `json:"settlement"`       // pending | passed | failed
+	EnrichmentStatus           string                 `json:"enrichmentStatus"` // not_requested | pending | available | timed_out | unavailable
+	Quality                    MapQuality             `json:"quality"`
+	Task                       MapTaskContext         `json:"task"`
+	Basis                      MapBasisContext        `json:"basis"`
+	Summary                    MapSummary             `json:"summary"`
+	Steps                      []SemanticStep         `json:"steps"`
+	Edges                      []SemanticEdge         `json:"edges"`
+	BoundaryTargets            []string               `json:"boundaryTargets,omitempty"`
+	RequirementAlignment       []RequirementAlignment `json:"requirementAlignment,omitempty"`
+	Evidence                   []SemanticEvidence     `json:"evidence,omitempty"`
+	Unknowns                   []fusion.Unknown       `json:"unknowns"`
+	Coverage                   *CoverageBoundary      `json:"coverage,omitempty"`
+	// Authority is intentionally candidate or historical in VS04. VS03 owns
+	// promotion to current/confirmed authority.
+	Authority string `json:"authority"`
+}
+
+type MapQuality struct {
+	Stage                    string                   `json:"stage"` // Q1 | Q2 | Q3 | Q4
+	CriticalObligations      []CriticalObligation     `json:"criticalObligations,omitempty"`
+	CriticalCoverageSummary  *CriticalCoverageSummary `json:"criticalCoverageSummary,omitempty"`
+	UnresolvedCriticalCount  int                      `json:"unresolvedCriticalCount"`
+	ConflictingCriticalCount int                      `json:"conflictingCriticalCount"`
+	Degradations             []QualityDegradation     `json:"degradations,omitempty"`
+}
+
+type CriticalObligation struct {
+	ObligationID string   `json:"obligationId"`
+	Kind         string   `json:"kind"` // entry | result | critical_branch | external_effect | failure
+	Required     bool     `json:"required"`
+	TargetRef    string   `json:"targetRef,omitempty"`
+	Status       string   `json:"status"` // pending | verified | unknown | conflicting | invalid
+	EvidenceRefs []string `json:"evidenceRefs,omitempty"`
+}
+
+type CriticalCoverageSummary struct {
+	Required int `json:"required"`
+	Verified int `json:"verified"`
+}
+
+type QualityDegradation struct {
+	Code              string   `json:"code"`
+	ScopeRefs         []string `json:"scopeRefs,omitempty"`
+	Impact            string   `json:"impact"`
+	RecoveryCondition string   `json:"recoveryCondition"`
+}
+
+type MapTaskContext struct {
+	TaskID         string `json:"taskId"`
+	IntentRevision int    `json:"intentRevision"`
+	IntentStatus   string `json:"intentStatus,omitempty"`
+	Mode           string `json:"mode"`
+}
+
+type MapBasisContext struct {
+	RepositoryID                string `json:"repositoryId,omitempty"`
+	WorktreeID                  string `json:"worktreeId,omitempty"`
+	WorkspaceEpoch              int64  `json:"workspaceEpoch"`
+	ComputedWorkspaceSnapshotID string `json:"computedWorkspaceSnapshotId,omitempty"`
+	ComputedBasisID             string `json:"computedBasisId,omitempty"`
+	SnapshotTreeID              string `json:"snapshotTreeId,omitempty"`
+	DependencyFingerprint       string `json:"dependencyFingerprint,omitempty"`
+	ConfigurationFingerprint    string `json:"configurationFingerprint,omitempty"`
+	AnalysisReadSetID           string `json:"analysisReadSetId,omitempty"`
+	CausalObservationClosureID  string `json:"causalObservationClosureId,omitempty"`
+}
+
+type MapSummary struct {
+	Requested string `json:"requested"`
+	Current   string `json:"current"`
+}
+
+type SemanticStep struct {
+	StepID             string             `json:"stepId"`
+	StructuralIdentity string             `json:"structuralIdentity"`
+	Ordinal            int                `json:"ordinal"`
+	Name               string             `json:"name"`
+	TechnicalName      string             `json:"technicalName,omitempty"`
+	Layer              string             `json:"layer,omitempty"`
+	Kind               string             `json:"kind,omitempty"`
+	Anchor             slicing.Anchor     `json:"anchor"`
+	CodeLens           *fusion.CodeLens   `json:"codeLens,omitempty"`
+	StateDelta         *fusion.StateDelta `json:"stateDelta,omitempty"`
+	SideEffect         *string            `json:"sideEffect,omitempty"`
+	Branch             *string            `json:"branch,omitempty"`
+	Rules              []string           `json:"rules,omitempty"`
+	EvidenceRefs       []string           `json:"evidenceRefs,omitempty"`
+}
+
+type SemanticEdge struct {
+	FromStepID       string `json:"fromStepId"`
+	ToStepID         string `json:"toStepId"`
+	ToSymbolPath     string `json:"toSymbolPath"`
+	Kind             string `json:"kind"`
+	ResolutionStatus string `json:"resolutionStatus"`
+}
+
+type RequirementAlignment struct {
+	SchemaID         string   `json:"schemaId,omitempty"`
+	SchemaVersion    int      `json:"schemaVersion,omitempty"`
+	CriterionID      string   `json:"criterionId"`
+	Description      string   `json:"description,omitempty"`
+	Status           string   `json:"status"` // confirmed | partial | not_observed | conflicting | unknown
+	CoveredStepRefs  []string `json:"coveredStepRefs,omitempty"`
+	EvidenceRefs     []string `json:"evidenceRefs,omitempty"`
+	MissingEvidence  []string `json:"missingEvidence,omitempty"`
+	ComputedBasisID  string   `json:"computedBasisId,omitempty"`
+	Notes            string   `json:"notes,omitempty"`
+	Reason           string   `json:"reason,omitempty"`
+	Authority        string   `json:"authority,omitempty"`
+	MissingTests     []string `json:"missingTests,omitempty"`
+	MissingContracts []string `json:"missingContracts,omitempty"`
+	MissingRuntime   []string `json:"missingRuntime,omitempty"`
+}
+
+// SemanticDeltaIR mirrors schemas/semantic-delta-ir.schema.json.
+type SemanticDeltaIR struct {
+	SchemaID                          string             `json:"schemaId"`
+	SchemaVersion                     int                `json:"schemaVersion"`
+	ComparisonID                      string             `json:"comparisonId"`
+	TaskIntentRevision                int                `json:"taskIntentRevision"`
+	BaselineComputedBasisID           string             `json:"baselineComputedBasisId"`
+	CurrentComputedBasisID            string             `json:"currentComputedBasisId"`
+	CurrentValidatedAgainstSnapshotID string             `json:"currentValidatedAgainstSnapshotId,omitempty"`
+	FromGeneration                    string             `json:"fromGeneration"`
+	ToGeneration                      string             `json:"toGeneration"`
+	Status                            string             `json:"status,omitempty"` // comparable | incomparable_basis | missing_precondition
+	StructuralSummary                 *StructuralSummary `json:"structuralSummary,omitempty"`
+	Changes                           []DeltaChange      `json:"changes"`
+}
+
+type StructuralSummary struct {
+	AddedStepsCount          int `json:"addedStepsCount"`
+	ChangedStepsCount        int `json:"changedStepsCount"`
+	RemovedStepsCount        int `json:"removedStepsCount"`
+	CollapsedStructuralCount int `json:"collapsedStructuralCount"`
+}
+
+type DeltaChange struct {
+	DeltaID           string   `json:"deltaId"`
+	Kind              string   `json:"kind"` // added_behavior | changed_rule | removed_behavior | evidence_updated | structural_only
+	TargetStepID      string   `json:"targetStepId"`
+	Summary           string   `json:"summary"`
+	RequirementRefs   []string `json:"requirementRefs,omitempty"`
+	StructuralChanges []string `json:"structuralChanges,omitempty"`
+	EvidenceRefs      []string `json:"evidenceRefs,omitempty"`
+	EpistemicStatus   string   `json:"epistemicStatus"`  // observed | inferred | unknown | unobserved
+	ValidationStatus  string   `json:"validationStatus"` // verified | pending | invalid | stale | orphaned
+	FromStepID        string   `json:"fromStepId,omitempty"`
+	ToStepID          string   `json:"toStepId,omitempty"`
+	CandidateStepRefs []string `json:"candidateStepRefs,omitempty"`
+	MoveStatus        string   `json:"moveStatus,omitempty"` // proven | ambiguous | not_applicable
+}
+
+type SemanticEvidence struct {
+	EvidenceID         string         `json:"evidenceId"`
+	Kind               string         `json:"kind"`
+	SourceAuthority    string         `json:"sourceAuthority"`
+	ComputedBasisID    string         `json:"computedBasisId,omitempty"`
+	DocumentRevisionID string         `json:"documentRevisionId,omitempty"`
+	Anchor             slicing.Anchor `json:"anchor"`
+	Producer           *ProducerInfo  `json:"producer,omitempty"`
+	ValidationStatus   string         `json:"validationStatus,omitempty"`
+	RedactionStatus    string         `json:"redactionStatus,omitempty"`
+	SnapshotID         string         `json:"snapshotId,omitempty"`
+	ByteRange          [2]int         `json:"byteRange,omitempty"`
+	LineRange          [2]int         `json:"lineRange,omitempty"`
+}
+
+type ProducerInfo struct {
+	Name    string `json:"name,omitempty"`
+	Version string `json:"version,omitempty"`
+}
+
+type CoverageBoundary struct {
+	IncludedSourceRoots []string `json:"includedSourceRoots"`
+	ExcludedReasons     []string `json:"excludedReasons"`
+}
+
+// FlowViewProjection mirrors schemas/flow-view-projection.schema.json.
+type FlowViewProjection struct {
+	SchemaID            string          `json:"schemaId"`
+	SchemaVersion       int             `json:"schemaVersion"`
+	ProjectionID        string          `json:"projectionId"`
+	GenerationID        string          `json:"generationId"`
+	ComputedBasisID     string          `json:"computedBasisId"`
+	Mode                string          `json:"mode"`
+	DisplayBudget       DisplayBudget   `json:"displayBudget"`
+	VisibleStepRefs     []string        `json:"visibleStepRefs"`
+	PreservedStepRefs   []string        `json:"preservedStepRefs"`
+	UnknownBoundaryRefs []string        `json:"unknownBoundaryRefs"`
+	FoldedSubflows      []FoldedSubflow `json:"foldedSubflows"`
+}
+
+type DisplayBudget struct {
+	TargetMin   int    `json:"targetMin"`
+	TargetMax   int    `json:"targetMax"`
+	Enforcement string `json:"enforcement"` // soft | strict
+}
+
+type FoldedSubflow struct {
+	FoldID          string `json:"foldId"`
+	EntryStepRef    string `json:"entryStepRef"`
+	ExitStepRef     string `json:"exitStepRef"`
+	HiddenCount     int    `json:"hiddenCount"`
+	DrilldownTarget string `json:"drilldownTarget,omitempty"`
+}

@@ -7,8 +7,8 @@ import (
 	"fmt"
 	"sort"
 
-	"codeflow/internal/protocol"
-	"codeflow/internal/workspace"
+	"codeflow/internal/analyzer/protocol"
+	"codeflow/internal/analyzer/workspace"
 )
 
 func captureCLISnapshot(root string, epoch int64) (protocol.Snapshot, func(), error) {

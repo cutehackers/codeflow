@@ -11,8 +11,8 @@ import (
 	"testing"
 	"time"
 
-	"codeflow/internal/fusion"
-	"codeflow/internal/mcp"
+	"codeflow/internal/agentgateway/mcp"
+	"codeflow/internal/collector/fusion"
 )
 
 // ---------------------------------------------------------------------------

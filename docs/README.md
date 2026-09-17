@@ -8,8 +8,6 @@
 - [Architecture](ARCHITECTURE.md)
 - [LLM and agent guide](guides/llm-usage.md)
 - [Design specifications](design/specs/)
-- [Contracts](contracts/)
-- [Validation runbooks](validation/)
 - [Versioning and release protocol](VERSIONING.md)
 - [Go coding standards](guides/CODING_STANDARDS.md)
 
@@ -17,14 +15,11 @@
 
 | Directory | Purpose |
 |---|---|
-| `contracts/` | 런타임·프로토콜·스키마 계약 |
 | `design/specs/` | 구현 기준이 되는 설계 명세 |
 | `design/decisions/` | 설계 결정 기록 |
-| `design/raw/` | 아직 정리되지 않은 설계 초안과 원자료 |
 | `guides/` | 개발자와 에이전트의 사용·개발 절차 |
 | `releases/` | 릴리즈 준비와 인수인계 |
-| `validation/` | 검증 실행 절차와 증적 수집 방법 |
-| `samples/` | FlowView와 문서 예시 |
+| `samples/` | FlowView 예시 |
 
 ## Naming rules
 

@@ -9,8 +9,8 @@ import (
 	"time"
 
 	"codeflow/internal/collector"
-	"codeflow/internal/fusion"
-	"codeflow/internal/slicing"
+	"codeflow/internal/collector/fusion"
+	"codeflow/internal/collector/slicing"
 )
 
 func TestReanchoring_VerifiedExactMatch(t *testing.T) {

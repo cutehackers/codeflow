@@ -6,9 +6,9 @@ import (
 	"testing"
 	"time"
 
+	"codeflow/internal/collector/fusion"
+	"codeflow/internal/collector/slicing"
 	"codeflow/internal/curator"
-	"codeflow/internal/fusion"
-	"codeflow/internal/slicing"
 )
 
 func strPtr(s string) *string {

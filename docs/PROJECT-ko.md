@@ -96,22 +96,26 @@ CodeFlow는 개발자와 AI 코딩 에이전트를 위한 **실시간 의미 컴
 graph TD
     Client["AI 에이전트 / 사용자 / CLI"] -->|MCP / CLI| Core["CodeFlow Go Core"]
     
-    subgraph Go Core 엔진 ["Go Core 엔진 (internal/)"]
-        Detect["detect (프로젝트 및 언어 감지)"]
-        Harvest["harvest (후보 탐색 및 중복 제거)"]
-        Pool["protocol / pool (어댑터 레지스트리)"]
-        Fusion["fusion (단조 레이어 순서 검증)"]
-        Secret["secret (단일 관문 비밀정보 마스킹)"]
-        FlowView["flowview (7-Lane HTML/CSS/JS 렌더러)"]
+    subgraph Modules ["5대 독립 모듈 아키텍처 (internal/)"]
+        direction TB
+        M1["analyzer (detect, protocol, workspace, doctor)"]
+        M2["collector (harvest, slicing, fusion, secret, storage)"]
+        M3["curator (flow sequence, macro clumping, significance ranking)"]
+        M4["presenter (flowview UI, workbench server)"]
+        M5["agentgateway (mcp server, payload serializer)"]
+        
+        M1 --> M2
+        M2 --> M3
+        M3 --> M4
+        M3 --> M5
     end
     
-    Core --> Pool
-    Pool -->|stdio NDJSON v1| DartAdapter["adapters/dart (Dart SDK)"]
-    Pool -->|stdio NDJSON v1| TSAdapter["adapters/typescript (Node.js Built-in)"]
-    Pool -->|stdio NDJSON v1| OtherAdapters["adapters/<lang> (Kotlin, Swift 등)"]
+    M1 -->|stdio NDJSON v1| DartAdapter["adapters/dart (Dart SDK)"]
+    M1 -->|stdio NDJSON v1| TSAdapter["adapters/typescript (Node.js Built-in)"]
+    M1 -->|stdio NDJSON v1| OtherAdapters["adapters/<lang> (다중 언어)"]
     
-    Core --> FlowView
-    FlowView -->|HTTP 127.0.0.1 / 토큰 인증| Browser["인터랙티브 7-Lane 브라우저 UI"]
+    M4 -->|HTTP 127.0.0.1 / 토큰 인증| Browser["인터랙티브 FlowView 3열 UI"]
+    M5 -->|stdio JSON-RPC| AIAgent["AI 코딩 에이전트 (MCP)"]
 ```
 
 ---

@@ -96,22 +96,26 @@ Product Surfaces are the concrete software components, user touchpoints, protoco
 graph TD
     Client["AI Agent / User / CLI"] -->|MCP / CLI| Core["CodeFlow Go Core"]
     
-    subgraph Go Core Engine ["Go Core Engine (internal/)"]
-        Detect["detect (Project & Lang)"]
-        Harvest["harvest (Discovery & Dedup)"]
-        Pool["protocol / pool (Adapter Registry)"]
-        Fusion["fusion (Monotonic Layer Check)"]
-        Secret["secret (Single-Gate Redaction)"]
-        FlowView["flowview (7-Lane HTML/CSS/JS)"]
+    subgraph Modules ["5-Module Internal Architecture (internal/)"]
+        direction TB
+        M1["analyzer (detect, protocol, workspace, doctor)"]
+        M2["collector (harvest, slicing, fusion, secret, storage)"]
+        M3["curator (flow sequence, macro clumping, significance ranking)"]
+        M4["presenter (flowview UI, workbench server)"]
+        M5["agentgateway (mcp server, payload serializer)"]
+        
+        M1 --> M2
+        M2 --> M3
+        M3 --> M4
+        M3 --> M5
     end
     
-    Core --> Pool
-    Pool -->|stdio NDJSON v1| DartAdapter["adapters/dart (Dart SDK)"]
-    Pool -->|stdio NDJSON v1| TSAdapter["adapters/typescript (Node.js Built-ins)"]
-    Pool -->|stdio NDJSON v1| OtherAdapters["adapters/<lang> (Kotlin, Swift, etc.)"]
+    M1 -->|stdio NDJSON v1| DartAdapter["adapters/dart (Dart SDK)"]
+    M1 -->|stdio NDJSON v1| TSAdapter["adapters/typescript (Node.js Built-ins)"]
+    M1 -->|stdio NDJSON v1| OtherAdapters["adapters/<lang> (Polyglot)"]
     
-    Core --> FlowView
-    FlowView -->|HTTP 127.0.0.1 / Token Auth| Browser["Interactive 7-Lane Browser UI"]
+    M4 -->|HTTP 127.0.0.1 / Token Auth| Browser["Interactive FlowView 3-Column UI"]
+    M5 -->|stdio JSON-RPC| AIAgent["AI Coding Agent (MCP)"]
 ```
 
 ---

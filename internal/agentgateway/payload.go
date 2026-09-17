@@ -1,8 +1,8 @@
 package agentgateway
 
 import (
+	"codeflow/internal/collector/fusion"
 	"codeflow/internal/curator"
-	"codeflow/internal/fusion"
 )
 
 // CompactFrame represents a minimal gateway scene for AI agent consumption.

@@ -1,229 +1,136 @@
 # CodeFlow Target Architecture & System Blueprint
 
-> **Status**: Historical Supporting Blueprint
-> **Based on**: [`docs/design/raw/requested-flow-live-semantic-compiler-architecture-draft-ko.md`](design/raw/requested-flow-live-semantic-compiler-architecture-draft-ko.md)
-> **Current Product Contract**: [`docs/design/specs/2026-09-14-flowview-code-comprehension-ko.md`](design/specs/2026-09-14-flowview-code-comprehension-ko.md)
-> **Scope**: Entire CodeFlow Subsystem (`cmd/`, `internal/`, `adapters/`, `schemas/`)
+> **Status**: Approved Canonical Architecture
+> **Specification**: [`docs/design/specs/2026-09-16-codeflow-architectural-reset-and-flow-sequence-spec-ko.md`](design/specs/2026-09-16-codeflow-architectural-reset-and-flow-sequence-spec-ko.md)
+> **Product Contract**: [`docs/design/specs/2026-09-14-flowview-code-comprehension-ko.md`](design/specs/2026-09-14-flowview-code-comprehension-ko.md)
+> **Scope**: Entire CodeFlow Subsystem (`cmd/`, `internal/`, `adapters/`, `schemas/`, `web/`)
 
 ---
 
 ## 1. Vision & Architectural Philosophy
 
-CodeFlow is a **Live Semantic Compiler** that bridges human developer intent and complex, polyglot codebases. Rather than merely describing static code structures, CodeFlow extracts, slices, verifies, and renders **interactive, end-to-end execution flows** across architectural layers.
+CodeFlow is a developer code comprehension tool that helps developers understand how business execution flows traverse complex, polyglot codebases end-to-end. Given a user prompt or entry point, CodeFlow extracts, slices, curates, and visualizes interactive, evidence-backed execution flows across architecture layers.
 
 ### Core Architectural Principles
 
-1. **Strict Epistemic Segregation**:
-   The system enforces an uncompromisable distinction between four authorities of knowledge:
-   - **AST Facts** (`sourceAuthority: code | compiler | test`): Deterministic structural truths derived from language parsers.
-   - **SLM Proposals** (`sourceAuthority: model | agent`): Probabilistic interpretations and candidate enrichments produced by Small Language Models or LLMs.
-   - **Runtime Observations** (`sourceAuthority: runtime`): Empirical execution traces, spans, and telemetry.
-   - **Human Approvals** (`approvedBy: user`): Cryptographically signed developer sign-offs that ground speculative proposals into permanent facts.
-   *Model proposals must never self-promote to verified state without explicit human approval backed by AST code evidence.*
-
-2. **Single-Source Application Services**:
-   The core 15-step compilation pipeline (intent normalization, harvesting, slicing, semantic IR compilation, critical obligation evaluation, generation proof construction, Content-Addressable Storage manifest persistence, and atomic pointer publishing) must exist in **one unified Application Service**, consumed identically by CLI, FlowView Web, and MCP interfaces.
-
-3. **Sub-Second Reactive Feedback Loop**:
-   Editing code triggers a non-blocking, multi-stage reactive pipeline:
-   - **$T_0$**: Edit ingress via file watcher or IDE protocol.
-   - **$T_0 + 300\text{ms}$**: Ephemeral revision registration and `activity.updated` ACK.
-   - **$T_0 + 2\text{s}$**: Debounced publication coalescing and background AST re-indexing.
-   - **$T_0 + 3\text{s}$**: Publication gate evaluation, atomic pointer swap, and `generation.published` SSE broadcast.
-
-4. **Immutable State & Content-Addressable Storage Namespace Segregation**:
-   Workspace snapshots represent immutable point-in-time states backed by Copy-on-Write (CoW) Virtual File Systems. Content-Addressable Storage strictly isolates raw file revisions from formal proof manifests to prevent garbage collection hazards.
-
-5. **Defense-in-Depth Egress Security**:
-   All outbound boundaries (FlowView HTTP REST, Server-Sent Events, MCP JSON-RPC stdio) pass through automated credential scrubbing. Loopback endpoints strictly validate Origin and Host headers to prevent DNS rebinding and cross-origin attacks.
+1. **Code Comprehension First**:
+   The primary goal is developer code comprehension. Non-core statements and noise that do not advance the business flow are condensed.
+2. **FlowSequence 1:N Timeline Model**:
+   Business flows are structured into 4–7 macro business gateways (`FlowSequenceFrame`: `entry`, `decision`, `process`, `effect`, `result`, `boundary`). Each gateway contains 1 to N microscopic execution timeline steps (`SemanticStep`), providing high-level intent with drill-down line-level traceability.
+3. **Role-Based 5-Module Partitioning & Unidirectional Flow**:
+   The Go core (`internal/`) is partitioned into exactly five modules with strict unidirectional data flow:
+   `analyzer` $\to$ `collector` $\to$ `curator` $\to$ `presenter` / `agentgateway`.
+4. **CodeGraph Synergy with Zero Hard Dependency**:
+   Leverages repo-wide static call graph indexing (`.codegraph/`) for high-speed route discovery and dynamic dispatch resolution, while falling back gracefully to AST parsing if unavailable.
+5. **Anti-Telemetry Guard**:
+   Internal engine telemetry (epochs, latency, settlement flags, index statistics) is strictly forbidden from leaking into primary views or MCP payloads. Only verifiable business flow traversals, architecture layers, and source code are presented.
+6. **Single-Gate Secret Redaction**:
+   All egress paths (FlowView HTTP REST, MCP stdio JSON-RPC) route through a unified, single-gate secret redaction engine in `internal/collector/secret`.
 
 ---
 
-## 2. Target Architectural Blueprint (Hexagonal / Ports & Adapters)
+## 2. 5-Module Architecture & Data Pipeline
 
-To resolve tight coupling, eliminate duplicated pipelines, and cleanly decouple domain logic from infrastructure and presentation concerns, CodeFlow adopts a **Hexagonal Architecture (Ports & Adapters)** model.
+The internal core is divided into five strictly separated modules, each capable of standalone operation and unit testing:
 
 ```mermaid
-graph TD
-    subgraph InboundAdapters ["Inbound Adapters (Presentation Layer)"]
-        CLI["CLI Commands<br/>(cmd/codeflow)"]
-        FlowViewHTTP["FlowView HTTP Server<br/>(internal/api/flowview)"]
-        FlowViewSSE["FlowView SSE Stream<br/>(internal/api/flowview)"]
-        MCP["MCP JSON-RPC Server<br/>(internal/api/mcp)"]
+flowchart TD
+    subgraph M1 ["1. Code Analysis: analyzer (internal/analyzer)"]
+        CA1["ProjectDetector<br/>Project root & language detection"]
+        CA2["CodeGraphClient [Optional]<br/>Global static call graph index query"]
+        CA3["ASTAdapterPool<br/>Language adapter process management"]
     end
 
-    subgraph ApplicationLayer ["Application Layer (Use Cases & Orchestration)"]
-        CompilerService["CompilerService<br/>(internal/application/compiler)<br/>- 15-Step Pipeline Orchestration<br/>- Publication Gate Evaluation<br/>- Generation Proof Construction"]
-        WorkspaceService["WorkspaceService<br/>(internal/application/workspace)<br/>- Snapshot Coordination<br/>- Transaction Commits<br/>- Disk-Backed State"]
-        ApprovalService["ApprovalService<br/>(internal/application/approval)<br/>- Signature Verification<br/>- Evidence Grounding<br/>- Pointer Updates"]
+    subgraph M2 ["2. Harvesting & Slicing: collector (internal/collector)"]
+        FC1["EntryHarvester<br/>Business entrypoint discovery & scoring"]
+        FC2["ExecutionSlicer<br/>AST static path slicing"]
+        FC3["EvidenceFuser<br/>Snapshot hash verification & secret masking"]
     end
 
-    subgraph DomainLayer ["Domain Core (Pure Business Rules & Models)"]
-        ProofDomain["domain/proof<br/>- GenerationProofManifest<br/>- ActivePointer<br/>- SettlementEvaluation"]
-        SemIRDomain["domain/semir<br/>- SemanticMapIR<br/>- SemanticStep<br/>- EpistemicProvenance"]
-        ArchMapDomain["domain/archmap<br/>- 7-Lane Ordering Rules<br/>- Component Clustering<br/>- Lane Consensus Voting"]
-        DomainPorts["Domain Ports (Interfaces)<br/>- SnapshotRepository<br/>- ManifestStoragePort<br/>- AdapterPoolPort<br/>- EventPublisherPort"]
+    subgraph M3 ["3. Flow Curation: curator (internal/curator)"]
+        SC1["MacroClumper<br/>Consecutive guard/mutation clumping"]
+        SC2["SignificanceRanker<br/>4~7 macro gateway selection"]
+        SC3["SLMLabeler [Optional]<br/>Local SLM micro-semantic labeling"]
     end
 
-    subgraph OutboundAdapters ["Outbound Adapters (Infrastructure Layer)"]
-        ContentAddressableStorageStore["Content-Addressable Storage Adapter<br/>(internal/infra/store)<br/>- .codeflow/cas/blobs/<br/>- .codeflow/cas/manifests/"]
-        ProcessPool["Process Pool Adapter<br/>(internal/infra/process)<br/>- Bounded maxActive<br/>- Setpgid Group Isolation"]
-        ReactiveWatcher["Reactive File Watcher<br/>(internal/infra/watcher)<br/>- Debounced File Watch<br/>- Background Re-indexing"]
-        SecretFilter["Secret Redaction Filter<br/>(internal/infra/security)<br/>- Egress Stream Scrubbing"]
-        LanguageAdapters["Language Adapters<br/>(Go, TypeScript, Dart)<br/>- AST Statement Slicing"]
+    subgraph M4 ["4. Presentation: presenter (internal/presenter)"]
+        FP1["WorkbenchServer<br/>Single Svelte 5 bundle serving & REST API"]
+        FP2["FlowSequenceView<br/>4~7 macro gateways & 1:N accordion"]
+        FP3["CodeLensView<br/>Representative source anchor & line highlight"]
+        FP4["BlastRadiusRadarView<br/>Direct call relationship radar"]
     end
 
-    CLI --> CompilerService
-    CLI --> WorkspaceService
-    FlowViewHTTP --> CompilerService
-    FlowViewHTTP --> ApprovalService
-    FlowViewSSE --> WorkspaceService
-    MCP --> CompilerService
-    MCP --> ApprovalService
+    subgraph M5 ["5. Agent Gateway: agentgateway (internal/agentgateway)"]
+        AG1["MCPServer<br/>Standard MCP tools over stdio JSON-RPC"]
+        AG2["CompactPayloadSerializer<br/>High-density FlowSequence payload"]
+    end
 
-    CompilerService --> DomainPorts
-    WorkspaceService --> DomainPorts
-    ApprovalService --> DomainPorts
-
-    DomainPorts -.-> ContentAddressableStorageStore
-    DomainPorts -.-> ProcessPool
-    DomainPorts -.-> ReactiveWatcher
-    DomainPorts -.-> SecretFilter
-    DomainPorts -.-> LanguageAdapters
-
-    CompilerService --- ProofDomain
-    CompilerService --- SemIRDomain
-    CompilerService --- ArchMapDomain
+    M1 ==>|Static skeleton & AST facts| M2
+    M2 ==>|Verified execution steps| M3
+    M3 ==>|Curated FlowSequence| M4
+    M3 ==>|Curated FlowSequence| M5
 ```
+
+### Module Responsibilities & Boundary Invariants
+
+| Module | Location | Core Responsibility | Dependency Rule |
+|---|---|---|---|
+| **`analyzer`** | `internal/analyzer` | Workspace structure discovery, language detection (`detect/`), adapter protocol management (`protocol/`), immutable workspace snapshot capture (`workspace/`), and installation health diagnostics (`doctor/`, `installation/`). | Leaf module: zero dependencies on other `internal/` modules. |
+| **`collector`** | `internal/collector` | Raw candidate harvesting (`harvest/`), static/dynamic program slicing (`slicing/`), layer ordering & fusion (`fusion/`), deterministic naming (`naming/`), secret redaction (`secret/`), verification contracts (`contractharness/`, `evidence/`), and CAS persistence (`storage/`). | Depends only on `analyzer`. |
+| **`curator`** | `internal/curator` | Distills raw sliced traces into 4–7 macro gateways via 2-stage curation (`MacroClumper`, `SignificanceRanker`), provides optional local SLM labeling (`SLMLabeler`), computes semantic deltas, and enforces publication gates (`semantic/`). | Depends on `collector` and `analyzer`. |
+| **`presenter`** | `internal/presenter` | FlowView interactive web server (`flowview/`), Svelte 5 single-page application delivery, REST API endpoints, task view persistence, and before/after comparison views. | Depends on `curator`, `collector`, and `analyzer`. |
+| **`agentgateway`** | `internal/agentgateway` | Model Context Protocol (`mcp/`) stdio JSON-RPC server exposing tools to AI agents, validating requests, and generating compact, high-density FlowSequence payloads. | Depends on `curator`, `collector`, and `analyzer`. |
+
+Cross-module reverse imports (e.g. `analyzer` importing `collector`, or `collector` importing `curator`) are strictly prohibited.
 
 ---
 
-## 3. Layer Responsibilities & Package Boundaries
+## 3. FlowSequence and Execution Timeline Hierarchy
 
-### 3.1 Domain Layer (`internal/domain/`)
-The Domain Layer is the core of the system. It has **zero dependencies** on outer layers (no imports of `storage`, `flowview`, `net/http`, or OS subprocesses).
+FlowSequence and the execution timeline maintain an **asymmetric 1:N hierarchical containment relationship**:
 
-- **`internal/domain/proof/`**:
-  Defines canonical data models for verification proofs:
-  - `GenerationProofManifest`: Cryptographically linked audit record of a compilation run.
-  - `ActivePointer`: Atomic pointer referencing current generation and snapshot.
-  - `SettlementEvaluation`: Formal evaluation of the 5 critical obligations (Trigger, Handling, Side Effect, Terminal, Settlement).
-  - *Eliminates legacy copy-paste duplication between `semantic` and `storage`.*
-- **`internal/domain/semir/`**:
-  Core semantic intermediate representations:
-  - `SemanticMapIR`: Language-agnostic graph of features, summaries, and rules.
-  - `SemanticStep`: Discrete execution step tagged with explicit `EpistemicProvenance` (`ASTFact`, `ModelProposal`, `RuntimeObservation`, `HumanApproved`).
-  - `SemanticEdge`: Directed causal links containing strictly populated `FromStepID` and `ToStepID`.
-- **`internal/domain/archmap/`**:
-  Architecture topology and clustering:
-  - 7 canonical architecture layers (`presentation`, `controller`, `usecase`, `domain`, `data`, `infra`, `external`).
-  - Graph neighbor consensus voting (`propagationRounds = 3`, `voteCalleeWeight = 100`, `voteCallerWeight = 60`).
-  - Relocated from UI presentation layer to domain core so CLI, FlowView, and MCP share identical architecture classification.
-- **`internal/domain/ports/`**:
-  Abstract interfaces implemented by infrastructure adapters:
-  - `SnapshotRepository`: Read/write workspace snapshots and revisions.
-  - `ManifestStoragePort`: Read/write proof manifests and Content-Addressable Storage objects.
-  - `AdapterPoolPort`: Execute harvesting and slicing on language worker pools.
-  - `EventPublisherPort`: Broadcast state changes to subscribers.
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│  [Macro Intent] FlowSequence                                                │
+│  - Unit: FlowSequenceFrame                                                  │
+│  - Types: entry, decision, process, effect, result, boundary                 │
+│  - Quantity: 4 to 7 curated cards per flow                                  │
+│  - Question answered: "What is the business intent of this stage?"          │
+└──────────────────────────────────────┬──────────────────────────────────────┘
+                                       │ 1:N Hierarchical Containment
+                                       ▼
+┌─────────────────────────────────────────────────────────────────────────────┐
+│  [Micro Execution] Execution Timeline                                       │
+│  - Unit: SemanticStep                                                       │
+│  - Types: call, guard, mutation, return                                     │
+│  - Quantity: 1 to N steps per frame (preserved inside accordion)            │
+│  - Question answered: "Which exact lines of code execute for this stage?"   │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
 
-### 3.2 Application Layer (`internal/application/`)
-The Application Layer coordinates use-case execution. It orchestrates domain objects and invokes infrastructure ports.
-
-- **`internal/application/compiler/` (`CompilerService`)**:
-  The authoritative orchestrator of the 15-step compilation pipeline:
-  ```
-  [User Intent / Query]
-           │
-           ▼
-  1. Intent Normalization (semantic.NormalizeTaskIntent)
-           │
-           ▼
-  2. Adapter Resolution & Pool Acquisition (ports.AdapterPoolPort)
-           │
-           ▼
-  3. Candidate Discovery & Scoring (harvest.NewRunner)
-           │
-           ▼
-  4. Query Target Resolution (semantic.ResolveFeatureQueryTarget)
-           │
-           ▼
-  5. Polyglot AST Slicing (slicing.NewRunner)
-           │
-           ▼
-  6. Semantic Map Compilation (semantic.CompileDeterministicFeatureMap)
-           │
-           ▼
-  7. Critical Obligation Evaluation (Trigger, Handling, Mutation, Terminal, Settlement)
-           │
-           ▼
-  8. Publication Subgate Verification (PublicationGate.Evaluate)
-           │
-           ▼
-  9. Generation Proof Construction (proof.NewManifest)
-           │
-           ▼
-  10. Atomic Content-Addressable Storage Commit & Pointer Swap (ports.ManifestStoragePort)
-           │
-           ▼
-  11. Event Emission (ports.EventPublisherPort -> "generation.published")
-  ```
-- **`internal/application/workspace/` (`WorkspaceService`)**:
-  Manages workspace snapshots, transaction commits, file revisions, and disk-backed state consistency across CLI and daemon processes.
-- **`internal/application/approval/` (`ApprovalService`)**:
-  Handles human grounding: verifies Ed25519 signatures, validates evidence packs against physical AST code anchors, transitions proposal status to `approved`, and commits updates to persistent storage.
-
-### 3.3 Infrastructure Layer (`internal/infra/`)
-Outbound adapters that interact with disk, operating system, external processes, and network.
-
-- **`internal/infra/store/` (Content-Addressable Storage & Active Pointer)**:
-  - Enforces strict directory segregation:
-    - `.codeflow/cas/blobs/`: Immutable content revisions.
-    - `.codeflow/cas/manifests/`: Immutable proof manifests and settlement evaluations.
-  - Existing `PruneOrphanCAS` scans only `blobs/`, completely eliminating the catastrophic proof deletion hazard.
-  - Manages atomic file rename operations for `active-pointer.json`.
-- **`internal/infra/process/` (Hardened Worker Pool)**:
-  - Manages language adapter worker pools (`protocol.Pool`).
-  - Implements bounded concurrency with explicit `maxActive` limits to prevent process table exhaustion (fork bombs).
-  - Sets `SysProcAttr: &syscall.SysProcAttr{Setpgid: true}` and issues negative PID signals (`-cmd.Process.Pid`) during teardown, preventing orphaned zombie processes.
-  - Guarantees broken or timed-out connections are explicitly closed (`retryConn.Close()`).
-- **`internal/infra/watcher/` (Reactive Watcher)**:
-  - Debounced file watcher listening to filesystem modification events.
-  - Feeds changed snapshots to `CoalescingScheduler`.
-  - Spawns a background consumer worker listening to `scheduler.Checkpoints()` to trigger automated re-indexing and broadcast change pulses over SSE.
-- **`internal/infra/security/` (Egress Redaction Filter)**:
-  - Comprehensive regex pattern covering API keys, passwords, Bearer tokens (`Bearer eyJ...`), PEM private keys (`-----BEGIN RSA...`), AWS keys (`AKIA...`), and database connection strings (`postgres://...`).
-  - Applied as an automatic wrapping stream on all FlowView HTTP responses, SSE data frames, and MCP JSON-RPC returns.
-
-### 3.4 Presentation Layer (`internal/api/` & `cmd/`)
-Inbound adapters that accept requests, decode input, invoke Application Services, and serialize output.
-
-- **`cmd/codeflow/` (CLI)**:
-  Thin command controllers (`query`, `status`, `doctor`, `init`). Directly invokes `CompilerService` and `WorkspaceService`.
-- **`internal/api/flowview/` (FlowView Web Server)**:
-  Decomposed, lightweight HTTP and SSE controllers:
-  - `TaskViewController`: Handles `/api/task/{review,impact,debug,incident,onboarding}` via `CompilerService`.
-  - `WorkspaceStreamController`: Handles `/api/workspace/stream` SSE events with per-route deadlines (disabling global HTTP write timeouts).
-  - `ApprovalController`: Handles `/api/semantic/approve` via `ApprovalService`.
-  - `StaticAssetController`: Serves embedded single-page application assets.
-  - Enforces strict loopback origin and host validation to prevent DNS rebinding and CSRF.
-- **`internal/api/mcp/` (Model Context Protocol)**:
-  JSON-RPC 2.0 stdio server exposing 22 tools to AI agents. Delegates directly to `CompilerService` and `ApprovalService`. Enforces `isSubpath` checks to block host file traversal.
+### 2-Stage Curation Pipeline
+1. **Stage 1: Macro Block Clumping (`MacroClumper`)**:
+   - Consecutive guard clauses (`if err != nil`, null checks) within the same block are coalesced into a single `decision` gateway ("Pre-validation").
+   - Consecutive state field mutations are coalesced into a single `process` gateway.
+   - Non-semantic utility calls (DTO conversions, logging, toString) are absorbed into the preceding gateway's collapsed details.
+2. **Stage 2: Significance-Based Ranking (`SignificanceRanker`)**:
+   - When clumped frames exceed 7, priority weights determine promotion:
+     $$\text{Entry (100)} > \text{Effect (90)} > \text{Process (85)} > \text{Decision (80)} > \text{Internal Compute (50)}$$
+   - The top 4–7 frames are promoted to FlowSequence main cards; remaining frames become collapsed details under adjacent cards.
 
 ---
 
 ## 4. Multi-Language Adapter Architecture
 
-CodeFlow analyzes polyglot codebases through decoupled, language-specific worker subprocesses communicating over Content-Length framed JSON-RPC 2.0 stdio protocols.
+Language-specific AST extraction is delegated to decoupled worker subprocesses communicating over Content-Length framed JSON-RPC 2.0 stdio:
 
 ```mermaid
 sequenceDiagram
-    participant Core as CodeFlow Go Core (Process Pool)
-    participant Worker as Language Adapter Subprocess (Go / TS / Dart)
+    participant Core as CodeFlow analyzer (ASTAdapterPool)
+    participant Worker as Language Adapter (Go / TypeScript / Dart)
 
     Note over Core,Worker: Subprocess spawned with Setpgid: true
-    Core->>Worker: Content-Length: ...
-
-{"jsonrpc":"2.0","id":1,"method":"detect",...}
+    Core->>Worker: Content-Length: ...\r\n\r\n{"jsonrpc":"2.0","id":1,"method":"detect",...}
     Worker-->>Core: {"jsonrpc":"2.0","id":1,"result":{"language":"typescript","framework":"react"}}
 
     Core->>Worker: {"jsonrpc":"2.0","id":2,"method":"harvest_candidates",...}
@@ -232,27 +139,13 @@ sequenceDiagram
     Core->>Worker: {"jsonrpc":"2.0","id":3,"method":"slice","params":{"target":"CheckoutController.submit"}}
     Note over Worker: Recursive AST call graph traversal & statement filtering
     Worker-->>Core: {"jsonrpc":"2.0","id":3,"result":{"steps":[...],"edges":[...]}}
-
-    opt User Cancels Query
-        Core->>Worker: {"jsonrpc":"2.0","method":"$/cancelRequest","params":{"id":3}}
-        Worker-->>Core: {"jsonrpc":"2.0","id":3,"error":{"code":-32800,"message":"cancelled"}}
-    end
 ```
 
-### Adapter Parity Requirements
-
-Every language adapter must fulfill the following contract specifications (`schemas/adapter-protocol.schema.json`):
-
-1. **Pure Structural AST Facts**:
-   Adapters must extract only code facts (`guard`, `mutation`, `call`, `effect`, `branch`). Layer classifications (`domain`, `infra`, etc.) belong strictly to the Go Core fusion engine.
-2. **Receiver & Method Support**:
-   Adapters must parse both standalone functions and class/struct receiver methods (e.g., Go `func (s *Server) Handle()` must not be discarded).
-3. **True Statement-Level Slicing**:
-   Adapters must construct directed call graphs with visited-set cycle detection, emitting discrete statement steps and valid causal edges.
-4. **Cancellation Responsiveness**:
-   Slicing algorithms must run in asynchronous or chunked execution blocks, allowing incoming `$/cancelRequest` notifications to abort long computations.
-5. **Atomic Protocol Framing**:
-   Header and body bytes must be flushed in an atomic write to prevent frame tearing over stdio pipes.
+### Adapter Protocol Requirements (`schemas/adapter-protocol.schema.json`)
+1. **Pure Structural AST Facts**: Adapters extract structural facts (`guard`, `mutation`, `call`, `effect`, `branch`), byte offsets, and SHA-256 hashes. Semantic layer assignment and curation remain in the Go core.
+2. **Receiver & Method Support**: Adapters must parse standalone functions and struct/class receiver methods equally.
+3. **Directed Slicing & Cycle Detection**: Slicers maintain visited symbol sets and record cycle edges rather than looping indefinitely.
+4. **Process Group Isolation**: Subprocesses are spawned with `Setpgid: true` and cleaned up with negative PID signals (`-cmd.Process.Pid`), preventing zombie processes.
 
 ---
 
@@ -279,7 +172,6 @@ erDiagram
         string computedBasisId
         string settlementStatus
         string qualityStage
-        string causalObservationClosureDigest
     }
 
     ACTIVE_POINTER {
@@ -296,87 +188,37 @@ erDiagram
     }
 ```
 
-### Invariants of the Storage Subsystem
-
-1. **Snapshot Immutability**:
-   Once registered, a `WorkspaceSnapshot` is strictly immutable. Snapshot transitions use copy-on-write cloning; in-place mutations of `LiveHead` are prohibited.
-2. **Disk-Backed State Single-Truth**:
-   Snapshot indices and revision logs are persisted to `.codeflow/workspace/snapshots.json`. CLI commands, background daemons, and MCP servers share the identical disk-backed engine, preventing split-brain states.
-3. **Content-Addressable Storage Dual-Namespace Segregation**:
-   - `HOME/workspace/codeflow/.codeflow/cas/blobs/<sha256>`: Stores raw file content revisions.
-   - `HOME/workspace/codeflow/.codeflow/cas/manifests/<sha256>`: Stores `GenerationProofManifest` documents.
-   - Garbage collection scans only `blobs/`, preserving proof history indefinitely.
-4. **Active Pointer compare-and-swap**:
-   Publishing a new generation requires atomic compare-and-swap against `active-pointer.json`. If a concurrent edit updates the live head snapshot before publication completes, the swap aborts and triggers a reactive re-compilation.
+### Storage Invariants
+1. **Snapshot Immutability**: Once created, `WorkspaceSnapshot` records are immutable.
+2. **Dual CAS Namespace Segregation**:
+   - `.codeflow/cas/blobs/<sha256>`: Raw file content revisions.
+   - `.codeflow/cas/manifests/<sha256>`: Proof manifests.
+   - Garbage collection scans only `blobs/`, preventing manifest loss.
+3. **Active Pointer Publication**: Publishing a new flow generation uses atomic file renames against `active-pointer.json`.
 
 ---
 
-## 6. Phased Modernization Roadmap
+## 6. Developer Verification & Quality Standards
 
-CodeFlow transitions from its current state to the Target Hexagonal Architecture through **3 strictly non-breaking, incremental phases** that preserve existing JSON schema contracts and external adapter protocols.
+To maintain architectural integrity, all changes must pass the standard verification suite:
 
-```mermaid
-gantt
-    title CodeFlow Architectural Modernization Roadmap
-    dateFormat  YYYY-MM-DD
-    section Phase 1: Stabilization
-    Fix DNS Rebinding & Host Validation     :p1_1, 2026-09-07, 4d
-    MCP Path Traversal Guard (isSubpath)     :p1_2, after p1_1, 3d
-    Centralized Egress Secret Redaction      :p1_3, after p1_1, 5d
-    Per-Route SSE Write Deadlines           :p1_4, 2026-09-07, 4d
-    Content-Addressable Storage Blobs/Manifests Segregation :p1_5, after p1_4, 5d
-    Persistent Process Pool in FlowView     :p1_6, after p1_2, 4d
-    Setpgid Process Group Isolation         :p1_7, after p1_6, 3d
-    section Phase 2: Domain Decoupling
-    Extract internal/domain/proof           :p2_1, 2026-09-21, 5d
-    Unify Application CompilerService       :p2_2, after p2_1, 7d
-    Relocate Lane Analytics to Domain       :p2_3, after p2_1, 4d
-    Decompose flowview.Server into Routes   :p2_4, after p2_2, 6d
-    Durable Storage for Human Approvals     :p2_5, after p2_2, 4d
-    Immutable Copy-on-Write Snapshots       :p2_6, after p2_3, 5d
-    section Phase 3: Reactive & Polyglot
-    Connect Watcher to Scheduler            :p3_1, 2026-10-05, 6d
-    Background Delta Re-indexing Worker     :p3_2, after p3_1, 7d
-    Disk-Backed Snapshot Engine             :p3_3, after p3_1, 5d
-    Go Adapter Full AST Slicing Engine      :p3_4, 2026-10-05, 8d
-    Remove Hidden NDJSON Adapter Bridges    :p3_5, after p3_4, 4d
-    Declarative Language Plugin Registry    :p3_6, after p3_5, 5d
-```
-
-### Phase Summary
-
-| Phase | Core Focus | Key Deliverables | Risk & Compatibility |
-|:---|:---|:---|:---|
-| **Phase 1: Immediate Stabilization & Security Hardening** | Security vulnerabilities, data corruption hazards, and process leaks | Loopback host parsing, `isSubpath` MCP protection, egress secret redaction, Content-Addressable Storage directory split, persistent process pool, and `Setpgid` subprocess termination. | **Zero breaking changes**. Modifies only internal infrastructure logic. |
-| **Phase 2: Domain Decoupling & Application Service Extraction** | Modularity, pipeline duplication, and clean architecture | `internal/domain/proof` canonical models, unified `CompilerService` (CLI/FlowView/MCP), `internal/domain/archmap/` migration, and decomposed `flowview.Server`. | **Zero breaking changes**. Preserves all REST endpoints, SSE formats, and JSON schemas. |
-| **Phase 3: Reactive Loop Activation & Multi-Language Parity** | Real-time reactivity, multi-language parity, and test fidelity | Active background re-indexer, disk-backed snapshot engine, full Go AST statement slicer with struct method support, and clean JSON-RPC 2.0 adapters. | **Zero breaking changes**. Wire compatibility preserved; language adapter protocol remains standard. |
-
----
-
-## 7. Quality Standards & Developer Verification
-
-To maintain architectural integrity as CodeFlow evolves, all contributors and automated agents must adhere to the following verification procedures:
-
-### Automated Test Suites
 ```bash
-# 1. Standard Unit & Integration Suite
-go test ./...
+# 1. Format and static analysis
+make fmt
+make vet
 
-# 2. Concurrency Race Detector (Mandatory for flowview, workspace, and storage)
-go test -race ./internal/flowview/... ./internal/workspace/... ./internal/storage/...
+# 2. Domain naming conventions check
+make check-naming
 
-# 3. Contract Schema & Invariant Harness
-go test -v ./internal/contractharness/...
+# 3. Full test suite (macOS CGO-free)
+CGO_ENABLED=0 make test
 
-# 4. Multi-Language Adapter Tests
-(cd adapters/dart && dart test)
-(cd adapters/typescript && node test/index.test.js)
-(cd adapters/go && go test ./...)
+# 4. Concurrency race detector on stateful modules
+go test -race ./internal/analyzer/workspace/... ./internal/collector/storage/... ./internal/presenter/flowview/...
 ```
 
 ### Architectural Guardrails
-- **No Circular Dependency Evasions**: Never duplicate structs across packages. Extract shared concepts to `internal/domain/`.
-- **No Host Disk Bypass**: Evidence extractors and AST slicers must read from `workspace.SnapshotVFS`, never directly from `os.ReadFile`.
-- **No Ephemeral Proposals**: Approval endpoints must reject any proposal that cannot be traced to physical AST anchors and compiler state.
-- **No Unsanitized Egress**: Outbound HTTP, SSE, and MCP streams must pass through `secret.RedactJSON`.
-- **No Absolute Home Paths**: Absolute home-directory paths (`/Users/...`) are strictly prohibited in documentation, code, configuration, or examples. Always use `HOME/...`.
+- **Strict Unidirectional Flow**: Never import from a downstream module (`analyzer` must never import `collector`, `collector` must never import `curator`).
+- **No Direct Disk Bypass**: Slicers and evidence extractors read from `workspace.SnapshotVFS` rather than raw filesystem paths.
+- **Single-Gate Secret Redaction**: All public egress data must route through `secret.RedactJSON`.
+- **No Absolute Home Paths**: Absolute home paths (`/Users/...`) are prohibited. Use `HOME/...` in code, docs, and configs.

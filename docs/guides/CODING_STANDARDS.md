@@ -18,10 +18,10 @@ CodeFlow exists to help developers understand end-to-end execution paths across 
 ### 1.3 Pure Go & Portability
 - Maintain pure Go builds (`CGO_ENABLED=0`) for the core engine across macOS, Linux, and Windows.
 - Pure Go SQLite driver (`modernc.org/sqlite`) is preferred for all portable state and catalog persistence.
-- Platform-specific capabilities (e.g., Darwin process sandboxing and seatbelt profiles in `internal/protocol/model_host_sandbox_darwin.go`) must be isolated with Go build tags (`//go:build darwin`) with portable fallback stubs (`model_host_sandbox_unsupported.go`).
+- Platform-specific capabilities (e.g., process groups and OS process management in `internal/analyzer/protocol/process_group_unix.go`) must be isolated with Go build tags (`//go:build unix`, `//go:build windows`) with portable fallback stubs.
 
 ### 1.4 Single-Gate Secret Redaction
-- All persistence, publishing, and MCP egress paths must route through `internal/secret` sanitization gates (`secret.Redact` / `secret.RedactSource`).
+- All persistence, publishing, and MCP egress paths must route through `internal/collector/secret` sanitization gates (`secret.Redact` / `secret.RedactSource`).
 - Diagnostics, exception dumps, and preview snippets must never expose credentials, private keys, authorization headers, or environment secrets.
 
 ### 1.5 Absolute Path Sanitization
@@ -36,29 +36,57 @@ CodeFlow exists to help developers understand end-to-end execution paths across 
 ```
 codeflow/
 ├── cmd/
-│   ├── codeflow/          # Main CLI binary entry point
-│   └── flowmeter/         # Diagnostic / benchmark utility
-├── internal/              # Core business and engine packages (unexported)
-│   ├── detect/            # Workspace & language detection
-│   ├── doctor/            # Environment & health checks
-│   ├── flowview/          # Interactive web UI and Live View server
-│   ├── fusion/            # Layer integration and architecture validation
-│   ├── harvest/           # Flow candidate extraction & call-graph analysis
-│   ├── mcp/               # Model Context Protocol server (stdio JSON-RPC)
-│   ├── naming/            # Deterministic natural language step naming
-│   ├── protocol/          # Adapter wire protocols and process pools
-│   ├── runtime/           # Execution supervision and verification
-│   ├── secret/            # Secret scanning and redaction gate
-│   ├── semantic/          # Semantic projections, evidence, and task view queries
-│   ├── slicing/           # Dynamic & static program slicing
-│   ├── storage/           # Disk layout, generations, and publication transactions
-│   └── workspace/         # VFS, snapshots, and change tracking
-├── adapters/              # External language analyzers (Dart, TypeScript)
-├── schemas/               # Canonical JSON Schema contracts
-└── test/                  # End-to-end integration tests & fixtures
+│   ├── codeflow/              # Main CLI binary entry point
+│   └── flowmeter/             # Diagnostic / benchmark utility
+├── internal/                  # Core business and engine modules (strictly segregated into 5 domains)
+│   ├── analyzer/              # Codebase detection, adapter protocols, workspace snapshots, and environment health
+│   │   ├── detect/            # Workspace & framework detection
+│   │   ├── doctor/            # Environment & health diagnostics
+│   │   ├── freshstart/        # Clean state initialization
+│   │   ├── initcmd/           # Starter config & initialization
+│   │   ├── installation/      # CLI/adapter lifecycle & install verification
+│   │   ├── installstate/      # Persistent installation state tracking
+│   │   ├── mockadapter/       # Conformance test mock adapter
+│   │   ├── pin/               # Compatibility pinning
+│   │   ├── protocol/          # Adapter wire protocols and process pools
+│   │   └── workspace/         # VFS, snapshots, and change tracking
+│   ├── collector/             # Raw candidate harvesting, program slicing, fusion, secret redaction, and persistence
+│   │   ├── contractharness/   # Schema contract test harness & validation registries
+│   │   ├── evidence/          # Verification evidence capture & packaging
+│   │   ├── fusion/            # Layer integration, ordering validation, and architecture rules
+│   │   ├── harvest/           # Flow candidate extraction & call-graph analysis
+│   │   ├── naming/            # Deterministic natural language step naming
+│   │   ├── secret/            # Secret scanning and single-gate redaction
+│   │   ├── slicing/           # Program slicing & causal dependency analysis
+│   │   ├── storage/           # Disk layout, active pointer, and atomic publication transactions
+│   │   └── verification/      # Domain runner verifications
+│   ├── curator/               # Flow semantic distillation, clustering, ranking, SLM labeling, and compaction
+│   │   └── semantic/          # Semantic projections, evidence binding, task view queries, and publication gates
+│   ├── presenter/             # User-facing rendering and visualization
+│   │   └── flowview/          # Interactive web UI, FlowView endpoints, task view persistence, and compare server
+│   └── agentgateway/          # AI agent interaction and RPC protocols
+│       └── mcp/               # Model Context Protocol server (stdio JSON-RPC tools & resources)
+├── adapters/                  # External language analyzers (Dart, TypeScript)
+├── schemas/                   # Canonical JSON Schema contracts
+└── test/                      # End-to-end integration tests & fixtures
 ```
 
-### 2.2 Package Responsibilities & Naming
+### 2.2 Five-Module Architecture & Unidirectional Flow
+The `internal/` directory is strictly partitioned into five functional modules. Packages must respect the unidirectional dependency chain:
+```
+analyzer ──> collector ──> curator ──> presenter
+                                   └──> agentgateway
+```
+
+1. **`internal/analyzer`**: Responsible for discovering repository structure, launching and supervising language analyzers via wire protocols, producing immutable workspace snapshots, and verifying installation/runtime health. Does not depend on `collector`, `curator`, `presenter`, or `agentgateway`.
+2. **`internal/collector`**: Responsible for raw flow candidate harvesting, static/dynamic slicing, layer fusion, deterministic step naming, single-gate secret redaction, schema contract enforcement, and publication storage transactions. Depends only on `analyzer`.
+3. **`internal/curator`**: Responsible for distilling harvested flows into semantic representations, clustering related steps into macro clumps, ranking significance, applying SLM labels, computing deltas, and enforcing publication gates. Depends on `collector` and `analyzer`.
+4. **`internal/presenter`**: Responsible for rendering FlowView UI, serving interactive HTTP endpoints, managing task view state, and handling before/after comparison views. Depends on `curator`, `collector`, and `analyzer`.
+5. **`internal/agentgateway`**: Responsible for AI agent interaction, serving Model Context Protocol (MCP) tools and resources, and validating incoming agent requests against core flow contracts. Depends on `curator`, `collector`, and `analyzer`.
+
+Cross-module imports that violate this unidirectional flow (e.g. `analyzer` importing `collector`, or `collector` importing `curator`) are strictly prohibited.
+
+### 2.3 Package Responsibilities & Naming
 - **Single-Word, Lowercase Names:** Package names must be short, lowercase, and singular (e.g., `detect`, `storage`, `fusion`, `harvest`, `slicing`, `naming`, `secret`).
 - **No Stuttering:** Avoid repeating package names in exported types or functions:
   ```go
@@ -108,9 +136,9 @@ import (
 	"github.com/fsnotify/fsnotify"
 	"gopkg.in/yaml.v3"
 
-	"codeflow/internal/detect"
-	"codeflow/internal/fusion"
-	"codeflow/internal/storage"
+	"codeflow/internal/analyzer/detect"
+	"codeflow/internal/collector/fusion"
+	"codeflow/internal/collector/storage"
 )
 ```
 
@@ -502,7 +530,7 @@ func (r *AdapterRegistry) Get(key string) (*protocol.Pool, bool) {
 
 ### 8.1 Command Execution
 - Always execute subprocesses using `exec.CommandContext(ctx, ...)`.
-- Subprocesses must be assigned process groups to allow clean termination of child processes on timeout or cancellation (see `internal/protocol/process_group_*.go`).
+- Subprocesses must be assigned process groups to allow clean termination of child processes on timeout or cancellation (see `internal/analyzer/protocol/process_group_*.go`).
 - Supervise process stdout and stderr using bounded buffers or streaming scanners to prevent buffer deadlock.
 
 ### 8.2 Path Traversal & File Operations
@@ -619,7 +647,7 @@ Before submitting or approving a Go PR, verify:
 - [ ] All errors are explicitly handled or wrapped with contextual information (`%w`).
 - [ ] No internal telemetry (epochs, lag, settlement flags) is leaked into primary views (Anti-Telemetry Guard).
 - [ ] No absolute user home directory paths (`/Users/...`) are introduced.
-- [ ] Any public egress, MCP output, or persistence path routes through `internal/secret` redaction.
+- [ ] Any public egress, MCP output, or persistence path routes through `internal/collector/secret` redaction.
 - [ ] Context cancellation and timeouts are respected across all I/O and subprocess calls.
 - [ ] Struct tags match JSON schema contracts in `schemas/`.
 - [ ] Unit tests are provided (using `t.TempDir()`, `t.Setenv()`, and table-driven style).

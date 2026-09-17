@@ -6,8 +6,8 @@ import (
 	"strings"
 	"testing"
 
-	"codeflow/internal/detect"
-	"codeflow/internal/harvest"
+	"codeflow/internal/analyzer/detect"
+	"codeflow/internal/collector/harvest"
 )
 
 // ---------------------------------------------------------------------------

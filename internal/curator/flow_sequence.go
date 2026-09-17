@@ -1,8 +1,8 @@
 package curator
 
 import (
-	"codeflow/internal/fusion"
-	"codeflow/internal/semantic"
+	"codeflow/internal/collector/fusion"
+	"codeflow/internal/curator/semantic"
 )
 
 // RawExecutionTrace represents the input sequence of sliced steps and edges for curation.

@@ -21,8 +21,8 @@ import (
 	"sync"
 	"time"
 
-	"codeflow/internal/evidence"
-	"codeflow/internal/secret"
+	"codeflow/internal/collector/evidence"
+	"codeflow/internal/collector/secret"
 )
 
 const (

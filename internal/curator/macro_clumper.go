@@ -4,8 +4,8 @@ import (
 	"fmt"
 	"strings"
 
-	"codeflow/internal/fusion"
-	"codeflow/internal/slicing"
+	"codeflow/internal/collector/fusion"
+	"codeflow/internal/collector/slicing"
 )
 
 // CandidateFrame represents an unranked gateway scene produced by the macro-clumping stage.

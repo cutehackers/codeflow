@@ -8,8 +8,8 @@ import (
 	"regexp"
 	"strings"
 
-	"codeflow/internal/fusion"
-	"codeflow/internal/slicing"
+	"codeflow/internal/collector/fusion"
+	"codeflow/internal/collector/slicing"
 )
 
 // ReanchorResult represents the result of verifying and adjusting an anchor against disk.

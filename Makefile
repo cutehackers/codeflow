@@ -10,7 +10,7 @@ build-adapter:
 
 build-ui:
 	cd web/flowview && npm run check && npm run build
-	cp web/flowview/dist/index.html internal/flowview/svelte_flow_view.html
+	cp web/flowview/dist/index.html internal/presenter/flowview/svelte_flow_view.html
 	mkdir -p docs/samples
 	cp web/flowview/dist/index.html docs/samples/live-semantic-map-prototype.html
 

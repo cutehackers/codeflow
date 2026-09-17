@@ -6,9 +6,9 @@ import (
 	"strings"
 	"testing"
 
-	"codeflow/internal/fusion"
-	"codeflow/internal/harvest"
-	"codeflow/internal/slicing"
+	"codeflow/internal/collector/fusion"
+	"codeflow/internal/collector/harvest"
+	"codeflow/internal/collector/slicing"
 )
 
 // ---------------------------------------------------------------------------

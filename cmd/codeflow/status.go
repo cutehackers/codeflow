@@ -7,7 +7,7 @@ import (
 	"os"
 	"path/filepath"
 
-	"codeflow/internal/workspace"
+	"codeflow/internal/analyzer/workspace"
 )
 
 func runStatus(args []string) {

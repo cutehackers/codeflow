@@ -14,11 +14,11 @@ import (
 	"testing"
 	"time"
 
-	"codeflow/internal/detect"
-	"codeflow/internal/fusion"
-	"codeflow/internal/initcmd"
-	"codeflow/internal/mcp"
-	"codeflow/internal/slicing"
+	"codeflow/internal/agentgateway/mcp"
+	"codeflow/internal/analyzer/detect"
+	"codeflow/internal/analyzer/initcmd"
+	"codeflow/internal/collector/fusion"
+	"codeflow/internal/collector/slicing"
 )
 
 // Helper to construct exact 6-field anchors from actual files in a repo

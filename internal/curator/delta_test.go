@@ -3,9 +3,9 @@ package curator_test
 import (
 	"testing"
 
+	"codeflow/internal/collector/fusion"
+	"codeflow/internal/collector/slicing"
 	"codeflow/internal/curator"
-	"codeflow/internal/fusion"
-	"codeflow/internal/slicing"
 )
 
 func TestCurator_ComputeDelta(t *testing.T) {

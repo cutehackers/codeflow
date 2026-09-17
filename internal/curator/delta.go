@@ -1,7 +1,7 @@
 package curator
 
 import (
-	"codeflow/internal/fusion"
+	"codeflow/internal/collector/fusion"
 )
 
 // SemanticDelta captures immutable behavioral differences between baseline and current flow specs.

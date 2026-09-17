@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"strings"
 
-	"codeflow/internal/fusion"
+	"codeflow/internal/collector/fusion"
 )
 
 // CompactFrame represents a minimal gateway scene for AI agent consumption (~500 tokens).

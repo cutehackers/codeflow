@@ -10,14 +10,14 @@ import (
 	"os"
 	"path/filepath"
 
-	"codeflow/internal/contractharness"
-	"codeflow/internal/detect"
-	"codeflow/internal/flowview"
-	"codeflow/internal/harvest"
-	"codeflow/internal/protocol"
-	"codeflow/internal/semantic"
-	"codeflow/internal/slicing"
-	"codeflow/internal/workspace"
+	"codeflow/internal/analyzer/detect"
+	"codeflow/internal/analyzer/protocol"
+	"codeflow/internal/analyzer/workspace"
+	"codeflow/internal/collector/contractharness"
+	"codeflow/internal/collector/harvest"
+	"codeflow/internal/collector/slicing"
+	"codeflow/internal/curator/semantic"
+	"codeflow/internal/presenter/flowview"
 )
 
 func runQuery(args []string) {

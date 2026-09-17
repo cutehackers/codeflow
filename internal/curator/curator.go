@@ -2,7 +2,7 @@
 package curator
 
 import (
-	"codeflow/internal/semantic"
+	"codeflow/internal/curator/semantic"
 )
 
 // FlowSequenceFrame is the canonical FlowSequence frame representation.

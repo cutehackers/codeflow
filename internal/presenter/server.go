@@ -5,7 +5,7 @@ import (
 	"context"
 	"net/http"
 
-	"codeflow/internal/flowview"
+	"codeflow/internal/presenter/flowview"
 )
 
 // Config configures the FlowView presentation server.

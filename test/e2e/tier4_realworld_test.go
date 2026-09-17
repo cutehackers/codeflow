@@ -6,11 +6,11 @@ import (
 	"strings"
 	"testing"
 
-	"codeflow/internal/detect"
-	"codeflow/internal/fusion"
-	"codeflow/internal/harvest"
-	"codeflow/internal/initcmd"
-	"codeflow/internal/slicing"
+	"codeflow/internal/analyzer/detect"
+	"codeflow/internal/analyzer/initcmd"
+	"codeflow/internal/collector/fusion"
+	"codeflow/internal/collector/harvest"
+	"codeflow/internal/collector/slicing"
 )
 
 // ---------------------------------------------------------------------------

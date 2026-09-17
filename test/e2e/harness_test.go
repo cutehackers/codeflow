@@ -14,11 +14,11 @@ import (
 	"testing"
 	"time"
 
-	"codeflow/internal/contractharness"
-	"codeflow/internal/fusion"
-	"codeflow/internal/harvest"
-	"codeflow/internal/protocol"
-	"codeflow/internal/slicing"
+	"codeflow/internal/analyzer/protocol"
+	"codeflow/internal/collector/contractharness"
+	"codeflow/internal/collector/fusion"
+	"codeflow/internal/collector/harvest"
+	"codeflow/internal/collector/slicing"
 )
 
 // moduleRoot returns the absolute path to the repository root.

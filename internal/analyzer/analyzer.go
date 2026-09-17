@@ -2,8 +2,8 @@
 package analyzer
 
 import (
-	"codeflow/internal/detect"
-	"codeflow/internal/protocol"
+	"codeflow/internal/analyzer/detect"
+	"codeflow/internal/analyzer/protocol"
 )
 
 // ProjectDetector encapsulates detection of repository languages and architectures.

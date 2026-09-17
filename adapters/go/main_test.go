@@ -13,7 +13,7 @@ import (
 	"strings"
 	"testing"
 
-	"codeflow/internal/contractharness"
+	"codeflow/internal/collector/contractharness"
 )
 
 func TestAnalysisMetadataBindsOverlayBasis(t *testing.T) {

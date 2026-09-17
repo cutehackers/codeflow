@@ -7,9 +7,9 @@ import (
 	"testing"
 
 	"codeflow/internal/agentgateway"
+	"codeflow/internal/collector/fusion"
+	"codeflow/internal/collector/slicing"
 	"codeflow/internal/curator"
-	"codeflow/internal/fusion"
-	"codeflow/internal/slicing"
 )
 
 func TestCompactPayload_TokenCountBudget(t *testing.T) {

@@ -38,6 +38,11 @@ check_handle_method_declarations() {
   local ext="${path##*.}"
 
   [ -z "$lines" ] && return 0
+  if ! printf '%s\n' "$lines" | grep -Eq '[hH]andle'; then
+    return 0
+  fi
+  local candidate_lines
+  candidate_lines=$(printf '%s\n' "$lines" | grep -E '[hH]andle' || true)
 
   while IFS= read -r line; do
     [ -z "$line" ] && continue
@@ -98,18 +103,21 @@ check_handle_method_declarations() {
       printf '%s\n' "$line" >&2
       return 1
     fi
-  done <<< "$lines"
+  done <<< "$candidate_lines"
 
   return 0
 }
 
 check_declarations() {
   local path="$1"
+  local old_path="${2:-}"
   local added_lines
   local declaration_lines
 
-  if git ls-files --error-unmatch -- "$path" >/dev/null 2>&1; then
-    added_lines=$(git diff --unified=0 HEAD -- "$path" | grep -E '^\+[^+]' || true)
+  if [ -n "$old_path" ]; then
+    added_lines=$(git diff -M --unified=0 HEAD -- "$old_path" "$path" | grep -E '^\+[^+]' || true)
+  elif git ls-files --error-unmatch -- "$path" >/dev/null 2>&1; then
+    added_lines=$(git diff -M --unified=0 HEAD -- "$path" | grep -E '^\+[^+]' || true)
   else
     added_lines=$(sed 's/^/+/' "$path")
   fi
@@ -140,14 +148,26 @@ check_declarations() {
 }
 
 status=0
-while IFS= read -r path; do
+while IFS=$'\t' read -r status_code p1 p2; do
+  path=""
+  old_path=""
+  if [[ "$status_code" =~ ^R ]]; then
+    old_path="$p1"
+    path="$p2"
+  elif [ "$status_code" = "?" ]; then
+    path="$p1"
+  elif [ -n "$p1" ]; then
+    path="$p1"
+  fi
+  [ -z "$path" ] && continue
+
   check_path "$path" || status=1
-  check_declarations "$path" || status=1
+  check_declarations "$path" "$old_path" || status=1
 done < <(
   {
-    git diff --name-only --diff-filter=ACMRTUXB HEAD
-    git ls-files --others --exclude-standard
-  } | sort -u
+    git diff -M --name-status --diff-filter=ACMRTUXB HEAD
+    git ls-files --others --exclude-standard | sed 's/^/?\t/'
+  }
 )
 
 exit "$status"

@@ -13,14 +13,14 @@ import (
 	"testing"
 	"time"
 
-	"codeflow/internal/flowview"
-	"codeflow/internal/fusion"
-	"codeflow/internal/harvest"
-	"codeflow/internal/mcp"
-	"codeflow/internal/protocol"
-	"codeflow/internal/secret"
-	"codeflow/internal/storage"
-	"codeflow/internal/workspace"
+	"codeflow/internal/agentgateway/mcp"
+	"codeflow/internal/analyzer/protocol"
+	"codeflow/internal/analyzer/workspace"
+	"codeflow/internal/collector/fusion"
+	"codeflow/internal/collector/harvest"
+	"codeflow/internal/collector/secret"
+	"codeflow/internal/collector/storage"
+	"codeflow/internal/presenter/flowview"
 )
 
 // ---------------------------------------------------------------------------

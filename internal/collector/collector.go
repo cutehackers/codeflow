@@ -4,11 +4,11 @@ package collector
 import (
 	"context"
 
-	"codeflow/internal/fusion"
-	"codeflow/internal/harvest"
-	"codeflow/internal/protocol"
-	"codeflow/internal/secret"
-	"codeflow/internal/slicing"
+	"codeflow/internal/analyzer/protocol"
+	"codeflow/internal/collector/fusion"
+	"codeflow/internal/collector/harvest"
+	"codeflow/internal/collector/secret"
+	"codeflow/internal/collector/slicing"
 )
 
 // Collector coordinates the extraction and fusion of execution flows.

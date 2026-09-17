@@ -5,7 +5,7 @@ import (
 	"context"
 	"io"
 
-	"codeflow/internal/mcp"
+	"codeflow/internal/agentgateway/mcp"
 )
 
 // Config configures the MCP agent gateway.

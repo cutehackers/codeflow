@@ -20,7 +20,7 @@ CodeFlow's vision is to extract and visualize architectural core flows across an
    * `flowId` (`flow-[a-f0-9]{16}`): Immutable, lifecycle-tracked identifier for published flows (with collision suffixes `-2`, `-3` and `supersedes` chains).
    * Formally codified in [`schemas/identity.schema.json`](../../../schemas/identity.schema.json).
 3. **R3 Protocol Single Source of Truth (SSOT)**:
-   * [`schemas/adapter-protocol.schema.json`](../../../schemas/adapter-protocol.schema.json) is the definitive SSOT. Legacy `docs/contracts/dart-adapter-v1.md` is deprecated.
+   * [`schemas/adapter-protocol.schema.json`](../../../schemas/adapter-protocol.schema.json) is the definitive SSOT.
 4. **R4 Payload & Artifact Capacity Budget**:
    * **Wire Transport Limit (Adapter $\rightarrow$ Core)**: Max **1 MiB** (`DefaultMaxMessageSizeBytes`) to accommodate rich AST statements and cross-file edges.
    * **Published Artifact Limit (Core Flow)**: Max **512 KiB** (`maxCoreArtifactBytes`) to ensure compact, high-signal LLM context windows.
