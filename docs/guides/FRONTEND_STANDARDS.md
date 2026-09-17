@@ -51,7 +51,7 @@ web/flowview/
 │   │   ├── IntroSection.svelte# Title, scope summary, and query input form
 │   │   ├── NoticeBar.svelte   # Live update notices, compare & pause controls
 │   │   ├── ChangePulse.svelte # Verified semantic change pills
-│   │   ├── MacroStoryboard.svelte # Horizontal macro gate sequence
+│   │   ├── FlowSequenceView.svelte # Horizontal macro gate sequence
 │   │   ├── ViewToolbar.svelte # View mode switch (Code vs Process)
 │   │   ├── NavRail.svelte     # Left step order navigation rail
 │   │   ├── CodeFlowPanel.svelte # Center code cards with line citations & diffs
@@ -129,11 +129,11 @@ export const flowStore = new FlowStore();
 - **Initialism Casing:** Follow Google Go / CodeFlow conventions:
   - Use `FlowID`, `URL`, `SVG`, `SSE`, `API`, `HTML` (e.g., `stepId`, `sseUrl`, `staticLinkUrl`).
 - **File & Identifier Naming:**
-  - Components: `PascalCase.svelte` (e.g., `MacroStoryboard.svelte`)
+  - Components: `PascalCase.svelte` (e.g., `FlowSequenceView.svelte`)
   - Modules & Stores: `camelCase.ts` or `camelCase.svelte.ts` (e.g., `flowStore.svelte.ts`)
   - Types & Interfaces: `PascalCase` (e.g., `DeltaChange`, `ChangeImpactGraph`)
   - Functions & Variables: `camelCase` (e.g., `handleSelect`, `getDisplayedLines`)
-  - CSS Classes: `kebab-case` (e.g., `macro-storyboard-section`, `story-card`)
+  - CSS Classes: `kebab-case` (e.g., `flow-sequence-section`, `flow-card`)
   - CSS Variables: `--kebab-case` (e.g., `--ink`, `--line`, `--paper`)
 
 ---
@@ -148,7 +148,7 @@ export const flowStore = new FlowStore();
 
 ### 4.2 Two-Way Interaction & Selection Sync
 Selecting a step in any view surface must synchronously update:
-1. **Macro Context Storyboard:** Active step card highlighted with `active-selected` badge.
+1. **FlowSequence:** Active frame card highlighted with `active-selected` badge.
 2. **Nav Rail:** Left index pill highlighted with `aria-pressed="true"`.
 3. **Center Viewport:** Smooth-scrolls to the corresponding `data-card` or `data-process` card.
 4. **Right Context Pane:** Updates step metadata, incoming callers, and centers the **Blast Radius Radar** on the target symbol.

@@ -12,14 +12,14 @@ import (
 	"time"
 )
 
-// EnrichedNarrative represents a localized 1-line business narrative for a storyboard frame.
-type EnrichedNarrative struct {
-	FrameID   string `json:"frameId"`
-	Narrative string `json:"narrative"`
-	Status    string `json:"status"` // enriched | fallback | timed_out
+// FlowFrameLabel represents a localized one-line business text for a FlowSequence frame.
+type FlowFrameLabel struct {
+	FrameID string `json:"frameID"`
+	Text    string `json:"text"`
+	Status  string `json:"status"` // proposed | fallback | timed_out
 }
 
-// SLMConfig configures communication with the local external SLM runtime (e.g. Ollama).
+// SLMConfig configures communication with the local SLM runtime (for example, Ollama).
 type SLMConfig struct {
 	Enabled   bool   `json:"enabled"`
 	Endpoint  string `json:"endpoint"`  // default: http://localhost:11434/v1
@@ -27,20 +27,20 @@ type SLMConfig struct {
 	TimeoutMs int    `json:"timeoutMs"` // default: 500
 }
 
-// SemanticEnricher enriches storyboard frames with micro-semantic business narratives.
-type SemanticEnricher interface {
-	EnrichStoryboard(ctx context.Context, frames []FlowFrame) ([]EnrichedNarrative, error)
+// SemanticLabeler proposes micro-semantic business labels for FlowSequence frames.
+type SemanticLabeler interface {
+	LabelFlowSequence(ctx context.Context, frames []FlowSequenceFrame) ([]FlowFrameLabel, error)
 	IsAvailable(ctx context.Context) bool
 }
 
-// ExternalHTTPEnricher communicates with an external OpenAI-compatible local model server.
-type ExternalHTTPEnricher struct {
+// SLMLabeler communicates with an OpenAI-compatible local SLM server.
+type SLMLabeler struct {
 	config     SLMConfig
 	httpClient *http.Client
 }
 
-// NewExternalHTTPEnricher constructs an ExternalHTTPEnricher with resilient defaults.
-func NewExternalHTTPEnricher(cfg SLMConfig) *ExternalHTTPEnricher {
+// NewSLMLabeler constructs an SLMLabeler with resilient defaults.
+func NewSLMLabeler(cfg SLMConfig) *SLMLabeler {
 	if cfg.Endpoint == "" {
 		cfg.Endpoint = "http://localhost:11434/v1"
 	}
@@ -52,7 +52,7 @@ func NewExternalHTTPEnricher(cfg SLMConfig) *ExternalHTTPEnricher {
 		cfg.TimeoutMs = 500
 	}
 
-	return &ExternalHTTPEnricher{
+	return &SLMLabeler{
 		config: cfg,
 		httpClient: &http.Client{
 			Timeout: time.Duration(cfg.TimeoutMs) * time.Millisecond,
@@ -60,8 +60,8 @@ func NewExternalHTTPEnricher(cfg SLMConfig) *ExternalHTTPEnricher {
 	}
 }
 
-// IsAvailable checks whether the external model runtime is enabled.
-func (e *ExternalHTTPEnricher) IsAvailable(ctx context.Context) bool {
+// IsAvailable checks whether the local model runtime is enabled.
+func (e *SLMLabeler) IsAvailable(ctx context.Context) bool {
 	return e.config.Enabled && e.config.Endpoint != ""
 }
 
@@ -92,15 +92,15 @@ func ExtractJSONPayload(raw string) ([]byte, error) {
 	return []byte(trimmed[start : end+1]), nil
 }
 
-// EnrichStoryboard generates localized business narratives using verified facts.
+// LabelFlowSequence generates localized business texts using verified facts.
 // Falls back silently on connection refused, timeouts (>500ms), or malformed output.
-func (e *ExternalHTTPEnricher) EnrichStoryboard(ctx context.Context, frames []FlowFrame) ([]EnrichedNarrative, error) {
-	fallback := make([]EnrichedNarrative, len(frames))
+func (e *SLMLabeler) LabelFlowSequence(ctx context.Context, frames []FlowSequenceFrame) ([]FlowFrameLabel, error) {
+	fallback := make([]FlowFrameLabel, len(frames))
 	for i, f := range frames {
-		fallback[i] = EnrichedNarrative{
-			FrameID:   f.FrameID,
-			Narrative: f.Title,
-			Status:    "fallback",
+		fallback[i] = FlowFrameLabel{
+			FrameID: f.FrameID,
+			Text:    f.Title,
+			Status:  "fallback",
 		}
 	}
 
@@ -126,7 +126,7 @@ func (e *ExternalHTTPEnricher) EnrichStoryboard(ctx context.Context, frames []Fl
 		"messages": []map[string]string{
 			{
 				"role":    "system",
-				"content": "당신은 코드의 비즈니스 실행 의미를 1줄로 요약하는 비즈니스 분석가입니다. 환각을 방지하기 위해 제공된 정적 호출 사실만 참조하여 JSON 배열 [{\"frameId\": \"...\", \"narrative\": \"...\"}]로만 응답하십시오.",
+				"content": "당신은 코드의 비즈니스 실행 의미를 1줄로 요약하는 비즈니스 분석가입니다. 환각을 방지하기 위해 제공된 정적 호출 사실만 참조하여 JSON 배열 [{\"frameID\": \"...\", \"text\": \"...\"}]로만 응답하십시오.",
 			},
 			{
 				"role":    "user",
@@ -180,14 +180,32 @@ func (e *ExternalHTTPEnricher) EnrichStoryboard(ctx context.Context, frames []Fl
 		return fallback, nil
 	}
 
-	var parsed []EnrichedNarrative
+	var parsed []FlowFrameLabel
 	if err := json.Unmarshal(jsonBytes, &parsed); err != nil || len(parsed) == 0 {
 		return fallback, nil
 	}
 
-	for i := range parsed {
-		parsed[i].Status = "enriched"
+	byFrameID := make(map[string]FlowFrameLabel, len(parsed))
+	for _, label := range parsed {
+		if label.FrameID == "" || strings.TrimSpace(label.Text) == "" {
+			return fallback, nil
+		}
+		if _, exists := byFrameID[label.FrameID]; exists {
+			return fallback, nil
+		}
+		label.Text = strings.TrimSpace(label.Text)
+		label.Status = "proposed"
+		byFrameID[label.FrameID] = label
 	}
 
-	return parsed, nil
+	proposed := make([]FlowFrameLabel, len(frames))
+	for i, frame := range frames {
+		label, ok := byFrameID[frame.FrameID]
+		if !ok {
+			return fallback, nil
+		}
+		proposed[i] = label
+	}
+
+	return proposed, nil
 }

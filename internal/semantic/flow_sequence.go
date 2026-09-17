@@ -13,13 +13,13 @@ type CollapsedDetail struct {
 	Reason string `json:"reason"`
 }
 
-// FlowFrame represents an end-to-end business gateway scene.
-type FlowFrame struct {
-	FrameID         string           `json:"frameId"`
+// FlowSequenceFrame represents an end-to-end business gateway scene.
+type FlowSequenceFrame struct {
+	FrameID         string           `json:"frameID"`
 	Ordinal         int              `json:"ordinal"`
 	Role            string           `json:"role"` // entry | decision | process | effect | result | boundary
 	Title           string           `json:"title"`
-	Narrative       string           `json:"narrative,omitempty"`
+	Text            string           `json:"text,omitempty"`
 	TechnicalAnchor string           `json:"technicalAnchor,omitempty"`
 	StepRefs        []string         `json:"stepRefs"`
 	PrimaryStepRef  string           `json:"primaryStepRef"`
@@ -33,17 +33,15 @@ type FlowFrame struct {
 	IsRecursion     bool             `json:"isRecursion,omitempty"`
 }
 
-// StoryboardFrame is an alias for FlowFrame for backward compatibility.
-type StoryboardFrame = FlowFrame
-
-// Storyboard holds the canonical projection of business gateway scenes derived from SemanticMapIR.
-type Storyboard struct {
-	SchemaID        string      `json:"schemaId"`
-	SchemaVersion   int         `json:"schemaVersion"`
-	GenerationID    string      `json:"generationId"`
-	ComputedBasisID string      `json:"computedBasisId"`
-	SnapshotID      string      `json:"snapshotId"`
-	Frames          []FlowFrame `json:"frames"`
+// FlowSequence holds the canonical projection of business gateway scenes derived from SemanticMapIR.
+type FlowSequence struct {
+	SchemaID        string              `json:"schemaId"`
+	SchemaVersion   int                 `json:"schemaVersion"`
+	FlowID          string              `json:"flowID"`
+	GenerationID    string              `json:"generationId"`
+	ComputedBasisID string              `json:"computedBasisId"`
+	SnapshotID      string              `json:"snapshotID"`
+	Frames          []FlowSequenceFrame `json:"frames"`
 }
 
 // NormalizeFrameMatchKey constructs a stable frame-matching key using canonical
@@ -60,10 +58,10 @@ func NormalizeFrameMatchKey(role, symbolPath, technicalName, title string) strin
 	return fmt.Sprintf("%s|%s", roleNorm, sym)
 }
 
-// BuildStoryboard derives a versioned Storyboard projection from a SemanticMapIR.
+// BuildFlowSequence derives a versioned FlowSequence projection from a SemanticMapIR.
 // It partitions steps at entry, decision, process (state/transaction), external effect,
 // result, and boundary, collapsing intermediate continuous steps into the previous frame.
-func BuildStoryboard(mapIR *SemanticMapIR) *Storyboard {
+func BuildFlowSequence(mapIR *SemanticMapIR) *FlowSequence {
 	if mapIR == nil {
 		return nil
 	}
@@ -76,19 +74,27 @@ func BuildStoryboard(mapIR *SemanticMapIR) *Storyboard {
 		snapshotID = mapIR.ComputedBasisID
 	}
 
-	sb := &Storyboard{
-		SchemaID:        StoryboardSchemaID,
-		SchemaVersion:   StoryboardSchemaVersion,
+	flowID := strings.TrimPrefix(mapIR.MapID, "map-")
+	if flowID == "" {
+		flowID = mapIR.GenerationID
+	}
+	if flowID == "" {
+		flowID = mapIR.ComputedBasisID
+	}
+	sequence := &FlowSequence{
+		SchemaID:        FlowSequenceSchemaID,
+		SchemaVersion:   FlowSequenceSchemaVersion,
+		FlowID:          flowID,
 		GenerationID:    mapIR.GenerationID,
 		ComputedBasisID: mapIR.ComputedBasisID,
 		SnapshotID:      snapshotID,
-		Frames:          make([]StoryboardFrame, 0),
+		Frames:          make([]FlowSequenceFrame, 0),
 	}
 
 	steps := mapIR.Steps
 	totalSteps := len(steps)
 	if totalSteps == 0 {
-		return sb
+		return sequence
 	}
 
 	// Index external/async edges by fromStepId
@@ -181,25 +187,25 @@ func BuildStoryboard(mapIR *SemanticMapIR) *Storyboard {
 			isIntermediate = true
 		}
 
-		if isIntermediate && len(sb.Frames) > 0 {
+		if isIntermediate && len(sequence.Frames) > 0 {
 			// Collapse into current frame
-			lastIdx := len(sb.Frames) - 1
-			sb.Frames[lastIdx].StepRefs = append(sb.Frames[lastIdx].StepRefs, step.StepID)
-			if sb.Frames[lastIdx].CollapsedDetail == nil {
-				sb.Frames[lastIdx].CollapsedDetail = &CollapsedDetail{
+			lastIdx := len(sequence.Frames) - 1
+			sequence.Frames[lastIdx].StepRefs = append(sequence.Frames[lastIdx].StepRefs, step.StepID)
+			if sequence.Frames[lastIdx].CollapsedDetail == nil {
+				sequence.Frames[lastIdx].CollapsedDetail = &CollapsedDetail{
 					Count:  0,
 					Reason: "연속 내부 처리 단계 접힘",
 				}
 			}
-			sb.Frames[lastIdx].CollapsedDetail.Count++
-			if sb.Frames[lastIdx].Condition == nil && step.Branch != nil && *step.Branch != "" {
-				sb.Frames[lastIdx].Condition = step.Branch
+			sequence.Frames[lastIdx].CollapsedDetail.Count++
+			if sequence.Frames[lastIdx].Condition == nil && step.Branch != nil && *step.Branch != "" {
+				sequence.Frames[lastIdx].Condition = step.Branch
 			}
 			collapsedStatus := computeStepStatus(step)
-			if collapsedStatus == "unknown" && sb.Frames[lastIdx].Status == "verified" {
-				sb.Frames[lastIdx].Status = "partial"
-			} else if collapsedStatus == "partial" && sb.Frames[lastIdx].Status == "verified" {
-				sb.Frames[lastIdx].Status = "partial"
+			if collapsedStatus == "unknown" && sequence.Frames[lastIdx].Status == "verified" {
+				sequence.Frames[lastIdx].Status = "partial"
+			} else if collapsedStatus == "partial" && sequence.Frames[lastIdx].Status == "verified" {
+				sequence.Frames[lastIdx].Status = "partial"
 			}
 			continue
 		}
@@ -217,13 +223,13 @@ func BuildStoryboard(mapIR *SemanticMapIR) *Storyboard {
 			title = "확인되지 않은 처리 목적"
 		}
 
-		narrative := ""
+		text := ""
 		if step.Branch != nil && *step.Branch != "" {
-			narrative = "조건 · " + *step.Branch
+			text = "조건 · " + *step.Branch
 		} else if step.SideEffect != nil && *step.SideEffect != "" {
-			narrative = "외부 효과 · " + *step.SideEffect
+			text = "외부 효과 · " + *step.SideEffect
 		} else if step.StateDelta != nil {
-			narrative = fmt.Sprintf("상태 변경: %s -> %s", step.StateDelta.Before, step.StateDelta.After)
+			text = fmt.Sprintf("상태 변경: %s -> %s", step.StateDelta.Before, step.StateDelta.After)
 		}
 
 		matchKey := NormalizeFrameMatchKey(role, step.Anchor.EnclosingSymbolPath, step.TechnicalName, title)
@@ -246,13 +252,13 @@ func BuildStoryboard(mapIR *SemanticMapIR) *Storyboard {
 			status = "unknown"
 		}
 
-		frameOrdinal := len(sb.Frames) + 1
-		frame := StoryboardFrame{
+		frameOrdinal := len(sequence.Frames) + 1
+		frame := FlowSequenceFrame{
 			FrameID:         fmt.Sprintf("frame-%02d", frameOrdinal),
 			Ordinal:         frameOrdinal,
 			Role:            role,
 			Title:           title,
-			Narrative:       narrative,
+			Text:            text,
 			TechnicalAnchor: step.TechnicalName,
 			StepRefs:        []string{step.StepID},
 			PrimaryStepRef:  step.StepID,
@@ -268,10 +274,10 @@ func BuildStoryboard(mapIR *SemanticMapIR) *Storyboard {
 			frame.SourceAnchor = &anchorCopy
 		}
 
-		sb.Frames = append(sb.Frames, frame)
+		sequence.Frames = append(sequence.Frames, frame)
 	}
 
-	return sb
+	return sequence
 }
 
 func isStepBoundary(step SemanticStep, boundaries map[string]bool, unknowns map[string]bool) bool {
@@ -293,17 +299,17 @@ func isStepBoundary(step SemanticStep, boundaries map[string]bool, unknowns map[
 	return false
 }
 
-// FindMatchingFrame searches a Storyboard for frames matching the specified FrameMatchKey.
+// FindMatchingFrame searches a FlowSequence for frames matching the specified FrameMatchKey.
 // Returns the matched frame only when exactly one frame matches; otherwise returns nil.
-func (sb *Storyboard) FindMatchingFrame(matchKey string) *StoryboardFrame {
-	if sb == nil || matchKey == "" {
+func (sequence *FlowSequence) FindMatchingFrame(matchKey string) *FlowSequenceFrame {
+	if sequence == nil || matchKey == "" {
 		return nil
 	}
-	var matched *StoryboardFrame
+	var matched *FlowSequenceFrame
 	matchCount := 0
-	for i := range sb.Frames {
-		if sb.Frames[i].FrameMatchKey == matchKey {
-			matched = &sb.Frames[i]
+	for i := range sequence.Frames {
+		if sequence.Frames[i].FrameMatchKey == matchKey {
+			matched = &sequence.Frames[i]
 			matchCount++
 		}
 	}

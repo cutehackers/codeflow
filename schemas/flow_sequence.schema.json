@@ -1,34 +1,36 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://codeflow.local/schemas/storyboard.schema.json",
-  "title": "CodeFlow Storyboard Projection",
+  "$id": "https://codeflow.local/schemas/flow_sequence.schema.json",
+  "title": "CodeFlow FlowSequence Projection",
   "type": "object",
   "required": [
     "schemaId",
     "schemaVersion",
+    "flowID",
     "generationId",
     "computedBasisId",
-    "snapshotId",
+    "snapshotID",
     "frames"
   ],
   "properties": {
     "schemaId": {
       "type": "string",
       "enum": [
-        "https://codeflow.local/schemas/storyboard.schema.json",
-        "codeflow.storyboard"
+        "https://codeflow.local/schemas/flow_sequence.schema.json",
+        "codeflow.flow_sequence"
       ]
     },
     "schemaVersion": { "const": 1 },
+    "flowID": { "type": "string", "minLength": 1 },
     "generationId": { "type": "string", "minLength": 1 },
     "computedBasisId": { "type": "string", "minLength": 1 },
-    "snapshotId": { "type": "string", "minLength": 1 },
+    "snapshotID": { "type": "string", "minLength": 1 },
     "frames": {
       "type": "array",
       "items": {
         "type": "object",
         "required": [
-          "frameId",
+          "frameID",
           "ordinal",
           "role",
           "title",
@@ -38,14 +40,14 @@
           "frameMatchKey"
         ],
         "properties": {
-          "frameId": { "type": "string", "minLength": 1 },
+          "frameID": { "type": "string", "minLength": 1 },
           "ordinal": { "type": "integer", "minimum": 1 },
           "role": {
             "type": "string",
             "enum": ["entry", "decision", "process", "effect", "result", "boundary"]
           },
           "title": { "type": "string", "minLength": 1 },
-          "narrative": { "type": "string" },
+          "text": { "type": "string" },
           "technicalAnchor": { "type": "string" },
           "stepRefs": {
             "type": "array",

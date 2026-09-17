@@ -9,7 +9,7 @@ import (
 	"codeflow/internal/slicing"
 )
 
-func TestBuildStoryboard_ConstructsValidStoryboard(t *testing.T) {
+func TestBuildFlowSequence_ConstructsValidFlowSequence(t *testing.T) {
 	branchText := "items.length > 0"
 	mapIR := &SemanticMapIR{
 		SchemaID:                   SemanticMapSchemaID,
@@ -117,18 +117,18 @@ func TestBuildStoryboard_ConstructsValidStoryboard(t *testing.T) {
 		},
 	}
 
-	sb := BuildStoryboard(mapIR)
+	sb := BuildFlowSequence(mapIR)
 	if sb == nil {
-		t.Fatalf("expected non-nil Storyboard")
+		t.Fatalf("expected non-nil FlowSequence")
 	}
 
 	// Verify schema compliance
 	sbBytes, err := json.Marshal(sb)
 	if err != nil {
-		t.Fatalf("failed to marshal Storyboard: %v", err)
+		t.Fatalf("failed to marshal FlowSequence: %v", err)
 	}
-	if err := contractharness.ValidateStoryboard(sbBytes); err != nil {
-		t.Fatalf("contractharness.ValidateStoryboard failed: %v", err)
+	if err := contractharness.ValidateFlowSequence(sbBytes); err != nil {
+		t.Fatalf("contractharness.ValidateFlowSequence failed: %v", err)
 	}
 
 	// Verify frame count: step-3-helper was collapsed into frame-02 (CartService.validate)
@@ -171,7 +171,7 @@ func TestBuildStoryboard_ConstructsValidStoryboard(t *testing.T) {
 	}
 }
 
-func TestBuildStoryboard_MissingArchitectureConstructsFramesAndPartialStatus(t *testing.T) {
+func TestBuildFlowSequence_MissingArchitectureConstructsFramesAndPartialStatus(t *testing.T) {
 	mapIR := &SemanticMapIR{
 		SchemaID:                   SemanticMapSchemaID,
 		SchemaVersion:              SemanticSchemaVersion,
@@ -209,9 +209,9 @@ func TestBuildStoryboard_MissingArchitectureConstructsFramesAndPartialStatus(t *
 		BoundaryTargets: []string{"step-b"},
 	}
 
-	sb := BuildStoryboard(mapIR)
+	sb := BuildFlowSequence(mapIR)
 	if sb == nil {
-		t.Fatalf("expected non-nil Storyboard")
+		t.Fatalf("expected non-nil FlowSequence")
 	}
 
 	// Valid frames constructed despite missing architecture layer (FA-02)
@@ -240,14 +240,14 @@ func TestBuildStoryboard_MissingArchitectureConstructsFramesAndPartialStatus(t *
 	// Validate JSON schema
 	sbBytes, err := json.Marshal(sb)
 	if err != nil {
-		t.Fatalf("failed to marshal Storyboard: %v", err)
+		t.Fatalf("failed to marshal FlowSequence: %v", err)
 	}
-	if err := contractharness.ValidateStoryboard(sbBytes); err != nil {
-		t.Fatalf("contractharness.ValidateStoryboard failed: %v", err)
+	if err := contractharness.ValidateFlowSequence(sbBytes); err != nil {
+		t.Fatalf("contractharness.ValidateFlowSequence failed: %v", err)
 	}
 }
 
-func TestStoryboardPreservesMeaningAcrossSameFileAndLayer(t *testing.T) {
+func TestFlowSequencePreservesMeaningAcrossSameFileAndLayer(t *testing.T) {
 	condition := "stock > 0"
 	for _, layer := range []string{"domain", ""} {
 		t.Run("layer="+layer, func(t *testing.T) {
@@ -264,7 +264,7 @@ func TestStoryboardPreservesMeaningAcrossSameFileAndLayer(t *testing.T) {
 				m.Steps[i].Layer = layer
 				m.Steps[i].Anchor = slicing.Anchor{RepoRelativePath: "same.ts", EnclosingSymbolPath: "checkout"}
 			}
-			sb := BuildStoryboard(m)
+			sb := BuildFlowSequence(m)
 			if len(sb.Frames) != 6 {
 				t.Fatalf("lost meaningful scenes: %+v", sb.Frames)
 			}

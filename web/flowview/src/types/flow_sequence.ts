@@ -1,16 +1,16 @@
-export type StoryboardRole = 'entry' | 'decision' | 'process' | 'effect' | 'result' | 'boundary';
+export type FlowSequenceRole = 'entry' | 'decision' | 'process' | 'effect' | 'result' | 'boundary';
 
 export interface CollapsedDetail {
   count: number;
   reason: string;
 }
 
-export interface FlowFrame {
-  frameId: string;
+export interface FlowSequenceFrame {
+  frameID: string;
   ordinal: number;
-  role: StoryboardRole;
+  role: FlowSequenceRole;
   title: string;
-  narrative?: string;
+  text?: string;
   technicalAnchor?: string;
   stepRefs: string[];
   primaryStepRef: string;
@@ -27,13 +27,12 @@ export interface FlowFrame {
   isRecursion?: boolean;
 }
 
-export type StoryboardFrame = FlowFrame;
-
-export interface Storyboard {
+export interface FlowSequence {
   schemaId: string;
   schemaVersion: number;
   generationId: string;
   computedBasisId: string;
-  snapshotId: string;
-  frames: FlowFrame[];
+  flowID: string;
+  snapshotID: string;
+  frames: FlowSequenceFrame[];
 }

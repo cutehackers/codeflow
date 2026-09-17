@@ -129,14 +129,13 @@ func TestEssential12EndpointsRegistered(t *testing.T) {
 		{http.MethodGet, "/api/flows"},
 		{http.MethodGet, "/api/views"},
 		{http.MethodGet, "/api/view"},
-		{http.MethodGet, "/api/view/legacy"},
 		{http.MethodGet, "/api/view/compare"},
 		{http.MethodGet, "/api/flow"},
 		{http.MethodGet, "/api/flow/context"},
 		{http.MethodGet, "/api/source"},
 		{http.MethodPost, "/api/approve"},
 		{http.MethodGet, "/api/task/impact"},
-		{http.MethodPost, "/api/semantic/enrich"},
+		{http.MethodPost, "/api/semantic/labels"},
 	}
 
 	for _, tc := range routes {

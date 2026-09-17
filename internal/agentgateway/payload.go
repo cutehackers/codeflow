@@ -15,6 +15,6 @@ type CompactRadarSummary = curator.CompactRadarSummary
 type CompactFlowPayload = curator.CompactFlowPayload
 
 // BuildCompactPayload converts a FlowSpec into a high-density AI agent payload.
-func BuildCompactPayload(spec *fusion.FlowSpec, frames []curator.FlowFrame, directCallers, directCallees int) CompactFlowPayload {
+func BuildCompactPayload(spec *fusion.FlowSpec, frames []curator.FlowSequenceFrame, directCallers, directCallees int) CompactFlowPayload {
 	return curator.BuildCompactPayload(spec, frames, directCallers, directCallees)
 }

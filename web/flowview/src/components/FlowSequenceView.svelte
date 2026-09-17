@@ -1,6 +1,6 @@
 <script lang="ts">
   import { flowStore, GATEWAY_ROLES, LAYER_LABELS } from '../stores/flowStore.svelte';
-  import type { StoryboardFrame } from '../types/storyboard';
+  import type { FlowSequenceFrame } from '../types/flow_sequence';
 
   const frames = $derived(flowStore.frames);
   const selectedFrameId = $derived(flowStore.selectedFrameId);
@@ -30,47 +30,47 @@
     return deltaChanges.find(c => c.targetStepId === stepId);
   }
 
-  function onFrameSelect(frameId: string) {
-    flowStore.select(frameId);
-    const cardEl = document.querySelector(`[data-card="${frameId}"], [data-card="${flowStore.selectedStepId}"], [data-process="${flowStore.selectedStepId}"]`);
+  function onFrameSelect(frameID: string) {
+    flowStore.select(frameID);
+    const cardEl = document.querySelector(`[data-card="${frameID}"], [data-card="${flowStore.selectedStepId}"], [data-process="${flowStore.selectedStepId}"]`);
     cardEl?.scrollIntoView({ behavior: 'smooth', block: 'start' });
   }
 </script>
 
-<section class="macro-storyboard-section" id="macro-storyboard" aria-label="매크로 비즈니스 스토리보드">
+<section class="flow-sequence-section" id="flow-sequence" aria-label="FlowSequence 주요 관문">
   <div class="section-head">
     <div class="section-head-title">
-      <strong>2. MACRO CONTEXT STORYBOARD</strong>
+      <strong>2. MACRO CONTEXT FLOWSEQUENCE</strong>
       <span class="muted">· 시작부터 결과까지 ({frames.length ? `${frames.length}개 주요 장면` : '대기 중'})</span>
     </div>
-    <span class="pill" id="storyboard-status-pill">{statusPillText}</span>
+    <span class="pill" id="flow-sequence-status-pill">{statusPillText}</span>
   </div>
 
   <!-- svelte-ignore a11y_no_noninteractive_tabindex -->
-  <div class="storyboard-track" id="storyboard-track" role="region" aria-label="스토리보드 단계 목록" tabindex="0">
+  <div class="flow-sequence-track" id="flow-sequence-track" role="region" aria-label="FlowSequence 단계 목록" tabindex="0">
     {#if !frames.length}
       <p class="muted" style="font-size:11px;padding:8px 0">흐름을 선택하면 단계별 시퀀스 카드가 표시됩니다.</p>
     {:else}
-      {#each frames as frame, index (frame.frameId)}
-        {@const isSelected = selectedFrameId === frame.frameId || (!selectedFrameId && selectedStepId === frame.primaryStepRef)}
+      {#each frames as frame, index (frame.frameID)}
+        {@const isSelected = selectedFrameId === frame.frameID || (!selectedFrameId && selectedStepId === frame.primaryStepRef)}
         {@const delta = getDelta(frame.primaryStepRef)}
         {@const roleName = GATEWAY_ROLES[frame.role] || (frame.architecture ? `${frame.role.toUpperCase()} (${LAYER_LABELS[frame.architecture] || frame.architecture})` : frame.role.toUpperCase())}
-        {@const desc = frame.narrative || (frame.condition ? `조건 · ${frame.condition}` : (frame.collapsedDetail ? `${frame.collapsedDetail.count}개 내부 단계 접힘` : '다음 구현 연결 및 처리'))}
+        {@const desc = frame.text || (frame.condition ? `조건 · ${frame.condition}` : (frame.collapsedDetail ? `${frame.collapsedDetail.count}개 내부 단계 접힘` : '다음 구현 연결 및 처리'))}
         {@const isSurgery = compare && (delta?.kind === 'added_behavior' || delta?.kind === 'changed_rule')}
 
         <button
           type="button"
-          class="story-card"
+          class="flow-card"
           class:active-selected={isSelected}
           class:surgery-badge={isSurgery && isSelected}
-          data-story-step={frame.primaryStepRef}
-          data-story-frame={frame.frameId}
+          data-flow-step={frame.primaryStepRef}
+          data-flow-frame={frame.frameID}
           aria-pressed={isSelected}
-          onclick={() => onFrameSelect(frame.frameId)}
+          onclick={() => onFrameSelect(frame.frameID)}
         >
           <div>
-            <div class="story-header">
-              <span class="story-step-num">
+            <div class="flow-header">
+              <span class="flow-step-num">
                 FRAME {String(frame.ordinal || index + 1).padStart(2, '0')} · {roleName}
               </span>
               {#if compare && delta}
@@ -89,12 +89,12 @@
                 <span class="step-tag del">UNKNOWN</span>
               {/if}
             </div>
-            <div class="story-title">
+            <div class="flow-title">
               {#if isSurgery}⚡ {/if}{frame.title}
             </div>
-            <div class="story-desc">{desc}</div>
+            <div class="flow-desc">{desc}</div>
           </div>
-          <div class="story-footer">
+          <div class="flow-footer">
             {#if isSurgery}⚡ {/if}{frame.technicalAnchor || ''}
           </div>
         </button>
@@ -104,7 +104,7 @@
 </section>
 
 <style>
-  .macro-storyboard-section {
+  .flow-sequence-section {
     min-width: 0;
     margin: 0 30px 16px;
     border: 1.5px solid var(--ink, #171717);
@@ -147,7 +147,7 @@
     color: var(--ink, #171717);
     border: 1.5px solid var(--ink, #171717);
   }
-  .storyboard-track {
+  .flow-sequence-track {
     display: flex;
     flex-direction: row;
     flex-wrap: nowrap;
@@ -158,7 +158,7 @@
     scrollbar-width: thin;
     overscroll-behavior-x: contain;
   }
-  .story-card {
+  .flow-card {
     overflow-wrap: anywhere;
     flex: 0 0 215px;
     min-width: 200px;
@@ -177,16 +177,16 @@
     font-family: inherit;
     color: inherit;
   }
-  .story-card:hover {
+  .flow-card:hover {
     border-color: var(--ink, #171717);
     background: #ffffff;
   }
-  .story-card.active-selected {
+  .flow-card.active-selected {
     border: 2px solid var(--ink, #171717);
     background: var(--paper, #ffffff);
     box-shadow: 2px 2px 0 var(--ink, #171717);
   }
-  .story-card.active-selected::after {
+  .flow-card.active-selected::after {
     content: "SELECTED";
     position: absolute;
     top: -9px;
@@ -201,17 +201,17 @@
     white-space: nowrap;
     z-index: 2;
   }
-  .story-card.surgery-badge::after {
+  .flow-card.surgery-badge::after {
     content: "ACTIVE SURGERY";
     background: var(--ink, #171717);
   }
-  .story-header {
+  .flow-header {
     display: flex;
     align-items: center;
     justify-content: space-between;
     margin-bottom: 4px;
   }
-  .story-step-num {
+  .flow-step-num {
     font-family: ui-monospace, monospace;
     font-size: 9px;
     font-weight: 800;
@@ -239,19 +239,19 @@
     color: #c92a2a;
     border: 1px solid #ffa8a8;
   }
-  .story-title {
+  .flow-title {
     font-size: 12px;
     font-weight: 800;
     line-height: 1.35;
     margin: 2px 0 4px;
     color: var(--ink, #171717);
   }
-  .story-desc {
+  .flow-desc {
     font-size: 10.5px;
     color: var(--muted, #666666);
     line-height: 1.4;
   }
-  .story-footer {
+  .flow-footer {
     margin-top: 8px;
     padding-top: 5px;
     border-top: 1px dashed var(--line, #dddddd);
@@ -263,13 +263,13 @@
     overflow: hidden;
     text-overflow: ellipsis;
   }
-  .story-card.active-selected .story-footer {
+  .flow-card.active-selected .flow-footer {
     color: var(--ink, #171717);
     font-weight: 800;
   }
 
   @media (max-width: 650px) {
-    .macro-storyboard-section {
+    .flow-sequence-section {
     min-width: 0;
       margin-left: 15px;
       margin-right: 15px;

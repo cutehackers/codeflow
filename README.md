@@ -26,11 +26,11 @@ curl -fsSL https://raw.githubusercontent.com/cutehackers/codeflow/main/scripts/i
 
 ---
 
-## 선택 기능: Semantic Enrichment
+## 선택 기능: Semantic Labeling
 
-CodeFlow의 핵심 흐름 분석과 FlowView는 로컬 언어 모델(SLM) 없이도 정상 작동합니다. Semantic Enrichment는 검증된 분석 결과에 사람이 읽기 쉬운 의미 설명과 후보를 추가하는 선택 기능입니다.
+CodeFlow의 핵심 흐름 분석과 FlowView는 로컬 언어 모델(SLM) 없이도 정상 작동합니다. Semantic Labeling은 검증된 FlowSequence 관문에 사람이 읽기 쉬운 의미 라벨을 제안하는 선택 기능입니다.
 
-현재 v0.4.0은 모델 실행 계층과 실패 시 기본 분석 결과를 유지하는 동작을 포함하지만, 사용자가 모델을 설치하고 연결하는 CLI는 아직 제공하지 않습니다. 따라서 별도 설정이 없다면 `Semantic Enrichment: unavailable`은 정상 상태입니다. 현재 지원 범위와 주의사항은 **[Semantic Enrichment 가이드](docs/guides/semantic-enrichment.md)**를 확인하세요.
+SLM이 비활성화되었거나 사용할 수 없으면 정적 FlowSequence 제목을 유지합니다. 설정과 HTTP 계약은 **[Semantic Labeling 가이드](docs/guides/semantic-labeling.md)**를 확인하세요.
 
 ---
 
@@ -84,7 +84,7 @@ AI 에이전트에게 다음과 같이 자연어로 요청하세요:
 - **아키텍처 및 유지보수 가이드**: [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md)
 - **LLM / 에이전트 계약 가이드**: [`docs/guides/llm-usage.md`](docs/guides/llm-usage.md)
 - **전체 기능 및 프롬프트 가이드**: [`docs/guides/feature.md`](docs/guides/feature.md)
-- **선택적 Semantic Enrichment 가이드**: [`docs/guides/semantic-enrichment.md`](docs/guides/semantic-enrichment.md)
+- **선택적 Semantic Labeling 가이드**: [`docs/guides/semantic-labeling.md`](docs/guides/semantic-labeling.md)
 - **다중 언어 어댑터 프로토콜 사양**: [`docs/design/specs/llm-language-adapter-protocol.md`](docs/design/specs/llm-language-adapter-protocol.md)
 - **다중 언어 마스터 플랜**: [`docs/design/specs/multi-language-foundation-plan.md`](docs/design/specs/multi-language-foundation-plan.md)
 - **개발 환경 및 CLI 가이드**: [`docs/guides/development.md`](docs/guides/development.md)

@@ -51,7 +51,7 @@ func TestCurator_LargeTraceCeilingBound(t *testing.T) {
 		Steps:  steps,
 	}
 
-	frames := c.CurateStoryboard(trace)
+	frames := c.CurateFlowSequence(trace)
 
 	if len(frames) < 4 || len(frames) > 7 {
 		t.Fatalf("expected 4~7 frames for 160 steps, got %d", len(frames))
@@ -91,7 +91,7 @@ func TestCurator_SmallTraceFloorBound(t *testing.T) {
 			},
 		},
 	}
-	frames1 := c.CurateStoryboard(trace1)
+	frames1 := c.CurateFlowSequence(trace1)
 	if len(frames1) != 1 {
 		t.Fatalf("expected exactly 1 frame for 1 step, got %d", len(frames1))
 	}
@@ -117,7 +117,7 @@ func TestCurator_SmallTraceFloorBound(t *testing.T) {
 			},
 		},
 	}
-	frames2 := c.CurateStoryboard(trace2)
+	frames2 := c.CurateFlowSequence(trace2)
 	if len(frames2) != 2 {
 		t.Fatalf("expected exactly 2 frames for 2 steps, got %d", len(frames2))
 	}
@@ -160,7 +160,7 @@ func TestCurator_ZeroBranchLinearTrace(t *testing.T) {
 		},
 	}
 
-	frames := c.CurateStoryboard(trace)
+	frames := c.CurateFlowSequence(trace)
 	for _, f := range frames {
 		if f.Role == "decision" {
 			t.Errorf("unexpected decision frame in 0-branch linear flow: %+v", f)
@@ -214,10 +214,10 @@ func TestCurator_IndirectRecursionCycle(t *testing.T) {
 		},
 	}
 
-	frames := c.CurateStoryboard(trace)
+	frames := c.CurateFlowSequence(trace)
 
 	// Look for the recursive frame
-	var recursionFrame *curator.FlowFrame
+	var recursionFrame *curator.FlowSequenceFrame
 	for i := range frames {
 		if frames[i].IsRecursion {
 			recursionFrame = &frames[i]
@@ -250,12 +250,9 @@ func TestCurator_IndirectRecursionCycle(t *testing.T) {
 // 5. Empty Trace Floor Test
 func TestCurator_EmptyTrace(t *testing.T) {
 	c := curator.NewCurator()
-	frames := c.CurateStoryboard(curator.RawExecutionTrace{})
-	if len(frames) != 1 || frames[0].Role != "boundary" || frames[0].Title != "분석 대상 없음" {
-		t.Errorf("unexpected empty trace frame: %+v", frames)
-	}
-	if frames[0].Status != "unknown" {
-		t.Errorf("expected empty trace status to be unknown, got %s", frames[0].Status)
+	frames := c.CurateFlowSequence(curator.RawExecutionTrace{})
+	if len(frames) != 0 {
+		t.Errorf("expected no virtual frame for an empty trace, got %+v", frames)
 	}
 }
 
@@ -296,7 +293,7 @@ func TestCurator_BoundaryAndUnknownStatus(t *testing.T) {
 		},
 	}
 
-	frames := c.CurateStoryboard(trace)
+	frames := c.CurateFlowSequence(trace)
 	for _, f := range frames {
 		if f.Role == "boundary" && f.Status == "verified" {
 			t.Errorf("boundary frame must not have verified status: %+v", f)
@@ -345,7 +342,7 @@ func TestCurator_ConsecutiveGuardsInSameFunctionNotRecursion(t *testing.T) {
 		},
 	}
 
-	frames := c.CurateStoryboard(trace)
+	frames := c.CurateFlowSequence(trace)
 
 	for _, f := range frames {
 		if f.IsRecursion {
@@ -354,7 +351,7 @@ func TestCurator_ConsecutiveGuardsInSameFunctionNotRecursion(t *testing.T) {
 	}
 
 	// Check that a decision frame with title "사전 유효성 검증" was created containing both guard steps
-	var decisionFrame *curator.FlowFrame
+	var decisionFrame *curator.FlowSequenceFrame
 	for i := range frames {
 		if frames[i].Role == "decision" {
 			decisionFrame = &frames[i]
@@ -409,7 +406,7 @@ func BenchmarkCurator(b *testing.B) {
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		t0 := time.Now()
-		frames := c.CurateStoryboard(trace)
+		frames := c.CurateFlowSequence(trace)
 		elapsed := time.Since(t0)
 		if elapsed > 5*time.Millisecond {
 			b.Fatalf("curation exceeded 5ms budget: %v", elapsed)

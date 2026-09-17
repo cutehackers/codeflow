@@ -1,6 +1,6 @@
 <script lang="ts">
   import NoticeBar from './components/NoticeBar.svelte';
-  import MacroStoryboard from './components/MacroStoryboard.svelte';
+  import FlowSequenceView from './components/FlowSequenceView.svelte';
   import ViewToolbar from './components/ViewToolbar.svelte';
   import NavRail from './components/NavRail.svelte';
   import CodeFlowPanel from './components/CodeFlowPanel.svelte';
@@ -92,16 +92,13 @@
       {#if flowStore.listError}
         <p role="alert">{flowStore.listError}</p>
         <button onclick={() => window.showFlowHome()}>목록 다시 불러오기</button>
-      {:else if !flowStore.views.length && !flowStore.legacyFlows.length}
+      {:else if !flowStore.views.length}
         <p>아직 분석한 흐름이 없습니다.</p>
         <p>위에서 흐름을 입력하거나, MCP가 연결된 에이전트에게 “이 프로젝트의 원하는 기능을 CodeFlow로 분석하고 FlowView를 열어줘”라고 요청하세요.</p>
       {:else}
         <ul>
           {#each flowStore.views as view (view.viewId)}
             <li><button onclick={() => window.openFlowView(view.viewId)}>{view.title || '저장된 흐름'}{view.savedAt ? ` · ${new Date(view.savedAt).toLocaleString()}` : ''}</button></li>
-          {/each}
-          {#each flowStore.legacyFlows as flow (flow.flowId)}
-            <li><button onclick={() => window.openFlowView(flow.flowId, true)}>{flow.title} · 기존 흐름</button></li>
           {/each}
         </ul>
       {/if}
@@ -110,8 +107,8 @@
   <!-- Live Notice & Status Controls -->
   <NoticeBar />
 
-  <!-- 2. MACRO CONTEXT STORYBOARD -->
-  <MacroStoryboard />
+  <!-- 2. MACRO CONTEXT FLOWSEQUENCE -->
+  <FlowSequenceView />
 
   <!-- View Switch Toolbar -->
   <ViewToolbar />

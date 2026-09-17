@@ -7,20 +7,20 @@
   const compare = $derived(flowStore.compare);
   const deltaChanges = $derived(compare ? (flowStore.data?.semanticDelta?.changes || []) : []);
 
-  function onFrameSelect(frameId: string) {
-    flowStore.select(frameId);
-    const targetEl = document.querySelector(`[data-card="${frameId}"], [data-card="${flowStore.selectedStepId}"], [data-process="${flowStore.selectedStepId}"]`);
+  function onFrameSelect(frameID: string) {
+    flowStore.select(frameID);
+    const targetEl = document.querySelector(`[data-card="${frameID}"], [data-card="${flowStore.selectedStepId}"], [data-process="${flowStore.selectedStepId}"]`);
     targetEl?.scrollIntoView({ behavior: 'smooth', block: 'start' });
-    const storyEl = document.querySelector(`[data-story-frame="${frameId}"], [data-story-step="${flowStore.selectedStepId}"]`);
-    storyEl?.scrollIntoView({ behavior: 'smooth', inline: 'center' });
+    const frameEl = document.querySelector(`[data-flow-frame="${frameID}"], [data-flow-step="${flowStore.selectedStepId}"]`);
+    frameEl?.scrollIntoView({ behavior: 'smooth', inline: 'center' });
   }
 </script>
 
 <nav class="rail" aria-label="FlowSequence">
   <h2>FlowSequence</h2>
   <div id="step-nav">
-    {#each frames as frame, index (frame.frameId)}
-      {@const isSelected = selectedFrameId === frame.frameId || (!selectedFrameId && selectedStepId === frame.primaryStepRef)}
+    {#each frames as frame, index (frame.frameID)}
+      {@const isSelected = selectedFrameId === frame.frameID || (!selectedFrameId && selectedStepId === frame.primaryStepRef)}
       {@const roleName = GATEWAY_ROLES[frame.role] || (frame.architecture ? `${frame.role.toUpperCase()} (${LAYER_LABELS[frame.architecture] || frame.architecture})` : frame.role.toUpperCase())}
       {@const delta = deltaChanges.find(c => c.targetStepId === frame.primaryStepRef)}
       {@const isSurgery = compare && (delta?.kind === 'added_behavior' || delta?.kind === 'changed_rule')}
@@ -29,9 +29,9 @@
         class="step-link"
         class:is-surgery={isSurgery}
         data-select={frame.primaryStepRef}
-        data-frame={frame.frameId}
+        data-frame={frame.frameID}
         aria-pressed={isSelected}
-        onclick={() => onFrameSelect(frame.frameId)}
+        onclick={() => onFrameSelect(frame.frameID)}
       >
         <span class="idx">FRAME {String(frame.ordinal || index + 1).padStart(2, '0')}</span>
         <span>
@@ -43,7 +43,7 @@
           <small>{roleName}</small>
         </span>
       </button>
-      {#if flowStore.selectedFrame?.frameId === frame.frameId && frame.stepRefs.length > 1}
+      {#if flowStore.selectedFrame?.frameID === frame.frameID && frame.stepRefs.length > 1}
         <details class="scene-details">
           <summary>실행 타임라인 ({frame.stepRefs.length}단계)</summary>
           {#each flowStore.sceneSteps as step (step.stepId)}

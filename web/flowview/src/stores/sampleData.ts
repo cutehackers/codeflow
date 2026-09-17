@@ -175,7 +175,7 @@ export function samplePayload(version: 1 | 2 = 1): FlowTaskViewData {
     }
   };
 
-  const storyboardFrames = source.map((s, idx) => {
+  const flowSequenceFrames = source.map((s, idx) => {
     let role: 'entry' | 'decision' | 'process' | 'effect' | 'result' | 'boundary' = 'process';
     if (idx === 0) role = 'entry';
     else if (s.branch) role = 'decision';
@@ -183,11 +183,11 @@ export function samplePayload(version: 1 | 2 = 1): FlowTaskViewData {
     else if (idx === source.length - 1) role = 'result';
 
     return {
-      frameId: `frame-${String(idx + 1).padStart(2, '0')}`,
+      frameID: `frame-${String(idx + 1).padStart(2, '0')}`,
       ordinal: idx + 1,
       role,
       title: s.name,
-      narrative: s.desc,
+      text: s.desc,
       technicalAnchor: s.symbol,
       stepRefs: [s.id],
       primaryStepRef: s.id,
@@ -203,13 +203,14 @@ export function samplePayload(version: 1 | 2 = 1): FlowTaskViewData {
     };
   });
 
-  const storyboard = {
-    schemaId: 'https://codeflow.local/schemas/storyboard.schema.json',
+  const flowSequence = {
+    schemaId: 'https://codeflow.local/schemas/flow_sequence.schema.json',
     schemaVersion: 1,
+    flowID: `flow-sample-${version}`,
     generationId,
     computedBasisId: generationId,
-    snapshotId,
-    frames: storyboardFrames
+    snapshotID: snapshotId,
+    frames: flowSequenceFrames
   };
 
   return {
@@ -227,7 +228,7 @@ export function samplePayload(version: 1 | 2 = 1): FlowTaskViewData {
         edge('create_order', 'checkout_click', 'return')
       ]
     },
-    storyboard,
+    flowSequence,
     semanticDelta: sampleDelta,
     sampleImpacts,
     flowContexts: Object.fromEntries(source.map(s => [s.id, {

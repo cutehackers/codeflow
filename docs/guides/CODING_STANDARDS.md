@@ -46,10 +46,10 @@ codeflow/
 │   ├── harvest/           # Flow candidate extraction & call-graph analysis
 │   ├── mcp/               # Model Context Protocol server (stdio JSON-RPC)
 │   ├── naming/            # Deterministic natural language step naming
-│   ├── protocol/          # Adapter wire protocols, pools, and model hosts
+│   ├── protocol/          # Adapter wire protocols and process pools
 │   ├── runtime/           # Execution supervision and verification
 │   ├── secret/            # Secret scanning and redaction gate
-│   ├── semantic/          # Semantic enrichment and task view queries
+│   ├── semantic/          # Semantic projections, evidence, and task view queries
 │   ├── slicing/           # Dynamic & static program slicing
 │   ├── storage/           # Disk layout, generations, and publication transactions
 │   └── workspace/         # VFS, snapshots, and change tracking
@@ -470,7 +470,7 @@ func (s *Storage) PublishGeneration(ctx context.Context, gen Generation) error {
 - Never fire-and-forget goroutines that perform unbounded work or hold network connections without cancellation.
 
 ### 7.3 Timeouts & Deadlines
-- External operations (adapter handshakes, subprocesses, model host inferences, HTTP requests) must enforce timeouts using `context.WithTimeout`:
+- External operations (adapter handshakes, subprocesses, local SLM label requests, HTTP requests) must enforce timeouts using `context.WithTimeout`:
 ```go
 ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 defer cancel()

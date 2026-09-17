@@ -107,8 +107,8 @@ export interface FlowContext {
   displayedLines: DisplayedLine[];
 }
 
-import type { Storyboard, StoryboardFrame, FlowFrame } from './storyboard';
-export type { Storyboard, StoryboardFrame, FlowFrame };
+import type { FlowSequence, FlowSequenceFrame } from './flow_sequence';
+export type { FlowSequence, FlowSequenceFrame };
 
 export interface FlowTaskViewData {
   viewId?: string;
@@ -120,7 +120,7 @@ export interface FlowTaskViewData {
   sourceFiles?: Record<string, DisplayedLine[]>;
   requestId?: string;
   semanticMap: SemanticMap;
-  storyboard?: Storyboard;
+  flowSequence?: FlowSequence;
   semanticDelta?: SemanticDelta;
   flowContexts?: Record<string, FlowContext>;
   unknowns?: Array<{ reason?: string; subject?: string } | string>;

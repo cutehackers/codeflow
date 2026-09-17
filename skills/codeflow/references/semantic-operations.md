@@ -21,9 +21,9 @@ Use these operations after resolving the exact target and required current or hi
 - Request trusted-local execution only when the user has explicitly authorized the exact runtime operation and CodeFlow accepts its consent contract.
 - Keep static failure reachability, deterministic simulation, and observed runtime failure as separate results.
 
-## Optional Semantic Enrichment
+## Optional Semantic Labeling
 
-- Use `request_semantic_enrichment` only when the user requests model-assisted labels, summaries, or explanations.
+- Use `POST /api/semantic/labels` only when the user requests SLM-assisted FlowSequence labels.
 - Preserve deterministic semantic facts when enrichment is unavailable, crashes, or times out.
 - An available proposal must remain bound to its exact generation, basis, target, prompt revision, model revision, and Evidence Pack.
 

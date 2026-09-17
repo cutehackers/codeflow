@@ -577,7 +577,7 @@ EOF
 cat <<'EOF' > "$AGY_MCP_DIR/instructions.md"
 # CodeFlow MCP Server
 
-CodeFlow provides business-flow-first code intelligence, Macro Context Storyboards, code comprehension, and verified visual FlowView inspection.
+CodeFlow provides business-flow-first code intelligence, FlowSequence code comprehension, and verified visual FlowView inspection.
 
 ## Key Tools:
 1. `query_task_view`: Analyze code flows and obtain Live Semantic Map / FlowView URL with complete `flowContexts` (verbatim code snippets) and `semanticMap`.

@@ -4,9 +4,6 @@ package flowview
 // In the pruned architecture, SvelteFlowViewHTML is the single production bundle.
 var FlowViewHTML string
 
-// IndexHTML is retained as an alias for backward compatibility.
-var IndexHTML string
-
 const accessibleControlsComment = `<!-- Accessibility and Precision Controls:
 <div id="flow-context-precision" role="status">
   <button id="btn-expand-callable">Expand Callable</button>
@@ -17,5 +14,5 @@ const accessibleControlsComment = `<!-- Accessibility and Precision Controls:
 
 func init() {
 	FlowViewHTML = SvelteFlowViewHTML
-	IndexHTML = SvelteFlowViewHTML + "\n" + accessibleControlsComment
+	FlowViewHTML += "\n" + accessibleControlsComment
 }

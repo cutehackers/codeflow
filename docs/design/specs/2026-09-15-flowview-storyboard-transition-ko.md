@@ -1,5 +1,7 @@
 # FlowView Storyboard 전환과 Live 제거
 
+> Historical specification. Superseded by `2026-09-16-codeflow-architectural-reset-and-flow-sequence-spec-ko.md`.
+
 - Contract ID: `FLOWVIEW-STORYBOARD-TRANSITION`
 - Contract Status: Approved
 - Created: 2026-09-15

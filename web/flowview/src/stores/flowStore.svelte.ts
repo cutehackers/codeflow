@@ -1,5 +1,5 @@
 import type { FlowTaskViewData, Step, FlowContext } from '../types/flow';
-import type { Storyboard, StoryboardFrame } from '../types/storyboard';
+import type { FlowSequence, FlowSequenceFrame } from '../types/flow_sequence';
 import type { ChangeImpactGraph } from '../types/impact';
 
 export const LAYER_LABELS: Record<string, string> = {
@@ -106,27 +106,26 @@ class FlowStore {
   errorCode = $state('');
   candidates = $state<string[]>([]);
   views = $state<Array<{viewId: string; title: string; savedAt?: string}>>([]);
-  legacyFlows = $state<Array<{flowId: string; title: string; savedAt?: string}>>([]);
   impactCache = $state<Map<string, ChangeImpactGraph>>(new Map());
   savedNavigationState = $state<SavedNavigationState | null>(null);
   generationSequence = $state(0);
   isAutoReanalyzing = $state(false);
-  activeEnrichAbortController: AbortController | null = null;
+  activeLabelAbortController: AbortController | null = null;
   activeReanalyzeAbortController: AbortController | null = null;
 
   // Derived getters
-  get storyboard(): Storyboard | null {
-    return this.data?.storyboard || null;
+  get flowSequence(): FlowSequence | null {
+    return this.data?.flowSequence || null;
   }
 
-  get frames(): StoryboardFrame[] {
-    return this.data?.storyboard?.frames || [];
+  get frames(): FlowSequenceFrame[] {
+    return this.data?.flowSequence?.frames || [];
   }
 
-  get selectedFrame(): StoryboardFrame | null {
+  get selectedFrame(): FlowSequenceFrame | null {
     if (!this.frames.length) return null;
     if (this.selectedFrameId) {
-      const match = this.frames.find(f => f.frameId === this.selectedFrameId);
+      const match = this.frames.find(f => f.frameID === this.selectedFrameId);
       if (match) return match;
     }
     if (this.selectedStepId) {
@@ -180,11 +179,11 @@ class FlowStore {
   }
 
   select(stepOrFrameId: string) {
-    this.abortEnrichment();
-    const frame = this.frames.find(f => f.frameId === stepOrFrameId || f.primaryStepRef === stepOrFrameId || f.stepRefs.includes(stepOrFrameId));
+    this.abortLabeling();
+    const frame = this.frames.find(f => f.frameID === stepOrFrameId || f.primaryStepRef === stepOrFrameId || f.stepRefs.includes(stepOrFrameId));
     if (frame) {
-      this.selectedFrameId = frame.frameId;
-      this.selectedStepId = stepOrFrameId === frame.frameId ? frame.primaryStepRef : stepOrFrameId;
+      this.selectedFrameId = frame.frameID;
+      this.selectedStepId = stepOrFrameId === frame.frameID ? frame.primaryStepRef : stepOrFrameId;
     }
   }
 
@@ -237,9 +236,9 @@ class FlowStore {
   }
 
   adopt(newData: FlowTaskViewData, force = false, isAutoReanalysisResult = false): boolean {
-    if (!newData.storyboard) throw new Error('스토리보드가 없습니다. 다시 분석해 주세요.');
+    if (!newData.flowSequence) throw new Error('FlowSequence가 없습니다. 다시 분석해 주세요.');
     const current = this.selectedFrame;
-    const matches = newData.storyboard.frames.filter(f => f.frameMatchKey === current?.frameMatchKey);
+    const matches = newData.flowSequence.frames.filter(f => f.frameMatchKey === current?.frameMatchKey);
     const previousStep = this.selectedStep;
     const stepMatches = newData.semanticMap.steps.filter(s => s.structuralIdentity && s.structuralIdentity === previousStep?.structuralIdentity);
     const retainedStep = newData.semanticMap.steps.find(s => s.stepId === this.selectedStepId) || (stepMatches.length === 1 ? stepMatches[0] : null);
@@ -263,11 +262,11 @@ class FlowStore {
     if (force || !current) {
       this.expanded = new Set();
       this.conditionFilter = null;
-      this.selectedFrameId = newData.storyboard.frames[0]?.frameId || null;
-      this.selectedStepId = newData.storyboard.frames[0]?.primaryStepRef || null;
+      this.selectedFrameId = newData.flowSequence.frames[0]?.frameID || null;
+      this.selectedStepId = newData.flowSequence.frames[0]?.primaryStepRef || null;
       this.savedNavigationState = null;
     } else {
-      this.selectedFrameId = matches[0].frameId;
+      this.selectedFrameId = matches[0].frameID;
       this.selectedStepId = retainedStep!.stepId;
       this.expanded = retainedExpanded;
       this.conditionFilter = retainedFilter;
@@ -278,14 +277,14 @@ class FlowStore {
         this.notice = '현재 워킹 트리에서도 해당 소스 문맥을 찾을 수 없습니다.';
       } else {
         this.notice = '현재 워킹 트리를 기반으로 최신 분석으로 갱신되었습니다.';
-        this.enrichMicroSemantics().catch(() => {});
+        this.labelFlowSequence().catch(() => {});
       }
     } else if (missingSource) {
       this.notice = newData.sourceNotice || '과거 분석에 보존된 소스 문맥이 없어 현재 워킹 트리 기반으로 자동 재분석 중입니다…';
       this.triggerAutoReanalysis().catch(() => {});
     } else {
-      this.notice = newData.sourceNotice || '저장된 분석의 스토리보드입니다.';
-      this.enrichMicroSemantics().catch(() => {});
+      this.notice = newData.sourceNotice || '저장된 분석의 FlowSequence입니다.';
+      this.labelFlowSequence().catch(() => {});
     }
     return true;
   }
@@ -389,31 +388,35 @@ class FlowStore {
     }
   }
 
-  abortEnrichment() {
-    if (this.activeEnrichAbortController) {
-      this.activeEnrichAbortController.abort();
-      this.activeEnrichAbortController = null;
+  abortLabeling() {
+    if (this.activeLabelAbortController) {
+      this.activeLabelAbortController.abort();
+      this.activeLabelAbortController = null;
       this.generationSequence++;
     }
   }
 
-  async enrichMicroSemantics(): Promise<boolean> {
-    if (!this.data?.storyboard?.frames?.length) return false;
+  async labelFlowSequence(): Promise<boolean> {
+    if (!this.data?.flowSequence?.frames?.length) return false;
 
-    if (this.activeEnrichAbortController) {
-      this.activeEnrichAbortController.abort();
-      this.activeEnrichAbortController = null;
+    if (this.activeLabelAbortController) {
+      this.activeLabelAbortController.abort();
+      this.activeLabelAbortController = null;
     }
 
     const currentSequence = ++this.generationSequence;
     const controller = new AbortController();
-    this.activeEnrichAbortController = controller;
+    this.activeLabelAbortController = controller;
 
     try {
-      const resp = await fetch('/api/semantic/enrich', {
+      const resp = await fetch('/api/semantic/labels', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ frames: this.data.storyboard.frames }),
+        body: JSON.stringify({
+          flowID: this.data.flowId || 'current-flow',
+          snapshotID: this.data.flowSequence.snapshotID,
+          frames: this.data.flowSequence.frames
+        }),
         signal: controller.signal
       });
 
@@ -421,21 +424,21 @@ class FlowStore {
       const res = await resp.json();
 
       // Discard stale response if generationSequence changed or request was aborted
-      if (currentSequence !== this.generationSequence || !res.narratives?.length) {
+      if (currentSequence !== this.generationSequence || !res.labels?.length) {
         return false;
       }
 
-      const narrativeMap = new Map<string, string>();
-      for (const item of res.narratives) {
-        if (item.frameId && item.narrative && item.status === 'enriched') {
-          narrativeMap.set(item.frameId, item.narrative);
+      const textMap = new Map<string, string>();
+      for (const item of res.labels) {
+        if (item.frameID && item.text && item.status === 'proposed') {
+          textMap.set(item.frameID, item.text);
         }
       }
 
-      if (this.data?.storyboard?.frames) {
-        for (const frame of this.data.storyboard.frames) {
-          if (narrativeMap.has(frame.frameId)) {
-            frame.narrative = narrativeMap.get(frame.frameId)!;
+      if (this.data?.flowSequence?.frames) {
+        for (const frame of this.data.flowSequence.frames) {
+          if (textMap.has(frame.frameID)) {
+            frame.text = textMap.get(frame.frameID)!;
           }
         }
       }
@@ -444,8 +447,8 @@ class FlowStore {
       // Silent fallback
       return false;
     } finally {
-      if (this.activeEnrichAbortController === controller) {
-        this.activeEnrichAbortController = null;
+      if (this.activeLabelAbortController === controller) {
+        this.activeLabelAbortController = null;
       }
     }
   }
@@ -454,4 +457,3 @@ class FlowStore {
 }
 
 export const flowStore = new FlowStore();
-

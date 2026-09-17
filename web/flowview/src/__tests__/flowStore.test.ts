@@ -72,10 +72,10 @@ describe('FlowStore (Svelte 5 Runes)', () => {
     expect(flowStore.compare).toBe(true);
   });
 
-  it('populates storyboard frames and synchronizes frame selection with steps', () => {
+  it('populates flowSequence frames and synchronizes frame selection with steps', () => {
     flowStore.receive(samplePayload(1));
     expect(flowStore.frames.length).toBe(5);
-    expect(flowStore.frames[0].frameId).toBe('frame-01');
+    expect(flowStore.frames[0].frameID).toBe('frame-01');
     expect(flowStore.frames[0].role).toBe('entry');
 
     // Selecting frame-02 synchronizes selectedFrameId and selectedStepId
@@ -109,7 +109,7 @@ describe('FlowStore (Svelte 5 Runes)', () => {
 
     // Create payload where frame-02 symbol is completely removed
     const altered = samplePayload(2);
-    altered.storyboard!.frames = altered.storyboard!.frames.filter(f => f.primaryStepRef !== 'validate_cart');
+    altered.flowSequence!.frames = altered.flowSequence!.frames.filter(f => f.primaryStepRef !== 'validate_cart');
 
     const success = flowStore.adopt(altered);
     expect(success).toBe(false);
@@ -140,11 +140,11 @@ describe('FlowStore (Svelte 5 Runes)', () => {
   const data = samplePayload(1);
   const detail = {...data.semanticMap.steps[0], stepId:'detail', structuralIdentity:'detail', name:'내부 처리'};
   data.semanticMap.steps.push(detail);
-  data.storyboard!.frames[0].stepRefs.push('detail');
+  data.flowSequence!.frames[0].stepRefs.push('detail');
   flowStore.adopt(data,true);
   flowStore.select('detail');
   expect(flowStore.selectedStep?.stepId).toBe('detail');
-  expect(flowStore.selectedFrameId).toBe(data.storyboard!.frames[0].frameId);
+  expect(flowStore.selectedFrameId).toBe(data.flowSequence!.frames[0].frameID);
   flowStore.saveNavigationState();
   flowStore.select('validate_cart');
   flowStore.restoreNavigationState();
@@ -154,15 +154,15 @@ describe('FlowStore (Svelte 5 Runes)', () => {
   it('does not invent scenes from raw steps or replace selection on ambiguous matching', () => {
     const data = samplePayload(1);
     flowStore.adopt(data, true);
-    const missing = { ...data, storyboard: undefined };
-    expect(() => flowStore.adopt(missing)).toThrow('스토리보드');
+    const missing = { ...data, flowSequence: undefined };
+    expect(() => flowStore.adopt(missing)).toThrow('FlowSequence');
     const ambiguous = samplePayload(2);
-    ambiguous.storyboard!.frames.push({ ...ambiguous.storyboard!.frames[0], frameId: 'duplicate' });
+    ambiguous.flowSequence!.frames.push({ ...ambiguous.flowSequence!.frames[0], frameID: 'duplicate' });
     expect(flowStore.adopt(ambiguous)).toBe(false);
     expect(flowStore.data?.semanticMap.generationId).toBe('sample-v1');
   });
 
-  it('enriches storyboard frames with micro-semantic narratives', async () => {
+  it('labels FlowSequence frames with micro-semantic texts', async () => {
     const data = samplePayload(1);
     flowStore.adopt(data, true);
 
@@ -170,16 +170,16 @@ describe('FlowStore (Svelte 5 Runes)', () => {
     globalThis.fetch = async () => ({
       ok: true,
       json: async () => ({
-        narratives: [
-          { frameId: data.storyboard!.frames[0].frameId, narrative: '고객 주문 요청 접수 및 검증', status: 'enriched' }
+        labels: [
+          { frameID: data.flowSequence!.frames[0].frameID, text: '고객 주문 요청 접수 및 검증', status: 'proposed' }
         ]
       })
     }) as any;
 
     try {
-      const enriched = await flowStore.enrichMicroSemantics();
-      expect(enriched).toBe(true);
-      expect(flowStore.storyboard?.frames[0].narrative).toBe('고객 주문 요청 접수 및 검증');
+      const proposed = await flowStore.labelFlowSequence();
+      expect(proposed).toBe(true);
+      expect(flowStore.flowSequence?.frames[0].text).toBe('고객 주문 요청 접수 및 검증');
     } finally {
       globalThis.fetch = originalFetch;
     }
@@ -196,21 +196,21 @@ describe('FlowStore (Svelte 5 Runes)', () => {
       return {
         ok: true,
         json: async () => ({
-          narratives: [
-            { frameId: data.storyboard!.frames[0].frameId, narrative: '뒤늦게 도착한 과거 응답', status: 'enriched' }
+          labels: [
+            { frameID: data.flowSequence!.frames[0].frameID, text: '뒤늦게 도착한 과거 응답', status: 'proposed' }
           ]
         })
       } as any;
     };
 
     try {
-      const p = flowStore.enrichMicroSemantics();
-      // User switches selection, triggering abortEnrichment
+      const p = flowStore.labelFlowSequence();
+      // User switches selection, triggering abortLabeling
       flowStore.select('validate_cart');
       const result = await p;
-      // Stale response must be discarded (false) and not overwrite narrative
+      // Stale response must be discarded (false) and not overwrite text
       expect(result).toBe(false);
-      expect(flowStore.storyboard?.frames[0].narrative).not.toBe('뒤늦게 도착한 과거 응답');
+      expect(flowStore.flowSequence?.frames[0].text).not.toBe('뒤늦게 도착한 과거 응답');
     } finally {
       globalThis.fetch = originalFetch;
     }
@@ -284,7 +284,7 @@ describe('FlowStore (Svelte 5 Runes)', () => {
       const result = await flowStore.triggerAutoReanalysis();
       expect(result).toBe(false);
       expect(flowStore.notice).toContain('자동 재분석을 완료하지 못했습니다');
-      expect(flowStore.storyboard).not.toBeNull(); // Historical structure remains intact
+      expect(flowStore.flowSequence).not.toBeNull(); // Historical structure remains intact
       expect(flowStore.isAutoReanalyzing).toBe(false);
     } finally {
       globalThis.fetch = originalFetch;
@@ -385,6 +385,4 @@ describe('FlowStore (Svelte 5 Runes)', () => {
     }
   });
 });
-
-
 

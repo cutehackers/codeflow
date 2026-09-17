@@ -34,7 +34,7 @@ make test-ui
 ## Architecture
 
 - **State Management**: Svelte 5 Runes store (`src/stores/flowStore.svelte.ts`) with `$state` and `$derived`.
-- **Macro Context Storyboard**: Horizontal sequence track showing end-to-end business execution gates (`src/components/MacroStoryboard.svelte`).
+  - **FlowSequence**: Horizontal sequence track showing end-to-end business execution gates (`src/components/FlowSequenceView.svelte`).
 - **Blast Radius Radar**: Pure SVG concentric circles showing direct callers, state mutations, and tests (`src/components/BlastRadiusRadar.svelte`).
 - **Code & Process Panels**: Synchronized source citations with before/after diffs (`src/components/CodeFlowPanel.svelte`) and business behavior rules (`src/components/ProcessFlowPanel.svelte`).
 - **Zero-Telemetry Guard**: Only business flow traversals, architecture layers, and verifiable source code are shown. Internal compiler metrics and heuristics are strictly prohibited.

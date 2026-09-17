@@ -124,7 +124,7 @@ CodeFlow v0.4.0은 AI 에이전트의 토큰을 90% 이상 절감하면서도 �
 | MCP 도구 명칭 | 핵심 역할 및 설명 |
 |---|---|
 | `harvest_flows` | 자연어 질의(`query`) 또는 도메인으로 후보 진입점을 탐색합니다. (흐름을 보려면 매칭된 심볼로 `analyze_flow`를 호출) |
-| `analyze_flow` | 지정한 정확한 진입점 심볼(`entrySymbolPath`)을 정적 슬라이싱하여 FlowSpec 및 4~7개 스토리보드를 생성·발행합니다. |
+| `analyze_flow` | 지정한 정확한 진입점 심볼(`entrySymbolPath`)을 정적 슬라이싱하여 FlowSpec 및 FlowSequence를 생성·발행합니다. |
 | `get_flow_payload` | `flowId` 또는 `entrySymbolPath`를 전달하여 FlowSpec JSON 및 ~500토큰 고밀도 압축 페이로드(`CompactFlowPayload`)를 조회합니다. |
 | `open_review` | 저장된 `viewId` 또는 `flowId`에 대응하는 인터랙티브 FlowView 브라우저 URL을 반환합니다. (사용자가 화면을 요청했을 때 브라우저에서 열도록 안내) |
 | `publish_core_flow` | 에이전트가 직접 작성한 중간 아티팩트(`artifact`)의 앵커 무결성을 현재 작업 트리와 대조 검증한 후 핵심 흐름으로 발행합니다. |
@@ -145,9 +145,9 @@ CodeFlow v0.4.0은 AI 에이전트의 토큰을 90% 이상 절감하면서도 �
 - **미커밋 수정 실시간 재조정 (Re-anchoring)**:
   - 에디터 수정으로 심볼 라인/오프셋이 이동한 경우 SHA-256 스냅샷 검증을 거쳐 5ms 내에 올바른 코드 위치로 자동 재조정합니다. 심볼이 완전히 삭제된 경우에만 안전하게 `boundary` 관문으로 격리합니다.
 
-### 3.2 선택적 로컬 경량 모델(SLM) 외장 플러그인
+### 3.2 선택적 로컬 경량 모델(SLM) 라벨러
 
-- **역할 분담**: 고지능 메인 에이전트의 토큰 낭비를 막기 위해, 로컬 런타임(Ollama / llama-server, 예: `qwen2.5-coder:1.5b`)이 각 관문의 1줄 한국어 비즈니스 내러티브를 로컬(비용 0원)에서 비동기 보강합니다.
+- **역할 분담**: 로컬 런타임(Ollama 등, 예: `qwen2.5-coder:1.5b`)이 각 FlowSequence 관문의 한 줄 한국어 비즈니스 라벨을 비동기로 제안합니다.
 - **무장애 폴백 (Fault Tolerance)**:
   - 500ms 타임아웃 강제 단절
   - 마크다운 코드블록 선제 제거 및 JSON 자동 파싱
@@ -171,7 +171,7 @@ codeflow collect <진입점-심볼>
 codeflow curate [trace.json | -]
 
 # 4. presenter: 스토리보드 JSON을 브라우저 3열 워크벤치로 인터랙티브 서빙
-codeflow view [storyboard.json | 프로젝트-루트]
+codeflow view [flow-sequence.json | 프로젝트-루트]
 
 # 5. agent-gateway: AI 에이전트 전용 stdio MCP 헤드리스 서버 구동
 codeflow mcp [프로젝트-루트]

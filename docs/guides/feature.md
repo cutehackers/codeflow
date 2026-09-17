@@ -200,9 +200,9 @@ CodeFlow는 다음을 서로 다른 근거로 유지한다.
 
 로컬 실행이 필요한 조사는 사용자가 정확한 실행 작업을 승인한 경우에만 수행한다.
 
-## 8. 선택적 Semantic Enrichment와 Evidence
+## 8. 선택적 Semantic Labeling과 Evidence
 
-Semantic Enrichment는 검증된 deterministic 분석에 사람이 읽기 쉬운 후보 설명을 추가한다. 모델이 없거나 실패해도 기본 분석 결과는 유지된다.
+Semantic Labeling은 검증된 deterministic 분석에 사람이 읽기 쉬운 후보 라벨을 추가한다. SLM이 없거나 실패해도 기본 분석 결과는 유지된다.
 
 ### 프롬프트 예제
 
@@ -294,7 +294,7 @@ $codeflow 코드 변경 감지 시간과 최신 분석 결과를 표시하는 �
 | 요구사항 충족 상태 확인 | `get_requirement_alignment` |
 | 직접·간접 변경 영향 분석 | `get_change_impact` |
 | failure와 incident 경로 조사 | `investigate_failure` |
-| 선택적 모델 설명 요청 | `request_semantic_enrichment` |
+| 선택적 FlowSequence 라벨 요청 | `POST /api/semantic/labels` |
 | 검증·비식별 처리된 근거 조회 | `get_evidence_pack` |
 | semantic approval lifecycle 변경 | `submit_semantic_approval` |
 | semantic approval 이력 조회 | `get_semantic_approval_history` |

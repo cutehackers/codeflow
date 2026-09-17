@@ -1,12 +1,13 @@
 {
-  "schemaId": "https://codeflow.local/schemas/storyboard.schema.json",
+  "schemaId": "https://codeflow.local/schemas/flow_sequence.schema.json",
   "schemaVersion": 1,
+  "flowID": "flow-invalid-role",
   "generationId": "gen-test-01",
   "computedBasisId": "basis-test-01",
-  "snapshotId": "snap-test-01",
+  "snapshotID": "snap-test-01",
   "frames": [
     {
-      "frameId": "frame-1",
+      "frameID": "frame-1",
       "ordinal": 1,
       "role": "non-existent-role",
       "title": "Invalid Frame",

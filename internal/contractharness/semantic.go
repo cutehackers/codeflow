@@ -15,13 +15,13 @@ const (
 	ReviewQueryV2SchemaID      = BaseURL + "rflsc.review-query.v2.schema.json"
 	SemanticMapV2SchemaID      = BaseURL + "rflsc.semantic-map-ir.v2.schema.json"
 	FlowProjectionV2SchemaID   = BaseURL + "rflsc.flowview-projection.v2.schema.json"
-	StoryboardSchemaID         = BaseURL + "storyboard.schema.json"
+	FlowSequenceSchemaID       = BaseURL + "flow_sequence.schema.json"
 )
 
-// ValidateStoryboard verifies schema compliance for Storyboard.
-func ValidateStoryboard(data []byte) error {
-	if err := Validate(StoryboardSchemaID, data); err != nil {
-		return fmt.Errorf("storyboard schema: %w", err)
+// ValidateFlowSequence verifies schema compliance for FlowSequence.
+func ValidateFlowSequence(data []byte) error {
+	if err := Validate(FlowSequenceSchemaID, data); err != nil {
+		return fmt.Errorf("flow_sequence schema: %w", err)
 	}
 	return nil
 }

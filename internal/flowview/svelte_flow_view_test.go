@@ -15,9 +15,9 @@ func TestFlowViewServesSvelteUI(t *testing.T) {
 
 	requiredMarkers := []string{
 		"data-view=\"flowview\"",
-		"MACRO CONTEXT STORYBOARD",
+		"MACRO CONTEXT FLOWSEQUENCE",
 		"Blast Radius Radar",
-		"id=\"macro-storyboard\"",
+		"id=\"flow-sequence\"",
 		"id=\"radar-card\"",
 		"id=\"radar-svg\"",
 		"id=\"query-input\"",

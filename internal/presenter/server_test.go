@@ -33,14 +33,13 @@ func TestPresenterServer_RoutesAndPrunedEndpoints(t *testing.T) {
 		{"GET", "/api/flows"},
 		{"GET", "/api/views"},
 		{"GET", "/api/view"},
-		{"GET", "/api/view/legacy"},
 		{"GET", "/api/view/compare"},
 		{"GET", "/api/flow"},
 		{"GET", "/api/flow/context"},
 		{"GET", "/api/source"},
 		{"POST", "/api/approve"},
 		{"GET", "/api/task/impact"},
-		{"POST", "/api/semantic/enrich"},
+		{"POST", "/api/semantic/labels"},
 	}
 
 	for _, route := range essentialRoutes {

@@ -3,6 +3,7 @@ package flowview
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -85,16 +86,16 @@ func TestFlowViewTaskViewEndpoint(t *testing.T) {
 	if _, ok := resDoc["projection"]; !ok {
 		t.Error("missing projection in response")
 	}
-	sbDoc, ok := resDoc["storyboard"].(map[string]any)
+	sbDoc, ok := resDoc["flowSequence"].(map[string]any)
 	if !ok || sbDoc == nil {
-		t.Fatal("missing or invalid storyboard in response")
+		t.Fatal("missing or invalid flowSequence in response")
 	}
-	if sbDoc["schemaId"] != semantic.StoryboardSchemaID {
-		t.Errorf("expected storyboard schemaId %s, got %v", semantic.StoryboardSchemaID, sbDoc["schemaId"])
+	if sbDoc["schemaId"] != semantic.FlowSequenceSchemaID {
+		t.Errorf("expected flowSequence schemaId %s, got %v", semantic.FlowSequenceSchemaID, sbDoc["schemaId"])
 	}
 	frames, ok := sbDoc["frames"].([]any)
 	if !ok || len(frames) == 0 {
-		t.Errorf("expected at least 1 frame in storyboard, got %v", sbDoc["frames"])
+		t.Errorf("expected at least 1 frame in flowSequence, got %v", sbDoc["frames"])
 	}
 	baseline, _ := resDoc["baseline"].(map[string]any)
 	if baseline == nil || baseline["status"] != "none" {
@@ -219,98 +220,12 @@ func TestSavedTaskViewSurvivesRestartWithoutAnalysis(t *testing.T) {
 	}
 }
 
-func TestLegacyFlowRestorationKeepsFactsWithoutCurrentSource(t *testing.T) {
-	store := storage.New(t.TempDir())
-	session, err := store.BeginGeneration("legacy-basis")
-	if err != nil {
-		t.Fatal(err)
-	}
-	raw := []byte(`{"flowId":"flow-legacy","title":"기존 주문 처리","basisSha":"legacy-basis","steps":[{"stepId":"legacy-entry","ordinal":1,"name":"주문 요청","anchor":{"repoRelativePath":"order.ts","enclosingSymbolPath":"submit"}}],"unknowns":[]}`)
-	if err := session.AddFlowSpec("flow-legacy", raw, storage.FlowSummary{FlowID: "flow-legacy", Title: "기존 주문 처리"}); err != nil {
-		t.Fatal(err)
-	}
-	if err := session.Commit(); err != nil {
-		t.Fatal(err)
-	}
-	srv := &Server{storage: store}
-	result, err := srv.RestoreLegacyFlow(context.Background(), "flow-legacy")
-	if err != nil {
-		t.Fatal(err)
-	}
-	m := result["semanticMap"].(*semantic.SemanticMapIR)
-	if len(m.Steps) != 1 || m.Steps[0].StepID != "legacy-entry" {
-		t.Fatal("legacy facts changed")
-	}
-	if result["sourceNotice"] == "" || len(result["flowContexts"].(map[string]any)) != 0 {
-		t.Fatal("missing source must be explicit")
-	}
-	if _, err := srv.RestoreLegacyFlow(context.Background(), "../pointer"); err == nil {
-		t.Fatal("unsafe flow ID accepted")
-	}
-}
-
-func TestLegacyFlowRestorationBidirectionalAndContextPreservation(t *testing.T) {
-	store := storage.New(t.TempDir())
-	session, err := store.BeginGeneration("gen-1")
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	// Stored under "cand-abcdef123456"
-	raw := []byte(`{"flowId":"cand-abcdef123456","title":"주문 검증","basisSha":"gen-1","steps":[{"stepId":"step-1","ordinal":1,"name":"주문 확인"}],"unknowns":[]}`)
-	if err := session.AddFlowSpec("cand-abcdef123456", raw, storage.FlowSummary{FlowID: "cand-abcdef123456", Title: "주문 검증"}); err != nil {
-		t.Fatal(err)
-	}
-	if err := session.Commit(); err != nil {
-		t.Fatal(err)
-	}
-
-	// Also save a view that has flowContexts and sourceFiles
-	savedPayload := map[string]any{
-		"flowId": "cand-abcdef123456",
-		"flowContexts": map[string]any{
-			"step-1": map[string]any{"filePath": "order.go", "lineStart": 10, "lineEnd": 20},
-		},
-		"sourceFiles": map[string]any{
-			"order.go": "package main\nfunc Order() {}",
-		},
-	}
-	savedBytes, err := json.Marshal(savedPayload)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, _, err := store.SaveView(context.Background(), savedBytes); err != nil {
-		t.Fatal(err)
-	}
-
-	srv := &Server{storage: store}
-
-	// Request using "flow-abcdef123456" (matching "cand-abcdef123456" via bidirectional normalizer)
-	result, err := srv.RestoreLegacyFlow(context.Background(), "flow-abcdef123456")
-	if err != nil {
-		t.Fatalf("expected successful restoration via bidirectional matching, got: %v", err)
-	}
-
-	contexts, ok := result["flowContexts"].(map[string]any)
-	if !ok || len(contexts) == 0 {
-		t.Fatalf("expected preserved flowContexts, got: %+v", result["flowContexts"])
-	}
-
-	sources, ok := result["sourceFiles"].(map[string]any)
-	if !ok || len(sources) == 0 {
-		t.Fatalf("expected preserved sourceFiles, got: %+v", result["sourceFiles"])
-	}
-
-	if result["flowId"] != "flow-abcdef123456" {
-		t.Errorf("expected normalized flowId %q, got %q", "flow-abcdef123456", result["flowId"])
-	}
-}
-
 func TestRestoreTaskViewSourceContextMissingTriggersReanalysisFlag(t *testing.T) {
 	store := storage.New(t.TempDir())
 	savedPayload := map[string]any{
 		"flowId":       "flow-missing-context",
 		"title":        "결제 승인",
+		"flowSequence": testFlowSequence("flow-missing-context"),
 		"flowContexts": map[string]any{},
 		"sourceFiles":  map[string]any{},
 		"semanticMap": map[string]any{
@@ -345,15 +260,48 @@ func TestRestoreTaskViewSourceContextMissingTriggersReanalysisFlag(t *testing.T)
 	}
 }
 
+func TestRestoreTaskViewRejectsMissingFlowSequence(t *testing.T) {
+	store := storage.New(t.TempDir())
+	savedBytes, err := json.Marshal(map[string]any{
+		"flowId":      "flow-old",
+		"semanticMap": map[string]any{"steps": []any{}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	viewID, _, err := store.SaveView(context.Background(), savedBytes)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	srv := &Server{storage: store}
+	if _, err := srv.RestoreTaskView(context.Background(), viewID); !errors.Is(err, errUnsupportedFlowSequenceSchema) {
+		t.Fatalf("expected unsupported FlowSequence schema error, got: %v", err)
+	}
+	rec := httptest.NewRecorder()
+	srv.serveTaskViewDetail(rec, httptest.NewRequest(http.MethodGet, "/api/view?viewId="+viewID, nil))
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("expected HTTP 400 for unsupported FlowSequence schema, got %d", rec.Code)
+	}
+	var errorDoc map[string]any
+	if err := json.Unmarshal(rec.Body.Bytes(), &errorDoc); err != nil {
+		t.Fatal(err)
+	}
+	if errorDoc["code"] != errUnsupportedFlowSequenceSchema.Error() {
+		t.Fatalf("expected error code %q, got %v", errUnsupportedFlowSequenceSchema, errorDoc["code"])
+	}
+}
+
 func TestRestoreTaskViewSourceDeletedOnDiskTriggersReanalysis(t *testing.T) {
 	tempRepo := t.TempDir()
 	store := storage.New(tempRepo)
 
 	// A saved view pointing to a file "deleted_module.go" that does NOT exist in tempRepo
 	savedPayload := map[string]any{
-		"viewId": "view-deleted-disk",
-		"flowId": "flow-deleted-disk",
-		"title":  "삭제된 모듈 흐름",
+		"viewId":       "view-deleted-disk",
+		"flowId":       "flow-deleted-disk",
+		"title":        "삭제된 모듈 흐름",
+		"flowSequence": testFlowSequence("flow-deleted-disk"),
 		"flowContexts": map[string]any{
 			"step-1": map[string]any{
 				"canonicalPath": "deleted_module.go",
@@ -393,5 +341,17 @@ func TestRestoreTaskViewSourceDeletedOnDiskTriggersReanalysis(t *testing.T) {
 	notice, _ := restored["sourceNotice"].(string)
 	if !strings.Contains(notice, "삭제") && !strings.Contains(notice, "재분석") {
 		t.Fatalf("expected informative notice mentioning deletion/reanalysis, got: %q", notice)
+	}
+}
+
+func testFlowSequence(flowID string) map[string]any {
+	return map[string]any{
+		"schemaId":        semantic.FlowSequenceSchemaID,
+		"schemaVersion":   semantic.FlowSequenceSchemaVersion,
+		"flowID":          flowID,
+		"generationId":    "generation-test",
+		"computedBasisId": "basis-test",
+		"snapshotID":      "snapshot-test",
+		"frames":          []any{},
 	}
 }

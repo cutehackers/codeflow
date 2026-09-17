@@ -6,8 +6,8 @@ Use this mode to discover, publish, retrieve, explain, and visually review an ex
 
 1. For a requested FlowView, call `query_task_view` in feature mode with the exact entry symbol or the user's business request and the project root as `target`.
 2. If the result reports ambiguous candidates, select only an unambiguous match or ask the user to choose. Preserve analysis failures and missing evidence.
-3. Open the returned `flowView.url` immediately using the host's browser tool. The returned `viewId` restores that exact saved result, including storyboard and source context. Do not create a separate HTML file or issue another analysis to display it.
-4. To reopen a saved result, pass its exact `viewId` and target to `open_review`, then open the returned URL. Existing `flowId` links remain supported, with missing historical source shown explicitly.
+3. Open the returned `flowView.url` immediately using the host's browser tool. The returned `viewId` restores that exact saved result, including FlowSequence and source context. Do not create a separate HTML file or issue another analysis to display it.
+4. To reopen a saved result, pass its exact `viewId` and target to `open_review`, then open the returned URL. Missing historical source is shown explicitly.
 5. Use `analyze_flow` or `publish_core_flow` when the user requests persisted core-flow publication. When showing that result, use its returned `flowId` with `open_review`.
 6. Reanalysis creates a new saved result only on an explicit request. Do not watch edits or replace the open view automatically.
 

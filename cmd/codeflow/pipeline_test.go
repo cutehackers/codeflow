@@ -137,7 +137,7 @@ func TestPipeline_UnixPiping_CollectCurateView(t *testing.T) {
 		t.Fatalf("viewCmd failed: %v\nOutput: %s", err, string(viewOut))
 	}
 
-	if !strings.Contains(string(viewOut), "스토리보드 검증 성공") {
+	if !strings.Contains(string(viewOut), "FlowSequence 검증 성공") {
 		t.Errorf("expected validation success message, got: %s", string(viewOut))
 	}
 }
@@ -156,17 +156,17 @@ func TestPipeline_Curate_BrokenJSON_Exits1(t *testing.T) {
 func TestPipeline_View_EmptyFrames_DisplaysNotice(t *testing.T) {
 	bin := buildBinary(t)
 
-	emptyStoryboard := `{"flowId": "flow-empty", "frames": []}`
+	emptyFlowSequence := `{"flowId": "flow-empty", "frames": []}`
 	cmd := exec.Command(bin, "view", "--dry-run", "-")
-	cmd.Stdin = strings.NewReader(emptyStoryboard)
+	cmd.Stdin = strings.NewReader(emptyFlowSequence)
 	cmd.Env = append(os.Environ(), "CODEFLOW_NONINTERACTIVE=1")
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		t.Fatalf("view failed: %v\nOutput: %s", err, string(out))
 	}
 
-	if !strings.Contains(string(out), "빈 스토리보드") {
-		t.Errorf("expected empty storyboard notice, got: %s", string(out))
+	if !strings.Contains(string(out), "빈 FlowSequence") {
+		t.Errorf("expected empty FlowSequence notice, got: %s", string(out))
 	}
 }
 

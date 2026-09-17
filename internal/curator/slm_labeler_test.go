@@ -12,7 +12,7 @@ import (
 	"codeflow/internal/curator"
 )
 
-func TestExternalHTTPEnricher_HappyPath(t *testing.T) {
+func TestSLMLabeler_HappyPath(t *testing.T) {
 	// Mock OpenAI-compatible Ollama server returning valid JSON
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/v1/chat/completions" {
@@ -23,7 +23,7 @@ func TestExternalHTTPEnricher_HappyPath(t *testing.T) {
 			"choices": []map[string]any{
 				{
 					"message": map[string]string{
-						"content": `[{"frameId": "frame-01", "narrative": "결제 요청 승인 처리"}]`,
+						"content": `[{"frameID": "frame-01", "text": "결제 요청 승인 처리"}]`,
 					},
 				},
 			},
@@ -32,13 +32,13 @@ func TestExternalHTTPEnricher_HappyPath(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	enricher := curator.NewExternalHTTPEnricher(curator.SLMConfig{
+	labeler := curator.NewSLMLabeler(curator.SLMConfig{
 		Enabled:   true,
 		Endpoint:  srv.URL + "/v1",
 		TimeoutMs: 500,
 	})
 
-	frames := []curator.FlowFrame{
+	frames := []curator.FlowSequenceFrame{
 		{
 			FrameID: "frame-01",
 			Role:    "effect",
@@ -46,29 +46,29 @@ func TestExternalHTTPEnricher_HappyPath(t *testing.T) {
 		},
 	}
 
-	narratives, err := enricher.EnrichStoryboard(context.Background(), frames)
+	texts, err := labeler.LabelFlowSequence(context.Background(), frames)
 	if err != nil {
-		t.Fatalf("EnrichStoryboard failed: %v", err)
+		t.Fatalf("LabelFlowSequence failed: %v", err)
 	}
-	if len(narratives) != 1 {
-		t.Fatalf("expected 1 narrative, got %d", len(narratives))
+	if len(texts) != 1 {
+		t.Fatalf("expected 1 text, got %d", len(texts))
 	}
-	if narratives[0].Status != "enriched" {
-		t.Errorf("expected status enriched, got: %s", narratives[0].Status)
+	if texts[0].Status != "proposed" {
+		t.Errorf("expected status proposed, got: %s", texts[0].Status)
 	}
-	if narratives[0].Narrative != "결제 요청 승인 처리" {
-		t.Errorf("unexpected narrative: %s", narratives[0].Narrative)
+	if texts[0].Text != "결제 요청 승인 처리" {
+		t.Errorf("unexpected text: %s", texts[0].Text)
 	}
 }
 
-func TestExternalHTTPEnricher_MarkdownCodeBlockExtraction(t *testing.T) {
+func TestSLMLabeler_MarkdownCodeBlockExtraction(t *testing.T) {
 	// Mock returning JSON inside markdown ```json code block
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		resp := map[string]any{
 			"choices": []map[string]any{
 				{
 					"message": map[string]string{
-						"content": "Here is the response:\n```json\n[\n  {\"frameId\": \"f1\", \"narrative\": \"재고 수량 유효성 검증\"}\n]\n```\nHope this helps!",
+						"content": "Here is the response:\n```json\n[\n  {\"frameID\": \"f1\", \"text\": \"재고 수량 유효성 검증\"}\n]\n```\nHope this helps!",
 					},
 				},
 			},
@@ -77,13 +77,13 @@ func TestExternalHTTPEnricher_MarkdownCodeBlockExtraction(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	enricher := curator.NewExternalHTTPEnricher(curator.SLMConfig{
+	labeler := curator.NewSLMLabeler(curator.SLMConfig{
 		Enabled:   true,
 		Endpoint:  srv.URL + "/v1",
 		TimeoutMs: 500,
 	})
 
-	frames := []curator.FlowFrame{
+	frames := []curator.FlowSequenceFrame{
 		{
 			FrameID: "f1",
 			Role:    "decision",
@@ -91,19 +91,19 @@ func TestExternalHTTPEnricher_MarkdownCodeBlockExtraction(t *testing.T) {
 		},
 	}
 
-	narratives, err := enricher.EnrichStoryboard(context.Background(), frames)
+	texts, err := labeler.LabelFlowSequence(context.Background(), frames)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if len(narratives) != 1 || narratives[0].Status != "enriched" {
-		t.Fatalf("expected 1 enriched narrative, got: %+v", narratives)
+	if len(texts) != 1 || texts[0].Status != "proposed" {
+		t.Fatalf("expected 1 proposed text, got: %+v", texts)
 	}
-	if narratives[0].Narrative != "재고 수량 유효성 검증" {
-		t.Errorf("unexpected narrative: %s", narratives[0].Narrative)
+	if texts[0].Text != "재고 수량 유효성 검증" {
+		t.Errorf("unexpected text: %s", texts[0].Text)
 	}
 }
 
-func TestExternalHTTPEnricher_TimeoutSilentFallback(t *testing.T) {
+func TestSLMLabeler_TimeoutSilentFallback(t *testing.T) {
 	// Mock server that sleeps longer than TimeoutMs (100ms timeout, 300ms sleep)
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		time.Sleep(200 * time.Millisecond)
@@ -111,13 +111,13 @@ func TestExternalHTTPEnricher_TimeoutSilentFallback(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	enricher := curator.NewExternalHTTPEnricher(curator.SLMConfig{
+	labeler := curator.NewSLMLabeler(curator.SLMConfig{
 		Enabled:   true,
 		Endpoint:  srv.URL + "/v1",
 		TimeoutMs: 50, // 50ms strict budget
 	})
 
-	frames := []curator.FlowFrame{
+	frames := []curator.FlowSequenceFrame{
 		{
 			FrameID: "f1",
 			Role:    "entry",
@@ -126,7 +126,7 @@ func TestExternalHTTPEnricher_TimeoutSilentFallback(t *testing.T) {
 	}
 
 	t0 := time.Now()
-	narratives, err := enricher.EnrichStoryboard(context.Background(), frames)
+	texts, err := labeler.LabelFlowSequence(context.Background(), frames)
 	elapsed := time.Since(t0)
 
 	if err != nil {
@@ -135,18 +135,18 @@ func TestExternalHTTPEnricher_TimeoutSilentFallback(t *testing.T) {
 	if elapsed > 150*time.Millisecond {
 		t.Errorf("timeout took too long: %v (budget 50ms)", elapsed)
 	}
-	if len(narratives) != 1 {
-		t.Fatalf("expected 1 fallback narrative, got %d", len(narratives))
+	if len(texts) != 1 {
+		t.Fatalf("expected 1 fallback text, got %d", len(texts))
 	}
-	if narratives[0].Status != "timed_out" && narratives[0].Status != "fallback" {
-		t.Errorf("expected timed_out or fallback status, got: %s", narratives[0].Status)
+	if texts[0].Status != "timed_out" && texts[0].Status != "fallback" {
+		t.Errorf("expected timed_out or fallback status, got: %s", texts[0].Status)
 	}
-	if narratives[0].Narrative != "OrderCheckout" {
-		t.Errorf("expected fallback to original title, got: %s", narratives[0].Narrative)
+	if texts[0].Text != "OrderCheckout" {
+		t.Errorf("expected fallback to original title, got: %s", texts[0].Text)
 	}
 }
 
-func TestExternalHTTPEnricher_DisabledNoNetworkCall(t *testing.T) {
+func TestSLMLabeler_DisabledNoNetworkCall(t *testing.T) {
 	called := false
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		called = true
@@ -154,24 +154,24 @@ func TestExternalHTTPEnricher_DisabledNoNetworkCall(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	enricher := curator.NewExternalHTTPEnricher(curator.SLMConfig{
+	labeler := curator.NewSLMLabeler(curator.SLMConfig{
 		Enabled:  false, // Disabled
 		Endpoint: srv.URL,
 	})
 
-	frames := []curator.FlowFrame{
+	frames := []curator.FlowSequenceFrame{
 		{FrameID: "f1", Title: "StepOne"},
 	}
 
-	narratives, err := enricher.EnrichStoryboard(context.Background(), frames)
+	texts, err := labeler.LabelFlowSequence(context.Background(), frames)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	if called {
 		t.Fatal("expected no HTTP call when SLM is disabled")
 	}
-	if len(narratives) != 1 || narratives[0].Status != "fallback" {
-		t.Errorf("unexpected narratives: %+v", narratives)
+	if len(texts) != 1 || texts[0].Status != "fallback" {
+		t.Errorf("unexpected texts: %+v", texts)
 	}
 }
 
@@ -182,16 +182,16 @@ func TestExtractJSONPayload_Variations(t *testing.T) {
 		shouldError bool
 	}{
 		{
-			input:    `[{"frameId": "1"}]`,
-			expected: `[{"frameId": "1"}]`,
+			input:    `[{"frameID": "1"}]`,
+			expected: `[{"frameID": "1"}]`,
 		},
 		{
-			input:    "```json\n[{\"frameId\": \"2\"}]\n```",
-			expected: `[{"frameId": "2"}]`,
+			input:    "```json\n[{\"frameID\": \"2\"}]\n```",
+			expected: `[{"frameID": "2"}]`,
 		},
 		{
-			input:    "Leading text ```[{\"frameId\": \"3\"}]``` Trailing text",
-			expected: `[{"frameId": "3"}]`,
+			input:    "Leading text ```[{\"frameID\": \"3\"}]``` Trailing text",
+			expected: `[{"frameID": "3"}]`,
 		},
 		{
 			input:       "No json at all here",

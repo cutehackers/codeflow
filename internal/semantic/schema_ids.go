@@ -1,7 +1,6 @@
 package semantic
 
-// VS04 canonical schema identities. Legacy v1 documents remain readable at
-// compatibility boundaries, but production VS04 outputs use these identities.
+// VS04 canonical schema identities used by current production outputs.
 const (
 	TaskIntentSchemaID                = "https://codeflow.local/schemas/rflsc.task-intent.v2.schema.json"
 	FeatureQuerySchemaID              = "https://codeflow.local/schemas/rflsc.feature-query.v2.schema.json"
@@ -19,10 +18,10 @@ const (
 	DomainCandidateSchemaID           = "https://codeflow.local/schemas/rflsc.domain-candidate.v2.schema.json"
 	RepresentativeFlowCatalogSchemaID = "https://codeflow.local/schemas/rflsc.representative-flow-catalog.v2.schema.json"
 	OnboardingFlowDrilldownSchemaID   = "https://codeflow.local/schemas/rflsc.onboarding-flow-drilldown.v2.schema.json"
-	StoryboardSchemaID                = "https://codeflow.local/schemas/storyboard.schema.json"
+	FlowSequenceSchemaID              = "https://codeflow.local/schemas/flow_sequence.schema.json"
 )
 
 const (
-	SemanticSchemaVersion   = 2
-	StoryboardSchemaVersion = 1
+	SemanticSchemaVersion     = 2
+	FlowSequenceSchemaVersion = 1
 )

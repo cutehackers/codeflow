@@ -916,11 +916,15 @@ func (s *Server) executeTool(ctx context.Context, name string, args map[string]a
 			}
 			viewURL = fv.TaskViewURL(viewID)
 		} else if flowID != "" {
-			restored, err := fv.RestoreLegacyFlow(ctx, flowID)
+			restored, err := fv.RestoreFlowView(ctx, flowID)
 			if err != nil {
 				return nil, err
 			}
-			if id, ok := restored["viewId"].(string); ok {
+			saved, err := fv.SaveTaskView(ctx, restored)
+			if err != nil {
+				return nil, err
+			}
+			if id, ok := saved["viewId"].(string); ok {
 				viewID = id
 				viewURL = fv.TaskViewURL(id)
 			}

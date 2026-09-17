@@ -13,26 +13,16 @@ func NewSignificanceRanker() *SignificanceRanker {
 	return &SignificanceRanker{}
 }
 
-// Rank takes clumped candidate frames and reduces them to 4~7 high-significance FlowFrames.
-// For traces with <3 steps, it preserves the 1~2 frames without creating dummy cards.
-func (sr *SignificanceRanker) Rank(candidates []CandidateFrame) []FlowFrame {
+// Rank takes clumped candidate frames and reduces them to 4~7 high-significance FlowSequence frames.
+// For traces with fewer than 3 steps, it preserves the actual frames without creating dummy cards.
+func (sr *SignificanceRanker) Rank(candidates []CandidateFrame) []FlowSequenceFrame {
 	if len(candidates) == 0 {
-		return []FlowFrame{
-			{
-				FrameID:        "frame-01",
-				Ordinal:        1,
-				Role:           "boundary",
-				Title:          "분석 대상 없음",
-				PrimaryStepRef: "empty",
-				StepRefs:       []string{"empty"},
-				Status:         "unknown",
-			},
-		}
+		return []FlowSequenceFrame{}
 	}
 
 	// Floor bound: if candidates <= 7, keep all of them (do not inject dummy cards for 1-2 steps)
 	if len(candidates) <= 7 {
-		frames := make([]FlowFrame, len(candidates))
+		frames := make([]FlowSequenceFrame, len(candidates))
 		for i, c := range candidates {
 			ordinal := i + 1
 			matchKey := fmt.Sprintf("%s|%s", c.Role, c.Title)
@@ -51,7 +41,7 @@ func (sr *SignificanceRanker) Rank(candidates []CandidateFrame) []FlowFrame {
 					status = "verified"
 				}
 			}
-			frames[i] = FlowFrame{
+			frames[i] = FlowSequenceFrame{
 				FrameID:         fmt.Sprintf("frame-%02d", ordinal),
 				Ordinal:         ordinal,
 				Role:            c.Role,
@@ -109,7 +99,7 @@ func (sr *SignificanceRanker) Rank(candidates []CandidateFrame) []FlowFrame {
 	}
 
 	// Absorb unselected frames into the nearest preceding selected frame
-	frames := make([]FlowFrame, 0, len(orderedSelectedIndices))
+	frames := make([]FlowSequenceFrame, 0, len(orderedSelectedIndices))
 	currentSelectedPtr := -1
 
 	for i, c := range candidates {
@@ -135,7 +125,7 @@ func (sr *SignificanceRanker) Rank(candidates []CandidateFrame) []FlowFrame {
 					status = "verified"
 				}
 			}
-			frames = append(frames, FlowFrame{
+			frames = append(frames, FlowSequenceFrame{
 				FrameID:         fmt.Sprintf("frame-%02d", ordinal),
 				Ordinal:         ordinal,
 				Role:            c.Role,

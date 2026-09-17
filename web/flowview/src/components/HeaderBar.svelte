@@ -11,7 +11,7 @@
 
   let {
     title = 'CodeFlow',
-    mode = 'FlowView Storyboard',
+    mode = 'FlowView FlowSequence',
     staticLinkUrl = '',
     staticLinkLabel = ''
   }: Props = $props();

@@ -31,7 +31,7 @@ type CompactFlowPayload struct {
 }
 
 // BuildCompactPayload converts a FlowSpec and curated FlowFrames into a high-density AI agent payload.
-func BuildCompactPayload(spec *fusion.FlowSpec, frames []FlowFrame, directCallers, directCallees int) CompactFlowPayload {
+func BuildCompactPayload(spec *fusion.FlowSpec, frames []FlowSequenceFrame, directCallers, directCallees int) CompactFlowPayload {
 	if spec == nil {
 		return CompactFlowPayload{}
 	}

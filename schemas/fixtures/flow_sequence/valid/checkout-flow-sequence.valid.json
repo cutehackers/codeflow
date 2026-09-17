@@ -1,16 +1,17 @@
 {
-  "schemaId": "https://codeflow.local/schemas/storyboard.schema.json",
+  "schemaId": "https://codeflow.local/schemas/flow_sequence.schema.json",
   "schemaVersion": 1,
+  "flowID": "flow-checkout",
   "generationId": "gen-test-01",
   "computedBasisId": "basis-test-01",
-  "snapshotId": "snap-test-01",
+  "snapshotID": "snap-test-01",
   "frames": [
     {
-      "frameId": "frame-1",
+      "frameID": "frame-1",
       "ordinal": 1,
       "role": "entry",
       "title": "Checkout Entry",
-      "narrative": "User initiates checkout action",
+      "text": "User initiates checkout action",
       "technicalAnchor": "CheckoutButton.onClick",
       "stepRefs": ["step-1"],
       "primaryStepRef": "step-1",
@@ -23,11 +24,11 @@
       "frameMatchKey": "entry|CheckoutButton.onClick"
     },
     {
-      "frameId": "frame-2",
+      "frameID": "frame-2",
       "ordinal": 2,
       "role": "decision",
       "title": "Validate Cart",
-      "narrative": "Verify items in cart are available",
+      "text": "Verify items in cart are available",
       "technicalAnchor": "CartService.validate",
       "stepRefs": ["step-2", "step-3"],
       "primaryStepRef": "step-2",

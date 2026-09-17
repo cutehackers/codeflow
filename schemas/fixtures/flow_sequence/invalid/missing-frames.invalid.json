@@ -1,0 +1,8 @@
+{
+  "schemaId": "https://codeflow.local/schemas/flow_sequence.schema.json",
+  "schemaVersion": 1,
+  "flowID": "flow-missing-frames",
+  "generationId": "gen-test-01",
+  "computedBasisId": "basis-test-01",
+  "snapshotID": "snap-test-01"
+}

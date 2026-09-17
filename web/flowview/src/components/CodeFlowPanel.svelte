@@ -1,7 +1,7 @@
 <script lang="ts">
   import { flowStore, GATEWAY_ROLES, LAYER_LABELS, EDGE_LABELS } from '../stores/flowStore.svelte';
   import type { FlowContext, DisplayedLine } from '../types/flow';
-  import type { StoryboardFrame } from '../types/storyboard';
+  import type { FlowSequenceFrame } from '../types/flow_sequence';
 
   const frames = $derived(flowStore.selectedFrame ? [{ ...flowStore.selectedFrame, primaryStepRef: flowStore.selectedStepId || flowStore.selectedFrame.primaryStepRef }] : []);
   const selectedFrameId = $derived(flowStore.selectedFrameId);
@@ -45,9 +45,9 @@
     return (flowStore.data?.semanticMap?.edges || []).filter(e => e.fromStepId === stepId);
   }
 
-  function onFrameSelect(frameId: string) {
-    if (flowStore.selectedFrameId !== frameId) flowStore.select(frameId);
-    const storyEl = document.querySelector(`[data-story-frame="${frameId}"], [data-story-step="${flowStore.selectedStepId}"]`);
+  function onFrameSelect(frameID: string) {
+    if (flowStore.selectedFrameId !== frameID) flowStore.select(frameID);
+    const frameEl = document.querySelector(`[data-flow-frame="${frameID}"], [data-flow-step="${flowStore.selectedStepId}"]`);
 
   }
 </script>
@@ -56,8 +56,8 @@
   {#if !frames.length}
     <p class="empty">이 요청에서 확인된 처리 단계가 없습니다.</p>
   {:else}
-    {#each frames as frame, index (frame.frameId)}
-      {@const isSelected = selectedFrameId === frame.frameId || (!selectedFrameId && selectedStepId === frame.primaryStepRef)}
+    {#each frames as frame, index (frame.frameID)}
+      {@const isSelected = selectedFrameId === frame.frameID || (!selectedFrameId && selectedStepId === frame.primaryStepRef)}
       {@const isExpanded = expandedSet.has(frame.primaryStepRef)}
       {@const currContext = getContext(frame.primaryStepRef, false)}
       {@const baseContext = compare ? getContext(frame.primaryStepRef, true) : null}
@@ -68,7 +68,7 @@
       {@const rels = getStepRelations(frame.primaryStepRef)}
       {@const delta = getDelta(frame.primaryStepRef)}
       {@const isSurgery = compare && (delta?.kind === 'added_behavior' || delta?.kind === 'changed_rule')}
-      {@const desc = frame.narrative || (frame.condition ? `조건 · ${frame.condition}` : '다음 구현 연결 및 처리')}
+      {@const desc = frame.text || (frame.condition ? `조건 · ${frame.condition}` : '다음 구현 연결 및 처리')}
 
       <!-- svelte-ignore a11y_click_events_have_key_events -->
       <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
@@ -77,9 +77,9 @@
         class:selected={isSelected}
         class:outside-focus={matchingStepIds !== null && !matchingStepIds.has(frame.primaryStepRef)}
         class:condition-match={matchingStepIds !== null && matchingStepIds.has(frame.primaryStepRef)}
-        data-card={frame.frameId}
+        data-card={frame.frameID}
         data-step-card={frame.primaryStepRef}
-        onclick={() => onFrameSelect(frame.frameId)}
+        onclick={() => onFrameSelect(frame.frameID)}
       >
         <header class="card-head">
           <div class="card-head-top">
@@ -103,7 +103,7 @@
           </div>
           <div class="card-head-body">
             <h3>{#if isSurgery}⚡ {/if}{frame.title}</h3>
-            <p class="card-narrative">{desc}</p>
+            <p class="card-text">{desc}</p>
             {#if flowStore.selectedStep?.stepId !== flowStore.selectedFrame?.primaryStepRef}<p>{flowStore.selectedStep?.name}</p>{/if}
             <div class="path">{path} · {frame.technicalAnchor || frame.sourceAnchor?.enclosingSymbolPath || ''}</div>
           </div>
@@ -248,7 +248,7 @@
     font-size: 13px;
     font-weight: 800;
   }
-  .card-narrative {
+  .card-text {
     font-size: 11px;
     color: #555555;
     line-height: 1.4;

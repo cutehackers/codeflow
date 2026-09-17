@@ -12,7 +12,7 @@ declare global {
   interface Window {
     flowStore: typeof flowStore;
     fetchTaskView: (query?: string, entry?: string, flow?: string, reanalyze?: boolean) => Promise<boolean>;
-    openFlowView: (id: string, legacy?: boolean) => Promise<boolean>;
+    openFlowView: (id: string) => Promise<boolean>;
     showFlowHome: () => Promise<void>;
     compareFlowViews: (baselineId: string) => Promise<void>;
     cancelFlowRequest: () => void;
@@ -33,16 +33,15 @@ async function api(path: string, signal?: AbortSignal) {
   return data;
 }
 
-function setURL(viewId?: string, flowId?: string) {
+function setURL(viewId?: string) {
   const url = new URL(location.href);
   url.search = '';
   if (token) url.searchParams.set('token', token);
   if (viewId) url.searchParams.set('viewId', viewId);
-  if (flowId) url.searchParams.set('flow', flowId);
   if (url.href !== location.href) history.pushState({}, '', url);
 }
 
-async function load(path: string, preserve: boolean, legacyId?: string): Promise<boolean> {
+async function load(path: string, preserve: boolean): Promise<boolean> {
   controller?.abort();
   controller = new AbortController();
   const ticket = ++sequence;
@@ -56,7 +55,7 @@ async function load(path: string, preserve: boolean, legacyId?: string): Promise
     const adopted = flowStore.adopt(data, !preserve);
     if (adopted) {
       flowStore.home = false;
-      setURL(data.viewId, data.viewId ? undefined : legacyId);
+      setURL(data.viewId);
       try { const saved = await api('/api/views'); if (ticket === sequence) flowStore.views = saved.views || []; } catch { /* Current result remains readable if listing fails. */ }
     }
     return adopted;
@@ -81,7 +80,7 @@ window.cancelFlowRequest = () => {
   flowStore.notice = '요청을 취소했습니다. 기존 화면을 유지합니다.';
 };
 
-window.openFlowView = (id, legacy = false) => load(legacy ? `/api/view/legacy?flowId=${encodeURIComponent(id)}` : `/api/view?viewId=${encodeURIComponent(id)}`, false, legacy ? id : undefined);
+window.openFlowView = (id) => load(`/api/view?viewId=${encodeURIComponent(id)}`, false);
 window.fetchTaskView = (query = '', entry = '', flow = '', reanalyze = false) => {
   const saved = reanalyze ? flowStore.data?.request : undefined;
   const search = new URLSearchParams({ mode: 'feature' });
@@ -104,10 +103,9 @@ window.showFlowHome = async () => {
   flowStore.candidates = [];
   setURL();
   try {
-    const [saved, legacy] = await Promise.all([api('/api/views'), api('/api/flows')]);
+    const saved = await api('/api/views');
     if (ticket !== sequence) return;
     flowStore.views = saved.views || [];
-    flowStore.legacyFlows = legacy.flows || [];
   } catch (error) {
     if (ticket === sequence) flowStore.listError = `목록을 불러오지 못했습니다: ${(error as Error).message}`;
   }
@@ -141,7 +139,6 @@ window.addEventListener('codeflow:query', (event) => {
 async function bootstrap() {
   const query = new URLSearchParams(location.search);
   if (query.get('viewId')) await window.openFlowView(query.get('viewId')!);
-  else if (query.get('flow') || query.get('flowId')) await window.openFlowView(query.get('flow') || query.get('flowId')!, true);
   else if (query.get('entrySymbol') || query.get('entry') || query.get('request') || query.get('query')) await window.fetchTaskView(query.get('request') || query.get('query') || '', query.get('entrySymbol') || query.get('entry') || '');
   else await window.showFlowHome();
 }

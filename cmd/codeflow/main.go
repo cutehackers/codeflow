@@ -47,7 +47,7 @@ const usage = `codeflow — Business Flow First Engine
 Usage:
   codeflow analyze [path]     run project detector and CodeGraph call graph discovery.
   codeflow collect <symbol>   extract raw execution trace from entry symbol AST.
-  codeflow curate [trace|-]   curate macro storyboard frames from raw execution trace.
+  codeflow curate [trace|-]   curate FlowSequence frames from raw execution trace.
   codeflow init [path]        prepare a repository: detect project, resolve
                               adapter pins, create .codeflow/workspace.json
   codeflow flows [path]       harvest flow candidates in automatic score order.
@@ -60,7 +60,7 @@ Usage:
                               Flags: --limit <N>
   codeflow show <id|entry>    display flow steps and business rules.
                               Flags: --json
-  codeflow view [path]        start FlowView interactive web UI or view storyboard JSON.
+  codeflow view [path]        start FlowView interactive web UI or view FlowSequence JSON.
                               Flags: --port <port>, --token <token>, --dry-run
   codeflow serve [path]       alias for 'codeflow view'
   codeflow live [path]        start Live View project change awareness mode.
@@ -654,7 +654,7 @@ func runCurate(args []string) {
 	}
 
 	c := curator.NewCurator()
-	frames := c.CurateStoryboard(trace)
+	frames := c.CurateFlowSequence(trace)
 
 	result := map[string]any{
 		"flowId": trace.FlowID,
@@ -676,7 +676,7 @@ func runServe(args []string) {
 	flowFlag := fs.String("flow", "", "flow ID to view")
 	queryFlag := fs.String("query", "", "feature query or intent to view")
 	entryFlag := fs.String("entry", "", "entry symbol to view")
-	dryRunFlag := fs.Bool("dry-run", false, "validate input storyboard without launching browser or server")
+	dryRunFlag := fs.Bool("dry-run", false, "validate input FlowSequence without launching browser or server")
 	if err := fs.Parse(reorderFlags(fs, args)); err != nil {
 		os.Exit(2)
 	}
@@ -696,7 +696,7 @@ func runServe(args []string) {
 			inputData, err = os.ReadFile(target)
 		}
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "error reading storyboard input: %v\n", err)
+			fmt.Fprintf(os.Stderr, "error reading FlowSequence input: %v\n", err)
 			os.Exit(1)
 		}
 
@@ -708,9 +708,9 @@ func runServe(args []string) {
 
 		frames, _ := sb["frames"].([]any)
 		if len(frames) == 0 {
-			fmt.Println("안내: 빈 스토리보드 (확인된 관문 프레임 없음)")
+			fmt.Println("안내: 빈 FlowSequence (확인된 관문 프레임 없음)")
 		} else {
-			fmt.Printf("스토리보드 검증 성공: %d개 프레임 확인됨\n", len(frames))
+			fmt.Printf("FlowSequence 검증 성공: %d개 프레임 확인됨\n", len(frames))
 		}
 
 		if *dryRunFlag || os.Getenv("CODEFLOW_NONINTERACTIVE") != "" {

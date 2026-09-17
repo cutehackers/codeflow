@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/url"
@@ -14,9 +15,10 @@ import (
 
 	"codeflow/internal/contractharness"
 	"codeflow/internal/fusion"
-	"codeflow/internal/secret"
 	"codeflow/internal/semantic"
 )
+
+var errUnsupportedFlowSequenceSchema = errors.New("unsupported_flow_sequence_schema")
 
 func matchFlowID(storedID, requestedID string) bool {
 	if storedID == requestedID {
@@ -38,15 +40,15 @@ func (s *Server) SaveTaskView(ctx context.Context, result map[string]any) (map[s
 	if err := json.Unmarshal(raw, &mapIR); err != nil {
 		return nil, err
 	}
-	storyboard := semantic.BuildStoryboard(&mapIR)
-	data, err := json.Marshal(storyboard)
+	flowSequence := semantic.BuildFlowSequence(&mapIR)
+	data, err := json.Marshal(flowSequence)
 	if err != nil {
 		return nil, err
 	}
-	if err := contractharness.ValidateStoryboard(data); err != nil {
-		return nil, fmt.Errorf("storyboard: %w", err)
+	if err := contractharness.ValidateFlowSequence(data); err != nil {
+		return nil, fmt.Errorf("flowSequence: %w", err)
 	}
-	result["storyboard"] = storyboard
+	result["flowSequence"] = flowSequence
 	raw, err = json.Marshal(result)
 	if err != nil {
 		return nil, err
@@ -145,6 +147,17 @@ func (s *Server) RestoreTaskView(ctx context.Context, id string) (map[string]any
 	if err := json.Unmarshal(raw, &result); err != nil {
 		return nil, err
 	}
+	flowSequence, ok := result["flowSequence"]
+	if !ok {
+		return nil, errUnsupportedFlowSequenceSchema
+	}
+	flowSequenceRaw, err := json.Marshal(flowSequence)
+	if err != nil {
+		return nil, fmt.Errorf("validate FlowSequence: %w", err)
+	}
+	if err := contractharness.ValidateFlowSequence(flowSequenceRaw); err != nil {
+		return nil, fmt.Errorf("%w: %v", errUnsupportedFlowSequenceSchema, err)
+	}
 	result["viewId"] = id
 
 	s.checkAndMarkSourceContextMissing(result)
@@ -158,7 +171,11 @@ func (s *Server) serveTaskViewDetail(w http.ResponseWriter, r *http.Request) {
 	}
 	result, err := s.RestoreTaskView(r.Context(), r.URL.Query().Get("viewId"))
 	if err != nil {
-		writeTaskViewError(w, fmt.Errorf("저장된 분석을 열 수 없습니다: %w", err), http.StatusNotFound)
+		status := http.StatusNotFound
+		if errors.Is(err, errUnsupportedFlowSequenceSchema) {
+			status = http.StatusBadRequest
+		}
+		writeTaskViewError(w, fmt.Errorf("저장된 분석을 열 수 없습니다: %w", err), status)
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")
@@ -176,10 +193,17 @@ func (s *Server) serveTaskViewComparison(w http.ResponseWriter, r *http.Request)
 			return nil, err
 		}
 		var result struct {
-			Map semantic.SemanticMapIR `json:"semanticMap"`
+			Map          semantic.SemanticMapIR `json:"semanticMap"`
+			FlowSequence json.RawMessage        `json:"flowSequence"`
 		}
 		if err := json.Unmarshal(raw, &result); err != nil {
 			return nil, err
+		}
+		if len(result.FlowSequence) == 0 {
+			return nil, errUnsupportedFlowSequenceSchema
+		}
+		if err := contractharness.ValidateFlowSequence(result.FlowSequence); err != nil {
+			return nil, fmt.Errorf("%w: %v", errUnsupportedFlowSequenceSchema, err)
 		}
 		return &result.Map, nil
 	}
@@ -202,9 +226,9 @@ func (s *Server) serveTaskViewComparison(w http.ResponseWriter, r *http.Request)
 	_ = json.NewEncoder(w).Encode(delta)
 }
 
-// RestoreLegacyFlow adapts only persisted facts. Missing historical source is
-// explicit and never replaced with source from the current working tree.
-func (s *Server) RestoreLegacyFlow(ctx context.Context, flowID string) (map[string]any, error) {
+// RestoreFlowView builds a current FlowView result from the active FlowSpec.
+// Stored views are used only when they contain the current FlowSequence schema.
+func (s *Server) RestoreFlowView(ctx context.Context, flowID string) (map[string]any, error) {
 	if flowID == "" || filepath.Base(flowID) != flowID || strings.ContainsAny(flowID, "/\\") || flowID == "." || flowID == ".." {
 		return nil, fmt.Errorf("invalid flow ID")
 	}
@@ -220,6 +244,10 @@ func (s *Server) RestoreLegacyFlow(ctx context.Context, flowID string) (map[stri
 		var doc map[string]any
 		if err := json.Unmarshal(raw, &doc); err != nil {
 			return nil, err
+		}
+		flowSequenceRaw, err := json.Marshal(doc["flowSequence"])
+		if err != nil || contractharness.ValidateFlowSequence(flowSequenceRaw) != nil {
+			continue
 		}
 		req, _ := doc["request"].(map[string]any)
 		storedFlowID := fmt.Sprint(req["flowId"])
@@ -320,7 +348,7 @@ func (s *Server) RestoreLegacyFlow(ctx context.Context, flowID string) (map[stri
 		"viewId":               recViewID,
 		"flowId":               flowID,
 		"semanticMap":          m,
-		"storyboard":           semantic.BuildStoryboard(m),
+		"flowSequence":         semantic.BuildFlowSequence(m),
 		"flowContexts":         map[string]any{},
 		"sourceFiles":          map[string]any{},
 		"request":              map[string]any{"flowId": flowID, "entrySymbol": entry},
@@ -330,28 +358,4 @@ func (s *Server) RestoreLegacyFlow(ctx context.Context, flowID string) (map[stri
 	}
 	s.checkAndMarkSourceContextMissing(res)
 	return res, nil
-}
-
-func (s *Server) serveLegacyFlowView(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodGet {
-		w.WriteHeader(http.StatusMethodNotAllowed)
-		return
-	}
-	doc, err := s.RestoreLegacyFlow(r.Context(), r.URL.Query().Get("flowId"))
-	if err != nil {
-		writeTaskViewError(w, err, http.StatusNotFound)
-		return
-	}
-	raw, err := json.Marshal(doc)
-	if err != nil {
-		writeTaskViewError(w, err, http.StatusInternalServerError)
-		return
-	}
-	clean, _, err := secret.RedactJSON(raw)
-	if err != nil {
-		writeTaskViewError(w, err, http.StatusInternalServerError)
-		return
-	}
-	w.Header().Set("Content-Type", "application/json")
-	_, _ = w.Write(clean)
 }

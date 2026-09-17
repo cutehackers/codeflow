@@ -163,7 +163,6 @@ func NewServer(cfg Config) (*Server, error) {
 	mux.HandleFunc("/", s.serveIndex)
 	mux.HandleFunc("/api/flows", s.serveListFlows)
 	mux.HandleFunc("/api/views", s.serveTaskViewList)
-	mux.HandleFunc("/api/view/legacy", s.serveLegacyFlowView)
 	mux.HandleFunc("/api/view", s.serveTaskViewDetail)
 	mux.HandleFunc("/api/view/compare", s.serveTaskViewComparison)
 	mux.HandleFunc("/api/flow", s.serveGetFlow)
@@ -172,7 +171,7 @@ func NewServer(cfg Config) (*Server, error) {
 	mux.HandleFunc("/api/approve", s.serveApprove)
 	mux.HandleFunc("/api/task/view", s.serveTaskView)
 	mux.HandleFunc("/api/task/impact", s.serveTaskImpact)
-	mux.HandleFunc("/api/semantic/enrich", s.serveSemanticEnrichment)
+	mux.HandleFunc("/api/semantic/labels", s.serveSemanticLabels)
 
 	port := cfg.Port
 	ln, err := net.Listen("tcp", fmt.Sprintf("127.0.0.1:%d", port))
@@ -752,6 +751,8 @@ func writeTaskViewError(w http.ResponseWriter, err error, status int) {
 			if qErr.Code == "no_entrypoints_found" {
 				status = http.StatusBadRequest
 			}
+		} else if errors.Is(err, errUnsupportedFlowSequenceSchema) {
+			code = errUnsupportedFlowSequenceSchema.Error()
 		} else {
 			for _, candidate := range []string{"no_entrypoints_found", "missing_precondition", "invalid_precondition", "ambiguous_target", "incomparable_basis", "unavailable", "unknown", "conflict"} {
 				if strings.HasPrefix(message, candidate+":") || message == candidate {

@@ -1,6 +1,6 @@
 # FlowView Storyboard 전환 결정
 
-- Status: Accepted for `FLOWVIEW-STORYBOARD-TRANSITION`
+- Status: Superseded by `2026-09-16-codeflow-architectural-reset-and-flow-sequence-spec-ko.md`
 - Created: 2026-09-15
 
 ## 결정1. 화면의 기본 단위

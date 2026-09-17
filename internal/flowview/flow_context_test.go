@@ -184,7 +184,7 @@ func TestRFLSCR2VS11_A07(t *testing.T) {
 	}
 	requireExact(t, &p)
 	for _, control := range []string{`id="flow-context-precision"`, `role="status"`, `id="btn-expand-callable"`, `id="btn-expand-file"`, `id="flow-source-limitation"`} {
-		if !strings.Contains(IndexHTML, control) {
+		if !strings.Contains(FlowViewHTML, control) {
 			t.Fatalf("missing accessible control %s", control)
 		}
 	}
