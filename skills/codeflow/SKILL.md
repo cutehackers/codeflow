@@ -1,36 +1,37 @@
 ---
 name: codeflow
-description: Use CodeFlow MCP for verified core-flow publication and FlowView, Live Semantic View/Map creation with the fixed template, edit-driven current-or-gap tracking, and evidence-bound semantic review, impact, failure, approval, onboarding, or release evaluation.
+description: Use CodeFlow MCP for verified core-flow extraction, FlowSequence Storyboard generation, and interactive FlowView review across polyglot codebases.
 ---
 
 # CodeFlow MCP Operating Contract
 
-Operate the installed CodeFlow MCP using the smallest workflow that satisfies the request. Preserve CodeFlow's evidence, identity, freshness, and authority boundaries when translating tool results into an answer.
+Operate the installed CodeFlow MCP using the official 8 core tools. Preserve CodeFlow's evidence, identity, freshness, and authority boundaries when translating tool results into an answer.
 
 ## Preconditions
 
-- Use this skill when the user invokes `$codeflow` or clearly requests CodeFlow analysis, live semantic tracking, semantic review, or FlowView.
+- Use this skill when the user invokes `$codeflow` or clearly requests CodeFlow analysis, business flow extraction, or FlowView review.
 - Use the project root as `target`, not a feature subdirectory. Project identity and adapter detection depend on root files such as `pubspec.yaml` or `package.json`.
-- If CodeFlow MCP or its language adapter is unavailable, report that installation or adapter resolution is required. Do not claim live behavior from a CLI-only substitute.
-- Keep every related live operation on the same MCP server and exact target. `open_review` then points to that coordinator's FlowView.
+- If CodeFlow MCP or its language adapter is unavailable, report that installation or adapter resolution is required (`codeflow doctor <target>`).
+- Keep all operations on the same MCP server and exact target repository.
 
 ## Route the User Request
 
-- When the user asks how an existing feature works or wants to see its code path, read [references/static-flowview.md](references/static-flowview.md).
-- When the user asks what changed, what is affected, why something failed, whether requirements are met, whether an explanation should be approved, how an unfamiliar project is organized, or whether a release is ready, read [references/semantic-operations.md](references/semantic-operations.md).
+- **Discover & Visualize Existing Flow**: Use `harvest_flows` to find candidate entry points, `analyze_flow` to extract and publish the Storyboard, and `open_review` to generate the interactive FlowView URL.
+- **Explain Flow Steps**: Retrieve the curated FlowSequence and high-density payload via `get_flow_payload`, then explain the business intent (macro gateways) followed by line-level execution details (1:N timeline steps).
+- **Verify Agent-Authored Core Flow**: Use `publish_core_flow` to ground and publish verified code anchors against the current workspace.
+- **Inspect Boundaries & Unknowns**: Use `report_unknowns` to inspect unresolvable dynamic dispatches, missing types, and external boundary cutoffs.
+- **Step Approval & Drafts**: Use `approve_step` when the user explicitly approves step descriptions/rules, or `submit_flow_draft` for structured session journeys.
 
-Read only the references required by the request. Do not start the live edit loop for a static flow request or load specialized semantic operations for ordinary flow visualization.
+For detailed step-by-step procedures, consult [references/static-flowview.md](references/static-flowview.md).
 
 ## Shared Authority Rules
 
-- Treat verified anchors, analyzer results, Evidence Packs, and proof manifests as evidence. Never fill missing behavior with inference.
-- Say a result is `current` only when CodeFlow returns a valid current answer and Generation Proof for the same target, generation, basis, snapshot, intent revision, and query. Otherwise report `historical`, `candidate`, `unknown`, or the returned Verified Gap.
-- Keep these states separate: implementation Fact, freshness, settlement, Requirement Alignment, model enrichment, Semantic Approval, and runtime observation. One state never upgrades another.
-- A model proposal is display-only until separately grounded and approved. Approval does not change implementation facts, freshness, settlement, or alignment.
+- Treat verified anchors, AST facts, and proof manifests as evidence. Never fill missing behavior with ungrounded inference.
+- Say a result is `verified` only when CodeFlow returns valid anchors matching the current snapshot. Otherwise report `stale`, `candidate`, or `boundary`.
+- Internal engine telemetry (compiler epochs, lag, settlement flags, internal locks) is strictly prohibited from leaking into user responses.
 - Runtime behavior is `observed` only when CodeFlow returns trusted runtime evidence. Static reachability is not runtime evidence.
-- Preserve exact IDs returned by CodeFlow. Do not invent or rewrite repository, worktree, epoch, snapshot, basis, generation, intent, proposal, evidence-pack, approval, or event identities.
-- On ambiguous targets, present CodeFlow's candidates and ask the user to select. On incomplete closure or proof, preserve the gap instead of retrying into a success claim.
+- On ambiguous targets or multiple candidate flows, present CodeFlow's candidates and ask the user to select. On incomplete closure, preserve the gap (`boundary`) instead of retrying into an unwarranted success claim.
 
 ## Response Contract
 
-Lead with the business behavior. Then state the relevant code path or semantic change, its evidence/freshness, and any unknown or blocking gap. For a Live Semantic Map request, open or present the `flowView.url` returned by `query_task_view` immediately. The returned URL restores the exact request and resolved entry symbol in the same FlowView coordinator.
+Lead with the high-level business behavior and macro Storyboard gateways (`entry`, `decision`, `process`, `effect`, `result`, `boundary`). Then present the relevant line-level code path with exact repo-relative anchors, and highlight any unresolved boundary. When the user requests visual review, call `open_review` and present the authenticated FlowView URL.

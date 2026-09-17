@@ -13,18 +13,22 @@ CodeFlow is a developer code comprehension tool that helps developers understand
 
 ### Core Architectural Principles
 
-1. **Code Comprehension First**:
-   The primary goal is developer code comprehension. Non-core statements and noise that do not advance the business flow are condensed.
+1. **Code Comprehension First (Navigation & Context Restoration)**:
+   The primary goal is developer code comprehension. Non-core statements and noise that do not advance the business flow are condensed, and relevant source code and nearby context are directly presented to eliminate disorientation.
 2. **FlowSequence 1:N Timeline Model**:
    Business flows are structured into 4–7 macro business gateways (`FlowSequenceFrame`: `entry`, `decision`, `process`, `effect`, `result`, `boundary`). Each gateway contains 1 to N microscopic execution timeline steps (`SemanticStep`), providing high-level intent with drill-down line-level traceability.
-3. **Role-Based 5-Module Partitioning & Unidirectional Flow**:
+3. **Explicit Re-analysis & Pinned Comparison**:
+   Current flow is the default. Background file edits or watcher events never automatically swap the screen, move reading positions, or switch baselines. Re-analysis runs once upon explicit user command, and comparison requires an explicitly pinned baseline.
+4. **Controlled Disclosure & Evidence-Bound Relations**:
+   Macro clumping and significance ranking reduce noise; detailed execution steps and direct caller/callee/mutation relations (Radar) are disclosed on demand and bound to the same immutable snapshot.
+5. **Anti-Telemetry Guard**:
+   Internal engine telemetry (compiler epochs, lag, settlement flags, index statistics) is strictly forbidden from leaking into primary views or MCP payloads. Only verifiable business flow traversals, architecture layers, and source code are presented.
+6. **Role-Based 5-Module Partitioning & Unidirectional Flow**:
    The Go core (`internal/`) is partitioned into exactly five modules with strict unidirectional data flow:
    `analyzer` $\to$ `collector` $\to$ `curator` $\to$ `presenter` / `agentgateway`.
-4. **CodeGraph Synergy with Zero Hard Dependency**:
+7. **CodeGraph Synergy with Zero Hard Dependency**:
    Leverages repo-wide static call graph indexing (`.codegraph/`) for high-speed route discovery and dynamic dispatch resolution, while falling back gracefully to AST parsing if unavailable.
-5. **Anti-Telemetry Guard**:
-   Internal engine telemetry (epochs, latency, settlement flags, index statistics) is strictly forbidden from leaking into primary views or MCP payloads. Only verifiable business flow traversals, architecture layers, and source code are presented.
-6. **Single-Gate Secret Redaction**:
+8. **Single-Gate Secret Redaction**:
    All egress paths (FlowView HTTP REST, MCP stdio JSON-RPC) route through a unified, single-gate secret redaction engine in `internal/collector/secret`.
 
 ---
@@ -160,17 +164,15 @@ erDiagram
     
     WORKSPACE_SNAPSHOT {
         string snapshotId PK
-        int64 workspaceEpoch
-        string computedBasisId
+        string basisFingerprint
         string parentSnapshotId
-        boolean liveHead
+        string capturedAt
     }
 
     GENERATION_PROOF_MANIFEST {
         string proofId PK
         string generationId
-        string computedBasisId
-        string settlementStatus
+        string basisFingerprint
         string qualityStage
     }
 
@@ -178,7 +180,7 @@ erDiagram
         string generationId PK
         string manifestObjectRef
         string publishedAt
-        int64 workspaceEpoch
+        int flowCount
     }
 
     CONTENT_ADDRESSABLE_BLOB {

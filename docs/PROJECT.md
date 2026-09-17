@@ -1,8 +1,8 @@
 # CodeFlow — Project Overview
 
-> **Understand Large Codebases Through End-to-End Business Flow Extraction & Visualization**
+> **Understand Large Codebases Through End-to-End Business Flow Extraction & Storyboard Visualization**
 
-CodeFlow is a **Live Semantic Compiler** and an interactive code analysis engine and visualization platform for developers and AI coding agents. Given a large, complex repository, CodeFlow extracts end-to-end **Core Business Flows** (핵심 흐름) across architectural layers, validates every step against verifiable code anchors, and visualizes the complete execution path through an interactive 7-lane interface.
+CodeFlow is an interactive code analysis engine and developer code comprehension platform for developers and AI coding agents. Given a large, complex repository, CodeFlow extracts end-to-end **Core Business Flows** (핵심 흐름), structures them into curated Storyboard scenes (4–7 macro business gateways), validates every step against verifiable code anchors, and visualizes the complete execution path through an interactive 3-column FlowView workbench with line-level 1:N timeline drill-down.
 
 ---
 
@@ -11,18 +11,17 @@ CodeFlow is a **Live Semantic Compiler** and an interactive code analysis engine
 Core Capabilities describe the domain engine, analytical methodologies, and correctness guarantees provided by CodeFlow.
 
 ### 1.1 End-to-End Core Flow Extraction
-* **Architecture-Layer Traversal**: Traces the complete execution path starting from an entry trigger (UI click, HTTP endpoint, route, or system event) through controllers, use cases, domain entities, repositories, down to infrastructure and external APIs.
+* **Cross-Layer Execution Traversal**: Traces the complete execution path starting from an entry trigger (UI click, HTTP endpoint, route, or system event) through controllers, use cases, domain entities, repositories, down to infrastructure and external APIs.
 * **Non-Core Noise Pruning**: Isolates the requested business flow by filtering out non-advancing statements, boilerplate, and irrelevant utility invocations.
 
 ### 1.2 Zero-Hallucination Code Grounding (Fact Anchors)
-* **Verifiable Code Anchors**: Every single step is tied to real code facts: exact file paths, byte ranges, line numbers, file hashes, span hashes, and canonical AST fingerprints.
-* **Honest Gap Surfacing**: When dynamic dispatch, missing type information, or external boundaries interrupt static resolution, CodeFlow explicitly flags them as `unresolved_dynamic` or `unknowns[]` instead of inferring plausible but unverified steps.
+* **Verifiable Code Anchors**: Every single step is tied to real code facts: exact repo-relative file paths, byte ranges, line numbers, file hashes, span hashes, and canonical AST fingerprints.
+* **Honest Gap Surfacing**: When dynamic dispatch, missing type information, or external boundaries interrupt static resolution, CodeFlow explicitly flags them as `unresolved_dynamic`, `unknowns[]`, or `boundary` gateways instead of inferring plausible but unverified steps.
 
-### 1.3 Universal 7-Layer Normalization & Monotonic Progression
-* **Canonical 7-Lane Architecture**: Normalizes diverse architectural nomenclature into 7 standardized layers:
-  $$\text{presentation} \longrightarrow \text{controller} \longrightarrow \text{usecase} \longrightarrow \text{domain} \longrightarrow \text{data} \longrightarrow \text{infra} \longrightarrow \text{external}$$
-* **Architecture-Agnostic Adaptation**: Seamlessly supports Feature-First Clean Architecture, Hexagonal / Ports & Adapters, Feature-Sliced Design (FSD), Layered MVC/MVVM, and Monorepos.
-* **Monotonic Order Validation**: Enforces top-down architectural progression and validates layer integrity to catch architectural backtracking or unclassified layers.
+### 1.3 Storyboard Business Gateways & Asymmetric 1:N Timeline Model
+* **FlowSequence Storyboard Scenes**: Transcends rigid architectural layer enforcement by organizing code execution around 4–7 macro business gateways (`entry`, `decision`, `process`, `effect`, `result`, `boundary`).
+* **Asymmetric 1:N Execution Timeline Containment**: Connects high-level business intent (`FlowSequenceFrame`) with microscopic execution steps (`SemanticStep`), preserving exact line-level traceability inside expandable accordions.
+* **Flexible Architectural Context**: Rather than forcing every codebase into an identical 7-layer hierarchy, architecture classifications serve as secondary context labels attached to scenes.
 
 ### 1.4 Provenance & Freshness Lifecycle Tracking
 * **Freshness Guarantees**: Tracks whether anchors are `fresh`, `stale` (source modified after generation), or `orphaned` (symbol deleted or relocated).
@@ -32,7 +31,13 @@ Core Capabilities describe the domain engine, analytical methodologies, and corr
 * **Semantic Discovery**: Automatically identifies and ranks candidate business flows by extracting natural language intent signals (`derivedName`, `docLine`, `triggerClass`) for semantic queries (e.g., *"Show email signup flow"*).
 
 ### 1.6 Track A "Layer Authority" Separation
-* **Structural AST vs. Architectural Mapping**: Language adapters extract purely structural AST facts (`guard`, `mutation`, `call`, `effect`, `branch`), leaving high-level layer mapping and flow synthesis to the AI agent and Go Core validation engine.
+* **Structural AST vs. Architectural Mapping**: Language adapters extract purely structural AST facts (`guard`, `mutation`, `call`, `effect`, `branch`), leaving high-level layer mapping and flow synthesis to the Go Core curation engine and AI agent.
+
+### 1.7 FlowView Code Comprehension Premises
+* **Navigation & Context Restoration**: Directly presents relevant source code and surrounding context without navigational disorientation.
+* **Explicit Re-analysis & Pinned Comparison**: Current flow is the default; baseline comparison is explicitly chosen by the user. Background file edits or watcher events never automatically swap the screen or move reading positions.
+* **Controlled Disclosure & Focus**: Macro clumping and significance ranking reduce noise; detailed execution steps and direct relations are revealed only on demand.
+* **Anti-Telemetry Guard**: Internal engine telemetry (compiler epochs, lag, settlement flags, index statistics) is strictly forbidden from leaking into primary views. Only verifiable business flow traversals, architecture layers, and source code are presented.
 
 ---
 
@@ -41,16 +46,17 @@ Core Capabilities describe the domain engine, analytical methodologies, and corr
 Product Surfaces are the concrete software components, user touchpoints, protocols, and tools shipped with CodeFlow.
 
 ### 2.1 FlowView Interactive Web UI
-* **7-Lane Architecture Timeline**: Interactive, browser-based visual map displaying the execution path traversing across architectural lanes.
-* **Embedded CodeLens**: Inspects exact function bodies, source code spans, and highlighted step focuses directly within the browser.
+* **3-Column Storyboard Workbench**: Single Svelte 5 production frontend featuring the macro Storyboard track (4–7 gateway cards), navigation rail, embedded CodeLens panel with line-level highlights, and Blast Radius Radar.
+* **Explicit Re-analysis & Baseline Comparison**: Single-shot re-analysis upon explicit user command; side-by-side comparison against a pinned historical baseline without automatic screen refreshes.
+* **Evidence-Backed Direct Relation Radar**: Explores verified direct caller/callee relationships, state mutations, and related tests for the selected scene without speculative global impact inference.
 * **Secure Token-Authenticated Loopback**: Embedded HTTP server bound strictly to `127.0.0.1` and protected by per-session cryptographic auth tokens (`?token=...`).
 
 ### 2.2 Multi-Agent Model Context Protocol (MCP) Server
 * **Stdio JSON-RPC Interface**: Built-in MCP server providing out-of-the-box auto-configuration for 4 major AI agent ecosystems: **Codex, Claude Desktop, Cursor IDE, and Antigravity / Gemini CLI**.
-* **Specialized MCP Toolset (8 Tools)**:
+* **Official 8 Core MCP Tools**:
   * `publish_core_flow`: Atomically verifies anchors and publishes architecture-layer core flows.
   * `harvest_flows`: Discovers and scores candidate entry-point flows matching natural language queries.
-  * `get_flow_payload`: Retrieves structured FlowSpec JSON for a specific flow.
+  * `get_flow_payload`: Retrieves structured FlowSpec JSON and high-density compact payloads for a specific flow.
   * `analyze_flow`: On-demand slice, fuse, and publish for arbitrary symbol entry points.
   * `submit_flow_draft`: Submits structured session journey drafts with verified anchors.
   * `approve_step`: Human/agent in-place approval for step descriptions and business rules.
@@ -63,7 +69,7 @@ Product Surfaces are the concrete software components, user touchpoints, protoco
 * **Production Adapters**:
   * **Dart / Flutter Adapter**: Deep static analysis via the Dart Analyzer SDK.
   * **TypeScript / JavaScript Adapter**: Fast, zero-external-dependency AST scanner for React, Node.js, Express, and Next.js.
-* **Process Pool Management (`AdapterRegistry`)**: Maintains reusable, multi-threaded adapter subprocess worker pools per repository and language.
+* **Process Pool Management (`AdapterRegistry`)**: Maintains reusable, isolated adapter subprocess worker pools per repository and language.
 
 ### 2.4 Declarative Architecture Configuration (`codeflow.layers.yaml`)
 * **Layer Rules & Path Matching**: Declarative YAML configuration defining directory glob patterns (`pathPatterns`) and project-specific nomenclature (`aliases`).
@@ -124,6 +130,7 @@ graph TD
 
 * **Architecture & Internals**: [`docs/ARCHITECTURE.md`](ARCHITECTURE.md)
 * **LLM & Coding Agent Guide**: [`docs/guides/llm-usage.md`](guides/llm-usage.md)
+* **Features & Prompts Guide**: [`docs/guides/feature.md`](guides/feature.md)
 * **Development and CLI Guide**: [`docs/guides/development.md`](guides/development.md)
 * **Multi-Language Adapter Protocol**: [`docs/design/specs/llm-language-adapter-protocol.md`](design/specs/llm-language-adapter-protocol.md)
 * **Korean Project Overview**: [`docs/PROJECT-ko.md`](PROJECT-ko.md)

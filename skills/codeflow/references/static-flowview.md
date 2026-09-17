@@ -1,40 +1,29 @@
-# FlowView
+# FlowView Storyboard & Core Flow Review
 
-Use this mode to discover, publish, retrieve, explain, and visually review an existing code flow. FlowView describes captured code. It does not prove that the result remains current after later edits.
+Use this guide to discover, publish, retrieve, explain, and visually review an existing code flow in CodeFlow.
 
-## Discover and Analyze
+## 1. Discover and Analyze
 
-1. For a requested FlowView, call `query_task_view` in feature mode with the exact entry symbol or the user's business request and the project root as `target`.
-2. If the result reports ambiguous candidates, select only an unambiguous match or ask the user to choose. Preserve analysis failures and missing evidence.
-3. Open the returned `flowView.url` immediately using the host's browser tool. The returned `viewId` restores that exact saved result, including FlowSequence and source context. Do not create a separate HTML file or issue another analysis to display it.
-4. To reopen a saved result, pass its exact `viewId` and target to `open_review`, then open the returned URL. Missing historical source is shown explicitly.
-5. Use `analyze_flow` or `publish_core_flow` when the user requests persisted core-flow publication. When showing that result, use its returned `flowId` with `open_review`.
-6. Reanalysis creates a new saved result only on an explicit request. Do not watch edits or replace the open view automatically.
+1. **Harvest Candidate Flows**: Call `harvest_flows` with `query` (natural language request or business domain) and `target` (project root).
+2. **Select Entry Point**: If multiple candidates are returned, select the most relevant match or present candidates to the user to choose.
+3. **Analyze Flow**: Call `analyze_flow` with the exact `entrySymbolPath` and `target`. This slices the execution trace, curates 4–7 macro business gateways (`FlowSequenceFrame`), and atomically publishes the result.
+4. **Retrieve Curated Payload**: Call `get_flow_payload` with `flowId` or `entrySymbolPath` to obtain the compact ~500-token payload (`CompactFlowPayload`) and full FlowSpec.
+5. **Open FlowView Review**: When the user requests visual review, call `open_review` with `flowId` (or `entrySymbolPath`) and `target` to obtain the authenticated FlowView URL (`http://127.0.0.1:<port>/?token=...`).
 
-Do not describe anchor verification as an asynchronous FlowView state. `publish_core_flow` either returns a concrete verification error or a published `flowId`; report only that returned result.
+## 2. Explain the Storyboard
 
-For an agent-authored artifact:
+1. **Macro Intent First**: Start with the 4–7 macro gateways (`entry`, `decision`, `process`, `effect`, `result`, `boundary`) to explain what business task each stage performs.
+2. **Micro Execution Trace**: Drill down into the 1:N timeline steps (`call`, `guard`, `mutation`, `result`) inside the relevant gateways, referencing exact file paths and line ranges.
+3. **Honest Boundary Reporting**: If an unresolvable dynamic dispatch or external call cutoff occurred, explain it as a `boundary` gateway using facts from `report_unknowns`.
 
-- Start at the entry-layer event and follow every handling step needed to reach completion across architecture layers.
-- Exclude statements that do not advance that traversal.
-- Honor an existing `codeflow.layers.yaml`. If it is absent and layer classification is needed, derive it from repository structure and dependency/provider relationships before class-name suffixes.
-- Every step must contain `layer`, `kind`, `name`, and the complete anchor required by the registered `core-artifact` schema.
-- Use canonical layers such as `presentation`, `controller`, `usecase`, `domain`, `data`, `infra`, and `external`.
-- Represent backward/error transitions with a valid branch rather than violating layer order.
+## 3. Agent-Authored Core Flow Publication
 
-## Recovery
+When an agent synthesizes an end-to-end flow artifact directly:
+- Call `publish_core_flow` with `target` and `artifact`.
+- Ensure every step includes valid `layer`, `kind`, `name`, and 6-field code anchor (`repoRelativePath`, `byteRange`, `fileHash`, `spanHash`, `enclosingSymbolPath`, `canonicalAstFingerprint`).
+- On `anchor_verification_failed`, reread the target file to recompute offsets against current bytes and retry once.
 
-- On `anchor_verification_failed`, reread the cited file, recompute the anchor against current bytes, and retry once.
-- On `artifact_too_large`, split the result into meaningful subflows. Do not resend the same oversized artifact.
-- Use `report_unknowns` for unresolved boundaries. Do not invent the missing traversal.
+## 4. Explicit Re-analysis & Baseline Comparison
 
-## Review and Explain
-
-1. Retrieve the persisted result with `get_flow_payload` using the returned `flowId` or exact entry symbol.
-2. Explain the business outcome first, then the ordered layer traversal, state changes, branches, external effects, and explicit unknowns.
-3. Call `open_review` only when the user asks to see FlowView. Use the same target and returned flow identity.
-
-## Optional Draft and Step Approval
-
-- Use `submit_flow_draft` only for a requested structured journey-draft workflow.
-- Use `approve_step` only when the user explicitly approves a FlowView step name or rules. This legacy step approval is separate from live Semantic Approval.
+- Re-analysis is executed on-demand only when explicitly requested by the user. Do not watch edits or auto-refresh views.
+- When comparing changes, compare against an explicitly pinned baseline rather than assuming continuous live streaming.

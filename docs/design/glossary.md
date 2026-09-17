@@ -4,9 +4,14 @@
 
 | Term | Operational Definition | Korean Term |
 |---|---|---|
-| Live Semantic Compiler | CodeFlow's engine for extracting, verifying, compiling, and presenting semantic execution flows. | 실시간 의미 컴파일러 |
-| Content-Addressable Storage | Immutable typed-object storage in which content identity determines the object reference and durable roots determine its lifecycle. It is an infrastructure adapter, not semantic authority. | 콘텐츠 주소 기반 저장소 |
-| Live Project Change Analysis | Historical project-change mode retained for compatibility. The current product direction is request-driven FlowView. | 기존 실시간 프로젝트 변경 분석 |
+| FlowView Storyboard | 개발자가 코드 동작을 직관적으로 이해할 수 있도록 비즈니스 실행 흐름을 4~7개 핵심 관문과 1:N 미시 타임라인으로 요약·시각화하는 CodeFlow의 정본 인터랙티브 워크벤치. | FlowView 스토리보드 |
+| FlowSequence | 사용자가 이해하려는 코드 동작을 시작, 판단, 처리, 외부 효과, 결과 또는 분석 경계 관문으로 묶어 보여 주는 FlowView의 기본 프로젝션 모델. | 플로우시퀀스 |
+| FlowSequenceFrame | FlowSequence의 거시적 비즈니스 관문 단위 (`entry`, `decision`, `process`, `effect`, `result`, `boundary`). | 비즈니스 관문 프레임 |
+| Execution Timeline | 각 비즈니스 관문 내부에 1:N으로 보존되는 구체적 코드 라인 실행 단계 모음 (`SemanticStep`: `call`, `guard`, `mutation`, `result`). | 실행 타임라인 |
+| Anti-Telemetry Guard | 에포크, 지연 시간(lag), 내부 결재 락 등 엔진 내부 텔레메트리가 기본 화면이나 사용자 설명에 노출되지 않도록 차단하는 원칙. | 안티 텔레메트리 가드 |
+| Content-Addressable Storage | 내용의 해시(SHA-256)가 객체 식별자를 결정하고 영속 루트가 수명주기를 결정하는 불변 객체 저장소. | 콘텐츠 주소 기반 저장소 |
+| Live Semantic Compiler | [Deprecated / Superseded] 과거 실시간 파일 감시 및 자동 컴파일러 모델. 현재는 사용자 명시적 1회성 재분석 및 기준선 비교 기반의 FlowView 코드 이해 체제로 전면 대체됨. | [레거시] 실시간 의미 컴파일러 |
+| Live Project Change Analysis | [Deprecated / Historical] 과거 실시간 프로젝트 변경 분석 모드. FlowView 코드 이해 체제로 대체됨. | [레거시] 실시간 프로젝트 변경 분석 |
 
 FlowSequence는 사용자가 이해하려는 코드 동작을 핵심 관문과 실행 단계의 관계로 표현하는 FlowView의 기본 화면 모델이다. architecture는 관문을 구성하는 기준이 아니라, 관측된 경우에만 보조 정보로 표시한다.
 
@@ -31,9 +36,9 @@ FlowSequence는 사용자가 이해하려는 코드 동작을 핵심 관문과 �
 | Settlement | 요청 흐름의 critical completion 상태다. Q1·Q2는 pending이며 Q3 이상에서 모든 required obligation verified, critical unknown 0, conflict 0일 때만 passed다. freshness와 별개다. | SemanticMapIR quality state | Raw §10.10–§10.11, §18.1, D27, D31 | Confirmed | `docs/design/specs/2026-09-02-requested-flow-live-semantic-compiler-ko.md` |
 | Semantic Approval | 인증된 로컬 사용자가 실제 proposal의 의미 표현을 특정 basis와 Task Intent revision에 대해 승인, 수정 후 승인, 거절, 취소 또는 대체한 append-only event다. Fact, Evidence, Requirement Alignment, freshness와 settlement를 변경하지 않는다. | optional model enrichment와 curated product language | Raw §10.9, D20, D34 | Confirmed | `docs/design/specs/2026-09-02-requested-flow-live-semantic-compiler-ko.md` |
 | Generation Proof Manifest | 한 generation의 map, delta, evidence, projection, closure와 gate 결과를 computed basis, validated head와 Content-Addressable Storage 조건에 연결하는 canonical proof다. | atomic publication과 query | Raw §3.11, §10.11 | Confirmed | `docs/design/specs/2026-09-02-requested-flow-live-semantic-compiler-ko.md` |
-| Workspace Change Ingress | IDE, coding agent 또는 watcher fallback이 관측한 upsert, delete, rename을 source, batch identity, canonical path와 stable capture로 coordinator의 단일 snapshot lineage에 제출하는 boundary다. | Live Semantic View의 edit-driven snapshot 생성 | D39, D40 | Confirmed | `docs/design/specs/2026-09-02-requested-flow-live-semantic-compiler-ko.md` |
-| Watcher Fallback | 직접 IDE·agent 제출이 없거나 누락됐을 때 filesystem event를 capture signal로 사용하고 stable capture 또는 reconciliation 결과만 Workspace Change Ingress에 제출하는 coordinator 기능이다. | Live Semantic View의 변경 누락 복구 | D40 | Confirmed | `docs/design/specs/2026-09-02-requested-flow-live-semantic-compiler-ko.md` |
-| Generation-bound Live View | `generation.published` event의 generation, basis, snapshot identity와 일치하는 proof-backed artifact만 렌더하는 Live Semantic View 응답이다. | 검증된 변경 반영과 reconnect | D41 | Confirmed | `docs/design/specs/2026-09-02-requested-flow-live-semantic-compiler-ko.md` |
+| Workspace Change Ingress | [Deprecated] 과거 실시간 파일 감시 및 편집 수집 경계. FlowView 사용자 명시적 1회성 분석으로 대체됨. | Live Semantic View의 edit-driven snapshot 생성 | D39, D40 | Deprecated / Removed | `docs/design/specs/2026-09-14-flowview-code-comprehension-ko.md` |
+| Watcher Fallback | [Deprecated] 파일시스템 이벤트를 감시하던 과거 기능. 에이전트 및 사용자의 명시적 요청 기반 분석으로 대체됨. | Live Semantic View의 변경 누락 복구 | D40 | Deprecated / Removed | `docs/design/specs/2026-09-14-flowview-code-comprehension-ko.md` |
+| Generation-bound Live View | [Deprecated] 실시간 SSE 이벤트 기반 뷰 응답. 단일 Svelte 5 워크벤치(FlowView Storyboard)로 통합 대체됨. | 검증된 변경 반영과 reconnect | D41 | Deprecated / Removed | `docs/design/specs/2026-09-14-flowview-code-comprehension-ko.md` |
 | Live Project Change Analysis | 기능 요청 없이 프로젝트 코드 변경을 감시하고, 재시작 시 마지막 검증 분석 기준과 현재 source의 차이를 검증해 표시하는 사용 모드다. 사용자 읽음·미확인 이력을 저장하거나 표시 기준으로 사용하지 않는다. | 기존 Live 계약·데이터 호환. 신규 FlowView 필수 architecture 아님 | §2·§7–§8 | Historical / compatibility only | `docs/design/specs/2026-09-14-flowview-code-comprehension-ko.md` |
 | Live Analysis Basis | 마지막으로 검증된 분석에 결합된 snapshot·configuration·dependency·capability identity다. 성공한 publication만 전진시키며 candidate basis, 화면 baseline, 수집 head와 구별한다. 재시작 시 현재 stable source와 비교한다. | 기존 Live 계약·데이터 호환. 신규 FlowView 필수 architecture 아님 | §2·§7–§8 | Historical / compatibility only | `docs/design/specs/2026-09-14-flowview-code-comprehension-ko.md` |
 | Logical Live coordinator | 특정 프로젝트의 workspace lineage, watcher, scheduler, event stream과 stale recovery를 단일 authority로 소유하는 논리 서비스다. MCP process는 이 coordinator의 producer이며 별도 authority가 아니다. | 기존 Live 계약·데이터 호환. 신규 FlowView 필수 architecture 아님 | §2·§7–§8 | Historical / compatibility only | `docs/design/specs/2026-09-14-flowview-code-comprehension-ko.md` |
