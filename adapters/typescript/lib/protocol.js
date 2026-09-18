@@ -29,7 +29,7 @@ const CAPABILITIES = Object.freeze({
  * @param {object} req
  * @returns {object}
  */
-function handleRequest(req) {
+function dispatchLegacyRequest(req) {
   if (!req || typeof req !== 'object' || Array.isArray(req)) {
     return legacyError('', 'E_BAD_REQUEST', 'request must be a JSON object');
   }
@@ -113,12 +113,13 @@ function legacyError(id, code, message, retryable = false) {
 }
 
 /**
- * Handles one production JSON-RPC request. The historical handleRequest
- * helper above remains available for direct adapter tests and legacy callers.
+ * Dispatches one production JSON-RPC request. The historical
+ * dispatchLegacyRequest helper above remains available for direct adapter
+ * tests and legacy callers.
  * @param {object} req
  * @returns {object}
  */
-function handleRPCRequest(req) {
+function dispatchRPCRequest(req) {
   const id = req && typeof req.id === 'string' ? req.id : '';
   if (!req || typeof req !== 'object' || Array.isArray(req)) {
     return rpcError(id, 'E_BAD_REQUEST', 'request must be a JSON object');
@@ -167,7 +168,7 @@ function handleRPCRequest(req) {
   const internalParams = { ...req.params, ...operationPayload, __analysisTracker: tracker };
   internalParams.repoRoot = typeof operationPayload.repoRoot === 'string' && operationPayload.repoRoot
     ? operationPayload.repoRoot : process.cwd();
-  const legacy = handleRequest({ v: PROTOCOL_VERSION, id, op: method, params: internalParams });
+  const legacy = dispatchLegacyRequest({ v: PROTOCOL_VERSION, id, op: method, params: internalParams });
   if (!legacy.ok) return rpcError(id, legacy.err.code, legacy.err.message, legacy.err.retryable, legacy.err.detail);
   let result = legacy.result || {};
   if (['detect', 'harvest_candidates', 'slice'].includes(method)) {
@@ -421,8 +422,8 @@ module.exports = {
   ANALYZER_VERSION,
   ANALYZER_REQUEST_SCHEMA_ID,
   ANALYZER_RESULT_SCHEMA_ID,
-  handleRequest,
-  handleRPCRequest,
+  dispatchLegacyRequest,
+  dispatchRPCRequest,
   encodeBoundedResponse,
   detectRepo,
   rpcError,

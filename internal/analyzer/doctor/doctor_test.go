@@ -7,7 +7,6 @@ import (
 	"testing"
 
 	"codeflow/internal/analyzer/workspace"
-	"codeflow/internal/collector/storage"
 )
 
 func TestDiagnoseUninitializedWorkspace(t *testing.T) {
@@ -87,28 +86,18 @@ func TestDiagnoseWithPublishedGeneration(t *testing.T) {
 		t.Fatalf("failed to save workspace manifest: %v", err)
 	}
 
-	st := storage.New(dir)
-	if err := st.InitLayout(); err != nil {
-		t.Fatalf("InitLayout failed: %v", err)
+	genDir := filepath.Join(dir, ".codeflow", "generations")
+	flowDir := filepath.Join(genDir, "gen-1234567890abcdef")
+	if err := os.MkdirAll(flowDir, 0o755); err != nil {
+		t.Fatalf("failed to create generation dir: %v", err)
 	}
-
-	sess, err := st.BeginGeneration("basis-sha-1234567890abcdef")
-	if err != nil {
-		t.Fatalf("BeginGeneration failed: %v", err)
+	ptrJSON := `{"generationId":"gen-1234567890abcdef","flowCount":1,"publishedAt":"2026-09-17T00:00:00Z"}`
+	if err := os.WriteFile(filepath.Join(genDir, "current.json"), []byte(ptrJSON), 0o644); err != nil {
+		t.Fatalf("failed to write pointer: %v", err)
 	}
-	flowID := "flow-1234567890abcdef"
-	summary := storage.FlowSummary{
-		FlowID:          flowID,
-		Title:           "Login Flow",
-		Description:     "User authentication flow",
-		EntrySymbolPath: "lib/auth.dart#login",
-		StepCount:       3,
-	}
-	if err := sess.AddFlowSpec(flowID, []byte(`{"flowId":"`+flowID+`"}`), summary); err != nil {
-		t.Fatalf("AddFlowSpec failed: %v", err)
-	}
-	if err := sess.Commit(); err != nil {
-		t.Fatalf("Commit failed: %v", err)
+	idxJSON := `{"generationId":"gen-1234567890abcdef","flows":[{"flowId":"flow-1234567890abcdef"}]}`
+	if err := os.WriteFile(filepath.Join(flowDir, "index.json"), []byte(idxJSON), 0o644); err != nil {
+		t.Fatalf("failed to write index: %v", err)
 	}
 
 	results := Diagnose(dir, "")
@@ -122,6 +111,51 @@ func TestDiagnoseWithPublishedGeneration(t *testing.T) {
 	}
 	if idx, ok := names["Generation index"]; !ok || !idx.Passed {
 		t.Errorf("Generation index should pass: %+v", idx)
+	}
+}
+
+func TestDiagnoseCustomCheckersRegistration(t *testing.T) {
+	origStorage := defaultStorageChecker
+	origSchema := defaultSchemaChecker
+	origAdapter := defaultAdapterResolver
+	defer func() {
+		defaultStorageChecker = origStorage
+		defaultSchemaChecker = origSchema
+		defaultAdapterResolver = origAdapter
+	}()
+
+	storageCalled := false
+	schemaCalled := false
+	RegisterStorageChecker(func(repoRoot string) []CheckResult {
+		storageCalled = true
+		return []CheckResult{{Name: "Custom storage", Passed: true, Message: "custom storage ok"}}
+	})
+	RegisterSchemaChecker(func() CheckResult {
+		schemaCalled = true
+		return CheckResult{Name: "Custom schema", Passed: true, Message: "custom schema ok"}
+	})
+
+	dir := t.TempDir()
+	results := Diagnose(dir, "")
+
+	if !storageCalled {
+		t.Error("expected custom StorageChecker to be invoked")
+	}
+	if !schemaCalled {
+		t.Error("expected custom SchemaChecker to be invoked")
+	}
+
+	var foundStorage, foundSchema bool
+	for _, r := range results {
+		if r.Name == "Custom storage" && r.Passed {
+			foundStorage = true
+		}
+		if r.Name == "Custom schema" && r.Passed {
+			foundSchema = true
+		}
+	}
+	if !foundStorage || !foundSchema {
+		t.Errorf("custom check results missing or failed: %+v", results)
 	}
 }
 

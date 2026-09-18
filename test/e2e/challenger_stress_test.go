@@ -395,7 +395,7 @@ func TestChallenger2_PublishCoreFlow_NextJsAppFixture(t *testing.T) {
 	}
 
 	// 2. Build real anchors for each step
-	anchor1 := buildRealAnchor(t, tempRepo, "app/page.tsx", "HomePage.handleQuickCheckout", "handleQuickCheckout")
+	anchor1 := buildRealAnchor(t, tempRepo, "app/page.tsx", "HomePage.onQuickCheckout", "onQuickCheckout")
 	anchor2 := buildRealAnchor(t, tempRepo, "hooks/useCart.ts", "useCart", "useCart")
 	anchor3 := buildRealAnchor(t, tempRepo, "services/orderService.ts", "processOrder", "processOrder")
 	anchor4 := buildRealAnchor(t, tempRepo, "db/orders.ts", "saveOrder", "saveOrder")
@@ -403,7 +403,7 @@ func TestChallenger2_PublishCoreFlow_NextJsAppFixture(t *testing.T) {
 
 	artifact := map[string]any{
 		"flowId":          "flow-nextjs00000001",
-		"entrySymbolPath": "app/page.tsx#HomePage.handleQuickCheckout",
+		"entrySymbolPath": "app/page.tsx#HomePage.onQuickCheckout",
 		"title":           "Next.js E-Commerce Quick Checkout Flow",
 		"description":     "End-to-end traversal from UI trigger down through layers to database and external payment API",
 		"layers": []string{
@@ -412,7 +412,7 @@ func TestChallenger2_PublishCoreFlow_NextJsAppFixture(t *testing.T) {
 		"steps": []map[string]any{
 			{
 				"ordinal":     1,
-				"name":        "HomePage.handleQuickCheckout",
+				"name":        "HomePage.onQuickCheckout",
 				"layer":       "presentation",
 				"kind":        "call",
 				"description": "User clicks Quick Checkout button",
@@ -673,7 +673,7 @@ func TestChallenger2_PublishCoreFlow_ReactSPAFixture(t *testing.T) {
 		t.Fatalf("LoadLayersConfig failed: %v", err)
 	}
 
-	anchor1 := buildRealAnchor(t, tempRepo, "src/components/LoginForm.tsx", "LoginForm.handleSubmit", "handleSubmit")
+	anchor1 := buildRealAnchor(t, tempRepo, "src/components/LoginForm.tsx", "LoginForm.onSubmit", "onSubmit")
 	anchor2 := buildRealAnchor(t, tempRepo, "src/hooks/useAuth.ts", "useAuth", "useAuth")
 	anchor3 := buildRealAnchor(t, tempRepo, "src/services/authService.ts", "authenticateUser", "authenticateUser")
 	anchor4 := buildRealAnchor(t, tempRepo, "src/types/auth.ts", "AuthCredentials", "AuthCredentials")
@@ -697,7 +697,7 @@ func TestChallenger2_PublishCoreFlow_ReactSPAFixture(t *testing.T) {
 
 	artifact := map[string]any{
 		"flowId":          "flow-spaflow00000001",
-		"entrySymbolPath": "src/components/LoginForm.tsx#LoginForm.handleSubmit",
+		"entrySymbolPath": "src/components/LoginForm.tsx#LoginForm.onSubmit",
 		"title":           "React SPA Authentication Flow",
 		"description":     "SPA flow: components -> hooks -> services -> types -> api",
 		"layers": []string{
@@ -706,7 +706,7 @@ func TestChallenger2_PublishCoreFlow_ReactSPAFixture(t *testing.T) {
 		"steps": []map[string]any{
 			{
 				"ordinal":     1,
-				"name":        "LoginForm.handleSubmit",
+				"name":        "LoginForm.onSubmit",
 				"layer":       "presentation",
 				"kind":        "call",
 				"description": "User submits login form",
@@ -805,7 +805,7 @@ func TestChallenger2_PublishCoreFlow_CleanArchitectureFixture(t *testing.T) {
 		t.Fatalf("LoadLayersConfig failed: %v", err)
 	}
 
-	anchor1 := buildRealAnchor(t, tempRepo, "controllers/UserController.ts", "UserController.handleCreateUser", "handleCreateUser")
+	anchor1 := buildRealAnchor(t, tempRepo, "controllers/UserController.ts", "UserController.serveCreateUser", "serveCreateUser")
 	anchor2 := buildRealAnchor(t, tempRepo, "usecases/CreateUserUseCase.ts", "CreateUserUseCase.execute", "execute")
 	anchor3 := buildRealAnchor(t, tempRepo, "domain/User.ts", "User", "User")
 	anchor4 := buildRealAnchor(t, tempRepo, "repositories/UserRepositoryImpl.ts", "UserRepositoryImpl.save", "save")
@@ -827,7 +827,7 @@ func TestChallenger2_PublishCoreFlow_CleanArchitectureFixture(t *testing.T) {
 
 	artifact := map[string]any{
 		"flowId":          "flow-cleanarchempirical004",
-		"entrySymbolPath": "controllers/UserController.ts#UserController.handleCreateUser",
+		"entrySymbolPath": "controllers/UserController.ts#UserController.serveCreateUser",
 		"title":           "Clean Architecture User Creation Flow",
 		"description":     "Clean Architecture flow: controller -> usecase -> domain -> repository",
 		"layers": []string{
@@ -836,7 +836,7 @@ func TestChallenger2_PublishCoreFlow_CleanArchitectureFixture(t *testing.T) {
 		"steps": []map[string]any{
 			{
 				"ordinal":     1,
-				"name":        "UserController.handleCreateUser",
+				"name":        "UserController.serveCreateUser",
 				"layer":       "controller",
 				"kind":        "call",
 				"description": "HTTP controller receives createUser request",
@@ -919,18 +919,18 @@ func TestChallenger2_LayerOrder_NegativeAdversarialCases(t *testing.T) {
 	tempRepo := makeTempCopy(t, "react-spa-fixture")
 	initcmd.Run(tempRepo, nil)
 
-	anchor1 := buildRealAnchor(t, tempRepo, "src/components/LoginForm.tsx", "LoginForm.handleSubmit", "handleSubmit")
+	anchor1 := buildRealAnchor(t, tempRepo, "src/components/LoginForm.tsx", "LoginForm.onSubmit", "onSubmit")
 	anchor2 := buildRealAnchor(t, tempRepo, "src/services/authService.ts", "authenticateUser", "authenticateUser")
 	anchor3 := buildRealAnchor(t, tempRepo, "src/hooks/useAuth.ts", "useAuth", "useAuth")
 
 	// 1. Backward jump: presentation -> usecase -> controller (backward without branch)
 	backwardArtifact := map[string]any{
 		"flowId":          "flow-backwarderr001",
-		"entrySymbolPath": "src/components/LoginForm.tsx#LoginForm.handleSubmit",
+		"entrySymbolPath": "src/components/LoginForm.tsx#LoginForm.onSubmit",
 		"title":           "Backward Layer Violation",
 		"layers":          []string{"presentation", "controller", "usecase"},
 		"steps": []map[string]any{
-			{"ordinal": 1, "name": "LoginForm.handleSubmit", "layer": "presentation", "kind": "call", "anchor": anchor1},
+			{"ordinal": 1, "name": "LoginForm.onSubmit", "layer": "presentation", "kind": "call", "anchor": anchor1},
 			{"ordinal": 2, "name": "authenticateUser", "layer": "usecase", "kind": "call", "anchor": anchor2},
 			{"ordinal": 3, "name": "useAuth", "layer": "controller", "kind": "call", "anchor": anchor3}, // backward!
 		},
@@ -985,11 +985,11 @@ func TestChallenger2_LayerOrder_NegativeAdversarialCases(t *testing.T) {
 	// 2. Backward jump WITH branch kind -> MUST SUCCEED
 	branchArtifact := map[string]any{
 		"flowId":          "flow-branchallowed01",
-		"entrySymbolPath": "src/components/LoginForm.tsx#LoginForm.handleSubmit",
+		"entrySymbolPath": "src/components/LoginForm.tsx#LoginForm.onSubmit",
 		"title":           "Backward Branch Allowed",
 		"layers":          []string{"presentation", "controller", "usecase"},
 		"steps": []map[string]any{
-			{"ordinal": 1, "name": "LoginForm.handleSubmit", "layer": "presentation", "kind": "call", "anchor": anchor1},
+			{"ordinal": 1, "name": "LoginForm.onSubmit", "layer": "presentation", "kind": "call", "anchor": anchor1},
 			{"ordinal": 2, "name": "authenticateUser", "layer": "usecase", "kind": "call", "anchor": anchor2},
 			{"ordinal": 3, "name": "useAuth", "layer": "controller", "kind": "branch", "branch": "onErrorRetry", "anchor": anchor3}, // branch allowed!
 		},

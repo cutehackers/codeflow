@@ -66,7 +66,7 @@ func TestFlowViewTaskViewEndpoint(t *testing.T) {
 	}
 
 	// 3. Unambiguous query
-	reqValid := httptest.NewRequest(http.MethodGet, "http://127.0.0.1/api/task/view?token="+srv.AuthToken()+"&entrySymbol=app/page.tsx%23HomePage.handleQuickCheckout", nil)
+	reqValid := httptest.NewRequest(http.MethodGet, "http://127.0.0.1/api/task/view?token="+srv.AuthToken()+"&entrySymbol=app/page.tsx%23HomePage.onQuickCheckout", nil)
 	recValid := httptest.NewRecorder()
 	srv.httpServer.Handler.ServeHTTP(recValid, reqValid)
 
@@ -115,7 +115,7 @@ func TestFlowViewTaskViewRequestIdentity(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewServer failed: %v", err)
 	}
-	entry := "app/page.tsx%23HomePage.handleQuickCheckout"
+	entry := "app/page.tsx%23HomePage.onQuickCheckout"
 	firstURL := "http://127.0.0.1/api/task/view?token=" + srv.AuthToken() + "&entrySymbol=" + entry + "&requestId=req-identity-1"
 
 	get := func(url string) *httptest.ResponseRecorder {
@@ -176,7 +176,7 @@ func TestSavedTaskViewSurvivesRestartWithoutAnalysis(t *testing.T) {
 		t.Fatal(err)
 	}
 	rec := httptest.NewRecorder()
-	srv.httpServer.Handler.ServeHTTP(rec, httptest.NewRequest("GET", "http://127.0.0.1/api/task/view?token="+srv.AuthToken()+"&entrySymbol=app/page.tsx%23HomePage.handleQuickCheckout", nil))
+	srv.httpServer.Handler.ServeHTTP(rec, httptest.NewRequest("GET", "http://127.0.0.1/api/task/view?token="+srv.AuthToken()+"&entrySymbol=app/page.tsx%23HomePage.onQuickCheckout", nil))
 	if rec.Code != 200 {
 		t.Fatalf("analysis: %d %s", rec.Code, rec.Body.String())
 	}

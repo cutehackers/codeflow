@@ -2,7 +2,7 @@ import { test, expect } from '@playwright/test';
 import {readFileSync, writeFileSync} from 'node:fs';
 import path from 'node:path';
 
-const entry = 'app/page.tsx#HomePage.handleQuickCheckout';
+const entry = 'app/page.tsx#HomePage.onQuickCheckout';
 const headers = {'X-CodeFlow-Token':'testtoken'};
 
 test('empty home, analysis, scene navigation and immutable reopening', async ({page, request}) => {

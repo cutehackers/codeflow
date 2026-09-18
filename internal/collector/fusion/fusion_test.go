@@ -216,3 +216,37 @@ func TestFuseCarriesDescription(t *testing.T) {
 		t.Errorf("empty description must stay empty, got %q", spec2.Description)
 	}
 }
+
+func TestFuseNormalizesEffectKindToCall(t *testing.T) {
+	sliced := &slicing.SlicedPayload{
+		CandidateID:     "cand-effect-000001",
+		Language:        "typescript",
+		EntrySymbolPath: "src/api.ts#Api.execute",
+		Steps: []slicing.SliceStep{
+			{
+				Ordinal:     1,
+				Kind:        "effect",
+				Description: "saveToDatabase()",
+				SymbolPath:  "Api.execute",
+				Anchor: slicing.Anchor{
+					RepoRelativePath:        "src/api.ts",
+					ByteRange:               [2]int{0, 20},
+					FileHash:                "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+					SpanHash:                "fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210",
+					EnclosingSymbolPath:     "Api.execute",
+					CanonicalAstFingerprint: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+				},
+			},
+		},
+	}
+	spec, err := fusion.Fuse(sliced, fusion.FuseOptions{})
+	if err != nil {
+		t.Fatalf("Fuse failed on effect kind: %v", err)
+	}
+	if len(spec.Steps) != 1 {
+		t.Fatalf("expected 1 step, got %d", len(spec.Steps))
+	}
+	if spec.Steps[0].Kind != "call" {
+		t.Errorf("expected normalized step Kind to be 'call', got %q", spec.Steps[0].Kind)
+	}
+}

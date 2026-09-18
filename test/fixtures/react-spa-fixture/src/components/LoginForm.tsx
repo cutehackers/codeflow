@@ -7,7 +7,7 @@ export const LoginForm: React.FC = () => {
   const [password, setPassword] = useState('');
   const [error, setError] = useState<string | null>(null);
 
-  const handleSubmit = async (e: React.FormEvent) => {
+  const onSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     try {
       await login(email, password);
@@ -22,7 +22,7 @@ export const LoginForm: React.FC = () => {
   };
 
   return (
-    <form onSubmit={handleSubmit} className="login-form">
+    <form onSubmit={onSubmit} className="login-form">
       {error && <div className="error">{error}</div>}
       <input
         type="email"

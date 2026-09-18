@@ -11,13 +11,13 @@ function run() {
 
   // 1. Unit Tests for classifyMarker
   // UI Actions (user_action / route_callback)
-  const ui1 = classifyMarker('LoginPage', 'handleSubmit', '');
+  const ui1 = classifyMarker('LoginPage', 'onSubmit', '');
   assert.deepStrictEqual(ui1, { triggerClass: 'user_action', markerKind: 'route_callback' });
 
   const ui2 = classifyMarker('Button', 'onClick', '');
   assert.deepStrictEqual(ui2, { triggerClass: 'user_action', markerKind: 'route_callback' });
 
-  const ui3 = classifyMarker('Header', 'handleGoogleLogin', '');
+  const ui3 = classifyMarker('Header', 'onGoogleLogin', '');
   assert.deepStrictEqual(ui3, { triggerClass: 'user_action', markerKind: 'route_callback' });
 
   const ui4 = classifyMarker('CheckoutForm', 'onFormSubmit', '');
@@ -88,7 +88,7 @@ function run() {
       version: '1.0.0',
     }), 'utf8');
 
-    // Next.js App Router Page with nested handleSubmit
+    // Next.js App Router Page with nested onSubmit
     const appDir = path.join(tmpDir, 'src/app/login');
     fs.mkdirSync(appDir, { recursive: true });
     fs.writeFileSync(path.join(appDir, 'page.tsx'), `
@@ -98,16 +98,16 @@ import { useAuth } from '@/hooks/useAuth';
 export const LoginPage = () => {
   const { login } = useAuth();
 
-  const handleSubmit = async (e: React.FormEvent) => {
+  const onSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     await login('test@example.com', 'secret');
   };
 
-  const handleReset = () => {
+  const onReset = () => {
     console.log('reset');
   };
 
-  return <form onSubmit={handleSubmit} />;
+  return <form onSubmit={onSubmit} />;
 };
 `, 'utf8');
 
@@ -179,11 +179,11 @@ export const useAuth = () => {
     }
 
     // Verify specific candidates discovered
-    const loginSubmit = harvest.candidates.find(c => c.entrySymbolPath.includes('LoginPage.handleSubmit'));
-    assert(loginSubmit, 'LoginPage.handleSubmit candidate must exist');
+    const loginSubmit = harvest.candidates.find(c => c.entrySymbolPath.includes('LoginPage.onSubmit'));
+    assert(loginSubmit, 'LoginPage.onSubmit candidate must exist');
     assert.strictEqual(loginSubmit.triggerClass, 'user_action');
     assert.strictEqual(loginSubmit.markerKind, 'route_callback');
-    assert.strictEqual(loginSubmit.intentSignals.derivedName, 'Handle submit');
+    assert.strictEqual(loginSubmit.intentSignals.derivedName, 'Submit');
 
     const routePostCand = harvest.candidates.find(c => c.entrySymbolPath.includes('route.ts#POST'));
     assert(routePostCand, 'POST route handler candidate must exist');

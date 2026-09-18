@@ -607,11 +607,11 @@ func TestPublishCoreFlow_TypeScriptProject(t *testing.T) {
 	pkgJSON := `{"name": "ts-test-app", "version": "1.0.0"}`
 	os.WriteFile(filepath.Join(repoRoot, "package.json"), []byte(pkgJSON), 0644)
 
-	writeTestFile(t, repoRoot, "src/features/auth/LoginView.tsx", "export function LoginView() { const handleSubmit = () => {}; }")
+	writeTestFile(t, repoRoot, "src/features/auth/LoginView.tsx", "export function LoginView() { const onSubmit = () => {}; }")
 	writeTestFile(t, repoRoot, "src/features/auth/LoginUseCase.ts", "export class LoginUseCase { execute() {} }")
 	writeTestFile(t, repoRoot, "src/features/auth/AuthRepository.ts", "export class AuthRepository { login() {} }")
 
-	anc1 := computeAnchor(t, repoRoot, "src/features/auth/LoginView.tsx", 0, 10, "LoginView.handleSubmit")
+	anc1 := computeAnchor(t, repoRoot, "src/features/auth/LoginView.tsx", 0, 10, "LoginView.onSubmit")
 	anc2 := computeAnchor(t, repoRoot, "src/features/auth/LoginUseCase.ts", 0, 10, "LoginUseCase.execute")
 	anc3 := computeAnchor(t, repoRoot, "src/features/auth/AuthRepository.ts", 0, 10, "AuthRepository.login")
 
@@ -623,12 +623,12 @@ func TestPublishCoreFlow_TypeScriptProject(t *testing.T) {
 	defer srv.Close()
 
 	art := map[string]any{
-		"entrySymbolPath": "src/features/auth/LoginView.tsx#LoginView.handleSubmit",
+		"entrySymbolPath": "src/features/auth/LoginView.tsx#LoginView.onSubmit",
 		"title":           "이메일 로그인 핵심 흐름",
 		"description":     "UI 제출부터 유스케이스 검증 및 리포지토리 로그인까지의 흐름",
 		"layers":          []string{"presentation", "usecase", "data"},
 		"steps": []map[string]any{
-			{"ordinal": 1, "name": "handleSubmit", "layer": "presentation", "kind": "call", "anchor": anc1},
+			{"ordinal": 1, "name": "onSubmit", "layer": "presentation", "kind": "call", "anchor": anc1},
 			{"ordinal": 2, "name": "execute", "layer": "usecase", "kind": "call", "anchor": anc2},
 			{"ordinal": 3, "name": "login", "layer": "data", "kind": "call", "anchor": anc3},
 		},

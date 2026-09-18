@@ -14,6 +14,48 @@ CODEFLOW_VERSION="${CODEFLOW_VERSION:-v0.4.0}"
 OWNED_SOURCE=false
 SRC_DIR="${CODEFLOW_SRC_DIR:-}"
 SKILL_DEST="$CODEX_HOME_DIR/skills/codeflow"
+SKILL_TARGETS="${SKILL_TARGETS:-auto}"
+if [ "$(uname -s)" = "Darwin" ]; then
+  CLAUDE_CONFIG_DIR="$HOME/Library/Application Support/Claude"
+else
+  CLAUDE_CONFIG_DIR="$HOME/.config/Claude"
+fi
+CURSOR_CONFIG_DIR="$HOME/.cursor"
+GEMINI_DIR="$HOME/.gemini"
+GEMINI_CONFIG_DIR="$GEMINI_DIR/config"
+WORKSPACE_ROOT="${CODEFLOW_WORKSPACE_ROOT:-}"
+
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --skills=*|--skill-targets=*)
+      SKILL_TARGETS="${1#*=}"
+      shift
+      ;;
+    --skills|--skill-targets)
+      SKILL_TARGETS="$2"
+      shift 2
+      ;;
+    --install-dir=*)
+      INSTALL_DIR="${1#*=}"
+      shift
+      ;;
+    --mcp-name=*)
+      MCP_NAME="${1#*=}"
+      shift
+      ;;
+    --help|-h)
+      echo "Usage: install.sh [options]"
+      echo "Options:"
+      echo "  --skills=<targets>        Comma-separated skill targets: codex, claude, gemini, cursor, agents, or all (default: auto)"
+      echo "  --install-dir=<path>      Directory for binaries (default: \$HOME/.local/bin)"
+      echo "  --mcp-name=<name>         MCP registration name (default: codeflow)"
+      exit 0
+      ;;
+    *)
+      shift
+      ;;
+  esac
+done
 
 info() { echo "› $*"; }
 die() { echo "✗ $*" >&2; exit 1; }
@@ -56,7 +98,60 @@ skill_needs_update() {
       fi
     done
   fi
+  if [ -d "$dest/references" ]; then
+    for dest_ref in "$dest/references"/*; do
+      [ -e "$dest_ref" ] || continue
+      local base="$(basename "$dest_ref")"
+      if [ ! -f "$src/references/$base" ]; then
+        return 0
+      fi
+    done
+  fi
   return 1
+}
+
+target_enabled() {
+  local target="$1"
+  if [ "$SKILL_TARGETS" = "all" ]; then
+    return 0
+  fi
+  if [ "$SKILL_TARGETS" = "auto" ]; then
+    case "$target" in
+      codex)
+        return 0 ;;
+      claude)
+        [ -d "$HOME/.claude" ] || [ -d "$CLAUDE_CONFIG_DIR" ] || command -v claude >/dev/null 2>&1 ;;
+      cursor)
+        [ -d "$CURSOR_CONFIG_DIR" ] ;;
+      gemini|antigravity)
+        [ -d "$GEMINI_DIR" ] || [ -d "$GEMINI_CONFIG_DIR" ] ;;
+      agents)
+        [ -d ".agents" ] || [ -d "${SRC_DIR:-}/.agents" ] || [ "$IS_CHECKOUT" = true ] || [ -d ".git" ] ;;
+      *)
+        return 1 ;;
+    esac
+  else
+    case ",$SKILL_TARGETS," in
+      *",$target,"*) return 0 ;;
+      *) return 1 ;;
+    esac
+  fi
+}
+
+install_skill_to_dir() {
+  local target_dir="$1"
+  local target_label="$2"
+  if [ -d "$SKILL_SOURCE" ]; then
+    mkdir -p "$(dirname "$target_dir")"
+    if [ ! -e "$target_dir" ]; then
+      cp -R "$SKILL_SOURCE" "$target_dir"
+      info "Installed CodeFlow skill for $target_label ($target_dir)"
+    elif skill_needs_update "$SKILL_SOURCE" "$target_dir"; then
+      rm -rf "$target_dir"
+      cp -R "$SKILL_SOURCE" "$target_dir"
+      info "Updated CodeFlow skill for $target_label ($target_dir)"
+    fi
+  fi
 }
 
 preflight_skill_update() {
@@ -105,12 +200,20 @@ if [ "$IS_CHECKOUT" = true ]; then
 
   info "Building CodeFlow binaries"
   BUILD_DATE="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
-  (cd "$SRC_DIR" && go build -ldflags "-X main.version=$CODEFLOW_VERSION -X main.date=$BUILD_DATE" -o "$INSTALL_PATH" ./cmd/codeflow)
+  if [ -n "${CODEFLOW_TEST_CODEFLOW_BIN:-}" ] && [ -f "${CODEFLOW_TEST_CODEFLOW_BIN}" ]; then
+    cp -f "${CODEFLOW_TEST_CODEFLOW_BIN}" "$INSTALL_PATH"
+  else
+    (cd "$SRC_DIR" && go build -ldflags "-X main.version=$CODEFLOW_VERSION -X main.date=$BUILD_DATE" -o "$INSTALL_PATH" ./cmd/codeflow)
+  fi
   chmod 755 "$INSTALL_PATH"
 
   ADAPTER_BIN="$INSTALL_DIR/dart-adapter"
   DART_SRC="$SRC_DIR/adapters/dart"
-  if command -v dart >/dev/null 2>&1; then
+  if [ -n "${CODEFLOW_TEST_DART_BIN:-}" ] && [ -f "${CODEFLOW_TEST_DART_BIN}" ]; then
+    cp -f "${CODEFLOW_TEST_DART_BIN}" "$ADAPTER_BIN"
+    chmod 755 "$ADAPTER_BIN"
+    ADAPTER_SPEC="$ADAPTER_BIN"
+  elif command -v dart >/dev/null 2>&1; then
     if (cd "$DART_SRC" && dart compile exe bin/codeflow_dart_adapter.dart -o "$ADAPTER_BIN" >/dev/null 2>&1); then
       chmod 755 "$ADAPTER_BIN"
       ADAPTER_SPEC="$ADAPTER_BIN"
@@ -372,16 +475,8 @@ if command -v codex >/dev/null 2>&1; then
   fi
 fi
 
-if [ -d "$SKILL_SOURCE" ]; then
-  mkdir -p "$(dirname "$SKILL_DEST")"
-  if [ ! -e "$SKILL_DEST" ]; then
-    cp -R "$SKILL_SOURCE" "$SKILL_DEST"
-    info "Installed CodeFlow skill for Codex"
-  elif skill_needs_update "$SKILL_SOURCE" "$SKILL_DEST"; then
-    rm -rf "$SKILL_DEST"
-    cp -R "$SKILL_SOURCE" "$SKILL_DEST"
-    info "Updated CodeFlow skill for Codex"
-  fi
+if [ -d "$SKILL_SOURCE" ] && target_enabled codex; then
+  install_skill_to_dir "$SKILL_DEST" "Codex"
 fi
 
 if command -v codex >/dev/null 2>&1; then
@@ -398,13 +493,6 @@ if command -v codex >/dev/null 2>&1; then
 fi
 
 # 2. Claude Desktop Registration
-CLAUDE_CONFIG_DIR=""
-if [ "$(uname -s)" = "Darwin" ]; then
-  CLAUDE_CONFIG_DIR="$HOME/Library/Application Support/Claude"
-else
-  CLAUDE_CONFIG_DIR="$HOME/.config/Claude"
-fi
-
 register_json_mcp "$CLAUDE_CONFIG_DIR/claude_desktop_config.json" "$MCP_NAME" "$INSTALL_PATH" "$RUNTIME_PATH"
 info "Configured Claude Desktop MCP ($CLAUDE_CONFIG_DIR/claude_desktop_config.json)"
 
@@ -416,88 +504,177 @@ if command -v claude >/dev/null 2>&1; then
     claude mcp add -s user "$MCP_NAME" "$INSTALL_PATH" mcp >/dev/null 2>&1 || true
     info "Registered Claude Code MCP '$MCP_NAME'"
   fi
-  if [ -d "$SKILL_SOURCE" ]; then
-    CLAUDE_CODE_SKILL="$HOME/.claude/skills/codeflow"
-    mkdir -p "$(dirname "$CLAUDE_CODE_SKILL")"
-    if [ ! -e "$CLAUDE_CODE_SKILL" ]; then
-      cp -R "$SKILL_SOURCE" "$CLAUDE_CODE_SKILL"
-      info "Installed CodeFlow skill for Claude Code ($CLAUDE_CODE_SKILL)"
-    elif skill_needs_update "$SKILL_SOURCE" "$CLAUDE_CODE_SKILL"; then
-      rm -rf "$CLAUDE_CODE_SKILL"
-      cp -R "$SKILL_SOURCE" "$CLAUDE_CODE_SKILL"
-      info "Updated CodeFlow skill for Claude Code ($CLAUDE_CODE_SKILL)"
-    fi
-  fi
+fi
+
+if target_enabled claude; then
+  install_skill_to_dir "$HOME/.claude/skills/codeflow" "Claude Code"
 fi
 
 # 4. Cursor IDE Registration
-CURSOR_CONFIG_DIR="$HOME/.cursor"
 register_json_mcp "$CURSOR_CONFIG_DIR/mcp.json" "$MCP_NAME" "$INSTALL_PATH" "$RUNTIME_PATH"
-if [ -d "$SKILL_SOURCE" ]; then
-  CURSOR_SKILL="$CURSOR_CONFIG_DIR/skills/codeflow"
-  mkdir -p "$(dirname "$CURSOR_SKILL")"
-  if [ ! -e "$CURSOR_SKILL" ]; then
-    cp -R "$SKILL_SOURCE" "$CURSOR_SKILL"
-    info "Installed CodeFlow skill for Cursor"
-  elif skill_needs_update "$SKILL_SOURCE" "$CURSOR_SKILL"; then
-    rm -rf "$CURSOR_SKILL"
-    cp -R "$SKILL_SOURCE" "$CURSOR_SKILL"
-    info "Updated CodeFlow skill for Cursor"
-  fi
+if target_enabled cursor; then
+  install_skill_to_dir "$CURSOR_CONFIG_DIR/skills/codeflow" "Cursor"
 fi
 info "Configured Cursor MCP ($CURSOR_CONFIG_DIR/mcp.json)"
 
 # 5. Antigravity / Gemini CLI Registration
-GEMINI_DIR="$HOME/.gemini"
-GEMINI_CONFIG_DIR="$GEMINI_DIR/config"
 register_json_mcp "$GEMINI_CONFIG_DIR/mcp_config.json" "$MCP_NAME" "$INSTALL_PATH" "$RUNTIME_PATH"
 info "Configured Antigravity MCP ($GEMINI_CONFIG_DIR/mcp_config.json)"
 
-if [ -d "$SKILL_SOURCE" ]; then
-  GEMINI_SKILL="$GEMINI_CONFIG_DIR/skills/codeflow"
-  mkdir -p "$(dirname "$GEMINI_SKILL")"
-  if [ ! -e "$GEMINI_SKILL" ]; then
-    cp -R "$SKILL_SOURCE" "$GEMINI_SKILL"
-    info "Installed CodeFlow skill for Antigravity ($GEMINI_SKILL)"
-  elif skill_needs_update "$SKILL_SOURCE" "$GEMINI_SKILL"; then
-    rm -rf "$GEMINI_SKILL"
-    cp -R "$SKILL_SOURCE" "$GEMINI_SKILL"
-    info "Updated CodeFlow skill for Antigravity ($GEMINI_SKILL)"
+if target_enabled gemini || target_enabled antigravity; then
+  install_skill_to_dir "$GEMINI_CONFIG_DIR/skills/codeflow" "Antigravity"
+  if [ -d "$GEMINI_DIR/antigravity-cli" ] || [ -d "$GEMINI_DIR" ]; then
+    install_skill_to_dir "$GEMINI_DIR/antigravity-cli/skills/codeflow" "Antigravity CLI"
   fi
+fi
 
-  # Also sync to antigravity-cli/skills if present for backward compatibility
-  LEGACY_AGY_SKILL="$GEMINI_DIR/antigravity-cli/skills/codeflow"
-  mkdir -p "$(dirname "$LEGACY_AGY_SKILL")"
-  rm -rf "$LEGACY_AGY_SKILL"
-  cp -R "$SKILL_SOURCE" "$LEGACY_AGY_SKILL"
+# 6. Shared Workspace Skills (.agents/skills/codeflow)
+if [ -z "$WORKSPACE_ROOT" ]; then
+  if [ "$IS_CHECKOUT" = true ] && [ -n "$SRC_DIR" ]; then
+    WORKSPACE_ROOT="$SRC_DIR"
+  elif [ -d ".git" ] || [ -d ".agents" ]; then
+    WORKSPACE_ROOT="$(pwd)"
+  fi
+fi
+
+if target_enabled agents && [ -n "$WORKSPACE_ROOT" ]; then
+  install_skill_to_dir "$WORKSPACE_ROOT/.agents/skills/codeflow" "Shared Workspace (.agents)"
 fi
 
 # Antigravity CLI MCP tool schemas
 AGY_MCP_DIR="$GEMINI_DIR/antigravity-cli/mcp/$MCP_NAME"
 mkdir -p "$AGY_MCP_DIR"
-cat <<'EOF' > "$AGY_MCP_DIR/query_task_view.json"
+rm -f "$AGY_MCP_DIR"/*.json
+
+cat <<'EOF' > "$AGY_MCP_DIR/harvest_flows.json"
 {
-  "name": "query_task_view",
-  "description": "Execute a task-scoped query against the workspace. In feature mode, returns candidateAnswer, semanticMap, projection, evidence, flowContexts (source code snippets), and flowView.url for interactive FlowView visualization.",
+  "name": "harvest_flows",
+  "description": "Find candidate entry points for a natural-language flow request. Returns ranked candidate list with candidateId, entrySymbolPath, and intentSignals.",
   "parameters": {
     "type": "object",
-    "required": ["query"],
     "properties": {
+      "target": {
+        "type": "string",
+        "description": "Target repository path or subdirectory (defaults to working directory)"
+      },
       "query": {
+        "type": "string",
+        "description": "Optional case-insensitive substring filter across entrySymbolPath, intentSignals, markerKind, triggerClass"
+      }
+    }
+  }
+}
+EOF
+
+cat <<'EOF' > "$AGY_MCP_DIR/analyze_flow.json"
+{
+  "name": "analyze_flow",
+  "description": "Slice and publish one exact entry point. Returns a persisted FlowSpec containing flowId; when the user requested a visual result, pass that exact flowId to open_review.",
+  "parameters": {
+    "type": "object",
+    "required": ["entrySymbolPath"],
+    "properties": {
+      "entrySymbolPath": {
+        "type": "string",
+        "description": "Exact entry symbol path from harvest_flows (e.g. app/page.tsx#HomePage.submit)"
+      },
+      "target": {
+        "type": "string",
+        "description": "Target repository path or subdirectory (defaults to working directory)"
+      }
+    }
+  }
+}
+EOF
+
+cat <<'EOF' > "$AGY_MCP_DIR/get_flow_payload.json"
+{
+  "name": "get_flow_payload",
+  "description": "Retrieve FlowSpec JSON by flowId or entrySymbolPath. Set compact: true to receive high-density ~500-token macro gateway summary.",
+  "parameters": {
+    "type": "object",
+    "properties": {
+      "flowId": {
+        "type": "string",
+        "description": "Target flow ID returned by analyze_flow or publish_core_flow"
+      },
+      "entrySymbolPath": {
+        "type": "string",
+        "description": "Target entry symbol path"
+      },
+      "compact": {
+        "type": "boolean",
+        "description": "When true, returns ~500-token CompactFlowPayload with 4-7 macro gateways and radar summary"
+      },
+      "format": {
+        "type": "string",
+        "enum": ["compact", "full"],
+        "description": "Payload format ('compact' or 'full')"
+      },
+      "target": {
+        "type": "string",
+        "description": "Target repository path or subdirectory (defaults to working directory)"
+      }
+    }
+  }
+}
+EOF
+
+cat <<'EOF' > "$AGY_MCP_DIR/open_review.json"
+{
+  "name": "open_review",
+  "description": "Return the authenticated URL for a saved viewId or a persisted flowId. A saved view is restored without analysis.",
+  "parameters": {
+    "type": "object",
+    "properties": {
+      "flowId": {
+        "type": "string",
+        "description": "The exact flowId returned by analyze_flow or publish_core_flow"
+      },
+      "viewId": {
+        "type": "string",
+        "description": "Saved FlowView result ID to restore exact result without re-analysis"
+      },
+      "target": {
+        "type": "string",
+        "description": "Target repository path or subdirectory (defaults to working directory)"
+      }
+    }
+  }
+}
+EOF
+
+cat <<'EOF' > "$AGY_MCP_DIR/report_unknowns.json"
+{
+  "name": "report_unknowns",
+  "description": "List unresolved gaps, missing types, and dynamic dispatch cutoffs in the workspace or for a specific flow.",
+  "parameters": {
+    "type": "object",
+    "properties": {
+      "flowId": {
+        "type": "string",
+        "description": "Optional flow ID to filter unknowns for a specific flow"
+      },
+      "target": {
+        "type": "string",
+        "description": "Target repository path or subdirectory (defaults to working directory)"
+      }
+    }
+  }
+}
+EOF
+
+cat <<'EOF' > "$AGY_MCP_DIR/publish_core_flow.json"
+{
+  "name": "publish_core_flow",
+  "description": "Publish a verified architecture-layer core flow from an agent-authored intermediate artifact. Verifies every 6-field anchor against current worktree bytes; on mismatch returns a correctable error without persisting.",
+  "parameters": {
+    "type": "object",
+    "required": ["artifact"],
+    "properties": {
+      "artifact": {
         "type": "object",
-        "description": "TaskViewQuery object with mode='feature' and feature object containing request, flowId, or entrySymbol",
-        "properties": {
-          "mode": {"type": "string", "enum": ["feature", "review", "impact", "debug", "incident", "onboarding"]},
-          "feature": {
-            "type": "object",
-            "properties": {
-              "request": {"type": "string", "description": "Natural language user request"},
-              "flowId": {"type": "string", "description": "Target flow ID"},
-              "entrySymbol": {"type": "string", "description": "Target entry symbol path (e.g. app/page.tsx#HomePage.submit)"},
-              "domain": {"type": "string", "description": "Domain name filter"}
-            }
-          }
-        }
+        "description": "Core flow artifact conforming to core-artifact schema"
       },
       "target": {
         "type": "string",
@@ -512,62 +689,63 @@ cat <<'EOF' > "$AGY_MCP_DIR/query_task_view.json"
 }
 EOF
 
-cat <<'EOF' > "$AGY_MCP_DIR/harvest_flows.json"
+cat <<'EOF' > "$AGY_MCP_DIR/approve_step.json"
 {
-  "name": "harvest_flows",
-  "description": "Find candidate entry points for a natural-language flow request. Returns ranked candidate list with candidateId, entrySymbolPath, and intentSignals.",
+  "name": "approve_step",
+  "description": "Approve a step name and business rules (in-place approval recorded to event log).",
   "parameters": {
     "type": "object",
-    "properties": {
-      "target": {
-        "type": "string",
-        "description": "Target repository path"
-      },
-      "query": {
-        "type": "string",
-        "description": "Optional substring filter across entrySymbolPath, intentSignals, triggerClass"
-      }
-    }
-  }
-}
-EOF
-
-cat <<'EOF' > "$AGY_MCP_DIR/open_review.json"
-{
-  "name": "open_review",
-  "description": "Open FlowView for a persisted flowId. Returns the FlowView URL with auth token.",
-  "parameters": {
-    "type": "object",
-    "required": ["flowId"],
+    "required": ["flowId", "symbolPath", "name"],
     "properties": {
       "flowId": {
         "type": "string",
-        "description": "The exact flowId returned by analyze_flow, publish_core_flow, or query_task_view"
+        "description": "Target flow ID"
+      },
+      "symbolPath": {
+        "type": "string",
+        "description": "Enclosing symbol path of the step being approved"
+      },
+      "name": {
+        "type": "string",
+        "description": "Approved business step name"
+      },
+      "rules": {
+        "type": "array",
+        "items": {"type": "string"},
+        "description": "Approved business rules or rationale"
       },
       "target": {
         "type": "string",
-        "description": "Target repository path"
+        "description": "Target repository path or subdirectory (defaults to working directory)"
+      },
+      "token": {
+        "type": "string",
+        "description": "Auth token when required"
       }
     }
   }
 }
 EOF
 
-cat <<'EOF' > "$AGY_MCP_DIR/analyze_flow.json"
+cat <<'EOF' > "$AGY_MCP_DIR/submit_flow_draft.json"
 {
-  "name": "analyze_flow",
-  "description": "Slice and publish one exact entry point. Returns a persisted FlowSpec containing flowId.",
+  "name": "submit_flow_draft",
+  "description": "Submit structured session journey draft with verified anchors.",
   "parameters": {
     "type": "object",
-    "required": ["entrySymbolPath"],
+    "required": ["artifact"],
     "properties": {
-      "entrySymbolPath": {
-        "type": "string",
-        "description": "Exact entry symbol path from harvest_flows"
+      "artifact": {
+        "type": "object",
+        "description": "Session journey draft artifact conforming to session-artifact schema"
       },
       "target": {
         "type": "string",
-        "description": "Target repository path"
+        "description": "Target repository path or subdirectory (defaults to working directory)"
+      },
+      "token": {
+        "type": "string",
+        "description": "Auth token when required"
       }
     }
   }
@@ -577,25 +755,30 @@ EOF
 cat <<'EOF' > "$AGY_MCP_DIR/instructions.md"
 # CodeFlow MCP Server
 
-CodeFlow provides business-flow-first code intelligence, FlowSequence code comprehension, and verified visual FlowView inspection.
+CodeFlow provides business-flow-first code comprehension, FlowSequence Storyboard generation, and interactive FlowView visual review across polyglot codebases.
 
-## Key Tools:
-1. `query_task_view`: Analyze code flows and obtain Live Semantic Map / FlowView URL with complete `flowContexts` (verbatim code snippets) and `semanticMap`.
-2. `harvest_flows`: Discover candidate business entry points for a query or explore candidate flows.
-3. `analyze_flow`: Slice and publish an exact entry symbol.
-4. `open_review`: Open FlowView interactive web UI for a given flowId.
-5. `publish_core_flow`: Publish verified architecture-layer core flow.
+## Official 8 Core Tools:
+1. `harvest_flows`: Discover candidate entry points for a natural language flow query.
+2. `analyze_flow`: Slice AST execution paths and publish FlowSpec by entrySymbolPath.
+3. `get_flow_payload`: Retrieve curated flow payload (~500-token macro gateway summary with `compact: true`).
+4. `open_review`: Generate authenticated FlowView URL for interactive visual inspection.
+5. `report_unknowns`: Inspect unresolved boundaries, missing types, and dynamic dispatch cutoffs.
+6. `publish_core_flow`: Publish verified architecture-layer core flow with 6-field anchors.
+7. `approve_step`: Record human or agent step approval and business rules.
+8. `submit_flow_draft`: Submit structured session journey draft.
 EOF
 info "Installed Antigravity MCP tool schemas ($AGY_MCP_DIR)"
 
 SKILL_SHA256=""
 if [ -f "$SKILL_DEST/SKILL.md" ]; then
   SKILL_SHA256="$(calc_sha256 "$SKILL_DEST/SKILL.md")"
+elif [ -f "$SKILL_SOURCE/SKILL.md" ]; then
+  SKILL_SHA256="$(calc_sha256 "$SKILL_SOURCE/SKILL.md")"
 fi
 
 "$INSTALL_PATH" install-record \
   --binary "$INSTALL_PATH" \
-  --source-root "${SRC_DIR:-}" \
+  --source-root "${SRC_DIR:-${WORKSPACE_ROOT:-}}" \
   --owned-source="$OWNED_SOURCE" \
   --adapter-spec "$ADAPTER_SPEC" \
   --skill-path "$SKILL_DEST" \
@@ -607,12 +790,13 @@ cat <<EOF
 ✓ CodeFlow installation complete!
   Binary: $INSTALL_PATH
 
-  Auto-configured for all detected agents:
+  Auto-configured for detected agents:
   - Codex: $CODEX_HOME_DIR/skills/codeflow
   - Claude Desktop: $CLAUDE_CONFIG_DIR/claude_desktop_config.json
   - Claude Code: $HOME/.claude/skills/codeflow
   - Cursor: $CURSOR_CONFIG_DIR/mcp.json
-  - Antigravity: $GEMINI_CONFIG_DIR/mcp_config.json
+  - Antigravity / Gemini: $GEMINI_CONFIG_DIR/mcp_config.json ($GEMINI_CONFIG_DIR/skills/codeflow)
+  - Shared Workspace: .agents/skills/codeflow
 
   Manual run command:
   $INSTALL_PATH mcp

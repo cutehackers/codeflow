@@ -24,11 +24,11 @@ func TestTier2_Boundary1_EmptyFunctionsAndStubs(t *testing.T) {
 	t.Run("empty_arrow_handler", func(t *testing.T) {
 		tempDir := t.TempDir()
 		src := `export const StubForm = () => {
-  const handleStub = () => {};
-  return <button onClick={handleStub} />;
+  const onStub = () => {};
+  return <button onClick={onStub} />;
 };`
 		os.WriteFile(filepath.Join(tempDir, "StubForm.tsx"), []byte(src), 0o644)
-		payload, err := sliceHelper(t, pool, ctx, tempDir, "StubForm.tsx", "StubForm.handleStub", 1)
+		payload, err := sliceHelper(t, pool, ctx, tempDir, "StubForm.tsx", "StubForm.onStub", 1)
 		if err != nil {
 			t.Fatalf("slice failed: %v", err)
 		}
@@ -54,14 +54,14 @@ func TestTier2_Boundary1_EmptyFunctionsAndStubs(t *testing.T) {
 	t.Run("function_with_only_comments", func(t *testing.T) {
 		tempDir := t.TempDir()
 		src := `export const CommentOnly = () => {
-  const handleAction = () => {
+  const onAction = () => {
     // TODO: implement later
     /* multi-line comment stub */
   };
-  return <div onClick={handleAction} />;
+  return <div onClick={onAction} />;
 };`
 		os.WriteFile(filepath.Join(tempDir, "CommentOnly.tsx"), []byte(src), 0o644)
-		payload, err := sliceHelper(t, pool, ctx, tempDir, "CommentOnly.tsx", "CommentOnly.handleAction", 1)
+		payload, err := sliceHelper(t, pool, ctx, tempDir, "CommentOnly.tsx", "CommentOnly.onAction", 1)
 		if err != nil {
 			t.Fatalf("slice failed: %v", err)
 		}
@@ -110,7 +110,7 @@ func TestTier2_Boundary2_DeeplyNestedClosures(t *testing.T) {
 	t.Run("four_level_nested_closure", func(t *testing.T) {
 		tempDir := t.TempDir()
 		src := `export const DeepComponent = () => {
-  const handleLevel1 = () => {
+  const onLevel1 = () => {
     const fn2 = () => {
       const fn3 = () => {
         const fn4 = () => {
@@ -122,10 +122,10 @@ func TestTier2_Boundary2_DeeplyNestedClosures(t *testing.T) {
     };
     fn2();
   };
-  return <button onClick={handleLevel1} />;
+  return <button onClick={onLevel1} />;
 };`
 		os.WriteFile(filepath.Join(tempDir, "DeepComponent.tsx"), []byte(src), 0o644)
-		payload, err := sliceHelper(t, pool, ctx, tempDir, "DeepComponent.tsx", "DeepComponent.handleLevel1", 4)
+		payload, err := sliceHelper(t, pool, ctx, tempDir, "DeepComponent.tsx", "DeepComponent.onLevel1", 4)
 		if err != nil {
 			t.Fatalf("slice failed: %v", err)
 		}
@@ -136,7 +136,7 @@ func TestTier2_Boundary2_DeeplyNestedClosures(t *testing.T) {
 	t.Run("nested_try_catch_finally", func(t *testing.T) {
 		tempDir := t.TempDir()
 		src := `export const TryCatchView = () => {
-  const handleSubmit = async () => {
+  const onSubmit = async () => {
     try {
       await api.v1.auth.login();
     } catch (e) {
@@ -145,10 +145,10 @@ func TestTier2_Boundary2_DeeplyNestedClosures(t *testing.T) {
       cleanup();
     }
   };
-  return <button onClick={handleSubmit} />;
+  return <button onClick={onSubmit} />;
 };`
 		os.WriteFile(filepath.Join(tempDir, "TryCatchView.tsx"), []byte(src), 0o644)
-		payload, err := sliceHelper(t, pool, ctx, tempDir, "TryCatchView.tsx", "TryCatchView.handleSubmit", 2)
+		payload, err := sliceHelper(t, pool, ctx, tempDir, "TryCatchView.tsx", "TryCatchView.onSubmit", 2)
 		if err != nil {
 			t.Fatalf("slice failed: %v", err)
 		}
@@ -159,7 +159,7 @@ func TestTier2_Boundary2_DeeplyNestedClosures(t *testing.T) {
 	t.Run("nested_switch_inside_if", func(t *testing.T) {
 		tempDir := t.TempDir()
 		src := `export const SwitchView = () => {
-  const handleAction = (type: string) => {
+  const onAction = (type: string) => {
     if (type) {
       switch (type) {
         case 'A':
@@ -173,10 +173,10 @@ func TestTier2_Boundary2_DeeplyNestedClosures(t *testing.T) {
       }
     }
   };
-  return <div onClick={() => handleAction('A')} />;
+  return <div onClick={() => onAction('A')} />;
 };`
 		os.WriteFile(filepath.Join(tempDir, "SwitchView.tsx"), []byte(src), 0o644)
-		payload, err := sliceHelper(t, pool, ctx, tempDir, "SwitchView.tsx", "SwitchView.handleAction", 1)
+		payload, err := sliceHelper(t, pool, ctx, tempDir, "SwitchView.tsx", "SwitchView.onAction", 1)
 		if err != nil {
 			t.Fatalf("slice failed: %v", err)
 		}
@@ -207,17 +207,17 @@ func TestTier2_Boundary2_DeeplyNestedClosures(t *testing.T) {
 	t.Run("nested_callback_in_array_loop", func(t *testing.T) {
 		tempDir := t.TempDir()
 		src := `export const LoopView = () => {
-  const handleProcessAll = (items: string[]) => {
+  const onProcessAll = (items: string[]) => {
     items.forEach((item) => {
       if (item) {
         processor.process(item);
       }
     });
   };
-  return <button onClick={() => handleProcessAll(['a', 'b'])} />;
+  return <button onClick={() => onProcessAll(['a', 'b'])} />;
 };`
 		os.WriteFile(filepath.Join(tempDir, "LoopView.tsx"), []byte(src), 0o644)
-		payload, err := sliceHelper(t, pool, ctx, tempDir, "LoopView.tsx", "LoopView.handleProcessAll", 1)
+		payload, err := sliceHelper(t, pool, ctx, tempDir, "LoopView.tsx", "LoopView.onProcessAll", 1)
 		if err != nil {
 			t.Fatalf("slice failed: %v", err)
 		}
@@ -363,10 +363,10 @@ func TestTier2_Boundary5_GenericsAndUnionTypes(t *testing.T) {
 	t.Run("generic_component_with_extends", func(t *testing.T) {
 		tempDir := t.TempDir()
 		src := `export const GenericForm = <T extends Record<string, any>>(props: { data: T }) => {
-  const handleSubmit = (item: T) => {
+  const onSubmit = (item: T) => {
     console.log(item);
   };
-  return <form onSubmit={() => handleSubmit(props.data)} />;
+  return <form onSubmit={() => onSubmit(props.data)} />;
 };`
 		os.WriteFile(filepath.Join(tempDir, "GenericForm.tsx"), []byte(src), 0o644)
 		var resp struct {
@@ -384,7 +384,7 @@ func TestTier2_Boundary5_GenericsAndUnionTypes(t *testing.T) {
 	// 5.2: Multi-parameter generics in function
 	t.Run("multi_parameter_generics", func(t *testing.T) {
 		tempDir := t.TempDir()
-		src := `export async function handleDataTransform<T, R extends Result<T>>(input: T): Promise<R> {
+		src := `export async function processDataTransform<T, R extends Result<T>>(input: T): Promise<R> {
   return transform(input);
 }`
 		os.WriteFile(filepath.Join(tempDir, "transform.ts"), []byte(src), 0o644)
@@ -396,7 +396,7 @@ func TestTier2_Boundary5_GenericsAndUnionTypes(t *testing.T) {
 			t.Fatalf("harvest failed: %v", err)
 		}
 		if len(resp.Candidates) == 0 {
-			t.Errorf("expected handleDataTransform candidate")
+			t.Errorf("expected processDataTransform candidate")
 		}
 	})
 
@@ -468,11 +468,11 @@ func TestTier2_Boundary6_MultiByteUnicodeHandling(t *testing.T) {
 	}{
 		{"korean_comments", `// 사용자 인증 처리 함수
 export const KoreanAuth = () => {
-  const handleSubmit = async () => {
+  const onSubmit = async () => {
     // 서버로 결제 요청 전송 🚀
     await api.orders.checkout("주문내용");
   };
-  return <button onClick={handleSubmit}>결제하기</button>;
+  return <button onClick={onSubmit}>결제하기</button>;
 };`},
 		{"japanese_text", `// ユーザー登録処理
 export const JapaneseView = () => {
@@ -482,11 +482,11 @@ export const JapaneseView = () => {
   return <button onClick={onRegister}>登録</button>;
 };`},
 		{"emoji_strings", `export const EmojiComp = () => {
-  const handleEmoji = () => {
+  const onEmoji = () => {
     const str = "🎉🔥✨🚀👍";
     logger.log(str);
   };
-  return <div onClick={handleEmoji} />;
+  return <div onClick={onEmoji} />;
 };`},
 		{"mixed_special_characters", `export const SpecialChars = () => {
   const onSpecial = () => {
@@ -643,14 +643,14 @@ func TestTier2_Boundary8_CircularAndDagStructures(t *testing.T) {
 	t.Run("self_recursive_function", func(t *testing.T) {
 		tempDir := t.TempDir()
 		src := `export const RecurseComp = () => {
-  const handleRecurse = (n: number) => {
+  const onRecurse = (n: number) => {
     if (n <= 0) return 0;
-    return handleRecurse(n - 1);
+    return onRecurse(n - 1);
   };
-  return <button onClick={() => handleRecurse(5)} />;
+  return <button onClick={() => onRecurse(5)} />;
 };`
 		os.WriteFile(filepath.Join(tempDir, "RecurseComp.tsx"), []byte(src), 0o644)
-		payload, err := sliceHelper(t, pool, ctx, tempDir, "RecurseComp.tsx", "RecurseComp.handleRecurse", 5)
+		payload, err := sliceHelper(t, pool, ctx, tempDir, "RecurseComp.tsx", "RecurseComp.onRecurse", 5)
 		if err != nil {
 			t.Fatalf("slice failed: %v", err)
 		}
@@ -661,11 +661,11 @@ func TestTier2_Boundary8_CircularAndDagStructures(t *testing.T) {
 	t.Run("mutually_recursive_functions", func(t *testing.T) {
 		tempDir := t.TempDir()
 		src := `export class MutualCycle {
-  handleA() { this.handleB(); }
-  handleB() { this.handleA(); }
+  onA() { this.onB(); }
+  onB() { this.onA(); }
 }`
 		os.WriteFile(filepath.Join(tempDir, "MutualCycle.ts"), []byte(src), 0o644)
-		payload, err := sliceHelper(t, pool, ctx, tempDir, "MutualCycle.ts", "MutualCycle.handleA", 5)
+		payload, err := sliceHelper(t, pool, ctx, tempDir, "MutualCycle.ts", "MutualCycle.onA", 5)
 		if err != nil {
 			t.Fatalf("slice failed: %v", err)
 		}
@@ -751,12 +751,12 @@ func TestTier2_Boundary10_CommentsAndCodeLikeStrings(t *testing.T) {
 	// 10.1: Comments containing code-like strings should not produce fake candidates
 	t.Run("comment_with_function_keywords_ignored", func(t *testing.T) {
 		tempDir := t.TempDir()
-		src := `// Note: do not use handleLegacySubmit() here
+		src := `// Note: do not use onLegacySubmit() here
 // function processOldData() is deprecated
 // Note: onAction() was removed in v2
 export const RealComponent = () => {
-  const handleReal = () => {};
-  return <div onClick={handleReal} />;
+  const onReal = () => {};
+  return <div onClick={onReal} />;
 };`
 		os.WriteFile(filepath.Join(tempDir, "test.tsx"), []byte(src), 0o644)
 		var resp struct {
@@ -767,7 +767,7 @@ export const RealComponent = () => {
 			t.Fatalf("harvest failed: %v", err)
 		}
 		for _, c := range resp.Candidates {
-			if strings.Contains(c.EntrySymbolPath, "handleLegacySubmit") || strings.Contains(c.EntrySymbolPath, "processOldData") {
+			if strings.Contains(c.EntrySymbolPath, "onLegacySubmit") || strings.Contains(c.EntrySymbolPath, "processOldData") {
 				t.Errorf("comment text was harvested as candidate: %s", c.EntrySymbolPath)
 			}
 		}
@@ -865,7 +865,7 @@ func TestTier2_Boundary11_BracelessArrowFunctions(t *testing.T) {
 		code string
 	}{
 		{"numeric_expression", `export const getNumber = () => 42;`},
-		{"call_expression", `export const handleSend = (e) => api.send(e);`},
+		{"call_expression", `export const onSend = (e) => api.send(e);`},
 		{"async_call_expression", `export const fetchAsync = async () => await api.fetch();`},
 		{"object_literal_expression", `export const makeConfig = () => ({ enabled: true });`},
 		{"jsx_expression", `export const SimpleCard = () => <div className="card" />;`},

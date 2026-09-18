@@ -3,23 +3,43 @@ package main
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
+)
+
+var (
+	pipelineBinaryPreparationOnce  sync.Once
+	pipelineBinaryPath             string
+	pipelineBinaryPreparationError error
 )
 
 func buildBinary(t *testing.T) string {
 	t.Helper()
-	binPath := filepath.Join(t.TempDir(), "codeflow-test-bin")
-	cmd := exec.Command("go", "build", "-o", binPath, ".")
-	cmd.Dir = "."
-	cmd.Env = append(os.Environ(), "CGO_ENABLED=0")
-	if out, err := cmd.CombinedOutput(); err != nil {
-		t.Fatalf("build codeflow binary failed: %v\nOutput: %s", err, string(out))
+	pipelineBinaryPreparationOnce.Do(func() {
+		tempDir, err := os.MkdirTemp("", "codeflow-pipeline-bin-*")
+		if err != nil {
+			pipelineBinaryPreparationError = err
+			return
+		}
+		binPath := filepath.Join(tempDir, "codeflow-test-bin")
+		cmd := exec.Command("go", "build", "-o", binPath, ".")
+		cmd.Dir = "."
+		cmd.Env = append(os.Environ(), "CGO_ENABLED=0")
+		if out, err := cmd.CombinedOutput(); err != nil {
+			pipelineBinaryPreparationError = fmt.Errorf("build codeflow binary failed: %w\nOutput: %s", err, string(out))
+			return
+		}
+		pipelineBinaryPath = binPath
+	})
+	if pipelineBinaryPreparationError != nil {
+		t.Fatalf("build codeflow binary failed: %v", pipelineBinaryPreparationError)
 	}
-	return binPath
+	return pipelineBinaryPath
 }
 
 func TestPipeline_StandaloneAnalyze(t *testing.T) {

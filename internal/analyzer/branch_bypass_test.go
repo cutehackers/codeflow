@@ -21,7 +21,7 @@ func TestBranchBypass_AutoFallback(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(repoRoot, "go.mod"), []byte("module example.com/checkout\n\ngo 1.22\n"), 0644); err != nil {
 		t.Fatal(err)
 	}
-	goCode := "package main\n\nfunc HandleCheckout() {}\n"
+	goCode := "package main\n\nfunc processCheckout() {}\n"
 	if err := os.WriteFile(filepath.Join(repoRoot, "checkout.go"), []byte(goCode), 0644); err != nil {
 		t.Fatal(err)
 	}

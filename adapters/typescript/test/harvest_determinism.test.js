@@ -15,7 +15,7 @@ function run() {
   assert.strictEqual(humanizeIdentifier('_onItemAdded'), 'Item added');
   assert.strictEqual(humanizeIdentifier('onCheckoutPressed'), 'Checkout pressed');
   assert.strictEqual(humanizeIdentifier('URLLoader'), 'Url loader');
-  assert.strictEqual(humanizeIdentifier('handleClick'), 'Handle click');
+  assert.strictEqual(humanizeIdentifier('onClick'), 'Click');
 
   // 2. Deterministic harvest test
   const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'codeflow-harvest-'));
@@ -33,7 +33,7 @@ export class LoginUseCase {
 
     fs.writeFileSync(path.join(srcDir, 'OrderScreen.tsx'), `
 export class OrderScreen {
-  async handleSubmit() {
+  async onSubmit() {
     console.log('submit order');
   }
 }

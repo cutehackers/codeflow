@@ -73,7 +73,7 @@ List<Map<String, Object?>> _rpcObjects(Object? value) => value is List
         .toList()
     : <Map<String, Object?>>[];
 
-/// Direct unit-level framing tests against AdapterServer.handleLine.
+/// Direct unit-level framing tests against AdapterServer.parseRequestLine.
 void main() {
   late AdapterServer server;
   setUp(() {
@@ -83,12 +83,12 @@ void main() {
     );
   });
 
-  Map<String, Object?> handle(String line) =>
-      jsonDecode(server.handleLine(line)!) as Map<String, Object?>;
+  Map<String, Object?> dispatchRequest(String line) =>
+      jsonDecode(server.parseRequestLine(line)!) as Map<String, Object?>;
 
   test('malformed JSON responds E_BAD_REQUEST with empty id', () {
     for (final bad in ['', '   ', '{', 'not json at all', '[1,2]', '"str"']) {
-      final r = handle(bad);
+      final r = dispatchRequest(bad);
       expect(r['id'], '', reason: 'input: $bad');
       expect(r['ok'], false, reason: 'input: $bad');
       final err = r['err']! as Map;
@@ -99,7 +99,7 @@ void main() {
   });
 
   test('ping negotiates versions and echoes the id', () {
-    final r = handle('{"v":1,"id":"abc-1","op":"ping","params":{}}');
+    final r = dispatchRequest('{"v":1,"id":"abc-1","op":"ping","params":{}}');
     expect(r.keys.toSet(), {'id', 'ok', 'result'});
     expect(r['id'], 'abc-1');
     expect(r['ok'], true);
@@ -113,7 +113,7 @@ void main() {
       '{"v":"1","id":"x","op":"ping","params":{}}',
       '{"v":2,"id":"x","op":"ping","params":{}}',
     ]) {
-      final r = handle(line);
+      final r = dispatchRequest(line);
       expect((r['err']! as Map)['code'], 'E_UNSUPPORTED_VERSION');
       // id still echoed when present.
       if (line.contains('"id":"x"')) expect(r['id'], 'x');
@@ -124,7 +124,7 @@ void main() {
       'production RPC diagnostics redact malformed quoted keys before clipping',
       () {
     final secret = List.filled(200, 'dart-adapter-secret-').join();
-    final response = server.handleRpcRequest({
+    final response = server.dispatchRPCRequest({
       'jsonrpc': '2.0',
       'id': 'diagnostic-1',
       'method':
@@ -206,19 +206,19 @@ void main() {
 
   test('unknown op => E_BAD_REQUEST; missing op likewise', () {
     expect(
-        (handle('{"v":1,"id":"k","op":"warp","params":{}}')['err']!
+        (dispatchRequest('{"v":1,"id":"k","op":"warp","params":{}}')['err']!
             as Map)['code'],
         'E_BAD_REQUEST');
-    expect((handle('{"v":1,"id":"k","params":{}}')['err']! as Map)['code'],
+    expect((dispatchRequest('{"v":1,"id":"k","params":{}}')['err']! as Map)['code'],
         'E_BAD_REQUEST');
   });
 
   test('detect requires repoRoot (typed error, not a crash)', () {
-    final r = handle('{"v":1,"id":"d","op":"detect","params":{}}');
+    final r = dispatchRequest('{"v":1,"id":"d","op":"detect","params":{}}');
     expect(r['ok'], false);
     expect((r['err']! as Map)['code'], 'E_BAD_REQUEST');
 
-    final ok = handle(
+    final ok = dispatchRequest(
       '{"v":1,"id":"d2","op":"detect","params":{"repoRoot":"${exampleAppRoot().replaceAll("\\", "/")}"}}',
     );
     expect(ok['ok'], true);
@@ -226,13 +226,13 @@ void main() {
   });
 
   test('harvest_candidates without repoRoot is E_BAD_REQUEST', () {
-    final r = handle('{"v":1,"id":"h","op":"harvest_candidates","params":{}}');
+    final r = dispatchRequest('{"v":1,"id":"h","op":"harvest_candidates","params":{}}');
     expect(r['ok'], false);
     expect((r['err']! as Map)['code'], 'E_BAD_REQUEST');
   });
 
   test('slice without repoRoot is E_BAD_REQUEST', () {
-    final r = handle('{"v":1,"id":"s","op":"slice","params":{}}');
+    final r = dispatchRequest('{"v":1,"id":"s","op":"slice","params":{}}');
     expect(r['ok'], false);
     final err = r['err']! as Map;
     expect(err['code'], 'E_BAD_REQUEST');
@@ -240,7 +240,7 @@ void main() {
   });
 
   test('slice with valid params executes successfully', () {
-    final r = handle(jsonEncode({
+    final r = dispatchRequest(jsonEncode({
       'v': 1,
       'id': 's2',
       'op': 'slice',
@@ -312,7 +312,7 @@ void main() {
           if (payload.isNotEmpty) 'payload': payload,
         };
 
-    final harvest = server.handleRpcRequest({
+    final harvest = server.dispatchRPCRequest({
       'jsonrpc': '2.0',
       'id': 'snapshot-harvest',
       'method': 'harvest_candidates',
@@ -325,7 +325,7 @@ void main() {
     expect(
         (candidates.first['intentSignals'] as Map)['packageName'], 'unknown');
 
-    final slice = server.handleRpcRequest({
+    final slice = server.dispatchRPCRequest({
       'jsonrpc': '2.0',
       'id': 'snapshot-slice',
       'method': 'slice',
@@ -343,7 +343,7 @@ void main() {
   });
 
   test('v2 observations track actual Dart operation reads', () {
-    final detect = server.handleRpcRequest({
+    final detect = server.dispatchRPCRequest({
       'jsonrpc': '2.0',
       'id': 'dart-detect-missing',
       'method': 'detect',
@@ -376,7 +376,7 @@ void main() {
           'class Screen { void onPressed() { state = \'snapshot\'; } }\n',
       'README.md': 'not consulted',
     };
-    final harvest = server.handleRpcRequest({
+    final harvest = server.dispatchRPCRequest({
       'jsonrpc': '2.0',
       'id': 'dart-harvest',
       'method': 'harvest_candidates',
@@ -404,7 +404,7 @@ void main() {
       ...harvestFiles,
       'lib/extra.dart': 'class Extra {}\n',
     };
-    final harvestExtra = server.handleRpcRequest({
+    final harvestExtra = server.dispatchRPCRequest({
       'jsonrpc': '2.0',
       'id': 'dart-harvest-extra',
       'method': 'harvest_candidates',
@@ -418,7 +418,7 @@ void main() {
             .single['valueHash'];
     expect(extraMembership, isNot(firstMembership));
 
-    final slice = server.handleRpcRequest({
+    final slice = server.dispatchRPCRequest({
       'jsonrpc': '2.0',
       'id': 'dart-slice',
       'method': 'slice',
@@ -443,7 +443,7 @@ void main() {
         'pubspec.yaml');
     expect(_rpcClosure(slice)['closureStatus'], 'closed');
 
-    final unsupported = server.handleRpcRequest({
+    final unsupported = server.dispatchRPCRequest({
       'jsonrpc': '2.0',
       'id': 'dart-unsupported',
       'method': 'harvest_candidates',
@@ -478,7 +478,7 @@ void main() {
       respond: (_) {},
       harvestFn: (params) => throw StateError('boom'),
     );
-    final r = jsonDecode(crashingServer.handleLine(
+    final r = jsonDecode(crashingServer.parseRequestLine(
             '{"v":1,"id":"z","op":"harvest_candidates","params":{"repoRoot":"/tmp"}}')!)
         as Map<String, Object?>;
     expect(r['ok'], false);
@@ -488,7 +488,7 @@ void main() {
     expect(r['id'], 'z');
 
     // The same server instance still answers a healthy request afterwards.
-    final ok = jsonDecode(crashingServer.handleLine(
+    final ok = jsonDecode(crashingServer.parseRequestLine(
         '{"v":1,"id":"y","op":"ping","params":{}}')!) as Map<String, Object?>;
     expect(ok['ok'], true);
   });

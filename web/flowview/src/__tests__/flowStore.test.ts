@@ -361,7 +361,7 @@ describe('FlowStore (Svelte 5 Runes)', () => {
     historical.flowContexts = {};
     historical.sourceFiles = {};
     historical.sourceContextMissing = true;
-    historical.request = { request: 'service/handler.go#HandleOrder' };
+    historical.request = { request: 'service/handler.go#dispatchOrder' };
 
     const requestedUrls: string[] = [];
     const originalFetch = globalThis.fetch;
@@ -385,4 +385,3 @@ describe('FlowStore (Svelte 5 Runes)', () => {
     }
   });
 });
-

@@ -577,7 +577,7 @@ rl.on('line', (line: string) => {
   if (!line.trim()) return;
   try {
     const req = JSON.parse(line);
-    const res = handleRequest(req);
+    const res = dispatchLegacyRequest(req);
     process.stdout.write(JSON.stringify(res) + '\n');
   } catch (err: any) {
     const errRes = {
@@ -593,7 +593,7 @@ rl.on('line', (line: string) => {
   }
 });
 
-function handleRequest(req: any) {
+function dispatchLegacyRequest(req: any) {
   if (typeof req !== 'object' || req === null) {
     return { id: "", ok: false, err: { code: "E_BAD_REQUEST", message: "Request must be an object", retryable: false } };
   }

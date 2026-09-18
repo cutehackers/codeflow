@@ -133,7 +133,7 @@ function classifyMarker(enclosingName, symbolName, code, fnBody = '') {
   let enc = enclosingName || '';
   let sym = symbolName || '';
 
-  // If symbol is dotted (e.g. LoginPage.handleSubmit), extract local symbol and parent scope
+  // If symbol is dotted, extract the local symbol and parent scope.
   if (sym.includes('.')) {
     const parts = sym.split('.');
     enc = parts.slice(0, -1).join('.');
@@ -200,6 +200,7 @@ function classifyMarker(enclosingName, symbolName, code, fnBody = '') {
     sym === 'execute' ||
     sym === 'call' ||
     sym === 'handle' ||
+    /^process[A-Z0-9_$]*/.test(sym) ||
     sym === 'invoke' ||
     encLower.includes('usecase') ||
     encLower.includes('interactor') ||
@@ -209,6 +210,7 @@ function classifyMarker(enclosingName, symbolName, code, fnBody = '') {
       sym === 'execute' ||
       sym === 'call' ||
       sym === 'handle' ||
+      /^process[A-Z0-9_$]*/.test(sym) ||
       sym === 'invoke' ||
       encLower.includes('usecase') ||
       encLower.includes('interactor')
@@ -219,8 +221,8 @@ function classifyMarker(enclosingName, symbolName, code, fnBody = '') {
 
   // 5. UI Actions (React Event Handlers, Form Actions, Click/Submit Callbacks)
   if (
-    /^(handle|on)[A-Z0-9_$]*(click|press|tap|submit|change|select|drag|drop|input|blur|focus|toggle|close|open)/i.test(sym) ||
-    /^(handle|on)[A-Z]/.test(sym) ||
+    /^(handle|on|serve)[A-Z0-9_$]*(click|press|tap|submit|change|select|drag|drop|input|blur|focus|toggle|close|open)/i.test(sym) ||
+    /^(handle|on|serve)[A-Z]/.test(sym) ||
     /^[A-Za-z0-9_$]+(Action|Handler)$/.test(sym) ||
     (
       (encLower.includes('button') ||
@@ -235,7 +237,7 @@ function classifyMarker(enclosingName, symbolName, code, fnBody = '') {
        encLower.includes('item') ||
        encLower.includes('header') ||
        encLower.includes('footer')) &&
-      (/click|press|tap|submit|change|select|handle|^on[A-Z]|action/i.test(sym)) &&
+      (/click|press|tap|submit|change|select|handle|^on[A-Z]|^serve[A-Z]|action/i.test(sym)) &&
       !sym.startsWith('get') &&
       !sym.startsWith('set')
     )

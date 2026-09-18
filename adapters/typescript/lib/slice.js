@@ -135,7 +135,7 @@ function sliceFlow(params) {
 
       // 2. If not found in classes, search scan.topLevelFunctions for functional components, nested handlers, or hooks
       if (bodyStart < 0) {
-        // Priority 2a: Exact match on full symbol name (e.g. LoginPage.handleSubmit)
+        // Priority 2a: Exact match on full symbol name (e.g. LoginPage.onSubmit)
         for (const fn of scan.topLevelFunctions) {
           if (fn.name === fullSym) {
             bodyStart = fn.bodyStart;
@@ -245,7 +245,7 @@ function sliceFlow(params) {
 
           steps.push({
             ordinal: stepOrdinal,
-            kind: isBoundary ? 'effect' : 'call',
+            kind: 'call',
             description: descRedact.text,
             symbolPath: fullSym,
             anchor,

@@ -1,4 +1,4 @@
-.PHONY: build build-adapter build-ui test-ui build-all package test fmt vet check-naming clean
+.PHONY: build build-adapter build-ui test-ui build-all package test test-all fmt vet check-naming clean
 
 build:
 	mkdir -p bin
@@ -24,7 +24,10 @@ package: build-all
 	tar -czvf dist/codeflow-local.tar.gz -C . bin/codeflow bin/dart-adapter skills/codeflow adapters/typescript
 
 test:
-	CGO_ENABLED=0 go test -p 1 -count=1 ./...
+	CGO_ENABLED=0 go test ./...
+
+test-all:
+	CGO_ENABLED=0 go test -count=1 ./...
 
 fmt:
 	go fmt ./...

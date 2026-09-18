@@ -61,7 +61,7 @@ void main() {
       final line =
           utf8.decode(buffer.sublist(0, newline), allowMalformed: true);
       buffer.removeRange(0, newline + 1);
-      final response = server.handleLine(line);
+      final response = server.parseRequestLine(line);
       if (response != null) stdout.writeln(response);
       if (line.contains('"op":"shutdown"')) shuttingDown = true;
     }
@@ -148,7 +148,7 @@ void main() {
           cancelled.remove(id);
           writeRpc(rpcError(id, 'E_CANCELLED', 'request cancelled'));
         } else {
-          final response = server.handleRpcRequest(decoded);
+      final response = server.dispatchRPCRequest(decoded);
           if (decoded is Map &&
               decoded['method'] != 'initialize' &&
               decoded['method'] != 'ping' &&

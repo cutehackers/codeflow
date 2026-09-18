@@ -8,7 +8,7 @@ export default function HomePage() {
   const { cart, calculateTotal } = useCart();
   const [status, setStatus] = useState<string>('idle');
 
-  const handleQuickCheckout = async (e: React.FormEvent) => {
+  const onQuickCheckout = async (e: React.FormEvent) => {
     e.preventDefault();
     setStatus('processing');
     const orderPayload = {
@@ -25,7 +25,7 @@ export default function HomePage() {
   return (
     <div className="home-container">
       <h1>Storefront</h1>
-      <button onClick={handleQuickCheckout} disabled={status === 'processing'}>
+      <button onClick={onQuickCheckout} disabled={status === 'processing'}>
         Quick Checkout
       </button>
     </div>

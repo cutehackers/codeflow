@@ -35,7 +35,7 @@ class AppLifecycleObserver with WidgetsBindingObserver {
   void _refreshSession() {}
 
   /// System event: universal links land here before routing.
-  void handleDeepLink(Uri deepLink) {
+  void onDeepLink(Uri deepLink) {
     final ref = deepLink.queryParameters['ref'];
     if (ref != null) {
       _router.go(deepLink.path);

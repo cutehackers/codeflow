@@ -2,9 +2,12 @@ package slicing_test
 
 import (
 	"context"
+	"fmt"
+	"os"
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"sync"
 	"testing"
 	"time"
 
@@ -97,7 +100,7 @@ func TestTypeScriptSlicingIntegration(t *testing.T) {
 
 	exampleApp := filepath.Join(root, "testdata", "ts_example_app")
 	candidateID := "cand-d2d1a08c8b3668f9"
-	entry := "src/features/auth/LoginView.tsx#handleSubmit"
+	entry := "src/features/auth/LoginView.tsx#onSubmit"
 
 	payload, err := runner.Slice(ctx, exampleApp, candidateID, entry, nil)
 	if err != nil {
@@ -126,14 +129,39 @@ func TestTypeScriptSlicingIntegration(t *testing.T) {
 	}
 }
 
+var (
+	mockAdapterBinaryOnce  sync.Once
+	mockAdapterBinaryPath  string
+	mockAdapterBinaryError error
+)
+
+func provideMockAdapterBinary(t *testing.T) string {
+	t.Helper()
+	mockAdapterBinaryOnce.Do(func() {
+		tempDir, err := os.MkdirTemp("", "codeflow-slicing-mockadapter-*")
+		if err != nil {
+			mockAdapterBinaryError = err
+			return
+		}
+		bin := filepath.Join(tempDir, "mockadapter")
+		build := exec.Command("go", "build", "-o", bin, "./internal/analyzer/mockadapter")
+		build.Dir = moduleRoot(t)
+		build.Env = append(os.Environ(), "CGO_ENABLED=0")
+		if output, err := build.CombinedOutput(); err != nil {
+			mockAdapterBinaryError = fmt.Errorf("build mock adapter: %w\n%s", err, output)
+			return
+		}
+		mockAdapterBinaryPath = bin
+	})
+	if mockAdapterBinaryError != nil {
+		t.Fatalf("build mock adapter: %v", mockAdapterBinaryError)
+	}
+	return mockAdapterBinaryPath
+}
+
 func TestSliceCacheHitIsSnapshotAndBasisBound(t *testing.T) {
 	root := t.TempDir()
-	bin := filepath.Join(t.TempDir(), "mockadapter")
-	build := exec.Command("go", "build", "-o", bin, "./internal/analyzer/mockadapter")
-	build.Dir = moduleRoot(t)
-	if output, err := build.CombinedOutput(); err != nil {
-		t.Fatalf("build mock adapter: %v\n%s", err, output)
-	}
+	bin := provideMockAdapterBinary(t)
 
 	snapshot, err := protocol.NewSnapshot(4, map[string]string{
 		"mock.dart": "class Mock { void run() {} }\n",

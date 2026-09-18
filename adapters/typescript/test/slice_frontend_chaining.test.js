@@ -135,7 +135,7 @@ const cartApi = useCart();
     fs.mkdirSync(path.join(srcDir, 'hooks'), { recursive: true });
     fs.mkdirSync(path.join(srcDir, 'lib'), { recursive: true });
 
-    // 3.1 Create React Functional Component with nested handleSubmit
+    // 3.1 Create React Functional Component with nested onSubmit
     const loginPageTsx = `
 import React, { useState } from 'react';
 import { AuthService } from '../services/AuthService';
@@ -144,7 +144,7 @@ export const LoginPage = () => {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
 
-  const handleSubmit = async (e: React.FormEvent) => {
+  const onSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!email || !password) {
       return;
@@ -153,7 +153,7 @@ export const LoginPage = () => {
   };
 
   return (
-    <form onSubmit={handleSubmit}>
+    <form onSubmit={onSubmit}>
       <input value={email} onChange={e => setEmail(e.target.value)} />
       <button type="submit">Submit</button>
     </form>
@@ -178,7 +178,7 @@ export class AuthService {
     const res1 = sliceFlow({
       repoRoot: tmpDir,
       candidateId: 'cand-fe-001',
-      entrySymbolPath: 'src/pages/LoginPage.tsx#LoginPage.handleSubmit',
+      entrySymbolPath: 'src/pages/LoginPage.tsx#LoginPage.onSubmit',
       opts: { maxDepth: 5 },
     });
 
@@ -187,9 +187,9 @@ export class AuthService {
     assert.strictEqual(res1.truncated, false);
     assert.strictEqual(res1.visitedCycleDetected, false);
 
-    // Verify steps sliced directly from nested handleSubmit
-    assert(res1.steps.length >= 2, `Expected >= 2 steps from handleSubmit, got ${res1.steps.length}`);
-    assert.strictEqual(res1.steps[0].symbolPath, 'LoginPage.handleSubmit');
+    // Verify steps sliced directly from nested onSubmit
+    assert(res1.steps.length >= 2, `Expected >= 2 steps from onSubmit, got ${res1.steps.length}`);
+    assert.strictEqual(res1.steps[0].symbolPath, 'LoginPage.onSubmit');
     assert.strictEqual(res1.steps[0].kind, 'guard');
     assert.strictEqual(res1.steps[0].guardCondition, '!email || !password');
 
@@ -208,7 +208,7 @@ export class AuthService {
 import { api } from '../services/api';
 
 export const UserProfile = () => {
-  const handleUpdate = async (userData: any) => {
+  const onUpdate = async (userData: any) => {
     if (!userData.id) {
       return;
     }
@@ -243,13 +243,13 @@ export class UsersService {
     const res2 = sliceFlow({
       repoRoot: tmpDir,
       candidateId: 'cand-chain-001',
-      entrySymbolPath: 'src/pages/UserProfile.tsx#UserProfile.handleUpdate',
+      entrySymbolPath: 'src/pages/UserProfile.tsx#UserProfile.onUpdate',
       opts: { maxDepth: 5 },
     });
 
     assert.strictEqual(res2.candidateId, 'cand-chain-001');
-    assert(res2.steps.length >= 2, `Expected >= 2 steps from UserProfile.handleUpdate, got ${res2.steps.length}`);
-    assert.strictEqual(res2.steps[0].symbolPath, 'UserProfile.handleUpdate');
+    assert(res2.steps.length >= 2, `Expected >= 2 steps from UserProfile.onUpdate, got ${res2.steps.length}`);
+    assert.strictEqual(res2.steps[0].symbolPath, 'UserProfile.onUpdate');
     assert.strictEqual(res2.steps[0].kind, 'guard');
 
     // Verify cross-file resolution of api.v1.users.update to UsersService.update
@@ -276,7 +276,7 @@ import { useAuth } from '../hooks/useAuth';
 export const CheckoutView = () => {
   const { login, logout } = useAuth();
 
-  const handleCheckout = async () => {
+  const onCheckout = async () => {
     if (!cart.hasItems) {
       return;
     }
@@ -311,13 +311,13 @@ export class AuthClient {
     const res3 = sliceFlow({
       repoRoot: tmpDir,
       candidateId: 'cand-hook-001',
-      entrySymbolPath: 'src/pages/CheckoutView.tsx#CheckoutView.handleCheckout',
+      entrySymbolPath: 'src/pages/CheckoutView.tsx#CheckoutView.onCheckout',
       opts: { maxDepth: 5 },
     });
 
     assert.strictEqual(res3.candidateId, 'cand-hook-001');
     assert(res3.steps.length >= 2, `Expected >= 2 steps from CheckoutView, got ${res3.steps.length}`);
-    assert.strictEqual(res3.steps[0].symbolPath, 'CheckoutView.handleCheckout');
+    assert.strictEqual(res3.steps[0].symbolPath, 'CheckoutView.onCheckout');
 
     // Verify edge resolution via destructured binding
     const hookEdges = res3.edges.map(e => e.toSymbolPath);

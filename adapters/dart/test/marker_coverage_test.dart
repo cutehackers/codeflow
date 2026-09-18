@@ -25,7 +25,7 @@ void main() {
       'lib/features/orders/place_order_usecase.dart#PlaceOrderUseCase.call',
       'lib/features/settings/settings_notifier.dart#SettingsNotifier.toggleDarkMode',
       'lib/main.dart#AppLifecycleObserver.didChangeAppLifecycleState',
-      'lib/main.dart#AppLifecycleObserver.handleDeepLink',
+      'lib/main.dart#AppLifecycleObserver.onDeepLink',
       'lib/main.dart#ShopHomeScreen.onCheckoutPressed',
       'lib/main.dart#firebaseMessagingBackgroundHandler',
     ]);

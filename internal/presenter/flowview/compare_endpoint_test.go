@@ -37,7 +37,7 @@ func TestTaskViewsAndComparisonDescriptors(t *testing.T) {
 		t.Fatalf("expected no preserved views before any view, got %d", len(emptyDoc.Views))
 	}
 
-	entry := "app/page.tsx%23HomePage.handleQuickCheckout"
+	entry := "app/page.tsx%23HomePage.onQuickCheckout"
 	view := serve("http://127.0.0.1/api/task/view?token=" + srv.AuthToken() + "&entrySymbol=" + entry)
 	if view.Code != http.StatusOK {
 		t.Fatalf("expected 200 for task view, got %d: %s", view.Code, view.Body.String())

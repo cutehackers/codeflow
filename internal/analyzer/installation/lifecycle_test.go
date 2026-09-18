@@ -7,12 +7,15 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strings"
+	"sync"
 	"testing"
+	"time"
 )
 
 const stubCodex = `#!/usr/bin/env bash
@@ -61,6 +64,56 @@ func requireLifecycleTools(t *testing.T) {
 	}
 }
 
+var (
+	prebuiltPreparationOnce   sync.Once
+	prebuiltCodeflowBinary    string
+	prebuiltDartAdapterBinary string
+	prebuiltPreparationError  error
+)
+
+func ensurePrebuiltTestBinaries(t *testing.T) (string, string) {
+	t.Helper()
+	prebuiltPreparationOnce.Do(func() {
+		repoRoot, err := filepath.Abs(filepath.Join("..", "..", ".."))
+		if err != nil {
+			prebuiltPreparationError = err
+			return
+		}
+		tempDir, err := os.MkdirTemp("", "codeflow-lifecycle-prebuilt-*")
+		if err != nil {
+			prebuiltPreparationError = err
+			return
+		}
+
+		codeflowBin := filepath.Join(tempDir, "codeflow")
+		buildDate := time.Now().UTC().Format(time.RFC3339)
+		cmd := exec.Command("go", "build", "-ldflags", "-X main.version=v0.4.0 -X main.date="+buildDate, "-o", codeflowBin, "./cmd/codeflow")
+		cmd.Dir = repoRoot
+		cmd.Env = append(os.Environ(), "CGO_ENABLED=0")
+		if out, err := cmd.CombinedOutput(); err != nil {
+			prebuiltPreparationError = fmt.Errorf("prebuild codeflow: %w\n%s", err, out)
+			return
+		}
+
+		dartBin := filepath.Join(tempDir, "dart-adapter")
+		dartSrc := filepath.Join(repoRoot, "adapters", "dart")
+		dartCmd := exec.Command("dart", "compile", "exe", "bin/codeflow_dart_adapter.dart", "-o", dartBin)
+		dartCmd.Dir = dartSrc
+		if out, err := dartCmd.CombinedOutput(); err != nil {
+			prebuiltPreparationError = fmt.Errorf("prebuild dart adapter: %w\n%s", err, out)
+			return
+		}
+
+		prebuiltCodeflowBinary = codeflowBin
+		prebuiltDartAdapterBinary = dartBin
+	})
+
+	if prebuiltPreparationError != nil {
+		t.Fatalf("ensure prebuilt test binaries failed: %v", prebuiltPreparationError)
+	}
+	return prebuiltCodeflowBinary, prebuiltDartAdapterBinary
+}
+
 type sandbox struct {
 	root       string
 	home       string
@@ -74,6 +127,7 @@ type sandbox struct {
 func newSandbox(t *testing.T) *sandbox {
 	t.Helper()
 	requireLifecycleTools(t)
+	cfBin, dtBin := ensurePrebuiltTestBinaries(t)
 	// The installer runs `go build`, whose module/build caches contain
 	// read-only directories that would break t.TempDir() cleanup if placed
 	// inside the sandbox. Keep them in the developer's real cache locations.
@@ -106,6 +160,8 @@ func newSandbox(t *testing.T) *sandbox {
 		"CODEX_HOME="+filepath.Join(s.home, ".codex"),
 		"INSTALL_DIR="+s.installDir,
 		"CODEFLOW_STUB_STATE="+s.mcpState,
+		"CODEFLOW_TEST_CODEFLOW_BIN="+cfBin,
+		"CODEFLOW_TEST_DART_BIN="+dtBin,
 		"PATH="+path,
 		"GOPATH="+filepath.Join(origHome, "go"),
 		"GOMODCACHE="+filepath.Join(origHome, "go", "pkg", "mod"),
@@ -218,8 +274,17 @@ func TestInstallThenUninstallLifecycle(t *testing.T) {
 	if _, serr := os.Stat(filepath.Join(s.home, ".cursor", "skills", "codeflow")); !os.IsNotExist(serr) {
 		t.Fatalf("Cursor skill survived uninstall: %v", serr)
 	}
+	if _, serr := os.Stat(filepath.Join(s.home, ".claude", "skills", "codeflow")); !os.IsNotExist(serr) {
+		t.Fatalf("Claude Code skill survived uninstall: %v", serr)
+	}
+	if _, serr := os.Stat(filepath.Join(s.home, ".gemini", "config", "skills", "codeflow")); !os.IsNotExist(serr) {
+		t.Fatalf("Gemini config skill survived uninstall: %v", serr)
+	}
 	if _, serr := os.Stat(filepath.Join(s.home, ".gemini", "antigravity-cli", "skills", "codeflow")); !os.IsNotExist(serr) {
 		t.Fatalf("Antigravity skill survived uninstall: %v", serr)
+	}
+	if _, serr := os.Stat(filepath.Join(s.home, ".gemini", "antigravity-cli", "mcp", "codeflow")); !os.IsNotExist(serr) {
+		t.Fatalf("Antigravity MCP tool schemas survived uninstall: %v", serr)
 	}
 }
 

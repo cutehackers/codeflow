@@ -10,7 +10,7 @@ export function LoginView({ loginUseCase }: LoginViewProps) {
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
 
-  const handleSubmit = async (e: React.FormEvent) => {
+  const onSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!email || !password) {
       return;
@@ -25,7 +25,7 @@ export function LoginView({ loginUseCase }: LoginViewProps) {
   };
 
   return (
-    <form onSubmit={handleSubmit}>
+    <form onSubmit={onSubmit}>
       <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} />
       <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} />
       <button type="submit" disabled={loading}>Sign In</button>

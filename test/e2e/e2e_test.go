@@ -187,7 +187,7 @@ func TestTier2_SingleGateSecretRedaction(t *testing.T) {
 func TestTier3_PolyglotManifestAndScoring(t *testing.T) {
 	root := moduleRoot(t)
 	src := `flows:
-  - entry: src/features/auth/LoginView.tsx#handleSubmit
+  - entry: src/features/auth/LoginView.tsx#onSubmit
     name: TS Login
   - entry: lib/features/auth/signup.dart#submit
     name: Dart Signup
@@ -278,7 +278,7 @@ func TestTier3_MCPServer_EndToEndTools(t *testing.T) {
 
 	artifact := map[string]any{
 		"flowId":          "flow-tsauth000000001",
-		"entrySymbolPath": "src/features/auth/LoginView.tsx#handleSubmit",
+		"entrySymbolPath": "src/features/auth/LoginView.tsx#onSubmit",
 		"title":           "TypeScript Login Flow",
 		"description":     "User login via TypeScript handler",
 		"layers":          []string{"presentation", "usecase", "data"},
@@ -293,7 +293,7 @@ func TestTier3_MCPServer_EndToEndTools(t *testing.T) {
 					"byteRange":               []int{0, len(authBytes)},
 					"fileHash":                fileHash,
 					"spanHash":                spanHash,
-					"enclosingSymbolPath":     "handleSubmit",
+					"enclosingSymbolPath":     "onSubmit",
 					"canonicalAstFingerprint": "0000000000000000000000000000000000000000000000000000000000000000",
 				},
 			},

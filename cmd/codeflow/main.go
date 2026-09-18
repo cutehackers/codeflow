@@ -25,6 +25,7 @@ import (
 	"codeflow/internal/analyzer/installstate"
 	"codeflow/internal/analyzer/protocol"
 	"codeflow/internal/collector"
+	"codeflow/internal/collector/contractharness"
 	"codeflow/internal/collector/fusion"
 	"codeflow/internal/collector/harvest"
 	"codeflow/internal/collector/naming"
@@ -34,6 +35,36 @@ import (
 	"codeflow/internal/presenter"
 	"codeflow/internal/presenter/flowview"
 )
+
+func init() {
+	doctor.RegisterStorageChecker(func(repoRoot string) []doctor.CheckResult {
+		var results []doctor.CheckResult
+		st := storage.New(repoRoot)
+		ptr, err := st.ReadPointer()
+		if err != nil {
+			results = append(results, doctor.CheckResult{Name: "Generation pointer", Passed: false, Message: fmt.Sprintf("read pointer failed: %v", err)})
+		} else if ptr == nil {
+			results = append(results, doctor.CheckResult{Name: "Generation pointer", Passed: true, Message: "No generation published yet (run 'codeflow publish')"})
+		} else {
+			results = append(results, doctor.CheckResult{Name: "Generation pointer", Passed: true, Message: fmt.Sprintf("Generation %s (%d flows) %s", ptr.GenerationID, ptr.FlowCount, ptr.PublishedAt.Format("2006-01-02 15:04"))})
+			idx, err := st.ReadLatestIndex()
+			if err != nil {
+				results = append(results, doctor.CheckResult{Name: "Generation index", Passed: false, Message: fmt.Sprintf("read index failed: %v", err)})
+			} else if idx == nil {
+				results = append(results, doctor.CheckResult{Name: "Generation index", Passed: false, Message: "pointer exists but index missing"})
+			} else {
+				results = append(results, doctor.CheckResult{Name: "Generation index", Passed: true, Message: fmt.Sprintf("Index %s with %d flows", idx.GenerationID, len(idx.Flows))})
+			}
+		}
+		return results
+	})
+	doctor.RegisterSchemaChecker(func() doctor.CheckResult {
+		if err := contractharness.EnsureAllCompiled(); err != nil {
+			return doctor.CheckResult{Name: "Contract schemas", Passed: false, Message: fmt.Sprintf("schema compile failed: %v", err)}
+		}
+		return doctor.CheckResult{Name: "Contract schemas", Passed: true, Message: "All 6 schemas compiled"}
+	})
+}
 
 // Populated at build time via -ldflags (Makefile build target).
 var (

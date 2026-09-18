@@ -1,6 +1,6 @@
 // CORE <-> adapter protocol (schemas/adapter-protocol.schema.json).
 // Production traffic is JSON-RPC 2.0 over Content-Length framed stdio.
-// AdapterServer.handleLine remains a direct legacy helper for package tests.
+// AdapterServer.parseRequestLine remains a direct legacy helper for package tests.
 //
 // Documented deviation: a MALFORMED line (invalid JSON / non-object) cannot
 // carry a correlation id, but the error envelope schema requires a string id;
@@ -117,7 +117,7 @@ class AdapterServer {
   /// error envelope.
   Future<void> serve() async {
     await for (final raw in _requests) {
-      final response = handleLine(raw);
+      final response = parseRequestLine(raw);
       if (response != null) {
         _respond(response);
       }
@@ -127,7 +127,7 @@ class AdapterServer {
 
   /// Handles one request line; returns the encoded response line, or null
   /// when nothing may be written (never happens in practice today).
-  String? handleLine(String raw) {
+  String? parseRequestLine(String raw) {
     Object? decoded;
     try {
       decoded = jsonDecode(raw);
@@ -162,10 +162,10 @@ class AdapterServer {
     }
   }
 
-  /// Handles one production JSON-RPC request. [handleLine] remains the
+  /// Dispatches one production JSON-RPC request. [parseRequestLine] remains the
   /// legacy direct helper used by package tests and is not used by the framed
   /// stdio entrypoint.
-  Map<String, Object?> handleRpcRequest(Object? decoded) {
+  Map<String, Object?> dispatchRPCRequest(Object? decoded) {
     final id = decoded is Map && decoded['id'] is String
         ? decoded['id'] as String
         : '';

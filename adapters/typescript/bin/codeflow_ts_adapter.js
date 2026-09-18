@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 'use strict';
 
-const { handleRequest, handleRPCRequest, CAPABILITIES, encodeBoundedResponse } = require('../lib/protocol');
+const { dispatchLegacyRequest, dispatchRPCRequest, CAPABILITIES, encodeBoundedResponse } = require('../lib/protocol');
 const { redactDiagnostic } = require('../lib/secret');
 
 const MAX_MESSAGE_BYTES = CAPABILITIES.maxMessageBytes;
@@ -52,7 +52,7 @@ function dispatchRPC(req) {
   if (req && req.params && typeof req.params.batchId === 'string') {
     writeNotification('codeflow/batchAck', { batchId: req.params.batchId, acknowledged: true });
   }
-  const response = handleRPCRequest(req);
+  const response = dispatchRPCRequest(req);
   if (response && response.result && req && req.method !== 'initialize' && req.method !== 'ping') {
     writeNotification('$/progress', { id, stage: 'complete' });
   }
@@ -107,7 +107,7 @@ function processLegacyLine(line) {
     writeLegacy({ id: '', ok: false, err: { code: 'E_BAD_REQUEST', message: boundedDiagnostic(`request line is not valid JSON: ${err.message}`), retryable: false } });
     return;
   }
-  const response = handleRequest(req);
+  const response = dispatchLegacyRequest(req);
   writeLegacy(response);
   if (req && req.op === 'shutdown') process.exit(0);
 }

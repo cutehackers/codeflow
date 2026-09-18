@@ -2,8 +2,6 @@ package protocol
 
 import (
 	"context"
-	"os/exec"
-	"path/filepath"
 	"testing"
 	"time"
 
@@ -73,13 +71,7 @@ func TestCapabilityRegistryRejectsForgedMeasuredPublication(t *testing.T) {
 
 func TestAdapterRegistryRefreshPublishesAndCachesCapability(t *testing.T) {
 	registry := NewAdapterRegistry(1)
-	root := repoRootDir(t)
-	goAdapter := filepath.Join(t.TempDir(), "codeflow-go-adapter")
-	build := exec.Command("go", "build", "-o", goAdapter, "./adapters/go")
-	build.Dir = root
-	if output, err := build.CombinedOutput(); err != nil {
-		t.Fatalf("build Go adapter: %v\n%s", err, output)
-	}
+	goAdapter := provideGoAdapterBinary(t)
 	registry.RegisterConfig("go", Config{BinPath: goAdapter, DefaultTimeout: 2 * time.Second})
 	snapshot, err := NewSnapshot(1, map[string]string{
 		"go.mod":  "module capability.probe\n\ngo 1.22\n",
@@ -161,13 +153,7 @@ func TestCapabilityRegistryExpiresCachedMeasurementWithoutImplicitProbe(t *testi
 
 func refreshMeasuredGoCapability(t *testing.T, ttl time.Duration) (*AdapterRegistry, time.Time) {
 	t.Helper()
-	root := repoRootDir(t)
-	goAdapter := filepath.Join(t.TempDir(), "codeflow-go-adapter")
-	build := exec.Command("go", "build", "-o", goAdapter, "./adapters/go")
-	build.Dir = root
-	if output, err := build.CombinedOutput(); err != nil {
-		t.Fatalf("build Go adapter: %v\n%s", err, output)
-	}
+	goAdapter := provideGoAdapterBinary(t)
 	registry := NewAdapterRegistry(1)
 	registry.capabilityRegistry = NewCapabilityRegistry(ttl)
 	registry.RegisterConfig("go", Config{BinPath: goAdapter, DefaultTimeout: 2 * time.Second})

@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -59,14 +58,7 @@ func TestMockAdapterConformance(t *testing.T) {
 }
 
 func buildMockAdapter(t *testing.T) string {
-	t.Helper()
-	bin := filepath.Join(t.TempDir(), "mockadapter")
-	cmd := exec.Command("go", "build", "-o", bin, "./internal/analyzer/mockadapter")
-	cmd.Dir = repoRootDir(t)
-	if out, err := cmd.CombinedOutput(); err != nil {
-		t.Fatalf("go build mockadapter: %v\n%s", err, out)
-	}
-	return bin
+	return provideMockAdapterBinary(t)
 }
 
 func repoRootDir(t *testing.T) string {

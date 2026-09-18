@@ -27,16 +27,7 @@ func TestSupportedAdapterInitializeCapabilityMeasurements(t *testing.T) {
 	} else {
 		t.Fatalf("dart runtime required for Dart capability measurement: %v", err)
 	}
-	goBin, err := exec.LookPath("go")
-	if err != nil {
-		t.Fatalf("go runtime required for Go capability measurement: %v", err)
-	}
-	goAdapter := filepath.Join(t.TempDir(), "codeflow-go-adapter")
-	build := exec.Command(goBin, "build", "-o", goAdapter, "./adapters/go")
-	build.Dir = root
-	if err := build.Run(); err != nil {
-		t.Fatalf("build Go adapter for capability measurement: %v", err)
-	}
+	goAdapter := provideGoAdapterBinary(t)
 	configs["go"] = Config{BinPath: goAdapter}
 
 	registry := NewAdapterRegistry(1)

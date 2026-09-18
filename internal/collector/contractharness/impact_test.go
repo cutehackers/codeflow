@@ -19,8 +19,8 @@ func TestValidateChangeImpactGraph_Valid(t *testing.T) {
 		"directImpact": map[string]any{
 			"callers": []map[string]any{
 				{
-					"symbolPath":   "AuthController.handleLogin",
-					"name":         "handleLogin",
+					"symbolPath":   "AuthController.onLogin",
+					"name":         "onLogin",
 					"relationKind": "calls",
 				},
 			},

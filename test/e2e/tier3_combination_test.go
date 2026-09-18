@@ -41,7 +41,7 @@ func TestTier3_PairwiseCrossFeatureCombinations(t *testing.T) {
 			Name:            "nextjs_user_action_chained",
 			Fixture:         "nextjs-app-fixture",
 			SourceFile:      "app/page.tsx",
-			Symbol:          "HomePage.handleQuickCheckout",
+			Symbol:          "HomePage.onQuickCheckout",
 			ExpectedTrigger: "user_action",
 			Depth:           3,
 			ExpectedMinLane: fusion.LayerPresentation,
@@ -126,12 +126,12 @@ func TestTier3_PairwiseCrossFeatureCombinations(t *testing.T) {
 			ExpectedMaxLane: fusion.LayerExternal,
 		},
 
-		// 9. React SPA x user_action x depth 3 x LoginForm.handleSubmit
+		// 9. React SPA x user_action x depth 3 x LoginForm.onSubmit
 		{
 			Name:            "react_spa_user_action_login",
 			Fixture:         "react-spa-fixture",
 			SourceFile:      "src/components/LoginForm.tsx",
-			Symbol:          "LoginForm.handleSubmit",
+			Symbol:          "LoginForm.onSubmit",
 			ExpectedTrigger: "user_action",
 			Depth:           3,
 			ExpectedMinLane: fusion.LayerPresentation,
@@ -159,24 +159,24 @@ func TestTier3_PairwiseCrossFeatureCombinations(t *testing.T) {
 			ExpectedMinLane: fusion.LayerUsecase,
 			ExpectedMaxLane: fusion.LayerExternal,
 		},
-		// 12. React SPA x user_action x depth 1 x Dashboard.handleRefresh
+		// 12. React SPA x user_action x depth 1 x Dashboard.onRefresh
 		{
 			Name:            "react_spa_user_action_dashboard",
 			Fixture:         "react-spa-fixture",
 			SourceFile:      "src/components/Dashboard.tsx",
-			Symbol:          "Dashboard.handleRefresh",
+			Symbol:          "Dashboard.onRefresh",
 			ExpectedTrigger: "user_action",
 			Depth:           1,
 			ExpectedMinLane: fusion.LayerPresentation,
 			ExpectedMaxLane: fusion.LayerPresentation,
 		},
 
-		// 13. Clean Arch x user_action/controller x depth 3 x UserController.handleCreateUser
+		// 13. Clean Arch x user_action/controller x depth 3 x UserController.serveCreateUser
 		{
 			Name:            "clean_arch_controller_create_user",
 			Fixture:         "clean-arch-fixture",
 			SourceFile:      "src/presentation/controllers/UserController.ts",
-			Symbol:          "UserController.handleCreateUser",
+			Symbol:          "UserController.serveCreateUser",
 			ExpectedTrigger: "user_action",
 			Depth:           3,
 			ExpectedMinLane: fusion.LayerPresentation,
@@ -204,12 +204,12 @@ func TestTier3_PairwiseCrossFeatureCombinations(t *testing.T) {
 			ExpectedMinLane: fusion.LayerData,
 			ExpectedMaxLane: fusion.LayerInfra,
 		},
-		// 16. Clean Arch x user_action x depth 1 x handleGetUser
+		// 16. Clean Arch x user_action x depth 1 x serveGetUser
 		{
 			Name:            "clean_arch_controller_get_user",
 			Fixture:         "clean-arch-fixture",
 			SourceFile:      "src/presentation/controllers/UserController.ts",
-			Symbol:          "UserController.handleGetUser",
+			Symbol:          "UserController.serveGetUser",
 			ExpectedTrigger: "user_action",
 			Depth:           1,
 			ExpectedMinLane: fusion.LayerPresentation,

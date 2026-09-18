@@ -7,8 +7,6 @@ import (
 	"sort"
 	"sync"
 	"time"
-
-	"codeflow/internal/collector/evidence"
 )
 
 // DefaultIdleTTL is how long an idle pooled connection is trusted
@@ -38,59 +36,59 @@ type Pool struct {
 	closed bool
 
 	isolationMu       sync.Mutex
-	isolationEvidence map[string]evidence.MountPermissionEvidence
+	isolationEvidence map[string]MountPermissionEvidence
 }
 
 // NewPool creates a pool spawning adapters with cfg and keeping at most
 // maxIdle idle processes warm (maxIdle <= 0 means no pooling).
 func NewPool(cfg Config, maxIdle int) *Pool {
-	return &Pool{cfg: cfg.withDefaults(), maxIdle: maxIdle, idleTTL: DefaultIdleTTL, isolationEvidence: make(map[string]evidence.MountPermissionEvidence)}
+	return &Pool{cfg: cfg.withDefaults(), maxIdle: maxIdle, idleTTL: DefaultIdleTTL, isolationEvidence: make(map[string]MountPermissionEvidence)}
 }
 
 func (p *Pool) recordIsolationEvidence(c *Conn) {
 	if p == nil || c == nil {
 		return
 	}
-	evidence := c.MountPermissionEvidence()
+	ev := c.MountPermissionEvidence()
 	key := c.workDir
 	if key == "" {
 		return
 	}
 	p.isolationMu.Lock()
-	p.isolationEvidence[key] = evidence
+	p.isolationEvidence[key] = ev
 	p.isolationMu.Unlock()
 }
 
 // MountPermissionEvidence returns aggregate evidence for every process this
 // pool has spawned. It remains available after Close so registry callers can
 // verify cleanup for crashed and replaced children.
-func (p *Pool) MountPermissionEvidence() evidence.MountPermissionEvidence {
+func (p *Pool) MountPermissionEvidence() MountPermissionEvidence {
 	if p == nil {
-		return evidence.MountPermissionEvidence{}
+		return MountPermissionEvidence{}
 	}
 	p.isolationMu.Lock()
 	defer p.isolationMu.Unlock()
-	var aggregate evidence.MountPermissionEvidence
+	var aggregate MountPermissionEvidence
 	first := true
-	for _, evidence := range p.isolationEvidence {
+	for _, ev := range p.isolationEvidence {
 		if first {
-			aggregate = evidence
-			aggregate.TerminalModes = append([]string(nil), evidence.TerminalModes...)
+			aggregate = ev
+			aggregate.TerminalModes = append([]string(nil), ev.TerminalModes...)
 			first = false
 			continue
 		}
 		if aggregate.SourceDelivery == "" {
-			aggregate.SourceDelivery = evidence.SourceDelivery
+			aggregate.SourceDelivery = ev.SourceDelivery
 		}
 		if aggregate.SourceMount == "" {
-			aggregate.SourceMount = evidence.SourceMount
+			aggregate.SourceMount = ev.SourceMount
 		}
-		aggregate.ReadOnlySource = aggregate.ReadOnlySource && evidence.ReadOnlySource
-		aggregate.Disposable = aggregate.Disposable && evidence.Disposable
-		aggregate.RepositoryPathExposed = aggregate.RepositoryPathExposed || evidence.RepositoryPathExposed
-		aggregate.DependencyEnvironmentPreserved = aggregate.DependencyEnvironmentPreserved && evidence.DependencyEnvironmentPreserved
-		aggregate.CleanupVerified = aggregate.CleanupVerified && evidence.CleanupVerified
-		for _, mode := range evidence.TerminalModes {
+		aggregate.ReadOnlySource = aggregate.ReadOnlySource && ev.ReadOnlySource
+		aggregate.Disposable = aggregate.Disposable && ev.Disposable
+		aggregate.RepositoryPathExposed = aggregate.RepositoryPathExposed || ev.RepositoryPathExposed
+		aggregate.DependencyEnvironmentPreserved = aggregate.DependencyEnvironmentPreserved && ev.DependencyEnvironmentPreserved
+		aggregate.CleanupVerified = aggregate.CleanupVerified && ev.CleanupVerified
+		for _, mode := range ev.TerminalModes {
 			found := false
 			for _, existing := range aggregate.TerminalModes {
 				if existing == mode {
@@ -354,53 +352,6 @@ func (r *AdapterRegistry) Call(ctx context.Context, lang string, op string, para
 		return err
 	}
 	return pool.Call(ctx, op, params, result)
-}
-
-// CapabilityRegistry returns the Core-owned capability publication store.
-// Reading it does not execute adapter probes.
-func (r *AdapterRegistry) CapabilityRegistry() *CapabilityRegistry {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	if r.capabilityRegistry == nil {
-		r.capabilityRegistry = NewCapabilityRegistry(DefaultCapabilityMeasurementTTL)
-	}
-	return r.capabilityRegistry
-}
-
-// RefreshCapability performs one explicit initialize plus executable
-// conformance measurement and publishes its result. Ordinary Call requests
-// never invoke this method implicitly.
-func (r *AdapterRegistry) RefreshCapability(ctx context.Context, lang string, probe CapabilityConformanceProbe) (evidence.CapabilityMeasurement, error) {
-	registry := r.CapabilityRegistry()
-	pool, err := r.GetPool(lang)
-	if err != nil {
-		measurement := unsupportedCapabilityMeasurement(lang, "refresh_failed")
-		_ = registry.publishMeasurement(measurement, time.Now().UTC(), CapabilityConformanceEvidence{})
-		return measurement, err
-	}
-	measurement, proof, measureErr := pool.measureCapabilityWithReport(ctx, lang, probe)
-	if measurement.Adapter == "" {
-		measurement = unsupportedCapabilityMeasurement(lang, "refresh_failed")
-	}
-	publishErr := registry.publishMeasurement(measurement, time.Now().UTC(), proof)
-	if measureErr != nil {
-		return measurement, measureErr
-	}
-	if publishErr != nil {
-		return measurement, publishErr
-	}
-	return measurement, nil
-}
-
-// CapabilityMatrix returns the latest cached initialize/conformance matrix.
-func (r *AdapterRegistry) CapabilityMatrix() CapabilityMatrixSnapshot {
-	return r.CapabilityRegistry().Snapshot()
-}
-
-// CapabilityMatrixJSON returns the schema-validated matrix for product
-// consumers that publish or persist the capability document.
-func (r *AdapterRegistry) CapabilityMatrixJSON() ([]byte, error) {
-	return r.CapabilityRegistry().MatrixJSON()
 }
 
 // Close drains and shuts down all language adapter pools.

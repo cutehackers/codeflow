@@ -133,7 +133,7 @@ func main() {
 				delete(s.cancel, req.ID)
 				s.cancelMu.Unlock()
 			}()
-			if s.handle(ctx, req) {
+			if s.dispatchRequest(ctx, req) {
 				return
 			}
 		}(req, ctx)
@@ -161,7 +161,7 @@ func (s *server) startChild() {
 	}
 }
 
-func (s *server) handle(ctx context.Context, req rpcRequest) bool {
+func (s *server) dispatchRequest(ctx context.Context, req rpcRequest) bool {
 	method := req.Method
 	if method == "ping" {
 		method = "initialize"

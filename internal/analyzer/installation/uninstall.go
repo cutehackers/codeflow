@@ -56,7 +56,7 @@ func Uninstall(ctx context.Context) (UninstallResult, error) {
 		}
 	}
 
-	// 3. Multi-agent JSON MCP & Skills cleanup (Claude Desktop, Cursor, Antigravity)
+	// 3. Multi-agent JSON MCP & Skills cleanup (Claude Desktop, Claude Code, Cursor, Antigravity, Shared Workspace)
 	home, _ := os.UserHomeDir()
 	if home != "" {
 		// Claude Desktop
@@ -70,6 +70,26 @@ func Uninstall(ctx context.Context) (UninstallResult, error) {
 			result.Removed = append(result.Removed, "Claude Desktop MCP registration "+state.MCPName)
 		}
 
+		// Claude Code CLI MCP registration & Skill
+		claudeCodeRemoved := false
+		if claude, err := exec.LookPath("claude"); err == nil {
+			rem := exec.CommandContext(ctx, claude, "mcp", "remove", "-s", "user", state.MCPName)
+			if _, err := rem.CombinedOutput(); err == nil {
+				result.Removed = append(result.Removed, "Claude Code MCP registration "+state.MCPName)
+				claudeCodeRemoved = true
+			}
+		}
+		claudeJSON := filepath.Join(home, ".claude.json")
+		if removed, _ := removeOwnedJSONMCP(claudeJSON, state.MCPName, state.Binary); removed {
+			if !claudeCodeRemoved {
+				result.Removed = append(result.Removed, "Claude Code MCP registration "+state.MCPName)
+			}
+		}
+		claudeSkill := filepath.Join(home, ".claude", "skills", "codeflow")
+		if removed, _ := removeSkillIfMatches(claudeSkill, state.SkillSHA256); removed {
+			result.Removed = append(result.Removed, "Claude Code skill")
+		}
+
 		// Cursor
 		cursorConfig := filepath.Join(home, ".cursor", "mcp.json")
 		if removed, _ := removeOwnedJSONMCP(cursorConfig, state.MCPName, state.Binary); removed {
@@ -80,14 +100,42 @@ func Uninstall(ctx context.Context) (UninstallResult, error) {
 			result.Removed = append(result.Removed, "Cursor skill")
 		}
 
-		// Antigravity
+		// Antigravity / Gemini
 		antigravityConfig := filepath.Join(home, ".gemini", "config", "mcp_config.json")
 		if removed, _ := removeOwnedJSONMCP(antigravityConfig, state.MCPName, state.Binary); removed {
 			result.Removed = append(result.Removed, "Antigravity MCP registration "+state.MCPName)
 		}
-		antigravitySkill := filepath.Join(home, ".gemini", "antigravity-cli", "skills", "codeflow")
-		if removed, _ := removeSkillIfMatches(antigravitySkill, state.SkillSHA256); removed {
-			result.Removed = append(result.Removed, "Antigravity skill")
+		geminiConfigSkill := filepath.Join(home, ".gemini", "config", "skills", "codeflow")
+		if removed, _ := removeSkillIfMatches(geminiConfigSkill, state.SkillSHA256); removed {
+			result.Removed = append(result.Removed, "Gemini config skill")
+		}
+		antigravityLegacySkill := filepath.Join(home, ".gemini", "antigravity-cli", "skills", "codeflow")
+		if removed, _ := removeSkillIfMatches(antigravityLegacySkill, state.SkillSHA256); removed {
+			result.Removed = append(result.Removed, "Antigravity CLI legacy skill")
+		}
+		antigravityMcpDir := filepath.Join(home, ".gemini", "antigravity-cli", "mcp", state.MCPName)
+		if _, err := os.Stat(antigravityMcpDir); err == nil {
+			if err := os.RemoveAll(antigravityMcpDir); err == nil {
+				result.Removed = append(result.Removed, "Antigravity MCP tool schemas")
+			}
+		}
+	}
+
+	// Shared Workspace skill (.agents/skills/codeflow)
+	cleanedWorkspaceSkill := false
+	if state.SourceRoot != "" {
+		agentsSkill := filepath.Join(state.SourceRoot, ".agents", "skills", "codeflow")
+		if removed, _ := removeSkillIfMatches(agentsSkill, state.SkillSHA256); removed {
+			result.Removed = append(result.Removed, "Shared Workspace skill (.agents)")
+			cleanedWorkspaceSkill = true
+		}
+	}
+	if !cleanedWorkspaceSkill {
+		if cwd, err := os.Getwd(); err == nil && cwd != state.SourceRoot {
+			agentsSkill := filepath.Join(cwd, ".agents", "skills", "codeflow")
+			if removed, _ := removeSkillIfMatches(agentsSkill, state.SkillSHA256); removed {
+				result.Removed = append(result.Removed, "Shared Workspace skill (.agents)")
+			}
 		}
 	}
 
@@ -142,7 +190,7 @@ func Uninstall(ctx context.Context) (UninstallResult, error) {
 func removeOwnedMCP(ctx context.Context, state installstate.State) (bool, error) {
 	codex, err := exec.LookPath("codex")
 	if err != nil {
-		return false, fmt.Errorf("remove MCP registration: Codex CLI was not found")
+		return false, nil
 	}
 	get := exec.CommandContext(ctx, codex, "mcp", "get", state.MCPName, "--json")
 	out, err := get.CombinedOutput()
@@ -164,15 +212,15 @@ func removeOwnedMCP(ctx context.Context, state installstate.State) (bool, error)
 }
 
 func skillMatches(skillPath, want string) (bool, error) {
-	if want == "" {
-		return false, nil
-	}
 	b, err := os.ReadFile(filepath.Join(skillPath, "SKILL.md"))
 	if os.IsNotExist(err) {
 		return false, nil
 	}
 	if err != nil {
 		return false, err
+	}
+	if want == "" {
+		return strings.Contains(string(b), "name: codeflow"), nil
 	}
 	sum := sha256.Sum256(b)
 	return hex.EncodeToString(sum[:]) == want, nil

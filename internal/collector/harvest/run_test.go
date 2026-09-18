@@ -4,16 +4,28 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
 	"codeflow/internal/analyzer/protocol"
 	"codeflow/internal/collector/contractharness"
+)
+
+var (
+	mockAdapterBinaryOnce  sync.Once
+	mockAdapterBinaryPath  string
+	mockAdapterBinaryError error
+
+	codeflowBinaryOnce  sync.Once
+	codeflowBinaryPath  string
+	codeflowBinaryError error
 )
 
 // moduleRoot locates the repository root relative to this source file,
@@ -49,13 +61,26 @@ func adapterSpec(t *testing.T) string {
 
 func buildMockAdapterBinary(t *testing.T) string {
 	t.Helper()
-	bin := filepath.Join(t.TempDir(), "mockadapter")
-	cmd := exec.Command("go", "build", "-o", bin, "./internal/analyzer/mockadapter")
-	cmd.Dir = moduleRoot(t)
-	if output, err := cmd.CombinedOutput(); err != nil {
-		t.Fatalf("build mock adapter: %v\n%s", err, output)
+	mockAdapterBinaryOnce.Do(func() {
+		tempDir, err := os.MkdirTemp("", "codeflow-harvest-mockadapter-*")
+		if err != nil {
+			mockAdapterBinaryError = err
+			return
+		}
+		bin := filepath.Join(tempDir, "mockadapter")
+		cmd := exec.Command("go", "build", "-o", bin, "./internal/analyzer/mockadapter")
+		cmd.Dir = moduleRoot(t)
+		cmd.Env = append(os.Environ(), "CGO_ENABLED=0")
+		if output, err := cmd.CombinedOutput(); err != nil {
+			mockAdapterBinaryError = fmt.Errorf("build mock adapter: %w\n%s", err, output)
+			return
+		}
+		mockAdapterBinaryPath = bin
+	})
+	if mockAdapterBinaryError != nil {
+		t.Fatalf("build mock adapter: %v", mockAdapterBinaryError)
 	}
-	return bin
+	return mockAdapterBinaryPath
 }
 
 func newIntegrationRunner(t *testing.T) *Runner {
@@ -357,13 +382,26 @@ func TestRunnerDeterministicOutputBytes(t *testing.T) {
 
 func buildCodeflowBinary(t *testing.T) string {
 	t.Helper()
-	bin := filepath.Join(t.TempDir(), "codeflow")
-	cmd := exec.Command("go", "build", "-o", bin, "./cmd/codeflow")
-	cmd.Dir = moduleRoot(t)
-	if out, err := cmd.CombinedOutput(); err != nil {
-		t.Fatalf("go build: %v\n%s", err, out)
+	codeflowBinaryOnce.Do(func() {
+		tempDir, err := os.MkdirTemp("", "codeflow-harvest-codeflow-*")
+		if err != nil {
+			codeflowBinaryError = err
+			return
+		}
+		bin := filepath.Join(tempDir, "codeflow")
+		cmd := exec.Command("go", "build", "-o", bin, "./cmd/codeflow")
+		cmd.Dir = moduleRoot(t)
+		cmd.Env = append(os.Environ(), "CGO_ENABLED=0")
+		if out, err := cmd.CombinedOutput(); err != nil {
+			codeflowBinaryError = fmt.Errorf("build codeflow binary: %w\n%s", err, out)
+			return
+		}
+		codeflowBinaryPath = bin
+	})
+	if codeflowBinaryError != nil {
+		t.Fatalf("go build codeflow: %v", codeflowBinaryError)
 	}
-	return bin
+	return codeflowBinaryPath
 }
 
 func TestCLIFlowsCommand(t *testing.T) {
@@ -470,14 +508,14 @@ func TestTypeScriptHarvestIntegration(t *testing.T) {
 
 	foundSubmit := false
 	for _, c := range candidates {
-		if strings.Contains(c.EntrySymbolPath, "handleSubmit") {
+		if strings.Contains(c.EntrySymbolPath, "onSubmit") {
 			foundSubmit = true
 			if c.TriggerClass != "user_action" {
-				t.Errorf("handleSubmit TriggerClass = %q, want user_action", c.TriggerClass)
+				t.Errorf("onSubmit TriggerClass = %q, want user_action", c.TriggerClass)
 			}
 		}
 	}
 	if !foundSubmit {
-		t.Errorf("handleSubmit not found in harvested candidates: %+v", candidates)
+		t.Errorf("onSubmit not found in harvested candidates: %+v", candidates)
 	}
 }

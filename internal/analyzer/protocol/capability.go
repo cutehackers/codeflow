@@ -589,3 +589,50 @@ func (p *Pool) measureCapabilityWithReport(ctx context.Context, adapter string, 
 	}
 	return measurement, conformance, nil
 }
+
+// CapabilityRegistry returns the Core-owned capability publication store.
+// Reading it does not execute adapter probes.
+func (r *AdapterRegistry) CapabilityRegistry() *CapabilityRegistry {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.capabilityRegistry == nil {
+		r.capabilityRegistry = NewCapabilityRegistry(DefaultCapabilityMeasurementTTL)
+	}
+	return r.capabilityRegistry
+}
+
+// RefreshCapability performs one explicit initialize plus executable
+// conformance measurement and publishes its result. Ordinary Call requests
+// never invoke this method implicitly.
+func (r *AdapterRegistry) RefreshCapability(ctx context.Context, lang string, probe CapabilityConformanceProbe) (evidence.CapabilityMeasurement, error) {
+	registry := r.CapabilityRegistry()
+	pool, err := r.GetPool(lang)
+	if err != nil {
+		measurement := unsupportedCapabilityMeasurement(lang, "refresh_failed")
+		_ = registry.publishMeasurement(measurement, time.Now().UTC(), CapabilityConformanceEvidence{})
+		return measurement, err
+	}
+	measurement, proof, measureErr := pool.measureCapabilityWithReport(ctx, lang, probe)
+	if measurement.Adapter == "" {
+		measurement = unsupportedCapabilityMeasurement(lang, "refresh_failed")
+	}
+	publishErr := registry.publishMeasurement(measurement, time.Now().UTC(), proof)
+	if measureErr != nil {
+		return measurement, measureErr
+	}
+	if publishErr != nil {
+		return measurement, publishErr
+	}
+	return measurement, nil
+}
+
+// CapabilityMatrix returns the latest cached initialize/conformance matrix.
+func (r *AdapterRegistry) CapabilityMatrix() CapabilityMatrixSnapshot {
+	return r.CapabilityRegistry().Snapshot()
+}
+
+// CapabilityMatrixJSON returns the schema-validated matrix for product
+// consumers that publish or persist the capability document.
+func (r *AdapterRegistry) CapabilityMatrixJSON() ([]byte, error) {
+	return r.CapabilityRegistry().MatrixJSON()
+}

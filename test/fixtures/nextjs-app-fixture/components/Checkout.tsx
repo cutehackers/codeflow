@@ -7,7 +7,7 @@ export const Checkout: React.FC = () => {
   const [discountCode, setDiscountCode] = useState('');
   const [discount, setDiscount] = useState(0);
 
-  const handleApplyDiscount = async (e: React.FormEvent) => {
+  const onApplyDiscount = async (e: React.FormEvent) => {
     e.preventDefault();
     const result = await api.discounts.validate(discountCode);
     if (result.valid) {
@@ -15,7 +15,7 @@ export const Checkout: React.FC = () => {
     }
   };
 
-  const handlePaymentSubmit = async (e: React.FormEvent) => {
+  const onPaymentSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     const orderData = {
       items: cart,
@@ -28,13 +28,13 @@ export const Checkout: React.FC = () => {
   };
 
   return (
-    <form onSubmit={handlePaymentSubmit}>
+    <form onSubmit={onPaymentSubmit}>
       <input
         value={discountCode}
         onChange={(e) => setDiscountCode(e.target.value)}
         placeholder="Coupon"
       />
-      <button type="button" onClick={handleApplyDiscount}>
+      <button type="button" onClick={onApplyDiscount}>
         Apply
       </button>
       <button type="submit">Pay Now</button>

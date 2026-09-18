@@ -5,7 +5,7 @@ export const Dashboard: React.FC = () => {
   const { theme, toggleTheme } = useTheme();
   const [data, setData] = useState<any[]>([]);
 
-  const handleRefresh = async () => {
+  const onRefresh = async () => {
     console.log('Refreshing dashboard metrics...');
   };
 
@@ -19,7 +19,7 @@ export const Dashboard: React.FC = () => {
       <header>
         <h2>Analytics Dashboard</h2>
         <button onClick={toggleTheme}>Toggle Theme</button>
-        <button onClick={handleRefresh}>Refresh</button>
+        <button onClick={onRefresh}>Refresh</button>
         <button onClick={onExportData}>Export JSON</button>
       </header>
     </div>

@@ -43,7 +43,7 @@ func TestTier5_Adversarial_OversizedArtifactRejected(t *testing.T) {
 	largeString := strings.Repeat("A", 600*1024)
 	artifact := map[string]any{
 		"flowId":          "flow-oversized000001",
-		"entrySymbolPath": "src/features/auth/LoginView.tsx#handleSubmit",
+		"entrySymbolPath": "src/features/auth/LoginView.tsx#onSubmit",
 		"title":           "Large Artifact",
 		"description":     largeString,
 		"steps": []map[string]any{
@@ -57,7 +57,7 @@ func TestTier5_Adversarial_OversizedArtifactRejected(t *testing.T) {
 					"byteRange":               []int{0, 10},
 					"fileHash":                "0000000000000000000000000000000000000000000000000000000000000000",
 					"spanHash":                "0000000000000000000000000000000000000000000000000000000000000000",
-					"enclosingSymbolPath":     "handleSubmit",
+					"enclosingSymbolPath":     "onSubmit",
 					"canonicalAstFingerprint": "0000000000000000000000000000000000000000000000000000000000000000",
 				},
 			},
@@ -158,7 +158,7 @@ func TestTier5_Adversarial_AnchorVerificationFailures(t *testing.T) {
 	// 1. Missing file in anchor
 	artifact := map[string]any{
 		"flowId":          "flow-badanchor000001",
-		"entrySymbolPath": "src/features/auth/LoginView.tsx#handleSubmit",
+		"entrySymbolPath": "src/features/auth/LoginView.tsx#onSubmit",
 		"title":           "Bad Anchor",
 		"steps": []map[string]any{
 			{
@@ -171,7 +171,7 @@ func TestTier5_Adversarial_AnchorVerificationFailures(t *testing.T) {
 					"byteRange":               []int{0, 10},
 					"fileHash":                "0000000000000000000000000000000000000000000000000000000000000000",
 					"spanHash":                "0000000000000000000000000000000000000000000000000000000000000000",
-					"enclosingSymbolPath":     "handleSubmit",
+					"enclosingSymbolPath":     "onSubmit",
 					"canonicalAstFingerprint": "0000000000000000000000000000000000000000000000000000000000000000",
 				},
 			},

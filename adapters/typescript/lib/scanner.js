@@ -336,7 +336,7 @@ function findMatchingBrace(str, openIndex) {
  * @param {string} source - Full source code string
  * @param {number} bodyStart - Character offset of start of function body (after opening brace)
  * @param {number} bodyEnd - Character offset of closing brace of function body
- * @param {string} parentScope - Hierarchical parent symbol name (e.g. "LoginPage" or "LoginPage.handleSubmit")
+ * @param {string} parentScope - Hierarchical parent symbol name (e.g. "LoginPage" or "LoginPage.onSubmit")
  * @returns {Array<object>}
  */
 function scanFunctionBody(source, bodyStart, bodyEnd, parentScope) {

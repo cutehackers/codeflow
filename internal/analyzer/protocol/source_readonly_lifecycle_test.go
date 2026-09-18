@@ -175,7 +175,7 @@ func TestSourceReadOnlyAdapterLifecycle(t *testing.T) {
 	if artifactPath := os.Getenv("CODEFLOW_A11_EVIDENCE_PATH"); artifactPath != "" {
 		mergedEvidence := mergeMountEvidence(successEvidence, cancelEvidence, timeoutEvidence, crashEvidence)
 		t.Logf("A11 isolation evidence success=%+v cancel=%+v timeout=%+v crash=%+v merged=%+v", successEvidence, cancelEvidence, timeoutEvidence, crashEvidence, mergedEvidence)
-		writeLifecycleEvidenceArtifact(t, artifactPath, snapshot, audit, mergedEvidence, failedSpawnClean)
+		writeLifecycleEvidenceArtifact(t, artifactPath, snapshot, audit, evidence.MountPermissionEvidence(mergedEvidence), failedSpawnClean)
 	}
 }
 
@@ -403,8 +403,8 @@ func digestFile(t *testing.T, path string) string {
 	return hex.EncodeToString(sum[:])
 }
 
-func mergeMountEvidence(values ...evidence.MountPermissionEvidence) evidence.MountPermissionEvidence {
-	var merged evidence.MountPermissionEvidence
+func mergeMountEvidence(values ...MountPermissionEvidence) MountPermissionEvidence {
+	var merged MountPermissionEvidence
 	first := true
 	for _, value := range values {
 		if first {

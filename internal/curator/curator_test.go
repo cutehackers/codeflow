@@ -315,29 +315,29 @@ func TestCurator_ConsecutiveGuardsInSameFunctionNotRecursion(t *testing.T) {
 		Steps: []fusion.FlowStep{
 			{
 				StepID: strPtr("step-entry"),
-				Name:   "HandleRequest",
+				Name:   "dispatchRequest",
 				Kind:   "entry",
-				Anchor: slicing.Anchor{EnclosingSymbolPath: "handler.go#HandleRequest"},
+				Anchor: slicing.Anchor{EnclosingSymbolPath: "handler.go#dispatchRequest"},
 			},
 			{
 				StepID: strPtr("step-guard1"),
 				Name:   "CheckNilRequest",
 				Kind:   "guard",
 				Branch: &branch1,
-				Anchor: slicing.Anchor{EnclosingSymbolPath: "handler.go#HandleRequest"},
+				Anchor: slicing.Anchor{EnclosingSymbolPath: "handler.go#dispatchRequest"},
 			},
 			{
 				StepID: strPtr("step-guard2"),
 				Name:   "CheckNilUser",
 				Kind:   "guard",
 				Branch: &branch2,
-				Anchor: slicing.Anchor{EnclosingSymbolPath: "handler.go#HandleRequest"},
+				Anchor: slicing.Anchor{EnclosingSymbolPath: "handler.go#dispatchRequest"},
 			},
 			{
 				StepID: strPtr("step-result"),
 				Name:   "ReturnSuccess",
 				Kind:   "result",
-				Anchor: slicing.Anchor{EnclosingSymbolPath: "handler.go#HandleRequest"},
+				Anchor: slicing.Anchor{EnclosingSymbolPath: "handler.go#dispatchRequest"},
 			},
 		},
 	}

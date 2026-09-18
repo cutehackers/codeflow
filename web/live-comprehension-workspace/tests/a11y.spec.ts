@@ -44,7 +44,7 @@ test.describe('FlowView Accessibility Audit', () => {
 
   test('keeps candidate authority and projection state explicit', async ({ page }) => {
     await page.goto('http://127.0.0.1:4589/?token=testtoken');
-    await page.locator('#query-input').fill('HomePage.handleQuickCheckout');
+    await page.locator('#query-input').fill('HomePage.onQuickCheckout');
     await page.locator('#query-submit').click();
 
     await expect(page.locator('#current-answer-strip')).toBeVisible({ timeout: 10000 });

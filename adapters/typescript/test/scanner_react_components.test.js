@@ -13,24 +13,24 @@ import React, { useState } from 'react';
 export const LoginPage = (props: LoginPageProps) => {
   const [loading, setLoading] = useState(false);
 
-  const handleSubmit = async (e: React.FormEvent) => {
+  const onSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
     await authService.login(e.target.email.value);
   };
 
-  const handleGoogleLogin = async () => {
+  const onGoogleLogin = async () => {
     await authService.socialLogin('google');
   };
 
-  function handleReset() {
+  function onReset() {
     setLoading(false);
   }
 
   return (
-    <form onSubmit={handleSubmit}>
-      <button onClick={handleGoogleLogin}>Google</button>
-      <button type="reset" onClick={handleReset}>Reset</button>
+    <form onSubmit={onSubmit}>
+      <button onClick={onGoogleLogin}>Google</button>
+      <button type="reset" onClick={onReset}>Reset</button>
     </form>
   );
 };
@@ -44,25 +44,25 @@ export const LoginPage = (props: LoginPageProps) => {
   assert.strictEqual(loginPage.parentScope, '');
   assert.strictEqual(code1[loginPage.bodyEnd], '}');
 
-  const handleSubmit = scan1.topLevelFunctions.find(f => f.name === 'LoginPage.handleSubmit');
-  assert(handleSubmit, 'LoginPage.handleSubmit must be registered');
-  assert.strictEqual(handleSubmit.localName, 'handleSubmit');
-  assert.strictEqual(handleSubmit.parentScope, 'LoginPage');
-  assert.strictEqual(handleSubmit.isAsync, true);
-  assert.strictEqual(code1[handleSubmit.bodyEnd], '}');
-  assert(code1.substring(handleSubmit.bodyStart, handleSubmit.bodyEnd).includes('authService.login'));
+  const onSubmit = scan1.topLevelFunctions.find(f => f.name === 'LoginPage.onSubmit');
+  assert(onSubmit, 'LoginPage.onSubmit must be registered');
+  assert.strictEqual(onSubmit.localName, 'onSubmit');
+  assert.strictEqual(onSubmit.parentScope, 'LoginPage');
+  assert.strictEqual(onSubmit.isAsync, true);
+  assert.strictEqual(code1[onSubmit.bodyEnd], '}');
+  assert(code1.substring(onSubmit.bodyStart, onSubmit.bodyEnd).includes('authService.login'));
 
-  const handleGoogle = scan1.topLevelFunctions.find(f => f.name === 'LoginPage.handleGoogleLogin');
-  assert(handleGoogle, 'LoginPage.handleGoogleLogin must be registered');
-  assert.strictEqual(handleGoogle.localName, 'handleGoogleLogin');
-  assert.strictEqual(handleGoogle.parentScope, 'LoginPage');
-  assert.strictEqual(handleGoogle.isAsync, true);
+  const onGoogle = scan1.topLevelFunctions.find(f => f.name === 'LoginPage.onGoogleLogin');
+  assert(onGoogle, 'LoginPage.onGoogleLogin must be registered');
+  assert.strictEqual(onGoogle.localName, 'onGoogleLogin');
+  assert.strictEqual(onGoogle.parentScope, 'LoginPage');
+  assert.strictEqual(onGoogle.isAsync, true);
 
-  const handleReset = scan1.topLevelFunctions.find(f => f.name === 'LoginPage.handleReset');
-  assert(handleReset, 'LoginPage.handleReset must be registered');
-  assert.strictEqual(handleReset.localName, 'handleReset');
-  assert.strictEqual(handleReset.parentScope, 'LoginPage');
-  assert.strictEqual(handleReset.isAsync, false);
+  const onReset = scan1.topLevelFunctions.find(f => f.name === 'LoginPage.onReset');
+  assert(onReset, 'LoginPage.onReset must be registered');
+  assert.strictEqual(onReset.localName, 'onReset');
+  assert.strictEqual(onReset.parentScope, 'LoginPage');
+  assert.strictEqual(onReset.isAsync, false);
 
   // TS-SCAN-FE-02: Standard function component with useCallback and memoized callbacks
   const code2 = `
@@ -97,10 +97,10 @@ export const MemoizedCard = React.memo((props: CardProps) => {
 });
 
 export const CustomInput = forwardRef<HTMLInputElement, InputProps>((props, ref) => {
-  const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const onInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     props.onChange(e.target.value);
   };
-  return <input ref={ref} onChange={handleInputChange} />;
+  return <input ref={ref} onChange={onInputChange} />;
 });
 `;
   const scan3 = scanSource(code3);
@@ -108,12 +108,12 @@ export const CustomInput = forwardRef<HTMLInputElement, InputProps>((props, ref)
   assert(scan3.topLevelFunctions.some(f => f.name === 'MemoizedCard'));
   assert(scan3.topLevelFunctions.some(f => f.name === 'MemoizedCard.onCardClick'));
   assert(scan3.topLevelFunctions.some(f => f.name === 'CustomInput'));
-  assert(scan3.topLevelFunctions.some(f => f.name === 'CustomInput.handleInputChange'));
+  assert(scan3.topLevelFunctions.some(f => f.name === 'CustomInput.onInputChange'));
 
   // TS-SCAN-FE-04: Deep 3-level nesting (Component -> Handler -> Inner Callback -> Helper)
   const code4 = `
 export const CheckoutPage = () => {
-  const handleCheckout = async () => {
+  const onCheckout = async () => {
     const validateCart = () => {
       const checkStock = () => {
         return true;
@@ -129,9 +129,9 @@ export const CheckoutPage = () => {
   const scan4 = scanSource(code4);
   assert.strictEqual(scan4.topLevelFunctions.length, 4, 'Should extract 4 functions across 3 nesting levels');
   assert(scan4.topLevelFunctions.some(f => f.name === 'CheckoutPage'));
-  assert(scan4.topLevelFunctions.some(f => f.name === 'CheckoutPage.handleCheckout'));
-  assert(scan4.topLevelFunctions.some(f => f.name === 'CheckoutPage.handleCheckout.validateCart'));
-  assert(scan4.topLevelFunctions.some(f => f.name === 'CheckoutPage.handleCheckout.validateCart.checkStock'));
+  assert(scan4.topLevelFunctions.some(f => f.name === 'CheckoutPage.onCheckout'));
+  assert(scan4.topLevelFunctions.some(f => f.name === 'CheckoutPage.onCheckout.validateCart'));
+  assert(scan4.topLevelFunctions.some(f => f.name === 'CheckoutPage.onCheckout.validateCart.checkStock'));
 
   // TS-SCAN-FE-05: Custom hooks with inner functions
   const code5 = `

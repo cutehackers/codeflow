@@ -487,12 +487,14 @@ func (s *Server) listTools() []map[string]any {
 		},
 		{
 			"name":        "get_flow_payload",
-			"description": "Retrieve FlowSpec JSON by flowId or entrySymbolPath",
+			"description": "Retrieve FlowSpec JSON by flowId or entrySymbolPath. Set compact: true (or format: 'compact') to receive the ~500-token curated FlowSequenceFrame macro gateways.",
 			"inputSchema": map[string]any{
 				"type": "object",
 				"properties": map[string]any{
-					"flowId":          map[string]any{"type": "string"},
-					"entrySymbolPath": map[string]any{"type": "string"},
+					"flowId":          map[string]any{"type": "string", "description": "Target flow ID"},
+					"entrySymbolPath": map[string]any{"type": "string", "description": "Target entry symbol path"},
+					"compact":         map[string]any{"type": "boolean", "description": "Return high-density ~500-token macro gateway summary"},
+					"format":          map[string]any{"type": "string", "enum": []string{"full", "compact"}, "description": "Payload format ('compact' or 'full')"},
 					"target":          targetProp,
 				},
 			},

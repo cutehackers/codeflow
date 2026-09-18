@@ -36,7 +36,7 @@ func TestTier4_Scenario1_NextjsEcommerceCheckoutFlow(t *testing.T) {
 
 	foundCheckoutCandidate := false
 	for _, c := range harvestResp.Candidates {
-		if strings.Contains(c.EntrySymbolPath, "HomePage.handleQuickCheckout") || strings.Contains(c.EntrySymbolPath, "handleQuickCheckout") {
+		if strings.Contains(c.EntrySymbolPath, "HomePage.onQuickCheckout") || strings.Contains(c.EntrySymbolPath, "onQuickCheckout") {
 			foundCheckoutCandidate = true
 			if c.TriggerClass != "user_action" {
 				t.Errorf("expected triggerClass user_action, got %s", c.TriggerClass)
@@ -45,11 +45,11 @@ func TestTier4_Scenario1_NextjsEcommerceCheckoutFlow(t *testing.T) {
 		}
 	}
 	if !foundCheckoutCandidate {
-		t.Fatalf("HomePage.handleQuickCheckout not discovered in Next.js fixture")
+		t.Fatalf("HomePage.onQuickCheckout not discovered in Next.js fixture")
 	}
 
 	// 2. Slice the checkout flow from UI trigger through layers
-	slicePayload, err := sliceHelper(t, pool, ctx, repoRoot, "app/page.tsx", "HomePage.handleQuickCheckout", 4)
+	slicePayload, err := sliceHelper(t, pool, ctx, repoRoot, "app/page.tsx", "HomePage.onQuickCheckout", 4)
 	if err != nil {
 		t.Fatalf("slice failed: %v", err)
 	}
@@ -65,7 +65,7 @@ func TestTier4_Scenario1_NextjsEcommerceCheckoutFlow(t *testing.T) {
 	// In Next.js App Router layer order: presentation -> controller -> usecase -> domain -> data -> infra -> external
 	// Allow external -> data as valid or branch
 	flowStepsMonotonic := []slicing.SliceStep{
-		{Ordinal: 1, Layer: fusion.LayerPresentation, Kind: "call", SymbolPath: "app/page.tsx#HomePage.handleQuickCheckout"},
+		{Ordinal: 1, Layer: fusion.LayerPresentation, Kind: "call", SymbolPath: "app/page.tsx#HomePage.onQuickCheckout"},
 		{Ordinal: 2, Layer: fusion.LayerController, Kind: "call", SymbolPath: "hooks/useCart.ts#useCart.calculateTotal"},
 		{Ordinal: 3, Layer: fusion.LayerUsecase, Kind: "call", SymbolPath: "services/orderService.ts#processOrder"},
 		{Ordinal: 4, Layer: fusion.LayerData, Kind: "call", SymbolPath: "db/orders.ts#saveOrder"},
@@ -151,7 +151,7 @@ func TestTier4_Scenario3_ReactSPAAuthAndSessionFlow(t *testing.T) {
 
 	foundLogin := false
 	for _, c := range harvestResp.Candidates {
-		if strings.Contains(c.EntrySymbolPath, "LoginForm.handleSubmit") || strings.Contains(c.EntrySymbolPath, "handleSubmit") {
+		if strings.Contains(c.EntrySymbolPath, "LoginForm.onSubmit") || strings.Contains(c.EntrySymbolPath, "onSubmit") {
 			foundLogin = true
 			if c.TriggerClass != "user_action" {
 				t.Errorf("expected triggerClass user_action, got %s", c.TriggerClass)
@@ -160,11 +160,11 @@ func TestTier4_Scenario3_ReactSPAAuthAndSessionFlow(t *testing.T) {
 		}
 	}
 	if !foundLogin {
-		t.Fatalf("LoginForm.handleSubmit not discovered in React SPA fixture")
+		t.Fatalf("LoginForm.onSubmit not discovered in React SPA fixture")
 	}
 
-	// 2. Slice LoginForm.handleSubmit
-	slicePayload, err := sliceHelper(t, pool, ctx, repoRoot, "src/components/LoginForm.tsx", "LoginForm.handleSubmit", 4)
+	// 2. Slice LoginForm.onSubmit
+	slicePayload, err := sliceHelper(t, pool, ctx, repoRoot, "src/components/LoginForm.tsx", "LoginForm.onSubmit", 4)
 	if err != nil {
 		t.Fatalf("slice failed: %v", err)
 	}
@@ -178,7 +178,7 @@ func TestTier4_Scenario3_ReactSPAAuthAndSessionFlow(t *testing.T) {
 	}
 
 	spaSteps := []slicing.SliceStep{
-		{Ordinal: 1, Layer: fusion.LayerPresentation, Kind: "call", SymbolPath: "src/components/LoginForm.tsx#LoginForm.handleSubmit"},
+		{Ordinal: 1, Layer: fusion.LayerPresentation, Kind: "call", SymbolPath: "src/components/LoginForm.tsx#LoginForm.onSubmit"},
 		{Ordinal: 2, Layer: fusion.LayerController, Kind: "call", SymbolPath: "src/hooks/useAuth.ts#useAuth.login"},
 		{Ordinal: 3, Layer: fusion.LayerUsecase, Kind: "call", SymbolPath: "src/services/authService.ts#authenticateUser"},
 		{Ordinal: 4, Layer: fusion.LayerDomain, Kind: "mutation", SymbolPath: "src/types/auth.ts#AuthCredentials"},
@@ -260,7 +260,7 @@ func TestTier4_Scenario5_ComplexChainedSlicingWithFallbacks(t *testing.T) {
 	complexSrc := `import { api } from './api';
 
 export const ComplexOrchestrator = () => {
-  const handleFullFlow = async (reqId: string) => {
+  const onFullFlow = async (reqId: string) => {
     // 1. Guard check
     if (!reqId) return null;
 
@@ -281,7 +281,7 @@ export const ComplexOrchestrator = () => {
     return result;
   };
 
-  return <button onClick={() => handleFullFlow('req_123')}>Start Flow</button>;
+  return <button onClick={() => onFullFlow('req_123')}>Start Flow</button>;
 };`
 
 	os.WriteFile(filepath.Join(tempDir, "ComplexOrchestrator.tsx"), []byte(complexSrc), 0o644)
@@ -302,8 +302,8 @@ export const ComplexOrchestrator = () => {
 		validateContract(t, "candidate.schema.json", c)
 	}
 
-	// Slice handleFullFlow
-	slicePayload, err := sliceHelper(t, pool, ctx, tempDir, "ComplexOrchestrator.tsx", "ComplexOrchestrator.handleFullFlow", 3)
+	// Slice onFullFlow
+	slicePayload, err := sliceHelper(t, pool, ctx, tempDir, "ComplexOrchestrator.tsx", "ComplexOrchestrator.onFullFlow", 3)
 	if err != nil {
 		t.Fatalf("slice failed: %v", err)
 	}

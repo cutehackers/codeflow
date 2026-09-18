@@ -21,10 +21,10 @@ function run() {
   assert.strictEqual(scan2.topLevelFunctions[0].isAsync, false);
 
   // TS-GEN-03: Generic arrow function with TSX trailing comma syntax (<T,>)
-  const code3 = 'export const handleOrder = async <T,>(order: T): Promise<T> => {\n  return order;\n};';
+  const code3 = 'export const onOrder = async <T,>(order: T): Promise<T> => {\n  return order;\n};';
   const scan3 = scanSource(code3);
   assert.strictEqual(scan3.topLevelFunctions.length, 1);
-  assert.strictEqual(scan3.topLevelFunctions[0].name, 'handleOrder');
+  assert.strictEqual(scan3.topLevelFunctions[0].name, 'onOrder');
   assert.strictEqual(scan3.topLevelFunctions[0].isAsync, true);
 
   // TS-GEN-04: Multi-parameter generic arrow function

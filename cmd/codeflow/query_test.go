@@ -41,7 +41,7 @@ func TestCLIQueryCommand(t *testing.T) {
 	// 3. Unambiguous query with JSON output
 	outBuf.Reset()
 	errBuf.Reset()
-	code = executeQuery([]string{repoRoot, "--entry", "app/page.tsx#HomePage.handleQuickCheckout", "--json"}, &outBuf, &errBuf)
+	code = executeQuery([]string{repoRoot, "--entry", "app/page.tsx#HomePage.onQuickCheckout", "--json"}, &outBuf, &errBuf)
 	if code != 0 {
 		t.Fatalf("expected 0 exit code, got %d. stderr: %s", code, errBuf.String())
 	}
@@ -60,7 +60,7 @@ func TestCLIQueryCommand(t *testing.T) {
 	// 4. Human readable output format (presentation order: Answer -> Flow -> Evidence -> Unknowns)
 	outBuf.Reset()
 	errBuf.Reset()
-	code = executeQuery([]string{repoRoot, "--entry", "app/page.tsx#HomePage.handleQuickCheckout"}, &outBuf, &errBuf)
+	code = executeQuery([]string{repoRoot, "--entry", "app/page.tsx#HomePage.onQuickCheckout"}, &outBuf, &errBuf)
 	if code != 0 {
 		t.Fatalf("expected 0 exit code, got %d. stderr: %s", code, errBuf.String())
 	}

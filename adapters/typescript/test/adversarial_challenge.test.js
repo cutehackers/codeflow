@@ -496,7 +496,7 @@ export class Beta {
 
   // 9.3 JSX / TSX element statement extraction
   const jsxCode = `
-    const element = <div className="card"><button onClick={this.handleClick}>Click</button></div>;
+    const element = <div className="card"><button onClick={this.onClick}>Click</button></div>;
     await this.service.loadData();
   `;
   const jsxStmts = extractStatements(jsxCode, 0, jsxCode);

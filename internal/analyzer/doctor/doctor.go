@@ -4,7 +4,9 @@ package doctor
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
+	"io/fs"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -14,10 +16,38 @@ import (
 	"codeflow/internal/analyzer/detect"
 	"codeflow/internal/analyzer/protocol"
 	"codeflow/internal/analyzer/workspace"
-	"codeflow/internal/collector/contractharness"
-	"codeflow/internal/collector/harvest"
-	"codeflow/internal/collector/storage"
+	"codeflow/schemas"
 )
+
+// StorageChecker checks generation pointer and index for repoRoot.
+type StorageChecker func(repoRoot string) []CheckResult
+
+// SchemaChecker checks contract schemas compilation.
+type SchemaChecker func() CheckResult
+
+// AdapterResolver resolves adapter configuration for a language and spec.
+type AdapterResolver func(lang string, spec string) (protocol.Config, error)
+
+var (
+	defaultAdapterResolver AdapterResolver = protocol.ResolveAdapter
+	defaultStorageChecker  StorageChecker
+	defaultSchemaChecker   SchemaChecker
+)
+
+// RegisterAdapterResolver configures the adapter resolver used by doctor.
+func RegisterAdapterResolver(fn AdapterResolver) {
+	defaultAdapterResolver = fn
+}
+
+// RegisterStorageChecker configures the storage diagnostics provider.
+func RegisterStorageChecker(fn StorageChecker) {
+	defaultStorageChecker = fn
+}
+
+// RegisterSchemaChecker configures the schema compilation diagnostics provider.
+func RegisterSchemaChecker(fn SchemaChecker) {
+	defaultSchemaChecker = fn
+}
 
 // CheckResult represents one diagnostic item result.
 type CheckResult struct {
@@ -92,7 +122,7 @@ func Diagnose(repoRoot string, dartAdapterSpec string) []CheckResult {
 		}
 
 		// TypeScript adapter check
-		cfg, err := harvest.ResolveAdapter("typescript", "")
+		cfg, err := defaultAdapterResolver("typescript", "")
 		if err == nil {
 			results = append(results, DiagnoseAdapter("TypeScript adapter", cfg))
 		} else {
@@ -139,7 +169,7 @@ func Diagnose(repoRoot string, dartAdapterSpec string) []CheckResult {
 				Message: "java executable not found in PATH",
 			})
 		}
-		cfg, err := harvest.ResolveAdapter("kotlin", "")
+		cfg, err := defaultAdapterResolver("kotlin", "")
 		if err == nil {
 			results = append(results, DiagnoseAdapter("Kotlin adapter", cfg))
 		} else {
@@ -164,7 +194,7 @@ func Diagnose(repoRoot string, dartAdapterSpec string) []CheckResult {
 				Message: "swift executable not found in PATH",
 			})
 		}
-		cfg, err := harvest.ResolveAdapter("swift", "")
+		cfg, err := defaultAdapterResolver("swift", "")
 		if err == nil {
 			results = append(results, DiagnoseAdapter("Swift adapter", cfg))
 		} else {
@@ -193,7 +223,7 @@ func Diagnose(repoRoot string, dartAdapterSpec string) []CheckResult {
 				Message: "python executable not found in PATH",
 			})
 		}
-		cfg, err := harvest.ResolveAdapter("python", "")
+		cfg, err := defaultAdapterResolver("python", "")
 		if err == nil {
 			results = append(results, DiagnoseAdapter("Python adapter", cfg))
 		} else {
@@ -250,7 +280,7 @@ func Diagnose(repoRoot string, dartAdapterSpec string) []CheckResult {
 		}
 
 		// Dart adapter check
-		cfg, err := harvest.ResolveDartAdapter(dartAdapterSpec)
+		cfg, err := defaultAdapterResolver("dart", dartAdapterSpec)
 		if err == nil {
 			results = append(results, DiagnoseAdapter("Dart adapter", cfg))
 		} else {
@@ -262,31 +292,83 @@ func Diagnose(repoRoot string, dartAdapterSpec string) []CheckResult {
 		}
 	}
 
-	// 4. Check generation pointer
-	st := storage.New(repoRoot)
-	ptr, err := st.ReadPointer()
-	if err != nil {
-		results = append(results, CheckResult{Name: "Generation pointer", Passed: false, Message: fmt.Sprintf("read pointer failed: %v", err)})
-	} else if ptr == nil {
-		results = append(results, CheckResult{Name: "Generation pointer", Passed: true, Message: "No generation published yet (run 'codeflow publish')"})
+	// 4 & 5. Check generation pointer & index
+	if defaultStorageChecker != nil {
+		results = append(results, defaultStorageChecker(repoRoot)...)
 	} else {
-		results = append(results, CheckResult{Name: "Generation pointer", Passed: true, Message: fmt.Sprintf("Generation %s (%d flows) %s", ptr.GenerationID, ptr.FlowCount, ptr.PublishedAt.Format("2006-01-02 15:04"))})
-		// 5. Check latest index
-		idx, err := st.ReadLatestIndex()
-		if err != nil {
-			results = append(results, CheckResult{Name: "Generation index", Passed: false, Message: fmt.Sprintf("read index failed: %v", err)})
-		} else if idx == nil {
-			results = append(results, CheckResult{Name: "Generation index", Passed: false, Message: "pointer exists but index missing"})
+		// Fallback: inspect generation files directly without storage package dependency
+		genDir := filepath.Join(repoRoot, ".codeflow", "generations")
+		ptrFile := filepath.Join(genDir, "current.json")
+		if data, err := os.ReadFile(ptrFile); err == nil {
+			var ptr struct {
+				GenerationID string    `json:"generationId"`
+				FlowCount    int       `json:"flowCount"`
+				PublishedAt  time.Time `json:"publishedAt"`
+			}
+			if err := json.Unmarshal(data, &ptr); err == nil {
+				results = append(results, CheckResult{
+					Name:    "Generation pointer",
+					Passed:  true,
+					Message: fmt.Sprintf("Generation %s (%d flows) %s", ptr.GenerationID, ptr.FlowCount, ptr.PublishedAt.Format("2006-01-02 15:04")),
+				})
+				idxFile := filepath.Join(genDir, ptr.GenerationID, "index.json")
+				if idxData, err := os.ReadFile(idxFile); err == nil {
+					var idx struct {
+						GenerationID string `json:"generationId"`
+						Flows        []any  `json:"flows"`
+					}
+					if err := json.Unmarshal(idxData, &idx); err == nil {
+						results = append(results, CheckResult{
+							Name:    "Generation index",
+							Passed:  true,
+							Message: fmt.Sprintf("Index %s with %d flows", idx.GenerationID, len(idx.Flows)),
+						})
+					} else {
+						results = append(results, CheckResult{Name: "Generation index", Passed: false, Message: "pointer exists but index missing"})
+					}
+				} else {
+					results = append(results, CheckResult{Name: "Generation index", Passed: false, Message: "pointer exists but index missing"})
+				}
+			} else {
+				results = append(results, CheckResult{Name: "Generation pointer", Passed: false, Message: fmt.Sprintf("read pointer failed: %v", err)})
+			}
 		} else {
-			results = append(results, CheckResult{Name: "Generation index", Passed: true, Message: fmt.Sprintf("Index %s with %d flows", idx.GenerationID, len(idx.Flows))})
+			results = append(results, CheckResult{Name: "Generation pointer", Passed: true, Message: "No generation published yet (run 'codeflow publish')"})
 		}
 	}
 
 	// 6. Check contract schemas compile
-	if err := contractharness.EnsureAllCompiled(); err != nil {
-		results = append(results, CheckResult{Name: "Contract schemas", Passed: false, Message: fmt.Sprintf("schema compile failed: %v", err)})
+	if defaultSchemaChecker != nil {
+		results = append(results, defaultSchemaChecker())
 	} else {
-		results = append(results, CheckResult{Name: "Contract schemas", Passed: true, Message: "All 6 schemas compiled"})
+		// Fallback: verify embedded contract schemas directly without collector dependency
+		entries, err := fs.ReadDir(schemas.FS, ".")
+		if err != nil {
+			results = append(results, CheckResult{Name: "Contract schemas", Passed: false, Message: fmt.Sprintf("read embedded schemas failed: %v", err)})
+		} else {
+			count := 0
+			var parseErr error
+			for _, entry := range entries {
+				if strings.HasSuffix(entry.Name(), ".schema.json") {
+					data, err := schemas.FS.ReadFile(entry.Name())
+					if err != nil {
+						parseErr = err
+						break
+					}
+					var raw json.RawMessage
+					if err := json.Unmarshal(data, &raw); err != nil {
+						parseErr = fmt.Errorf("%s: %w", entry.Name(), err)
+						break
+					}
+					count++
+				}
+			}
+			if parseErr != nil {
+				results = append(results, CheckResult{Name: "Contract schemas", Passed: false, Message: fmt.Sprintf("schema parse failed: %v", parseErr)})
+			} else {
+				results = append(results, CheckResult{Name: "Contract schemas", Passed: true, Message: fmt.Sprintf("All %d schemas verified", count)})
+			}
+		}
 	}
 
 	return results

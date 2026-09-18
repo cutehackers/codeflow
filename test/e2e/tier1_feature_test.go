@@ -28,10 +28,10 @@ func TestTier1_Feature1_RecursiveBodyScanning(t *testing.T) {
 	t.Run("arrow_handler_in_arrow_component", func(t *testing.T) {
 		tempDir := t.TempDir()
 		src := `export const LoginForm = () => {
-  const handleSubmit = async (e) => {
+  const onSubmit = async (e) => {
     e.preventDefault();
   };
-  return <form onSubmit={handleSubmit} />;
+  return <form onSubmit={onSubmit} />;
 };`
 		os.WriteFile(filepath.Join(tempDir, "LoginForm.tsx"), []byte(src), 0o644)
 
@@ -44,13 +44,13 @@ func TestTier1_Feature1_RecursiveBodyScanning(t *testing.T) {
 		}
 		found := false
 		for _, c := range resp.Candidates {
-			if strings.Contains(c.EntrySymbolPath, "LoginForm.handleSubmit") || strings.Contains(c.EntrySymbolPath, "handleSubmit") {
+			if strings.Contains(c.EntrySymbolPath, "LoginForm.onSubmit") || strings.Contains(c.EntrySymbolPath, "onSubmit") {
 				found = true
 				break
 			}
 		}
 		if !found {
-			t.Errorf("failed to discover nested handleSubmit in LoginForm.tsx, candidates: %+v", resp.Candidates)
+			t.Errorf("failed to discover nested onSubmit in LoginForm.tsx, candidates: %+v", resp.Candidates)
 		}
 	})
 
@@ -80,13 +80,13 @@ func TestTier1_Feature1_RecursiveBodyScanning(t *testing.T) {
 	t.Run("callback_inside_event_handler", func(t *testing.T) {
 		tempDir := t.TempDir()
 		src := `export const NestedView = () => {
-  const handleOuterAction = () => {
-    const handleInnerCallback = () => {
+  const onOuterAction = () => {
+    const onInnerCallback = () => {
       console.log('inner');
     };
-    handleInnerCallback();
+    onInnerCallback();
   };
-  return <div onClick={handleOuterAction} />;
+  return <div onClick={onOuterAction} />;
 };`
 		os.WriteFile(filepath.Join(tempDir, "NestedView.tsx"), []byte(src), 0o644)
 
@@ -99,12 +99,12 @@ func TestTier1_Feature1_RecursiveBodyScanning(t *testing.T) {
 		}
 		foundOuter := false
 		for _, c := range resp.Candidates {
-			if strings.Contains(c.EntrySymbolPath, "handleOuterAction") {
+			if strings.Contains(c.EntrySymbolPath, "onOuterAction") {
 				foundOuter = true
 			}
 		}
 		if !foundOuter {
-			t.Errorf("expected handleOuterAction to be discovered, got %+v", resp.Candidates)
+			t.Errorf("expected onOuterAction to be discovered, got %+v", resp.Candidates)
 		}
 	})
 
@@ -138,10 +138,10 @@ func TestTier1_Feature1_RecursiveBodyScanning(t *testing.T) {
   const useInternalMutation = () => {
     return { mutate: () => {} };
   };
-  const handleAsyncSubmit = async () => {
+  const onAsyncSubmit = async () => {
     await fetch('/api');
   };
-  return <form onSubmit={handleAsyncSubmit} />;
+  return <form onSubmit={onAsyncSubmit} />;
 };`
 		os.WriteFile(filepath.Join(tempDir, "CustomComponent.tsx"), []byte(src), 0o644)
 
@@ -166,12 +166,12 @@ func TestTier1_Feature2_DottedSymbolHierarchy(t *testing.T) {
 
 	anchorRegex := regexp.MustCompile(`^[A-Za-z_$][A-Za-z0-9_$]*(\.[A-Za-z_$][A-Za-z0-9_$]*)*$`)
 
-	// 2.1: Dotted symbol format LoginPage.handleSubmit
+	// 2.1: Dotted symbol format LoginPage.onSubmit
 	t.Run("dotted_name_format", func(t *testing.T) {
 		tempDir := t.TempDir()
 		src := `export const LoginPage = () => {
-  const handleSubmit = (e) => { e.preventDefault(); };
-  return <form onSubmit={handleSubmit} />;
+  const onSubmit = (e) => { e.preventDefault(); };
+  return <form onSubmit={onSubmit} />;
 };`
 		os.WriteFile(filepath.Join(tempDir, "LoginPage.tsx"), []byte(src), 0o644)
 
@@ -227,7 +227,7 @@ func TestTier1_Feature2_DottedSymbolHierarchy(t *testing.T) {
 	t.Run("class_method_dotted_format", func(t *testing.T) {
 		tempDir := t.TempDir()
 		src := `export class AuthController {
-  async handleLogin(req, res) {}
+  async onLogin(req, res) {}
 }`
 		os.WriteFile(filepath.Join(tempDir, "AuthController.ts"), []byte(src), 0o644)
 
@@ -240,12 +240,12 @@ func TestTier1_Feature2_DottedSymbolHierarchy(t *testing.T) {
 		}
 		found := false
 		for _, c := range resp.Candidates {
-			if strings.HasSuffix(c.EntrySymbolPath, "AuthController.handleLogin") {
+			if strings.HasSuffix(c.EntrySymbolPath, "AuthController.onLogin") {
 				found = true
 			}
 		}
 		if !found {
-			t.Errorf("expected AuthController.handleLogin, got %+v", resp.Candidates)
+			t.Errorf("expected AuthController.onLogin, got %+v", resp.Candidates)
 		}
 	})
 
@@ -253,8 +253,8 @@ func TestTier1_Feature2_DottedSymbolHierarchy(t *testing.T) {
 	t.Run("intent_signals_derivation", func(t *testing.T) {
 		tempDir := t.TempDir()
 		src := `export const OrderCard = () => {
-  const handleCancelOrder = () => {};
-  return <button onClick={handleCancelOrder} />;
+  const onCancelOrder = () => {};
+  return <button onClick={onCancelOrder} />;
 };`
 		os.WriteFile(filepath.Join(tempDir, "OrderCard.tsx"), []byte(src), 0o644)
 
@@ -303,12 +303,12 @@ func TestTier1_Feature3_FrontendMarkerClassification(t *testing.T) {
 	defer pool.Close()
 	defer cancel()
 
-	// 3.1: UI Actions (handleSubmit, onClick) -> user_action / route_callback
+	// 3.1: UI Actions (onSubmit, onClick) -> user_action / route_callback
 	t.Run("ui_event_handler_classification", func(t *testing.T) {
 		tempDir := t.TempDir()
 		src := `export const FormView = () => {
-  const handleSubmit = (e) => { e.preventDefault(); };
-  return <form onSubmit={handleSubmit} />;
+  const onSubmit = (e) => { e.preventDefault(); };
+  return <form onSubmit={onSubmit} />;
 };`
 		os.WriteFile(filepath.Join(tempDir, "FormView.tsx"), []byte(src), 0o644)
 
@@ -463,7 +463,7 @@ func TestTier1_Feature4_ClosedTriggerClassSchemaCompliance(t *testing.T) {
 				CandidateID:     "cand-0123456789abcdef",
 				TriggerClass:    tc,
 				MarkerKind:      "route_callback",
-				EntrySymbolPath: "src/test.ts#handleTest",
+				EntrySymbolPath: "src/test.ts#onTest",
 				IntentSignals: harvest.IntentSignals{
 					ClassName:   "TestComponent",
 					DerivedName: "Handle test",
@@ -472,7 +472,7 @@ func TestTier1_Feature4_ClosedTriggerClassSchemaCompliance(t *testing.T) {
 				Score:              0.8,
 				FanIn:              1,
 				BoundaryReachable:  true,
-				RootEquivalenceKey: "handleTest",
+				RootEquivalenceKey: "onTest",
 				TieBreakRank:       0,
 				ManifestOverride:   "none",
 			}
@@ -732,28 +732,28 @@ func TestTier1_Feature9_FunctionalComponentHandlerSlicing(t *testing.T) {
 	defer pool.Close()
 	defer cancel()
 
-	// 9.1: Next.js HomePage.handleQuickCheckout slicing
+	// 9.1: Next.js HomePage.onQuickCheckout slicing
 	t.Run("slice_nextjs_homepage_handler", func(t *testing.T) {
 		tempRepo := makeTempCopy(t, "nextjs-app-fixture")
-		payload, err := sliceHelper(t, pool, ctx, tempRepo, "app/page.tsx", "HomePage.handleQuickCheckout", 3)
+		payload, err := sliceHelper(t, pool, ctx, tempRepo, "app/page.tsx", "HomePage.onQuickCheckout", 3)
 		if err != nil {
 			t.Fatalf("slice failed: %v", err)
 		}
 		if len(payload.Steps) == 0 {
-			t.Errorf("expected sliced steps for HomePage.handleQuickCheckout, got 0")
+			t.Errorf("expected sliced steps for HomePage.onQuickCheckout, got 0")
 		}
 		validateContract(t, "sliced-payload.schema.json", payload)
 	})
 
-	// 9.2: React SPA LoginForm.handleSubmit slicing
+	// 9.2: React SPA LoginForm.onSubmit slicing
 	t.Run("slice_react_spa_loginform_handler", func(t *testing.T) {
 		tempRepo := makeTempCopy(t, "react-spa-fixture")
-		payload, err := sliceHelper(t, pool, ctx, tempRepo, "src/components/LoginForm.tsx", "LoginForm.handleSubmit", 3)
+		payload, err := sliceHelper(t, pool, ctx, tempRepo, "src/components/LoginForm.tsx", "LoginForm.onSubmit", 3)
 		if err != nil {
 			t.Fatalf("slice failed: %v", err)
 		}
 		if len(payload.Steps) == 0 {
-			t.Errorf("expected sliced steps for LoginForm.handleSubmit, got 0")
+			t.Errorf("expected sliced steps for LoginForm.onSubmit, got 0")
 		}
 		validateContract(t, "sliced-payload.schema.json", payload)
 	})
@@ -774,8 +774,8 @@ func TestTier1_Feature9_FunctionalComponentHandlerSlicing(t *testing.T) {
 	// 9.4: Slicing with depth bounding (depth = 1 vs depth = 5)
 	t.Run("slice_depth_bounds", func(t *testing.T) {
 		tempRepo := makeTempCopy(t, "nextjs-app-fixture")
-		payload1, _ := sliceHelper(t, pool, ctx, tempRepo, "app/page.tsx", "HomePage.handleQuickCheckout", 1)
-		payload5, _ := sliceHelper(t, pool, ctx, tempRepo, "app/page.tsx", "HomePage.handleQuickCheckout", 5)
+		payload1, _ := sliceHelper(t, pool, ctx, tempRepo, "app/page.tsx", "HomePage.onQuickCheckout", 1)
+		payload5, _ := sliceHelper(t, pool, ctx, tempRepo, "app/page.tsx", "HomePage.onQuickCheckout", 5)
 
 		if len(payload1.Steps) > len(payload5.Steps) {
 			t.Errorf("depth 1 should not produce more steps than depth 5")
@@ -806,13 +806,13 @@ func TestTier1_Feature10_ChainedCallStatementExtraction(t *testing.T) {
 	t.Run("two_dot_call_chain", func(t *testing.T) {
 		tempDir := t.TempDir()
 		src := `export const AuthView = () => {
-  const handleLogin = async () => {
+  const onLogin = async () => {
     await authService.login("user", "pass");
   };
-  return <div onClick={handleLogin} />;
+  return <div onClick={onLogin} />;
 };`
 		os.WriteFile(filepath.Join(tempDir, "AuthView.tsx"), []byte(src), 0o644)
-		payload, err := sliceHelper(t, pool, ctx, tempDir, "AuthView.tsx", "AuthView.handleLogin", 1)
+		payload, err := sliceHelper(t, pool, ctx, tempDir, "AuthView.tsx", "AuthView.onLogin", 1)
 		if err != nil {
 			t.Fatalf("slice failed: %v", err)
 		}
@@ -831,13 +831,13 @@ func TestTier1_Feature10_ChainedCallStatementExtraction(t *testing.T) {
 	t.Run("three_dot_call_chain", func(t *testing.T) {
 		tempDir := t.TempDir()
 		src := `export const ApiCaller = () => {
-  const handleCall = async () => {
+  const onCall = async () => {
     const res = await api.v1.auth.login("a", "b");
   };
-  return <button onClick={handleCall} />;
+  return <button onClick={onCall} />;
 };`
 		os.WriteFile(filepath.Join(tempDir, "ApiCaller.tsx"), []byte(src), 0o644)
-		payload, err := sliceHelper(t, pool, ctx, tempDir, "ApiCaller.tsx", "ApiCaller.handleCall", 1)
+		payload, err := sliceHelper(t, pool, ctx, tempDir, "ApiCaller.tsx", "ApiCaller.onCall", 1)
 		if err != nil {
 			t.Fatalf("slice failed: %v", err)
 		}
@@ -882,15 +882,15 @@ func TestTier1_Feature10_ChainedCallStatementExtraction(t *testing.T) {
 	t.Run("multiple_sequential_chains", func(t *testing.T) {
 		tempDir := t.TempDir()
 		src := `export const MultiChainComponent = () => {
-  const handleFlow = async () => {
+  const onFlow = async () => {
     await logger.v1.info("start");
     await api.v1.auth.validate();
     await storage.local.set("status", "ok");
   };
-  return <button onClick={handleFlow} />;
+  return <button onClick={onFlow} />;
 };`
 		os.WriteFile(filepath.Join(tempDir, "MultiChain.tsx"), []byte(src), 0o644)
-		payload, err := sliceHelper(t, pool, ctx, tempDir, "MultiChain.tsx", "MultiChainComponent.handleFlow", 1)
+		payload, err := sliceHelper(t, pool, ctx, tempDir, "MultiChain.tsx", "MultiChainComponent.onFlow", 1)
 		if err != nil {
 			t.Fatalf("slice failed: %v", err)
 		}
@@ -913,10 +913,10 @@ func TestTier1_Feature11_DestructuredHookResolution(t *testing.T) {
 		src := `import { useAuth } from './useAuth';
 export const LoginForm = () => {
   const { login } = useAuth();
-  const handleSubmit = async () => {
+  const onSubmit = async () => {
     await login('user', 'pass');
   };
-  return <form onSubmit={handleSubmit} />;
+  return <form onSubmit={onSubmit} />;
 };`
 		hookSrc := `export function useAuth() {
   const login = async (u, p) => {};
@@ -925,7 +925,7 @@ export const LoginForm = () => {
 		os.WriteFile(filepath.Join(tempDir, "LoginForm.tsx"), []byte(src), 0o644)
 		os.WriteFile(filepath.Join(tempDir, "useAuth.ts"), []byte(hookSrc), 0o644)
 
-		payload, err := sliceHelper(t, pool, ctx, tempDir, "LoginForm.tsx", "LoginForm.handleSubmit", 2)
+		payload, err := sliceHelper(t, pool, ctx, tempDir, "LoginForm.tsx", "LoginForm.onSubmit", 2)
 		if err != nil {
 			t.Fatalf("slice failed: %v", err)
 		}
@@ -1072,16 +1072,16 @@ func TestTier1_Feature12_SixFieldAnchorVerification(t *testing.T) {
 	t.Run("span_hash_byte_exactness", func(t *testing.T) {
 		tempDir := t.TempDir()
 		code := `export const ExactAnchor = () => {
-  const handleAction = () => {
+  const onAction = () => {
     const value = 42;
     return value;
   };
-  return <div onClick={handleAction} />;
+  return <div onClick={onAction} />;
 };`
 		filePath := filepath.Join(tempDir, "ExactAnchor.tsx")
 		os.WriteFile(filePath, []byte(code), 0o644)
 
-		payload, err := sliceHelper(t, pool, ctx, tempDir, "ExactAnchor.tsx", "ExactAnchor.handleAction", 1)
+		payload, err := sliceHelper(t, pool, ctx, tempDir, "ExactAnchor.tsx", "ExactAnchor.onAction", 1)
 		if err != nil {
 			t.Fatalf("slice failed: %v", err)
 		}

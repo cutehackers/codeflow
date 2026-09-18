@@ -44,7 +44,7 @@ function run() {
 
   // AST Fingerprint Comment Stripping & String Invariance
   const astWithComments = `
-function handleComments() {
+function onComments() {
   // Line comment with { braces }
   /* Block comment with {
      more braces
@@ -54,7 +54,7 @@ function handleComments() {
 }
 `;
   const astWithoutComments = `
-function handleComments() {
+function onComments() {
   return "https://example.com/api/v1";
 }
 `;

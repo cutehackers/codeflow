@@ -284,6 +284,11 @@ func Fuse(sliced *slicing.SlicedPayload, opts FuseOptions) (*FlowSpec, error) {
 			branch = &cond
 		}
 
+		stepKind := s.Kind
+		if stepKind == "effect" {
+			stepKind = "call"
+		}
+
 		step := FlowStep{
 			Ordinal:    s.Ordinal,
 			Name:       stepName,
@@ -297,7 +302,7 @@ func Fuse(sliced *slicing.SlicedPayload, opts FuseOptions) (*FlowSpec, error) {
 			StateDelta: stateDelta,
 			SideEffect: s.EffectTarget,
 			Branch:     branch,
-			Kind:       s.Kind,
+			Kind:       stepKind,
 			Layer:      s.Layer,
 			CodeLens:   lens,
 		}

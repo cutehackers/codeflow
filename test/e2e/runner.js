@@ -49,9 +49,9 @@ testSection('Tier 1: Feature Coverage (Next.js, FSD, React SPA, Clean Arch)', ()
   const nextjsHarvest = harvestCandidates({ repoRoot: path.join(fixturesDir, 'nextjs-app-fixture') });
   assert(nextjsHarvest.candidates.length >= 3, `Next.js harvested >= 3 candidates (got ${nextjsHarvest.candidates.length})`);
   
-  const quickCheckout = nextjsHarvest.candidates.find(c => c.entrySymbolPath.includes('handleQuickCheckout'));
-  assert(quickCheckout !== undefined, 'Next.js found HomePage.handleQuickCheckout candidate');
-  assert(quickCheckout && quickCheckout.triggerClass === 'user_action', 'HomePage.handleQuickCheckout classified as user_action');
+  const quickCheckout = nextjsHarvest.candidates.find(c => c.entrySymbolPath.includes('onQuickCheckout'));
+  assert(quickCheckout !== undefined, 'Next.js found HomePage.onQuickCheckout candidate');
+  assert(quickCheckout && quickCheckout.triggerClass === 'user_action', 'HomePage.onQuickCheckout classified as user_action');
 
   const fsdHarvest = harvestCandidates({ repoRoot: path.join(fixturesDir, 'fsd-fixture') });
   assert(fsdHarvest.candidates.length >= 3, `FSD harvested >= 3 candidates (got ${fsdHarvest.candidates.length})`);
@@ -61,8 +61,8 @@ testSection('Tier 1: Feature Coverage (Next.js, FSD, React SPA, Clean Arch)', ()
 
   const spaHarvest = harvestCandidates({ repoRoot: path.join(fixturesDir, 'react-spa-fixture') });
   assert(spaHarvest.candidates.length >= 3, `React SPA harvested >= 3 candidates (got ${spaHarvest.candidates.length})`);
-  const loginSubmit = spaHarvest.candidates.find(c => c.entrySymbolPath.includes('handleSubmit'));
-  assert(loginSubmit !== undefined, 'React SPA found LoginForm.handleSubmit candidate');
+  const loginSubmit = spaHarvest.candidates.find(c => c.entrySymbolPath.includes('onSubmit'));
+  assert(loginSubmit !== undefined, 'React SPA found LoginForm.onSubmit candidate');
 
   const cleanHarvest = harvestCandidates({ repoRoot: path.join(fixturesDir, 'clean-arch-fixture') });
   assert(cleanHarvest.candidates.length >= 2, `Clean Arch harvested >= 2 candidates (got ${cleanHarvest.candidates.length})`);
@@ -85,10 +85,10 @@ testSection('Tier 2: Boundary & Corner Cases', () => {
   const nextSlice = sliceFlow({
     repoRoot: path.join(fixturesDir, 'nextjs-app-fixture'),
     candidateId: 'cand-0000000000000002',
-    entrySymbolPath: 'app/page.tsx#HomePage.handleQuickCheckout',
+    entrySymbolPath: 'app/page.tsx#HomePage.onQuickCheckout',
     opts: { maxDepth: 3 },
   });
-  assert(nextSlice.steps.length >= 1, 'HomePage.handleQuickCheckout sliced successfully');
+  assert(nextSlice.steps.length >= 1, 'HomePage.onQuickCheckout sliced successfully');
 
   // 3. Anchor 6-field verification
   for (const step of nextSlice.steps) {
@@ -107,10 +107,10 @@ testSection('Tier 2: Boundary & Corner Cases', () => {
 // ---------------------------------------------------------------------------
 testSection('Tier 3: Pairwise Cross-Feature Combinations', () => {
   const combinations = [
-    { fix: 'nextjs-app-fixture', file: 'app/page.tsx', sym: 'HomePage.handleQuickCheckout', depth: 3 },
+    { fix: 'nextjs-app-fixture', file: 'app/page.tsx', sym: 'HomePage.onQuickCheckout', depth: 3 },
     { fix: 'fsd-fixture', file: 'src/widgets/FeedList.tsx', sym: 'FeedList.onLikeClick', depth: 3 },
-    { fix: 'react-spa-fixture', file: 'src/components/LoginForm.tsx', sym: 'LoginForm.handleSubmit', depth: 3 },
-    { fix: 'clean-arch-fixture', file: 'src/presentation/controllers/UserController.ts', sym: 'UserController.handleCreateUser', depth: 2 },
+    { fix: 'react-spa-fixture', file: 'src/components/LoginForm.tsx', sym: 'LoginForm.onSubmit', depth: 3 },
+    { fix: 'clean-arch-fixture', file: 'src/presentation/controllers/UserController.ts', sym: 'UserController.serveCreateUser', depth: 2 },
   ];
 
   for (const comb of combinations) {
@@ -132,7 +132,7 @@ testSection('Tier 4: Real-World Application Scenarios', () => {
   const s1 = sliceFlow({
     repoRoot: path.join(fixturesDir, 'nextjs-app-fixture'),
     candidateId: 'cand-0000000000000011',
-    entrySymbolPath: 'app/page.tsx#HomePage.handleQuickCheckout',
+    entrySymbolPath: 'app/page.tsx#HomePage.onQuickCheckout',
     opts: { maxDepth: 4 },
   });
   assert(s1.steps.length >= 1, 'Scenario 1: Next.js E-Commerce flow sliced');
@@ -150,7 +150,7 @@ testSection('Tier 4: Real-World Application Scenarios', () => {
   const s3 = sliceFlow({
     repoRoot: path.join(fixturesDir, 'react-spa-fixture'),
     candidateId: 'cand-0000000000000013',
-    entrySymbolPath: 'src/components/LoginForm.tsx#LoginForm.handleSubmit',
+    entrySymbolPath: 'src/components/LoginForm.tsx#LoginForm.onSubmit',
     opts: { maxDepth: 4 },
   });
   assert(s3.steps.length >= 1, 'Scenario 3: React SPA Auth flow sliced');
@@ -159,7 +159,7 @@ testSection('Tier 4: Real-World Application Scenarios', () => {
   const s4 = sliceFlow({
     repoRoot: path.join(fixturesDir, 'clean-arch-fixture'),
     candidateId: 'cand-0000000000000014',
-    entrySymbolPath: 'src/presentation/controllers/UserController.ts#UserController.handleCreateUser',
+    entrySymbolPath: 'src/presentation/controllers/UserController.ts#UserController.serveCreateUser',
     opts: { maxDepth: 3 },
   });
   assert(s4.steps.length >= 1, 'Scenario 4: Clean Arch UserController flow sliced');

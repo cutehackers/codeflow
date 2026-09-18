@@ -25,7 +25,7 @@ test.describe('FlowView Live Semantic Comprehension Workspace E2E', () => {
 
   test('opens an MCP Live Semantic Map URL without requiring a second query', async ({ page }) => {
     const request = 'Analyze the quick checkout flow while its code changes';
-    await page.goto('http://127.0.0.1:4589/?token=testtoken&live=1&request=' + encodeURIComponent(request) + '&entrySymbol=' + encodeURIComponent('app/page.tsx#HomePage.handleQuickCheckout'));
+    await page.goto('http://127.0.0.1:4589/?token=testtoken&live=1&request=' + encodeURIComponent(request) + '&entrySymbol=' + encodeURIComponent('app/page.tsx#HomePage.onQuickCheckout'));
 
     await expect(page.locator('#query-input')).toHaveValue(request);
     await expect(page.locator('body')).toHaveAttribute('data-view', 'live-semantic-map');
@@ -35,7 +35,7 @@ test.describe('FlowView Live Semantic Comprehension Workspace E2E', () => {
 
   test('loads the exact persisted Live Semantic Map after a published generation', async ({ page }) => {
     const request = 'Analyze the quick checkout flow while its code changes';
-    const entrySymbol = 'app/page.tsx#HomePage.handleQuickCheckout';
+    const entrySymbol = 'app/page.tsx#HomePage.onQuickCheckout';
     await page.goto('http://127.0.0.1:4589/?token=testtoken&live=1&request=' + encodeURIComponent(request) + '&entrySymbol=' + encodeURIComponent(entrySymbol));
     await expect(page.locator('#code-flow .code-card').first()).toBeVisible({ timeout: 10000 });
 
@@ -75,7 +75,7 @@ test.describe('FlowView Live Semantic Comprehension Workspace E2E', () => {
       // The production EventSource listener receives this event after the
       // versioned edit compiler publishes a new generation.
       // @ts-ignore
-      handleLiveEvent('generation.published', new MessageEvent('generation.published', { data: JSON.stringify({
+      onLiveEvent('generation.published', new MessageEvent('generation.published', { data: JSON.stringify({
         generationId: 'generation-event-99', computedBasisId: 'basis-event-99', validatedAgainstSnapshotId: 'snapshot-event-99',
       }) }));
     });
@@ -106,8 +106,8 @@ test.describe('FlowView Live Semantic Comprehension Workspace E2E', () => {
     const count = await candidates.count();
     expect(count).toBeGreaterThanOrEqual(2);
 
-    // 4. Click specific candidate: "app/page.tsx#HomePage.handleQuickCheckout"
-    const quickCheckoutBtn = disambiguation.locator('button', { hasText: 'HomePage.handleQuickCheckout' });
+    // 4. Click specific candidate: "app/page.tsx#HomePage.onQuickCheckout"
+    const quickCheckoutBtn = disambiguation.locator('button', { hasText: 'HomePage.onQuickCheckout' });
     await expect(quickCheckoutBtn).toBeVisible();
     await quickCheckoutBtn.click();
 
@@ -160,7 +160,7 @@ test.describe('FlowView Live Semantic Comprehension Workspace E2E', () => {
 
     // 1. Perform semantic query
     const queryInput = page.locator('#query-input');
-    await queryInput.fill('HomePage.handleQuickCheckout');
+    await queryInput.fill('HomePage.onQuickCheckout');
     await page.locator('#query-submit').click();
 
     const answerStrip = page.locator('#current-answer-strip');
@@ -189,9 +189,9 @@ test.describe('FlowView Live Semantic Comprehension Workspace E2E', () => {
     // Trigger update and verify selection is preserved
     await page.evaluate(() => {
       // @ts-ignore
-      if (typeof handleSemanticQuery === 'function') {
+      if (typeof onSemanticQuery === 'function') {
         // @ts-ignore
-        handleSemanticQuery(null, true);
+        onSemanticQuery(null, true);
       }
     });
 
@@ -320,7 +320,7 @@ test.describe('FlowView Live Semantic Comprehension Workspace E2E', () => {
 
     // 1. Perform semantic query
     const queryInput = page.locator('#query-input');
-    await queryInput.fill('HomePage.handleQuickCheckout');
+    await queryInput.fill('HomePage.onQuickCheckout');
     await page.locator('#query-submit').click();
 
     await expect(page.locator('#current-answer-strip')).toBeVisible({ timeout: 10000 });
@@ -536,7 +536,7 @@ test.describe('FlowView Live Semantic Comprehension Workspace E2E', () => {
     // 2. Onboarding is downstream of a loaded semantic task view. Without a
     // repository/basis/generation/snapshot identity the public seam must stay
     // empty instead of inventing a default domain set.
-    await page.locator('#query-input').fill('HomePage.handleQuickCheckout');
+    await page.locator('#query-input').fill('HomePage.onQuickCheckout');
     await page.locator('#query-submit').click();
     await expect(page.locator('#current-answer-strip')).toBeVisible({ timeout: 10000 });
 

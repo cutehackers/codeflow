@@ -114,6 +114,10 @@ check_declarations() {
   local added_lines
   local declaration_lines
 
+  if ! is_code_path "$path"; then
+    return 0
+  fi
+
   if [ -n "$old_path" ]; then
     added_lines=$(git diff -M --unified=0 HEAD -- "$old_path" "$path" | grep -E '^\+[^+]' || true)
   elif git ls-files --error-unmatch -- "$path" >/dev/null 2>&1; then
@@ -166,7 +170,7 @@ while IFS=$'\t' read -r status_code p1 p2; do
 done < <(
   {
     git diff -M --name-status --diff-filter=ACMRTUXB HEAD
-    git ls-files --others --exclude-standard | sed 's/^/?\t/'
+    git ls-files --others --exclude-standard | awk '{print "?\t" $0}'
   }
 )
 

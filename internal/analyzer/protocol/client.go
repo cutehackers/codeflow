@@ -284,12 +284,30 @@ func newConn(cfg Config, cmd *exec.Cmd, stdin io.WriteCloser, workDir string, de
 	}
 }
 
+// MountPermissionEvidence records the executable boundary used by an
+// adapter/helper and the cleanup result for its disposable process area.
+// SourceDelivery is protocol_snapshot_bytes when source never enters the
+// subprocess through a repository path. SourceMount stays not_mounted for
+// that transport mode and is intentionally explicit for registry consumers.
+type MountPermissionEvidence struct {
+	SourceDelivery                 string   `json:"sourceDelivery"`
+	SourceMount                    string   `json:"sourceMount"`
+	WorkingDirectoryMode           string   `json:"workingDirectoryMode"`
+	WorkingDirectoryPermission     string   `json:"workingDirectoryPermission"`
+	ReadOnlySource                 bool     `json:"readOnlySource"`
+	Disposable                     bool     `json:"disposable"`
+	RepositoryPathExposed          bool     `json:"repositoryPathExposed"`
+	DependencyEnvironmentPreserved bool     `json:"dependencyEnvironmentPreserved"`
+	CleanupVerified                bool     `json:"cleanupVerified"`
+	TerminalModes                  []string `json:"terminalModes,omitempty"`
+}
+
 // MountPermissionEvidence returns the process isolation proof accumulated by
 // this connection. The repository path is never used as the adapter cwd, and
 // the source side is supplied through the analyzer protocol envelope.
-func (c *Conn) MountPermissionEvidence() evidence.MountPermissionEvidence {
+func (c *Conn) MountPermissionEvidence() MountPermissionEvidence {
 	if c == nil {
-		return evidence.MountPermissionEvidence{}
+		return MountPermissionEvidence{}
 	}
 	c.isolationMu.RLock()
 	defer c.isolationMu.RUnlock()
@@ -301,7 +319,7 @@ func (c *Conn) MountPermissionEvidence() evidence.MountPermissionEvidence {
 		sourceMount = "not_mounted"
 		readOnlySource = true
 	}
-	return evidence.MountPermissionEvidence{
+	return MountPermissionEvidence{
 		SourceDelivery:                 sourceDelivery,
 		SourceMount:                    sourceMount,
 		WorkingDirectoryMode:           "process_private_disposable",

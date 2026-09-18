@@ -65,7 +65,7 @@ while (queue.hasMore()) {
 do {
   await this.poller.poll();
 } while (poller.isBusy());
-for (const x of simpleList) await this.proc.handle(x);
+for (const x of simpleList) await this.proc.dispatch(x);
 `;
   const loopStmts = extractStatements(loopSnippet, 0, loopSnippet);
 
@@ -76,7 +76,7 @@ for (const x of simpleList) await this.proc.handle(x);
   assert(loopStmts.some(s => s.type === 'call' && s.receiver === 'sink' && s.methodName === 'write'), 'Call in for await must be extracted');
   assert(loopStmts.some(s => s.type === 'call' && s.receiver === 'worker' && s.methodName === 'consume'), 'Call in while must be extracted');
   assert(loopStmts.some(s => s.type === 'call' && s.receiver === 'poller' && s.methodName === 'poll'), 'Call in do..while must be extracted');
-  assert(loopStmts.some(s => s.type === 'call' && s.receiver === 'proc' && s.methodName === 'handle'), 'Call in unbraced loop must be extracted');
+  assert(loopStmts.some(s => s.type === 'call' && s.receiver === 'proc' && s.methodName === 'dispatch'), 'Call in unbraced loop must be extracted');
 
   // 3. Integration test: Multi-file traversal from inside switch and loops
   const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'codeflow-controlflow-'));

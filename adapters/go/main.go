@@ -98,12 +98,12 @@ func main() {
 				s.cancelMu.Unlock()
 				<-s.active
 			}()
-			s.handle(ctx, req)
+			s.dispatchRequest(ctx, req)
 		}(req, ctx)
 	}
 }
 
-func (s *server) handle(ctx context.Context, req request) {
+func (s *server) dispatchRequest(ctx context.Context, req request) {
 	if req.Method == "initialize" || req.Method == "ping" {
 		s.success(req.ID, map[string]any{
 			"adapterVersion": adapterVersion, "protocolVersion": protocolVersion,

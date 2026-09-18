@@ -120,7 +120,7 @@ export class OrderService {
     assert.strictEqual(res.steps[0].kind, 'guard');
     assert.strictEqual(res.steps[1].kind, 'guard');
     assert.strictEqual(res.steps[2].kind, 'mutation');
-    assert.strictEqual(res.steps[3].kind, 'effect'); // Boundary effect (Repository suffix)
+    assert.strictEqual(res.steps[3].kind, 'call'); // Boundary call (Repository suffix)
     assert.strictEqual(res.steps[3].effectTarget, 'orderRepository.saveOrder');
 
     // Verify Anchor byte ranges and span hashes
