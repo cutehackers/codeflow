@@ -1,7 +1,8 @@
 # 코드 읽기 근거와 언어별 분석 품질
 
 - Contract ID: CODE-READING-EVIDENCE-LANGUAGE-PARITY
-- Contract Status: Approved
+- Contract Status: Superseded
+- Superseded by: [요청 흐름 코드 읽기 통합 계약](2026-09-23-requested-flow-code-reading-delivery-ko.md). 제품 기준과 구현 순서는 새 계약에서 확인한다.
 - Intent Status: Hardened
 - Created: 2026-09-23
 - Source: 2026-09-23 사용자 대화, 첨부한 분석 엔진 개선안(참고 의견), 기존 Molycard 분석 관찰

@@ -1,6 +1,6 @@
 # 코드 읽기 근거와 언어별 분석 결정
 
-- Status: Proposed
+- Status: Superseded by [요청 흐름 코드 읽기 통합 결정](2026-09-23-requested-flow-code-reading-delivery-ko.md)
 - Created: 2026-09-23
 - Parent: [코드 읽기 근거와 언어별 분석 품질](../specs/2026-09-23-code-reading-evidence-and-language-parity-ko.md)
 - Source: 사용자 대화, 참고용 분석 엔진 개선안, 2026-09-21 계약과 Molycard 관찰
