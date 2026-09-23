@@ -11,69 +11,242 @@ void main() {
 
   group('Ticket 07 - Same-file Slicing', () {
     test(
-        'slices EmailSignupNotifier.submit with guard, mutation and boundary call',
-        () {
-      final res = sliceCandidate(
-        repoRoot: exampleRoot,
-        candidateId: 'cand-7232d63b96bd6efa',
-        entrySymbolPath:
-            'lib/features/auth/email_signup_notifier.dart#EmailSignupNotifier.submit',
+      'slices a primary-constructor controller method without using the file range',
+      () {
+        final tempDir = Directory.systemTemp.createTempSync(
+          'primary_constructor_slice',
+        );
+        try {
+          final libDir = Directory('${tempDir.path}/lib')
+            ..createSync(recursive: true);
+          File(
+            '${tempDir.path}/pubspec.yaml',
+          ).writeAsStringSync('name: primary_constructor_slice\n');
+          File('${libDir.path}/battle_controller.dart').writeAsStringSync('''
+class BattleRepository {
+  Future<void> endTurn(String turn) async {}
+}
+
+class BattleController({required this.repository}) {
+  final BattleRepository repository;
+
+  Future<void> _onEndTurn(String turn) async {
+    if (turn.isEmpty) throw ArgumentError('turn');
+    final nextTurn = turn.trim();
+    await repository.endTurn(nextTurn);
+  }
+}
+''');
+
+          final result = sliceCandidate(
+            repoRoot: tempDir.path.replaceAll('\\', '/'),
+            candidateId: 'cand-primary000000',
+            entrySymbolPath:
+                'lib/battle_controller.dart#BattleController._onEndTurn',
+          );
+          final steps = (result['steps'] as List).cast<Map<String, Object?>>();
+          expect(steps.length, greaterThanOrEqualTo(2));
+          final sourceLength = utf8
+              .encode(
+                File(
+                  '${libDir.path}/battle_controller.dart',
+                ).readAsStringSync(),
+              )
+              .length;
+          for (final step in steps) {
+            final anchor = step['anchor'] as Map<String, Object?>;
+            final range = (anchor['byteRange'] as List).cast<int>();
+            expect(range, isNot(equals([0, sourceLength])));
+            expect(
+              anchor['enclosingSymbolPath'],
+              'BattleController._onEndTurn',
+            );
+          }
+        } finally {
+          tempDir.deleteSync(recursive: true);
+        }
+      },
+    );
+
+    test('rejects an entry symbol that cannot be located', () {
+      final tempDir = Directory.systemTemp.createTempSync(
+        'missing_entry_slice',
       );
-
-      expect(res['candidateId'], 'cand-7232d63b96bd6efa');
-      expect(res['language'], 'dart');
-      expect(res['entrySymbolPath'],
-          'lib/features/auth/email_signup_notifier.dart#EmailSignupNotifier.submit');
-
-      final steps = (res['steps'] as List).cast<Map<String, Object?>>();
-      expect(steps, isNotEmpty);
-
-      // Check step kinds exist
-      final kinds = steps.map((s) => s['kind']).toList();
-      expect(kinds, contains('mutation'));
-      expect(kinds, contains('call'));
-
-      // Check anchor structure
-      for (final s in steps) {
-        final anchor = s['anchor'] as Map<String, Object?>;
-        expect(anchor['repoRelativePath'],
-            'lib/features/auth/email_signup_notifier.dart');
-        expect(anchor['byteRange'], isA<List>());
-        expect((anchor['byteRange'] as List).length, 2);
-        expect(anchor['fileHash'], matches(RegExp(r'^[a-f0-9]{64}$')));
-        expect(anchor['spanHash'], matches(RegExp(r'^[a-f0-9]{64}$')));
-        expect(anchor['canonicalAstFingerprint'],
-            matches(RegExp(r'^[a-f0-9]{64}$')));
-        // Symbol-scoped view range must exist and contain the statement span.
-        expect(anchor['symbolRange'], isA<List>());
-        final symbolRange = (anchor['symbolRange'] as List).cast<int>();
-        expect(symbolRange.length, 2);
-        final byteRange = (anchor['byteRange'] as List).cast<int>();
-        expect(symbolRange[0], lessThanOrEqualTo(byteRange[0]));
-        expect(symbolRange[1], greaterThanOrEqualTo(byteRange[1]));
+      try {
+        final libDir = Directory('${tempDir.path}/lib')
+          ..createSync(recursive: true);
+        File(
+          '${tempDir.path}/pubspec.yaml',
+        ).writeAsStringSync('name: missing_entry_slice\n');
+        File('${libDir.path}/service.dart').writeAsStringSync('''
+class Service {
+  void run() {}
+}
+''');
+        expect(
+          () => sliceCandidate(
+            repoRoot: tempDir.path.replaceAll('\\', '/'),
+            candidateId: 'cand-missing000000',
+            entrySymbolPath: 'lib/service.dart#Service.missing',
+          ),
+          throwsA(
+            isA<ArgumentError>().having(
+              (error) => error.message,
+              'message',
+              contains('entry_symbol_not_found'),
+            ),
+          ),
+        );
+      } finally {
+        tempDir.deleteSync(recursive: true);
       }
-
-      // Check edges
-      final edges = (res['edges'] as List).cast<Map<String, Object?>>();
-      expect(edges, isNotEmpty);
-      for (final e in edges) {
-        // Every edge names the step that produced it so FlowView can attach
-        // the delegation target to the right timeline card.
-        expect(e['stepOrdinal'], isA<int>());
-        final ord = e['stepOrdinal'] as int;
-        expect(ord, greaterThanOrEqualTo(1));
-        expect(ord, lessThanOrEqualTo(steps.length));
-      }
-      expect(
-          edges.any((e) =>
-              e['kind'] == 'boundary_call' ||
-              e['kind'] == 'resolved_cross_file' ||
-              e['kind'] == 'unknown_edge'),
-          isTrue);
     });
 
-    test('deterministic slicing: identical inputs produce byte-identical JSON',
-        () {
+    test(
+      'preserves local execution relations and separate call invocations',
+      () {
+        final tempDir = Directory.systemTemp.createTempSync(
+          'execution_relation_slice',
+        );
+        try {
+          final libDir = Directory('${tempDir.path}/lib')
+            ..createSync(recursive: true);
+          File(
+            '${tempDir.path}/pubspec.yaml',
+          ).writeAsStringSync('name: execution_relation_slice\n');
+          File('${libDir.path}/controller.dart').writeAsStringSync('''
+class Worker {
+  int state = 0;
+  void execute() {
+    state = state + 1;
+  }
+}
+
+class Controller {
+  Controller({required this.worker});
+  final Worker worker;
+
+  void run() {
+    worker.execute();
+    worker.execute();
+  }
+}
+''');
+          final result = sliceCandidate(
+            repoRoot: tempDir.path.replaceAll('\\', '/'),
+            candidateId: 'cand-execution0000',
+            entrySymbolPath: 'lib/controller.dart#Controller.run',
+          );
+          final steps = (result['steps'] as List).cast<Map<String, Object?>>();
+          final byOrdinal = <int, Map<String, Object?>>{
+            for (final step in steps) step['ordinal'] as int: step,
+          };
+          expect(steps.every((step) => step['invocationId'] is String), isTrue);
+
+          final callEdges = (result['edges'] as List)
+              .cast<Map<String, Object?>>()
+              .where((edge) => edge['kind'] == 'resolved_cross_file')
+              .toList();
+          expect(callEdges, hasLength(2));
+          final targetInvocations = <String>{};
+          for (final edge in callEdges) {
+            final source = byOrdinal[edge['stepOrdinal'] as int]!;
+            final target = byOrdinal[edge['targetStepOrdinal'] as int]!;
+            expect(target['callerStepOrdinal'], source['ordinal']);
+            expect(target['invocationId'], isNot(source['invocationId']));
+            targetInvocations.add(target['invocationId'] as String);
+          }
+          expect(targetInvocations, hasLength(2));
+
+          final localSequence = (result['edges'] as List)
+              .cast<Map<String, Object?>>()
+              .where(
+                (edge) =>
+                    edge['kind'] == 'control_flow' &&
+                    edge['toSymbolPath'] ==
+                        'lib/controller.dart#Controller.run',
+              )
+              .toList();
+          expect(localSequence, hasLength(1));
+        } finally {
+          tempDir.deleteSync(recursive: true);
+        }
+      },
+    );
+
+    test(
+      'slices EmailSignupNotifier.submit with guard, mutation and boundary call',
+      () {
+        final res = sliceCandidate(
+          repoRoot: exampleRoot,
+          candidateId: 'cand-7232d63b96bd6efa',
+          entrySymbolPath:
+              'lib/features/auth/email_signup_notifier.dart#EmailSignupNotifier.submit',
+        );
+
+        expect(res['candidateId'], 'cand-7232d63b96bd6efa');
+        expect(res['language'], 'dart');
+        expect(
+          res['entrySymbolPath'],
+          'lib/features/auth/email_signup_notifier.dart#EmailSignupNotifier.submit',
+        );
+
+        final steps = (res['steps'] as List).cast<Map<String, Object?>>();
+        expect(steps, isNotEmpty);
+
+        // Check step kinds exist
+        final kinds = steps.map((s) => s['kind']).toList();
+        expect(kinds, contains('mutation'));
+        expect(kinds, contains('call'));
+
+        // Check anchor structure
+        for (final s in steps) {
+          final anchor = s['anchor'] as Map<String, Object?>;
+          expect(
+            anchor['repoRelativePath'],
+            'lib/features/auth/email_signup_notifier.dart',
+          );
+          expect(anchor['byteRange'], isA<List>());
+          expect((anchor['byteRange'] as List).length, 2);
+          expect(anchor['fileHash'], matches(RegExp(r'^[a-f0-9]{64}$')));
+          expect(anchor['spanHash'], matches(RegExp(r'^[a-f0-9]{64}$')));
+          expect(
+            anchor['canonicalAstFingerprint'],
+            matches(RegExp(r'^[a-f0-9]{64}$')),
+          );
+          // Symbol-scoped view range must exist and contain the statement span.
+          expect(anchor['symbolRange'], isA<List>());
+          final symbolRange = (anchor['symbolRange'] as List).cast<int>();
+          expect(symbolRange.length, 2);
+          final byteRange = (anchor['byteRange'] as List).cast<int>();
+          expect(symbolRange[0], lessThanOrEqualTo(byteRange[0]));
+          expect(symbolRange[1], greaterThanOrEqualTo(byteRange[1]));
+        }
+
+        // Check edges
+        final edges = (res['edges'] as List).cast<Map<String, Object?>>();
+        expect(edges, isNotEmpty);
+        for (final e in edges) {
+          // Every edge names the step that produced it so FlowView can attach
+          // the delegation target to the right timeline card.
+          expect(e['stepOrdinal'], isA<int>());
+          final ord = e['stepOrdinal'] as int;
+          expect(ord, greaterThanOrEqualTo(1));
+          expect(ord, lessThanOrEqualTo(steps.length));
+        }
+        expect(
+          edges.any(
+            (e) =>
+                e['kind'] == 'boundary_call' ||
+                e['kind'] == 'resolved_cross_file' ||
+                e['kind'] == 'unknown_edge',
+          ),
+          isTrue,
+        );
+      },
+    );
+
+    test('deterministic slicing: identical inputs produce byte-identical JSON', () {
       final res1 = sliceCandidate(
         repoRoot: exampleRoot,
         candidateId: 'cand-7232d63b96bd6efa',
@@ -97,8 +270,9 @@ void main() {
       try {
         final libDir = Directory('${tempDir.path}/lib')
           ..createSync(recursive: true);
-        File('${tempDir.path}/pubspec.yaml')
-            .writeAsStringSync('name: secret_test\n');
+        File(
+          '${tempDir.path}/pubspec.yaml',
+        ).writeAsStringSync('name: secret_test\n');
         File('${libDir.path}/secret_service.dart').writeAsStringSync('''
 class SecretService {
   void login() {
@@ -125,22 +299,24 @@ class SecretService {
   });
 
   group('Ticket 08 - Cross-file Symbol Tracking', () {
-    test('traces Controller -> UseCase -> Repository boundary across files',
-        () {
-      final tempDir = Directory.systemTemp.createTempSync('cross_file_test');
-      try {
-        final authDir = Directory('${tempDir.path}/lib/auth')
-          ..createSync(recursive: true);
-        File('${tempDir.path}/pubspec.yaml')
-            .writeAsStringSync('name: cross_test\n');
+    test(
+      'traces Controller -> UseCase -> Repository boundary across files',
+      () {
+        final tempDir = Directory.systemTemp.createTempSync('cross_file_test');
+        try {
+          final authDir = Directory('${tempDir.path}/lib/auth')
+            ..createSync(recursive: true);
+          File(
+            '${tempDir.path}/pubspec.yaml',
+          ).writeAsStringSync('name: cross_test\n');
 
-        File('${authDir.path}/auth_repository.dart').writeAsStringSync('''
+          File('${authDir.path}/auth_repository.dart').writeAsStringSync('''
 class AuthRepository {
   Future<void> saveUser(String email) async {}
 }
 ''');
 
-        File('${authDir.path}/signup_usecase.dart').writeAsStringSync('''
+          File('${authDir.path}/signup_usecase.dart').writeAsStringSync('''
 import 'auth_repository.dart';
 
 class SignupUseCase {
@@ -154,7 +330,7 @@ class SignupUseCase {
 }
 ''');
 
-        File('${authDir.path}/signup_controller.dart').writeAsStringSync('''
+          File('${authDir.path}/signup_controller.dart').writeAsStringSync('''
 import 'signup_usecase.dart';
 
 class SignupController {
@@ -170,36 +346,38 @@ class SignupController {
 }
 ''');
 
-        final res = sliceCandidate(
-          repoRoot: tempDir.path.replaceAll('\\', '/'),
-          candidateId: 'cand-crossfile00000',
-          entrySymbolPath:
-              'lib/auth/signup_controller.dart#SignupController.submit',
-        );
+          final res = sliceCandidate(
+            repoRoot: tempDir.path.replaceAll('\\', '/'),
+            candidateId: 'cand-crossfile00000',
+            entrySymbolPath:
+                'lib/auth/signup_controller.dart#SignupController.submit',
+          );
 
-        expect(res['language'], 'dart');
-        final steps = (res['steps'] as List).cast<Map<String, Object?>>();
-        expect(steps.length, greaterThanOrEqualTo(3));
+          expect(res['language'], 'dart');
+          final steps = (res['steps'] as List).cast<Map<String, Object?>>();
+          expect(steps.length, greaterThanOrEqualTo(3));
 
-        final edges = (res['edges'] as List).cast<Map<String, Object?>>();
-        // Should contain resolved_cross_file and boundary_call
-        expect(edges.any((e) => e['kind'] == 'resolved_cross_file'), isTrue);
-        expect(edges.any((e) => e['kind'] == 'boundary_call'), isTrue);
+          final edges = (res['edges'] as List).cast<Map<String, Object?>>();
+          // Should contain resolved_cross_file and boundary_call
+          expect(edges.any((e) => e['kind'] == 'resolved_cross_file'), isTrue);
+          expect(edges.any((e) => e['kind'] == 'boundary_call'), isTrue);
 
-        // Guard in usecase should be extracted
-        expect(steps.any((s) => s['kind'] == 'guard'), isTrue);
-      } finally {
-        tempDir.deleteSync(recursive: true);
-      }
-    });
+          // Guard in usecase should be extracted
+          expect(steps.any((s) => s['kind'] == 'guard'), isTrue);
+        } finally {
+          tempDir.deleteSync(recursive: true);
+        }
+      },
+    );
 
     test('handles recursion/cycles gracefully without infinite loop', () {
       final tempDir = Directory.systemTemp.createTempSync('cycle_test');
       try {
         final libDir = Directory('${tempDir.path}/lib')
           ..createSync(recursive: true);
-        File('${tempDir.path}/pubspec.yaml')
-            .writeAsStringSync('name: cycle_test\n');
+        File(
+          '${tempDir.path}/pubspec.yaml',
+        ).writeAsStringSync('name: cycle_test\n');
 
         File('${libDir.path}/a.dart').writeAsStringSync('''
 import 'b.dart';
@@ -233,23 +411,26 @@ class ClassB {
       }
     });
 
-    test('traces ref.read(provider) through UseCase to Repository (depth 3)',
-        () {
-      final tempDir =
-          Directory.systemTemp.createTempSync('provider_depth3_test');
-      try {
-        final libDir = Directory('${tempDir.path}/lib')
-          ..createSync(recursive: true);
-        File('${tempDir.path}/pubspec.yaml')
-            .writeAsStringSync('name: provider_depth3_test\n');
+    test(
+      'traces ref.read(provider) through UseCase to Repository (depth 3)',
+      () {
+        final tempDir = Directory.systemTemp.createTempSync(
+          'provider_depth3_test',
+        );
+        try {
+          final libDir = Directory('${tempDir.path}/lib')
+            ..createSync(recursive: true);
+          File(
+            '${tempDir.path}/pubspec.yaml',
+          ).writeAsStringSync('name: provider_depth3_test\n');
 
-        File('${libDir.path}/api_client.dart').writeAsStringSync('''
+          File('${libDir.path}/api_client.dart').writeAsStringSync('''
 class ApiClient {
   Future<void> post(String url, Map<String, dynamic> body) async {}
 }
 ''');
 
-        File('${libDir.path}/auth_repository.dart').writeAsStringSync('''
+          File('${libDir.path}/auth_repository.dart').writeAsStringSync('''
 import 'api_client.dart';
 
 class AuthRepository {
@@ -262,7 +443,7 @@ class AuthRepository {
 }
 ''');
 
-        File('${libDir.path}/signup_usecase.dart').writeAsStringSync('''
+          File('${libDir.path}/signup_usecase.dart').writeAsStringSync('''
 import 'auth_repository.dart';
 
 class SignUpUseCase {
@@ -276,7 +457,7 @@ class SignUpUseCase {
 }
 ''');
 
-        File('${libDir.path}/signup_controller.dart').writeAsStringSync('''
+          File('${libDir.path}/signup_controller.dart').writeAsStringSync('''
 import 'signup_usecase.dart';
 
 final signUpUseCaseProvider = Provider<SignUpUseCase>((ref) => throw UnimplementedError());
@@ -295,38 +476,43 @@ class SignUpController {
 }
 ''');
 
-        final res = sliceCandidate(
-          repoRoot: tempDir.path.replaceAll('\\', '/'),
-          candidateId: 'cand-providerdepth3',
-          entrySymbolPath:
-              'lib/signup_controller.dart#SignUpController.submit',
-        );
+          final res = sliceCandidate(
+            repoRoot: tempDir.path.replaceAll('\\', '/'),
+            candidateId: 'cand-providerdepth3',
+            entrySymbolPath:
+                'lib/signup_controller.dart#SignUpController.submit',
+          );
 
-        final steps = (res['steps'] as List).cast<Map<String, Object?>>();
-        expect(steps.length, greaterThanOrEqualTo(3));
+          final steps = (res['steps'] as List).cast<Map<String, Object?>>();
+          expect(steps.length, greaterThanOrEqualTo(3));
 
-        final paths = steps
-            .map((s) => (s['anchor'] as Map<String, Object?>)['repoRelativePath'])
-            .toSet();
-        expect(paths, contains('lib/signup_controller.dart'));
-        expect(paths, contains('lib/signup_usecase.dart'));
-        expect(paths, contains('lib/auth_repository.dart'));
+          final paths = steps
+              .map(
+                (s) =>
+                    (s['anchor'] as Map<String, Object?>)['repoRelativePath'],
+              )
+              .toSet();
+          expect(paths, contains('lib/signup_controller.dart'));
+          expect(paths, contains('lib/signup_usecase.dart'));
+          expect(paths, contains('lib/auth_repository.dart'));
 
-        final edges = (res['edges'] as List).cast<Map<String, Object?>>();
-        expect(edges.any((e) => e['kind'] == 'resolved_cross_file'), isTrue);
-        expect(edges.any((e) => e['kind'] == 'boundary_call'), isTrue);
-      } finally {
-        tempDir.deleteSync(recursive: true);
-      }
-    });
+          final edges = (res['edges'] as List).cast<Map<String, Object?>>();
+          expect(edges.any((e) => e['kind'] == 'resolved_cross_file'), isTrue);
+          expect(edges.any((e) => e['kind'] == 'boundary_call'), isTrue);
+        } finally {
+          tempDir.deleteSync(recursive: true);
+        }
+      },
+    );
 
     test('uses a schema-safe edge for unresolved provider calls', () {
       final tempDir = Directory.systemTemp.createTempSync('provider_call_test');
       try {
         final libDir = Directory('${tempDir.path}/lib')
           ..createSync(recursive: true);
-        File('${tempDir.path}/pubspec.yaml')
-            .writeAsStringSync('name: provider_call_test\n');
+        File(
+          '${tempDir.path}/pubspec.yaml',
+        ).writeAsStringSync('name: provider_call_test\n');
         File('${libDir.path}/controller.dart').writeAsStringSync('''
 class Controller {
   Future<void> submit() async {
@@ -342,10 +528,63 @@ class Controller {
         );
 
         final edges = (res['edges'] as List).cast<Map<String, Object?>>();
-        final unknownEdge =
-            edges.singleWhere((edge) => edge['kind'] == 'unknown_edge');
-        expect(unknownEdge['toSymbolPath'],
-            'lib/controller.dart#unresolved_dynamic.call');
+        final unknownEdge = edges.singleWhere(
+          (edge) => edge['kind'] == 'unknown_edge',
+        );
+        expect(
+          unknownEdge['toSymbolPath'],
+          'lib/controller.dart#unresolved_dynamic.call',
+        );
+      } finally {
+        tempDir.deleteSync(recursive: true);
+      }
+    });
+
+    test('does not claim control flow continues after an await', () {
+      final tempDir = Directory.systemTemp.createTempSync('await_slice_test');
+      try {
+        final libDir = Directory('${tempDir.path}/lib')
+          ..createSync(recursive: true);
+        File(
+          '${tempDir.path}/pubspec.yaml',
+        ).writeAsStringSync('name: await_slice_test\n');
+        File('${libDir.path}/controller.dart').writeAsStringSync('''
+class Worker {
+  Future<void> run() async {}
+}
+
+class Controller {
+  Controller(this.worker);
+  final Worker worker;
+  int state = 0;
+
+  Future<void> submit() async {
+    await worker.run();
+    state = 1;
+  }
+}
+''');
+
+        final result = sliceCandidate(
+          repoRoot: tempDir.path.replaceAll('\\', '/'),
+          candidateId: 'cand-await00000000',
+          entrySymbolPath: 'lib/controller.dart#Controller.submit',
+        );
+        final steps = (result['steps'] as List).cast<Map<String, Object?>>();
+        final awaitStep = steps.singleWhere((step) => step['kind'] == 'await');
+        final mutationStep = steps.singleWhere(
+          (step) => step['kind'] == 'mutation',
+        );
+        final edges = (result['edges'] as List).cast<Map<String, Object?>>();
+        expect(
+          edges.where(
+            (edge) =>
+                edge['kind'] == 'control_flow' &&
+                edge['stepOrdinal'] == awaitStep['ordinal'] &&
+                edge['targetStepOrdinal'] == mutationStep['ordinal'],
+          ),
+          isEmpty,
+        );
       } finally {
         tempDir.deleteSync(recursive: true);
       }

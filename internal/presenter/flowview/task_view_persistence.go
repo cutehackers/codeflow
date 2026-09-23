@@ -40,7 +40,10 @@ func (s *Server) SaveTaskView(ctx context.Context, result map[string]any) (map[s
 	if err := json.Unmarshal(raw, &mapIR); err != nil {
 		return nil, err
 	}
-	flowSequence := semantic.BuildFlowSequence(&mapIR)
+	flowSequence, supplied := result["flowSequence"]
+	if !supplied {
+		flowSequence = semantic.BuildFlowSequence(&mapIR)
+	}
 	data, err := json.Marshal(flowSequence)
 	if err != nil {
 		return nil, err
@@ -48,8 +51,21 @@ func (s *Server) SaveTaskView(ctx context.Context, result map[string]any) (map[s
 	if err := contractharness.ValidateFlowSequence(data); err != nil {
 		return nil, fmt.Errorf("flowSequence: %w", err)
 	}
-	result["flowSequence"] = flowSequence
-	raw, err = json.Marshal(result)
+	var sequence semantic.FlowSequence
+	if err := json.Unmarshal(data, &sequence); err != nil {
+		return nil, fmt.Errorf("decode FlowSequence: %w", err)
+	}
+	if err := semantic.ValidateFlowSequenceReferences(&mapIR, &sequence); err != nil {
+		return nil, fmt.Errorf("flowSequence: %w", err)
+	}
+	// Preserve caller-owned data, including optional compatible fields, until
+	// validation and persistence have succeeded.
+	view := make(map[string]any, len(result)+1)
+	for key, value := range result {
+		view[key] = value
+	}
+	view["flowSequence"] = flowSequence
+	raw, err = json.Marshal(view)
 	if err != nil {
 		return nil, err
 	}
@@ -129,9 +145,9 @@ func (s *Server) checkAndMarkSourceContextMissing(result map[string]any) {
 		result["needsReanalysis"] = true
 		if result["sourceNotice"] == nil || result["sourceNotice"] == "" || missingDisk {
 			if missingDisk {
-				result["sourceNotice"] = "과거 분석의 소스 파일이 디스크에서 삭제되었습니다. 현재 워킹 트리 기반으로 자동 재분석을 진행합니다."
+				result["sourceNotice"] = "과거 분석의 소스 파일이 디스크에서 삭제되었습니다. 현재 코드를 확인하려면 다시 분석을 실행하세요."
 			} else {
-				result["sourceNotice"] = "과거 분석에 보존된 소스 문맥이 없어 재분석이 필요합니다. 현재 워킹 트리 기반으로 자동 재분석을 진행합니다."
+				result["sourceNotice"] = "과거 분석에 보존된 소스 문맥이 없어 재분석이 필요합니다. 현재 코드를 확인하려면 다시 분석을 실행하세요."
 			}
 		}
 	}
@@ -311,32 +327,7 @@ func (s *Server) RestoreFlowView(ctx context.Context, flowID string) (map[string
 	if err := json.Unmarshal(raw, &spec); err != nil {
 		return nil, err
 	}
-	m := &semantic.SemanticMapIR{GenerationID: pointer.GenerationID, ComputedBasisID: spec.BasisSha, Summary: semantic.MapSummary{Requested: spec.Title, Current: spec.Description}, Steps: []semantic.SemanticStep{}, Edges: []semantic.SemanticEdge{}, Unknowns: spec.Unknowns, Freshness: "historical", Authority: "historical"}
-	for _, step := range spec.Steps {
-		id := fusion.ComputeStepID(spec.FlowID, step.Ordinal, step.Anchor.EnclosingSymbolPath)
-		if step.StepID != nil {
-			id = *step.StepID
-		}
-		m.Steps = append(m.Steps, semantic.SemanticStep{StepID: id, Ordinal: step.Ordinal, Name: step.Name, TechnicalName: step.Anchor.EnclosingSymbolPath, Anchor: step.Anchor, Branch: step.Branch, SideEffect: step.SideEffect, StateDelta: step.StateDelta, Kind: step.Kind, Layer: step.Layer, Rules: step.Rules})
-	}
-	for _, edge := range spec.Edges {
-		var from *semantic.SemanticStep
-		var targets []semantic.SemanticStep
-		for i := range m.Steps {
-			step := &m.Steps[i]
-			if edge.StepOrdinal != nil && step.Ordinal == *edge.StepOrdinal {
-				from = step
-			}
-			if edge.ToSymbolPath == step.TechnicalName || edge.ToSymbolPath == step.Anchor.RepoRelativePath+"#"+step.TechnicalName {
-				targets = append(targets, *step)
-			}
-		}
-		if from != nil && len(targets) == 1 && edge.ResolutionStatus == "resolved" {
-			m.Edges = append(m.Edges, semantic.SemanticEdge{FromStepID: from.StepID, ToStepID: targets[0].StepID, ToSymbolPath: edge.ToSymbolPath, Kind: edge.Kind, ResolutionStatus: edge.ResolutionStatus})
-		} else {
-			m.Unknowns = append(m.Unknowns, fusion.Unknown{Subject: edge.ToSymbolPath, Reason: "과거 분석의 직접 연결 대상을 확인할 수 없습니다."})
-		}
-	}
+	m := semantic.ProjectFlowSpec(&spec, pointer.GenerationID)
 
 	entry := ""
 	if len(spec.Steps) > 0 {
@@ -352,9 +343,18 @@ func (s *Server) RestoreFlowView(ctx context.Context, flowID string) (map[string
 		"flowContexts":         map[string]any{},
 		"sourceFiles":          map[string]any{},
 		"request":              map[string]any{"flowId": flowID, "entrySymbol": entry},
-		"sourceNotice":         "과거 분석에 보존된 소스 문맥이 없어 재분석이 필요합니다. 현재 워킹 트리 기반으로 자동 재분석을 진행합니다.",
+		"sourceNotice":         "과거 분석에 보존된 소스 문맥이 없어 재분석이 필요합니다. 현재 코드를 확인하려면 다시 분석을 실행하세요.",
 		"sourceContextMissing": true,
 		"needsReanalysis":      true,
+	}
+	resolution := spec.FlowResolution
+	if resolution != nil {
+		res["flowResolution"] = resolution
+		res["request"] = map[string]any{
+			"request":     resolution.RawRequest,
+			"flowId":      resolution.FlowID,
+			"entrySymbol": resolution.EntrySymbolPath,
+		}
 	}
 	s.checkAndMarkSourceContextMissing(res)
 	return res, nil

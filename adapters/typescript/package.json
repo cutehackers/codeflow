@@ -9,12 +9,23 @@
   "type": "commonjs",
   "scripts": {
     "test": "node test/index.test.js",
-    "start": "node bin/codeflow_ts_adapter.js"
+    "start": "node bin/codeflow_ts_adapter.js",
+    "bundle:parser": "node scripts/bundle-parser.js"
   },
-  "keywords": ["codeflow", "adapter", "typescript", "javascript", "ast", "flowview"],
+  "keywords": [
+    "codeflow",
+    "adapter",
+    "typescript",
+    "javascript",
+    "ast",
+    "flowview"
+  ],
   "author": "CodeFlow Team",
   "license": "MIT",
   "engines": {
     "node": ">=18.0.0"
+  },
+  "devDependencies": {
+    "typescript": "5.9.3"
   }
 }

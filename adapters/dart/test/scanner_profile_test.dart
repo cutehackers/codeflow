@@ -38,8 +38,7 @@ void main() {
         },
       },
     ]);
-    final patterns =
-        merged.domainMarkerRegexes.map((r) => r.pattern).toSet();
+    final patterns = merged.domainMarkerRegexes.map((r) => r.pattern).toSet();
     expect(patterns, contains(r'CustomStore$'));
     // Built-in riverpod marker still present.
     expect(patterns, contains(RegExp(r'[A-Za-z0-9_]+Notifier$').pattern));
@@ -81,13 +80,45 @@ abstract class Repo {
     final r = scanSource(src);
 
     expect(r.classes.map((c) => c.name).toList(), ['Widget', 'Repo']);
-    expect(
-      r.classes[0].methods.map((m) => m.name).toList(),
-      ['doThing', '_hidden'],
-    );
+    expect(r.classes[0].methods.map((m) => m.name).toList(), [
+      'doThing',
+      '_hidden',
+    ]);
     expect(r.topLevelFunctions.single.name, 'backgroundHelper');
 
     final doc = r.firstDocLineAbove(r.topLevelFunctions.single.nameLine);
     expect(doc, 'Doc for the helper.');
   });
+
+  test(
+    'scanner skips primary-constructor parameter braces before class body',
+    () {
+      const src = '''
+class BattleController({
+  required this.service,
+  required this.turn,
+}) extends Object {
+  final Object service;
+  final int turn;
+
+  Future<void> _onEndTurn() async {
+    if (turn < 1) return;
+    await Future<void>.value();
+  }
+}
+''';
+
+      final scanned = scanSource(src);
+      expect(scanned.classes, hasLength(1));
+      final controller = scanned.classes.single;
+      expect(
+        controller.bodyStart,
+        greaterThan(src.indexOf('}) extends Object')),
+      );
+      expect(
+        controller.methods.map((method) => method.name),
+        contains('_onEndTurn'),
+      );
+    },
+  );
 }

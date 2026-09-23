@@ -1,20 +1,9 @@
-import type { FlowTaskViewData, Step, FlowContext } from '../types/flow';
+import { tick } from 'svelte';
+import { conditionChoices, conditionReachability, retainReachableConditions, type ConditionSelection } from './conditionNavigation';
+import { buildFlowRelations, validateFlowReferences } from './flowNavigation';
+import type { FlowTaskViewData, Step, FlowContext, FlowResolution } from '../types/flow';
 import type { FlowSequence, FlowSequenceFrame } from '../types/flow_sequence';
 import type { ChangeImpactGraph } from '../types/impact';
-
-export const LAYER_LABELS: Record<string, string> = {
-  presentation: 'UI',
-  page: 'UI',
-  ui: 'UI',
-  controller: 'Controller',
-  usecase: 'UseCase',
-  application: 'UseCase',
-  domain: 'Domain',
-  data: 'Repository',
-  repository: 'Repository',
-  infra: 'Infrastructure',
-  external: 'External'
-};
 
 export const GATEWAY_ROLES: Record<string, string> = {
   entry: '시작',
@@ -22,24 +11,7 @@ export const GATEWAY_ROLES: Record<string, string> = {
   process: '처리',
   effect: '외부 효과',
   result: '결과',
-  boundary: 'ANALYSIS BOUNDARY',
-  presentation: 'UI EVENT',
-  page: 'UI EVENT',
-  ui: 'UI EVENT',
-  ui_event: 'UI EVENT',
-  gateway: 'GATEWAY',
-  controller: 'GATEWAY',
-  validator: 'GATEWAY',
-  domain: 'DOMAIN CORE',
-  domain_core: 'DOMAIN CORE',
-  usecase: 'APPLICATION',
-  application: 'APPLICATION',
-  service: 'APPLICATION',
-  external: 'EXTERNAL PG',
-  external_pg: 'EXTERNAL PG',
-  data: 'STATE PERSISTENCE',
-  repository: 'STATE PERSISTENCE',
-  infra: 'INFRASTRUCTURE'
+  boundary: '분석 경계'
 };
 
 export const EDGE_LABELS: Record<string, string> = {
@@ -47,11 +19,23 @@ export const EDGE_LABELS: Record<string, string> = {
   call: '호출',
   calls: '호출',
   successor: '다음 처리',
-  return: '반환',
+  control_flow: '다음 처리',
+  return: '복귀',
+  loop_exit_back: '내부 반복 종료 후 외부 조건 재평가',
+  loop_exit: '반복 종료 후 진행',
+  switch_exit: '분기 종료 후 진행',
+  parallel_wait: '병렬 완료 대기',
+  loop_back: '다음 반복의 조건 재평가',
+  loop_reentry: '다음 반복 본문 진입',
+  await_loop_back: '대기 성공 후 다음 반복의 조건 재평가',
+  await_resume: '대기 성공 후 재개',
   branch: '분기',
   error: '오류',
   failure: '실패',
-  async: '비동기 호출'
+  finally: '정리 실행',
+  async: '비동기 인계',
+  cycle: '반복 연결',
+  external: '외부 연결'
 };
 
 export const DELTA_LABELS: Record<string, string> = {
@@ -67,7 +51,17 @@ export interface SavedNavigationState {
   frameId: string | null;
   stepId: string | null;
   compare: boolean;
+  viewMode: 'code' | 'process';
+  overviewOpen: boolean;
   scrollY: number;
+  expandedFrames: string[];
+  expandedCode: string[];
+  conditionFilter: string | null;
+  conditionSelections: ConditionSelection[];
+  relationId: string | null;
+  panelPositions: Array<{id: string; top: number; left: number}>;
+  focusElement: HTMLElement | null;
+  focusKey: string | null;
 }
 
 export function isSourceContextMissing(data: FlowTaskViewData | null | undefined): boolean {
@@ -96,6 +90,30 @@ class FlowStore {
   selectedFrameId = $state<string | null>(null);
   viewMode = $state<'code' | 'process'>('code');
   conditionFilter = $state<string | null>(null);
+  conditionSelections = $state<ConditionSelection[]>([]);
+  get conditionChoices() { return conditionChoices(this.data); }
+  get conditionReachability() { return conditionReachability(this.data, this.conditionSelections); }
+  expandedFrames = $state<Set<string>>(new Set());
+  selectedRelationId = $state<string | null>(null);
+  overviewOpen = $state(true);
+  get relations() { return buildFlowRelations(this.data); }
+  get selectedRelation() { return this.relations.find(r => r.id === this.selectedRelationId) || null; }
+  get incomingRelations() { return this.relations.filter(r => r.edge.toStepId === this.selectedStepId); }
+  get outgoingRelations() { return this.relations.filter(r => r.edge.fromStepId === this.selectedStepId); }
+  stepsForFrame(frame: FlowSequenceFrame): Step[] {
+    const steps = new Map(this.steps.map(s => [s.stepId, s]));
+    return frame.stepRefs.map(id => steps.get(id)).filter((s): s is Step => !!s);
+  }
+  toggleFrame(frameID: string) {
+    const next = new Set(this.expandedFrames);
+    if (next.has(frameID)) next.delete(frameID); else next.add(frameID);
+    this.expandedFrames = next;
+  }
+  selectRelation(id: string | null) {
+    this.selectedRelationId = id;
+    this.conditionFilter = null;
+    this.conditionSelections = [];
+  }
   paused = $state<boolean>(false);
   compare = $state<boolean>(false);
   expanded = $state<Set<string>>(new Set());
@@ -148,12 +166,12 @@ class FlowStore {
     return refs.map(id => this.steps.find(s => s.stepId === id)).filter((s): s is Step => !!s);
   }
 
-  get flowTitle(): string {
-    return this.data?.semanticMap?.summary?.requested || '요청한 코드 흐름';
+  get flowResolution(): FlowResolution | null {
+    return this.data?.flowResolution || null;
   }
 
-  get layersList(): string[] {
-    return [...new Set(this.steps.map(s => LAYER_LABELS[s.layer] || s.layer || '계층 미확인'))];
+  get flowTitle(): string {
+    return this.flowResolution?.rawRequest || this.data?.semanticMap?.summary?.requested || '요청한 코드 흐름';
   }
 
   get activeDeltaChanges() {
@@ -161,6 +179,11 @@ class FlowStore {
   }
 
   get matchingStepIds(): Set<string> | null {
+    if (this.selectedRelation) {
+      const relation = this.selectedRelation;
+      return new Set([relation.edge.fromStepId, ...(relation.resolved ? [relation.edge.toStepId] : [])]);
+    }
+    if (this.conditionSelections.length) return this.conditionReachability.steps;
     if (!this.conditionFilter) return null;
     const branch = this.steps.find(s => s.stepId === this.conditionFilter);
     if (!branch) return null;
@@ -175,7 +198,30 @@ class FlowStore {
   }
 
   setConditionFilter(stepId: string | null) {
+    this.conditionSelections = [];
     this.conditionFilter = stepId;
+    this.selectedRelationId = null;
+  }
+
+  chooseCondition(stepId: string, outcome: ConditionSelection['outcome']) {
+    const candidates = this.conditionSelections.map(selection => ({ ...selection }));
+    const index = candidates.findIndex(selection => selection.stepId === stepId);
+    if (index < 0) candidates.push({stepId, outcome}); else candidates[index] = {stepId, outcome};
+    const retained = retainReachableConditions(this.data, candidates);
+    this.conditionSelections = retained;
+    this.conditionFilter = null;
+    this.selectedRelationId = null;
+    this.notice = retained.length < candidates.length ? '선택한 경로에서 도달할 수 없는 하위 조건을 해제했습니다.' : '';
+  }
+
+  removeCondition(stepId: string) {
+    if (this.conditionSelections[0]?.stepId === stepId) {
+      const hadChildren = this.conditionSelections.length > 1;
+      this.conditionSelections = [];
+      this.notice = hadChildren ? '시작 조건과 그 아래 선택한 조건을 해제했습니다.' : '';
+      return;
+    }
+    this.conditionSelections = retainReachableConditions(this.data, this.conditionSelections.filter(selection => selection.stepId !== stepId));
   }
 
   select(stepOrFrameId: string) {
@@ -184,6 +230,15 @@ class FlowStore {
     if (frame) {
       this.selectedFrameId = frame.frameID;
       this.selectedStepId = stepOrFrameId === frame.frameID ? frame.primaryStepRef : stepOrFrameId;
+      const selected = this.selectedStepId;
+      void tick().then(() => {
+        if (selected !== this.selectedStepId || typeof document === 'undefined') return;
+        const code = document.querySelector<HTMLElement>('[data-code-focus] .compare-grid > div:last-child .line.hit, [data-code-focus] > article > pre .line.hit') || document.querySelector<HTMLElement>('[data-code-focus] .line.hit, [data-code-focus] .source-empty');
+        if (code) {
+          const rect = code.getBoundingClientRect();
+          if (rect.top < 0 || rect.bottom > window.innerHeight) code.scrollIntoView({block:'center'});
+        }
+      });
     }
   }
 
@@ -211,32 +266,65 @@ class FlowStore {
     this.expanded = next;
   }
 
-  saveNavigationState() {
-    const scrollY = typeof window !== 'undefined' ? window.scrollY : 0;
-    this.savedNavigationState = {
+  captureNavigationState(): SavedNavigationState {
+    return {
       frameId: this.selectedFrameId,
       stepId: this.selectedStepId,
       compare: this.compare,
-      scrollY
+      viewMode: this.viewMode,
+      overviewOpen: this.overviewOpen,
+      scrollY: typeof window === 'undefined' ? 0 : window.scrollY,
+      expandedFrames: [...this.expandedFrames],
+      expandedCode: [...this.expanded],
+      conditionFilter: this.conditionFilter,
+      conditionSelections: this.conditionSelections.map(selection => ({ ...selection })),
+      relationId: this.selectedRelationId,
+      panelPositions: typeof document === 'undefined' ? [] : Array.from(document.querySelectorAll<HTMLElement>('[data-navigation-panel]')).map(el => ({id: el.id, top: el.scrollTop, left: el.scrollLeft})),
+      focusElement: typeof document === 'undefined' ? null : document.activeElement as HTMLElement,
+      focusKey: typeof document === 'undefined' ? null : (document.activeElement as HTMLElement)?.dataset.navigationFocus || null,
     };
+  }
+
+  saveNavigationState() {
+    if (!this.savedNavigationState) this.savedNavigationState = this.captureNavigationState();
+  }
+
+  applyNavigationState(saved: SavedNavigationState) {
+    if (saved.stepId) this.select(saved.stepId);
+    this.compare = saved.compare;
+    this.viewMode = saved.viewMode;
+    this.overviewOpen = saved.overviewOpen;
+    this.expandedFrames = new Set(saved.expandedFrames);
+    this.expanded = new Set(saved.expandedCode);
+    this.conditionFilter = saved.conditionFilter;
+    this.conditionSelections = retainReachableConditions(this.data, saved.conditionSelections || []);
+    this.selectedRelationId = saved.relationId;
+    void tick().then(() => {
+      if (typeof document === 'undefined') return;
+      for (const position of saved.panelPositions) document.getElementById(position.id)?.scrollTo({top: position.top, left: position.left});
+      const focusControl = Array.from(document.querySelectorAll<HTMLElement>('[data-navigation-focus]')).find(el => saved.focusKey && el.dataset.navigationFocus === saved.focusKey);
+      const navControls = Array.from(document.querySelectorAll<HTMLElement>('[data-flow-step], [data-frame]'));
+      const fallback = navControls.find(el => el.dataset.flowStep === saved.stepId) || navControls.find(el => el.dataset.frame === saved.frameId);
+      const focus = saved.focusElement?.isConnected ? saved.focusElement : focusControl || fallback;
+      focus?.focus({preventScroll:true});
+      window.scrollTo({top:saved.scrollY});
+    });
   }
 
   restoreNavigationState() {
     if (!this.savedNavigationState) return;
-    const saved = this.savedNavigationState;
-    if (saved.stepId) {
-      this.select(saved.stepId);
-    }
-    this.compare = saved.compare;
+    this.applyNavigationState(this.savedNavigationState);
     this.savedNavigationState = null;
-    if (typeof window !== 'undefined') {
-      window.scrollTo({ top: saved.scrollY, behavior: 'smooth' });
-    }
     this.notice = '원래 읽던 장면 위치로 복귀했습니다.';
   }
 
   adopt(newData: FlowTaskViewData, force = false, isAutoReanalysisResult = false): boolean {
     if (!newData.flowSequence) throw new Error('FlowSequence가 없습니다. 다시 분석해 주세요.');
+    const referenceError = validateFlowReferences(newData);
+    if (referenceError) {
+      this.notice = referenceError;
+      return false;
+    }
     const current = this.selectedFrame;
     const matches = newData.flowSequence.frames.filter(f => f.frameMatchKey === current?.frameMatchKey);
     const previousStep = this.selectedStep;
@@ -247,6 +335,8 @@ class FlowStore {
       this.notice = '선택한 장면이 새 분석에서 대응되지 않아 이전 화면을 유지합니다.';
       return false;
     }
+    const frameKeys = new Set(this.frames.filter(f => this.expandedFrames.has(f.frameID)).map(f => f.frameMatchKey));
+    const retainedFrames = newData.flowSequence.frames.filter(f => frameKeys.has(f.frameMatchKey) && newData.flowSequence!.frames.filter(other => other.frameMatchKey === f.frameMatchKey).length === 1).map(f => f.frameID);
     const oldSteps = this.steps;
     const remapStep = (id: string) => {
       const old = oldSteps.find(s => s.stepId === id);
@@ -255,13 +345,19 @@ class FlowStore {
     };
     const retainedExpanded = new Set([...this.expanded].map(remapStep).filter((id): id is string => !!id));
     const retainedFilter = this.conditionFilter ? remapStep(this.conditionFilter) : null;
+    const retainedConditions = this.conditionSelections.length && remapStep(this.conditionSelections[0].stepId)
+      ? retainReachableConditions(newData, this.conditionSelections.flatMap(selection => { const stepId = remapStep(selection.stepId); return stepId ? [{ ...selection, stepId }] : []; })) : [];
+    this.abortLabeling();
     this.data = newData;
     this.pending = null;
     this.impactCache = new Map();
-    this.compare = false;
+    if (force) { this.compare = false; this.baseline = null; }
+    this.selectedRelationId = null;
     if (force || !current) {
       this.expanded = new Set();
+      this.expandedFrames = new Set();
       this.conditionFilter = null;
+      this.conditionSelections = [];
       this.selectedFrameId = newData.flowSequence.frames[0]?.frameID || null;
       this.selectedStepId = newData.flowSequence.frames[0]?.primaryStepRef || null;
       this.savedNavigationState = null;
@@ -269,7 +365,9 @@ class FlowStore {
       this.selectedFrameId = matches[0].frameID;
       this.selectedStepId = retainedStep!.stepId;
       this.expanded = retainedExpanded;
+      this.expandedFrames = new Set(retainedFrames);
       this.conditionFilter = retainedFilter;
+      this.conditionSelections = retainedConditions;
     }
     const missingSource = isSourceContextMissing(newData);
     if (isAutoReanalysisResult) {
@@ -280,8 +378,7 @@ class FlowStore {
         this.labelFlowSequence().catch(() => {});
       }
     } else if (missingSource) {
-      this.notice = newData.sourceNotice || '과거 분석에 보존된 소스 문맥이 없어 현재 워킹 트리 기반으로 자동 재분석 중입니다…';
-      this.triggerAutoReanalysis().catch(() => {});
+      this.notice = newData.sourceNotice || '저장된 분석의 소스 문맥이 없습니다. 필요하면 다시 분석을 눌러 주세요.';
     } else {
       this.notice = newData.sourceNotice || '저장된 분석의 FlowSequence입니다.';
       this.labelFlowSequence().catch(() => {});

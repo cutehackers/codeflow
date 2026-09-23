@@ -117,7 +117,7 @@ export class TargetHelper {
       repoRoot: tmpDir,
       candidateId: 'cand-ctrl-001',
       entrySymbolPath: 'src/Dispatcher.ts#Dispatcher.dispatch',
-      opts: { maxDepth: 5 },
+      opts: { maxDepth: 5, includeExecutionSemantics: true },
     });
 
     assert.strictEqual(res.candidateId, 'cand-ctrl-001');

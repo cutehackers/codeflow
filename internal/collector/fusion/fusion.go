@@ -46,32 +46,38 @@ type StateDelta struct {
 
 // FlowStep represents a fused business flow step ready for FlowView rendering.
 type FlowStep struct {
-	Ordinal    int            `json:"ordinal"`
-	Name       string         `json:"name"`
-	Provenance string         `json:"provenance"` // approved | session | derived | unknown
-	Freshness  string         `json:"freshness"`  // fresh | stale | orphaned (schemas/identity $defs/freshness)
-	Confidence float64        `json:"confidence"` // 0.0 - 1.0
-	BasisSha   string         `json:"basisSha"`
-	Anchor     slicing.Anchor `json:"anchor"`
-	StepID     *string        `json:"stepId,omitempty"`
-	Rules      []string       `json:"rules,omitempty"`
-	StateDelta *StateDelta    `json:"stateDelta,omitempty"`
-	SideEffect *string        `json:"sideEffect,omitempty"`
-	Branch     *string        `json:"branch,omitempty"`
-	Kind       string         `json:"kind,omitempty"` // guard | mutation | call | branch (presentation-only)
-	Layer      string         `json:"layer,omitempty"`
-	CodeLens   *CodeLens      `json:"codeLens,omitempty"`
+	AssignmentSourceOrdinal *int           `json:"assignmentSourceOrdinal,omitempty"`
+	InvocationID            string         `json:"invocationId,omitempty"`
+	CallerStepOrdinal       *int           `json:"callerStepOrdinal,omitempty"`
+	Ordinal                 int            `json:"ordinal"`
+	Name                    string         `json:"name"`
+	Provenance              string         `json:"provenance"` // approved | session | derived | unknown
+	Freshness               string         `json:"freshness"`  // fresh | stale | orphaned (schemas/identity $defs/freshness)
+	Confidence              float64        `json:"confidence"` // 0.0 - 1.0
+	BasisSha                string         `json:"basisSha"`
+	Anchor                  slicing.Anchor `json:"anchor"`
+	StepID                  *string        `json:"stepId,omitempty"`
+	Rules                   []string       `json:"rules,omitempty"`
+	StateDelta              *StateDelta    `json:"stateDelta,omitempty"`
+	SideEffect              *string        `json:"sideEffect,omitempty"`
+	Branch                  *string        `json:"branch,omitempty"`
+	Kind                    string         `json:"kind,omitempty"` // guard | mutation | call | branch (presentation-only)
+	Layer                   string         `json:"layer,omitempty"`
+	CodeLens                *CodeLens      `json:"codeLens,omitempty"`
 }
 
 // FlowEdge is a presentation-only delegation target: which symbol a step hands
 // work off to. Carried over from the slice so FlowView can show the causal
 // hand-off, not just the timeline order.
 type FlowEdge struct {
-	Kind             string `json:"kind"` // resolved_cross_file | boundary_call | unknown_edge
-	ToSymbolPath     string `json:"toSymbolPath"`
-	ResolutionStatus string `json:"resolutionStatus"`
-	StepOrdinal      *int   `json:"stepOrdinal,omitempty"`
-	ToLayer          string `json:"toLayer,omitempty"`
+	Conditions        []slicing.BranchCondition `json:"conditions,omitempty"`
+	UnresolvedReason  string                    `json:"unresolvedReason,omitempty"`
+	TargetStepOrdinal *int                      `json:"targetStepOrdinal,omitempty"`
+	Kind              string                    `json:"kind"` // resolved_cross_file | boundary_call | unknown_edge
+	ToSymbolPath      string                    `json:"toSymbolPath"`
+	ResolutionStatus  string                    `json:"resolutionStatus"`
+	StepOrdinal       *int                      `json:"stepOrdinal,omitempty"`
+	ToLayer           string                    `json:"toLayer,omitempty"`
 }
 
 // Unknown represents an unresolvable item preserved explicitly.
@@ -80,15 +86,40 @@ type Unknown struct {
 	Reason  string `json:"reason"`
 }
 
+// FlowEvidence identifies the harvested candidate that an agent chose
+// for a natural-language request. It contains only current snapshot facts, not
+// an inferred execution relationship.
+type FlowEvidence struct {
+	CandidateID     string `json:"candidateId"`
+	EntrySymbolPath string `json:"entrySymbolPath"`
+	Description     string `json:"description"`
+	SnapshotID      string `json:"snapshotId"`
+	ComputedBasisID string `json:"computedBasisId"`
+}
+
+// FlowResolution keeps the redacted user request and the verified
+// candidate selection together across the FlowSpec and Task View boundaries.
+// Only resolved records are persisted with a new FlowSpec.
+type FlowResolution struct {
+	SchemaVersion   int            `json:"schemaVersion"`
+	Status          string         `json:"status"`
+	RawRequest      string         `json:"rawRequest"`
+	CandidateID     string         `json:"candidateId"`
+	EntrySymbolPath string         `json:"entrySymbolPath"`
+	FlowID          string         `json:"flowId"`
+	Evidence        []FlowEvidence `json:"evidence"`
+}
+
 // FlowSpec is the primary document published to FlowView.
 type FlowSpec struct {
-	FlowID      string     `json:"flowId"`
-	Title       string     `json:"title"`
-	Description string     `json:"description,omitempty"`
-	BasisSha    string     `json:"basisSha"`
-	GeneratedAt string     `json:"generatedAt"`
-	Steps       []FlowStep `json:"steps"`
-	Unknowns    []Unknown  `json:"unknowns"`
+	FlowID         string          `json:"flowId"`
+	Title          string          `json:"title"`
+	Description    string          `json:"description,omitempty"`
+	BasisSha       string          `json:"basisSha"`
+	GeneratedAt    string          `json:"generatedAt"`
+	FlowResolution *FlowResolution `json:"flowResolution,omitempty"`
+	Steps          []FlowStep      `json:"steps"`
+	Unknowns       []Unknown       `json:"unknowns"`
 	// Edges is OPTIONAL (absent in older specs): delegation targets per step.
 	Edges []FlowEdge `json:"edges,omitempty"`
 	// Truncated is OPTIONAL: true when the slice traversal stopped early.
@@ -127,18 +158,22 @@ func ComputeStructuralStepID(flowID string, anchor slicing.Anchor, symbolPath, k
 }
 
 // ComputeDisambiguatedStructuralStepID adds the adapter's canonical AST
-// fingerprint only when a structural target occurs more than once. The source
-// target remains the primary identity, while the fingerprint prevents duplicate
-// statements from silently overwriting one another.
+// fingerprint and source span only when a structural target occurs more than
+// once. Identical expressions in one callable can share an AST fingerprint;
+// their source spans are the adapter-provided fact that distinguishes them.
+// The source target remains the primary identity.
 func ComputeDisambiguatedStructuralStepID(flowID string, anchor slicing.Anchor, symbolPath, kind string) (string, error) {
 	if strings.TrimSpace(anchor.CanonicalAstFingerprint) == "" {
 		return "", fmt.Errorf("duplicate structural target requires canonical AST fingerprint")
+	}
+	if anchor.ByteRange[0] < 0 || anchor.ByteRange[1] <= anchor.ByteRange[0] {
+		return "", fmt.Errorf("duplicate structural target requires a valid source span")
 	}
 	base, err := ComputeStructuralStepID(flowID, anchor, symbolPath, kind)
 	if err != nil {
 		return "", err
 	}
-	h := sha256.Sum256([]byte(base + "\x00" + anchor.CanonicalAstFingerprint))
+	h := sha256.Sum256([]byte(fmt.Sprintf("%s\x00%s\x00%d:%d", base, anchor.CanonicalAstFingerprint, anchor.ByteRange[0], anchor.ByteRange[1])))
 	return "step-" + hex.EncodeToString(h[:])[:16], nil
 }
 
@@ -290,6 +325,7 @@ func Fuse(sliced *slicing.SlicedPayload, opts FuseOptions) (*FlowSpec, error) {
 		}
 
 		step := FlowStep{
+			AssignmentSourceOrdinal: s.AssignmentSourceOrdinal, InvocationID: s.InvocationID, CallerStepOrdinal: s.CallerStepOrdinal,
 			Ordinal:    s.Ordinal,
 			Name:       stepName,
 			Provenance: provenance,
@@ -315,17 +351,34 @@ func Fuse(sliced *slicing.SlicedPayload, opts FuseOptions) (*FlowSpec, error) {
 	var edges []FlowEdge
 	for _, edge := range sliced.Edges {
 		edges = append(edges, FlowEdge{
-			Kind:             edge.Kind,
-			ToSymbolPath:     edge.ToSymbolPath,
-			ResolutionStatus: edge.ResolutionStatus,
-			StepOrdinal:      edge.StepOrdinal,
-			ToLayer:          edge.ToLayer,
+			Conditions:        append([]slicing.BranchCondition(nil), edge.Conditions...),
+			TargetStepOrdinal: edge.TargetStepOrdinal,
+			UnresolvedReason:  edge.UnresolvedReason,
+			Kind:              edge.Kind,
+			ToSymbolPath:      edge.ToSymbolPath,
+			ResolutionStatus:  edge.ResolutionStatus,
+			StepOrdinal:       edge.StepOrdinal,
+			ToLayer:           edge.ToLayer,
 		})
 	}
 
 	// Unknowns from sliced edges
 	for _, edge := range sliced.Edges {
-		if edge.ResolutionStatus == "unresolved_dynamic" {
+		if edge.UnresolvedReason != "" {
+			// The summary uses contract codes. Keep the precise explanation on
+			// the edge so projection can recover it without invalidating FlowSpec.
+			reason := "unresolved_type"
+			if edge.ResolutionStatus == "unresolved_dynamic" {
+				reason = "unresolved_dynamic_call"
+			} else if edge.ResolutionStatus == "truncated" {
+				reason = "truncated_traversal"
+			}
+			switch edge.UnresolvedReason {
+			case "unresolved_dynamic_call", "unresolved_type", "truncated_traversal", "no_evidence", "stale_anchor", "adapter_error":
+				reason = edge.UnresolvedReason
+			}
+			unknowns = append(unknowns, Unknown{Subject: edge.ToSymbolPath, Reason: reason})
+		} else if edge.ResolutionStatus == "unresolved_dynamic" {
 			unknowns = append(unknowns, Unknown{
 				Subject: edge.ToSymbolPath,
 				Reason:  "unresolved_dynamic_call",

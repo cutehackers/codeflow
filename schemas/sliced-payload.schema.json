@@ -37,9 +37,12 @@
         "required": ["ordinal", "kind", "description", "symbolPath", "anchor"],
         "properties": {
           "ordinal": { "type": "integer", "minimum": 1 },
+          "invocationId": { "type": "string", "minLength": 1, "maxLength": 256 },
+          "callerStepOrdinal": { "type": "integer", "minimum": 1 },
+          "assignmentSourceOrdinal": { "type": "integer", "minimum": 1 },
           "kind": {
             "type": "string",
-            "enum": ["guard", "mutation", "effect", "call", "branch"],
+            "enum": ["guard", "mutation", "effect", "call", "branch", "return", "throw", "await", "break", "continue"],
             "description": "Structural kinds from AST statement slicing."
           },
           "description": { "type": "string", "minLength": 1 },
@@ -71,9 +74,10 @@
         "additionalProperties": false,
         "required": ["kind", "toSymbolPath", "resolutionStatus", "depth"],
         "properties": {
+          "conditions": {"type": "array", "minItems": 1, "maxItems": 1, "items": {"type": "object", "additionalProperties": false, "required": ["stepOrdinal", "outcome"], "properties": {"stepOrdinal": {"type": "integer", "minimum": 1}, "outcome": {"type": "string", "enum": ["truthy", "falsy", "nullish", "non_nullish"]}}}},
           "kind": {
             "type": "string",
-            "enum": ["resolved_cross_file", "unknown_edge", "boundary_call"]
+            "enum": ["resolved_cross_file", "unknown_edge", "boundary_call", "control_flow", "parallel_wait", "failure", "finally", "return", "await_resume", "await_loop_back", "loop_back", "loop_reentry", "loop_exit", "loop_exit_back", "switch_exit"]
           },
           "toSymbolPath": {
             "type": "string",
@@ -89,6 +93,12 @@
             "minimum": 0,
             "maximum": 5,
             "description": "Traversal depth at which this edge was recorded; hard cap 5 per draft-spec inheritance."
+          },
+          "unresolvedReason": { "type": "string", "minLength": 1 },
+          "targetStepOrdinal": {
+            "type": "integer",
+            "minimum": 1,
+            "description": "Explicit target step. Calls target invocation entry, control_flow targets the same invocation, and return targets the caller continuation."
           },
           "stepOrdinal": {
             "type": "integer",

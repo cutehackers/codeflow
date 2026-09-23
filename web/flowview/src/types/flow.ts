@@ -1,16 +1,3 @@
-export type ArchitectureLayer =
-  | 'presentation'
-  | 'page'
-  | 'ui'
-  | 'controller'
-  | 'usecase'
-  | 'application'
-  | 'domain'
-  | 'data'
-  | 'repository'
-  | 'infra'
-  | 'external';
-
 export type DeltaKind =
   | 'added_behavior'
   | 'changed_rule'
@@ -39,12 +26,16 @@ export interface StepAnchor {
 }
 
 export interface Step {
+  rules?: string[];
+  assignmentSourceOrdinal?: number;
+  invocationId?: string;
+  kind?: string;
   stepId: string;
   structuralIdentity?: string;
   ordinal?: number;
   name: string;
   technicalName?: string;
-  layer: ArchitectureLayer | string;
+  layer?: string;
   description?: string;
   branch?: string;
   sideEffect?: string;
@@ -56,6 +47,7 @@ export interface Step {
 }
 
 export interface Edge {
+  conditions?: Array<{stepId: string; outcome: 'truthy' | 'falsy' | 'nullish' | 'non_nullish'}>;
   fromStepId: string;
   toStepId: string;
   kind: 'call' | 'calls' | 'successor' | 'return' | 'branch' | 'error' | 'failure' | 'async' | string;
@@ -98,6 +90,7 @@ export interface DisplayedLine {
 }
 
 export interface FlowContext {
+  sourceValidationStatus?: string;
   stepId: string;
   generationId?: string;
   snapshotId?: string;
@@ -107,6 +100,29 @@ export interface FlowContext {
   displayedLines: DisplayedLine[];
 }
 
+export interface FlowEvidence {
+  candidateId: string;
+  entrySymbolPath: string;
+  description: string;
+  snapshotId: string;
+  computedBasisId: string;
+}
+
+export interface FlowResolution {
+  schemaVersion: number;
+  status: 'resolved' | 'ambiguous' | 'unresolved' | 'analysis_failed' | string;
+  rawRequest: string;
+  candidateId?: string;
+  entrySymbolPath?: string;
+  flowId?: string;
+  evidence?: FlowEvidence[];
+  candidates?: FlowEvidence[];
+  failure?: {
+    reason?: string;
+    retryAdvice?: string;
+  };
+}
+
 import type { FlowSequence, FlowSequenceFrame } from './flow_sequence';
 export type { FlowSequence, FlowSequenceFrame };
 
@@ -114,6 +130,7 @@ export interface FlowTaskViewData {
   viewId?: string;
   flowId?: string;
   request?: { request?: string; entrySymbol?: string; flowId?: string; domain?: string };
+  flowResolution?: FlowResolution;
   sourceNotice?: string;
   sourceContextMissing?: boolean;
   needsReanalysis?: boolean;

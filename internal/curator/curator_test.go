@@ -2,9 +2,7 @@ package curator_test
 
 import (
 	"fmt"
-	"strings"
 	"testing"
-	"time"
 
 	"codeflow/internal/collector/fusion"
 	"codeflow/internal/collector/slicing"
@@ -15,8 +13,8 @@ func strPtr(s string) *string {
 	return &s
 }
 
-// 1. 150+ Steps Large Trace Test (Ceiling Bound: strictly <= 7 frames, all stepRefs preserved)
-func TestCurator_LargeTraceCeilingBound(t *testing.T) {
+// Independent steps remain independent when no execution or purpose evidence exists.
+func TestCurator_LargeTracePreservesIndependentGateways(t *testing.T) {
 	c := curator.NewCurator()
 
 	stepCount := 160
@@ -53,8 +51,8 @@ func TestCurator_LargeTraceCeilingBound(t *testing.T) {
 
 	frames := c.CurateFlowSequence(trace)
 
-	if len(frames) < 4 || len(frames) > 7 {
-		t.Fatalf("expected 4~7 frames for 160 steps, got %d", len(frames))
+	if len(frames) != stepCount {
+		t.Fatalf("expected independent gateways for %d unrelated steps, got %d", stepCount, len(frames))
 	}
 
 	// Verify all 160 steps are accounted for in stepRefs across the frames
@@ -168,8 +166,8 @@ func TestCurator_ZeroBranchLinearTrace(t *testing.T) {
 	}
 }
 
-// 4. Mutual Indirect Recursion (A -> B -> C -> A) Clumping and Recursion Badge
-func TestCurator_IndirectRecursionCycle(t *testing.T) {
+// Repeated symbol names do not prove a recursive execution path.
+func TestCurator_RepeatedSymbolDoesNotProveRecursion(t *testing.T) {
 	c := curator.NewCurator()
 
 	trace := curator.RawExecutionTrace{
@@ -216,35 +214,15 @@ func TestCurator_IndirectRecursionCycle(t *testing.T) {
 
 	frames := c.CurateFlowSequence(trace)
 
-	// Look for the recursive frame
-	var recursionFrame *curator.FlowSequenceFrame
-	for i := range frames {
-		if frames[i].IsRecursion {
-			recursionFrame = &frames[i]
-			break
+	if len(frames) != len(trace.Steps) {
+		t.Fatalf("repeated symbols collapsed without execution evidence: %+v", frames)
+	}
+	for _, frame := range frames {
+		if frame.IsRecursion {
+			t.Fatalf("symbol repetition invented recursion: %+v", frame)
 		}
 	}
 
-	if recursionFrame == nil {
-		t.Fatalf("expected a frame with IsRecursion=true, got none in %+v", frames)
-	}
-
-	if recursionFrame.Title != "ProcessOrder" {
-		t.Errorf("expected recursion frame to be collapsed under ProcessOrder, got %s", recursionFrame.Title)
-	}
-
-	if recursionFrame.CollapsedDetail == nil {
-		t.Fatal("expected CollapsedDetail on recursion frame")
-	}
-
-	if !strings.Contains(recursionFrame.CollapsedDetail.Reason, "재귀/순환 실행 경로 접힘") {
-		t.Errorf("expected recursion reason in CollapsedDetail, got: %s", recursionFrame.CollapsedDetail.Reason)
-	}
-
-	// Verify cycle steps [step-a, step-b, step-c, step-a2] are absorbed in stepRefs
-	if len(recursionFrame.StepRefs) < 4 {
-		t.Errorf("expected at least 4 stepRefs in recursion frame, got %d", len(recursionFrame.StepRefs))
-	}
 }
 
 // 5. Empty Trace Floor Test
@@ -304,7 +282,7 @@ func TestCurator_BoundaryAndUnknownStatus(t *testing.T) {
 	}
 }
 
-// 5.5 Consecutive Guards in Same Function should merge into "사전 유효성 검증" without false recursion
+// Adjacent guards remain separate without shared-purpose and execution evidence.
 func TestCurator_ConsecutiveGuardsInSameFunctionNotRecursion(t *testing.T) {
 	c := curator.NewCurator()
 
@@ -350,29 +328,53 @@ func TestCurator_ConsecutiveGuardsInSameFunctionNotRecursion(t *testing.T) {
 		}
 	}
 
-	// Check that a decision frame with title "사전 유효성 검증" was created containing both guard steps
-	var decisionFrame *curator.FlowSequenceFrame
-	for i := range frames {
-		if frames[i].Role == "decision" {
-			decisionFrame = &frames[i]
-			break
+	decisions := 0
+	for _, frame := range frames {
+		if frame.Role == "decision" {
+			decisions++
+			if len(frame.StepRefs) != 1 {
+				t.Fatalf("guards combined without purpose evidence: %+v", frame)
+			}
 		}
 	}
-
-	if decisionFrame == nil {
-		t.Fatalf("expected a decision frame for consecutive guards, got none: %+v", frames)
+	if decisions != 2 {
+		t.Fatalf("expected two independent decisions, got %d", decisions)
 	}
 
-	if decisionFrame.Title != "사전 유효성 검증" {
-		t.Errorf("expected title '사전 유효성 검증', got %s", decisionFrame.Title)
+}
+
+func TestMacroClumper_ClumpGroupsSamePurposeAndSeparatesDifferentPurposes(t *testing.T) {
+	mc := curator.NewMacroClumper()
+	branchAuth := "!hasPermission"
+	branchLimit := "amount > limit"
+	branchVal1 := "len(email) == 0"
+	branchVal2 := "len(pw) == 0"
+
+	steps := []fusion.FlowStep{
+		{StepID: strPtr("s1"), Name: "entry", Kind: "entry", Anchor: slicing.Anchor{EnclosingSymbolPath: "pkg#Fn"}},
+		{StepID: strPtr("s2"), Name: "CheckPermission", Kind: "guard", Branch: &branchAuth, Anchor: slicing.Anchor{EnclosingSymbolPath: "pkg#Fn"}},
+		{StepID: strPtr("s3"), Name: "CheckLimit", Kind: "guard", Branch: &branchLimit, Anchor: slicing.Anchor{EnclosingSymbolPath: "pkg#Fn"}},
+		{StepID: strPtr("s4"), Name: "ValidateEmail", Kind: "guard", Branch: &branchVal1, Anchor: slicing.Anchor{EnclosingSymbolPath: "pkg#Fn"}},
+		{StepID: strPtr("s5"), Name: "ValidatePassword", Kind: "guard", Branch: &branchVal2, Anchor: slicing.Anchor{EnclosingSymbolPath: "pkg#Fn"}},
+		{StepID: strPtr("s6"), Name: "done", Kind: "result", Anchor: slicing.Anchor{EnclosingSymbolPath: "pkg#Fn"}},
 	}
 
-	if len(decisionFrame.StepRefs) != 2 {
-		t.Errorf("expected 2 stepRefs in decision frame, got %d", len(decisionFrame.StepRefs))
+	candidates := mc.Clump(steps, nil)
+	if len(candidates) != 5 {
+		t.Fatalf("expected 5 candidate frames, got %d: %+v", len(candidates), candidates)
+	}
+	if candidates[1].Role != "decision" || len(candidates[1].StepRefs) != 1 {
+		t.Errorf("expected independent auth guard, got %+v", candidates[1])
+	}
+	if candidates[2].Role != "decision" || len(candidates[2].StepRefs) != 1 {
+		t.Errorf("expected independent limit guard, got %+v", candidates[2])
+	}
+	if candidates[3].Role != "decision" || len(candidates[3].StepRefs) != 2 || candidates[3].Title != "입력값 검증" {
+		t.Errorf("expected grouped validation guards, got %+v", candidates[3])
 	}
 }
 
-// 6. Benchmark: 1,000 steps curated in <5ms
+// Measure curation without a machine-dependent pass/fail duration.
 func BenchmarkCurator(b *testing.B) {
 	c := curator.NewCurator()
 
@@ -403,16 +405,12 @@ func BenchmarkCurator(b *testing.B) {
 		Steps:  steps,
 	}
 
+	b.ReportAllocs()
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		t0 := time.Now()
 		frames := c.CurateFlowSequence(trace)
-		elapsed := time.Since(t0)
-		if elapsed > 5*time.Millisecond {
-			b.Fatalf("curation exceeded 5ms budget: %v", elapsed)
-		}
-		if len(frames) > 7 {
-			b.Fatalf("exceeded 7 frames: %d", len(frames))
+		if len(frames) != stepCount {
+			b.Fatalf("independent steps lost: %d", len(frames))
 		}
 	}
 }

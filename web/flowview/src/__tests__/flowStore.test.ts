@@ -14,6 +14,10 @@ describe('FlowStore (Svelte 5 Runes)', () => {
     flowStore.compare = false;
     flowStore.selectedStepId = null;
     flowStore.conditionFilter = null;
+    flowStore.viewMode = 'code';
+    flowStore.overviewOpen = true;
+    flowStore.expandedFrames = new Set();
+    flowStore.selectedRelationId = null;
   });
 
   it('populates steps and derived properties upon receiving data', () => {
@@ -23,6 +27,29 @@ describe('FlowStore (Svelte 5 Runes)', () => {
     expect(flowStore.steps.length).toBe(5);
     expect(flowStore.flowTitle).toBe('고객 결제 요청에서 PG사 승인까지 5개 관문 엔드투엔드 시퀀스');
     expect(flowStore.selectedStep?.stepId).toBe('checkout_click');
+  });
+
+  it('preserves and exposes flowResolution with raw request title', () => {
+    const data = samplePayload(1);
+    data.flowResolution = {
+      schemaVersion: 1,
+      status: 'resolved',
+      rawRequest: '원문 사용자 요청 흐름',
+      candidateId: 'cand-01',
+      entrySymbolPath: 'app/checkout.ts#processCheckout',
+      flowId: 'flow-test-1234',
+      evidence: [{
+        candidateId: 'cand-01',
+        entrySymbolPath: 'app/checkout.ts#processCheckout',
+        description: '장바구니 결제 처리',
+        snapshotId: 'snap-01',
+        computedBasisId: 'basis-01'
+      }]
+    };
+    flowStore.receive(data);
+
+    expect(flowStore.flowResolution).toEqual(data.flowResolution);
+    expect(flowStore.flowTitle).toBe('원문 사용자 요청 흐름');
   });
 
   it('selects steps by ID', () => {
@@ -110,6 +137,8 @@ describe('FlowStore (Svelte 5 Runes)', () => {
     // Create payload where frame-02 symbol is completely removed
     const altered = samplePayload(2);
     altered.flowSequence!.frames = altered.flowSequence!.frames.filter(f => f.primaryStepRef !== 'validate_cart');
+    altered.semanticMap.steps = altered.semanticMap.steps.filter(s => s.stepId !== 'validate_cart');
+    altered.semanticMap.edges = altered.semanticMap.edges.filter(e => e.fromStepId !== 'validate_cart' && e.toStepId !== 'validate_cart');
 
     const success = flowStore.adopt(altered);
     expect(success).toBe(false);
@@ -216,172 +245,51 @@ describe('FlowStore (Svelte 5 Runes)', () => {
     }
   });
 
-  it('triggers background automatic reanalysis when past session source context is missing', async () => {
-    const historical = samplePayload(1);
-    // Simulate missing source context from disk/past session
-    historical.flowContexts = {};
-    historical.sourceFiles = {};
-    historical.sourceContextMissing = true;
-    historical.sourceNotice = '과거 분석에 보존된 소스 문맥이 없어 재분석이 필요합니다. 현재 워킹 트리 기반으로 자동 재분석을 진행합니다.';
-    historical.request = { request: '주문 결제', entrySymbol: 'checkout.go#Checkout', flowId: 'flow-checkout-1' };
-
-    const reanalyzed = samplePayload(2);
-    reanalyzed.flowContexts = {
-      'checkout': {
-        stepId: 'checkout',
-        canonicalPath: 'checkout.go',
-        displayedLines: [{ lineNumber: 1, text: 'func Checkout() {}', isHit: true }]
-      }
-    };
-    reanalyzed.sourceFiles = {
-      'checkout.go': [{ lineNumber: 1, text: 'func Checkout() {}', isHit: true }]
-    };
-
-    const originalFetch = globalThis.fetch;
-    const requestedUrls: string[] = [];
-    globalThis.fetch = async (url: any) => {
-      requestedUrls.push(String(url));
-      return {
-        ok: true,
-        json: async () => reanalyzed
-      } as any;
-    };
-
+  it('keeps historical data without requesting automatic analysis when source is absent', async () => {
+    const data = samplePayload(1);
+    data.flowContexts = {};
+    data.sourceFiles = {};
+    data.sourceContextMissing = true;
+    data.sourceNotice = '입력한 분석의 소스 근거를 검증하지 않았습니다. 다시 분석을 실행하세요.';
+    const original = globalThis.fetch;
+    const requests: string[] = [];
+    globalThis.fetch = async (url: any) => { requests.push(String(url)); throw new Error('unexpected request'); };
     try {
-      flowStore.adopt(historical);
-      expect(flowStore.isAutoReanalyzing).toBe(true);
-      expect(flowStore.notice).toContain('자동 재분석');
-
-      const reanalyzedSuccess = await flowStore.triggerAutoReanalysis();
-      expect(reanalyzedSuccess).toBe(true);
-      const reanalysisUrl = requestedUrls.find(u => u.includes('/api/task/view'));
-      expect(reanalysisUrl).toBeDefined();
-      expect(reanalysisUrl).toContain('entrySymbol=checkout.go%23Checkout');
-      expect(flowStore.notice).toBe('현재 워킹 트리를 기반으로 최신 분석으로 갱신되었습니다.');
-      expect(Object.keys(flowStore.data?.flowContexts || {}).length).toBeGreaterThan(0);
-      expect(flowStore.isAutoReanalyzing).toBe(false);
-    } finally {
-      globalThis.fetch = originalFetch;
-    }
+      flowStore.adopt(data, true);
+      await Promise.resolve();
+      expect(requests).toEqual([]);
+      expect(flowStore.data?.semanticMap.generationId).toBe(data.semanticMap.generationId);
+      expect(flowStore.notice).toBe(data.sourceNotice);
+    } finally { globalThis.fetch = original; }
   });
-
-  it('safely handles background auto-reanalysis failure without crashing', async () => {
-    const historical = samplePayload(1);
-    historical.flowContexts = {};
-    historical.sourceFiles = {};
-    historical.sourceContextMissing = true;
-    historical.request = { request: '주문 결제', entrySymbol: 'checkout.go#Checkout' };
-
-    const originalFetch = globalThis.fetch;
-    globalThis.fetch = async () => ({
-      ok: false,
-      status: 500,
-      json: async () => ({ message: 'adapter unavailable' })
-    }) as any;
-
-    try {
-      flowStore.adopt(historical);
-      const result = await flowStore.triggerAutoReanalysis();
-      expect(result).toBe(false);
-      expect(flowStore.notice).toContain('자동 재분석을 완료하지 못했습니다');
-      expect(flowStore.flowSequence).not.toBeNull(); // Historical structure remains intact
-      expect(flowStore.isAutoReanalyzing).toBe(false);
-    } finally {
-      globalThis.fetch = originalFetch;
-    }
+  it('expands an unselected frame and restores expansion and filtering after relation navigation', () => {
+    flowStore.adopt(samplePayload(1), true);
+    flowStore.toggleFrame('frame-02');
+    expect(flowStore.selectedFrameId).toBe('frame-01');
+    flowStore.setConditionFilter('validate_cart');
+    flowStore.saveNavigationState();
+    flowStore.toggleFrame('frame-02');
+    flowStore.select('frame-03');
+    flowStore.setConditionFilter(null);
+    flowStore.restoreNavigationState();
+    expect(flowStore.expandedFrames.has('frame-02')).toBe(true);
+    expect(flowStore.selectedFrameId).toBe('frame-01');
+    expect(flowStore.conditionFilter).toBe('validate_cart');
   });
+});
 
-  it('discards stale auto-reanalysis response when aborted', async () => {
-    const historical = samplePayload(1);
-    historical.flowContexts = {};
-    historical.sourceFiles = {};
-    historical.sourceContextMissing = true;
-    historical.request = { request: '주문 결제', entrySymbol: 'checkout.go#Checkout' };
-
-    const fresh = samplePayload(2);
-
-    const originalFetch = globalThis.fetch;
-    globalThis.fetch = async () => {
-      await new Promise(resolve => setTimeout(resolve, 40));
-      return {
-        ok: true,
-        json: async () => fresh
-      } as any;
-    };
-
-    try {
-      flowStore.adopt(historical);
-      const p = flowStore.triggerAutoReanalysis();
-      flowStore.abortReanalysis();
-      const result = await p;
-      expect(result).toBe(false);
-      expect(flowStore.isAutoReanalyzing).toBe(false);
-    } finally {
-      globalThis.fetch = originalFetch;
-    }
-  });
-
-  it('terminates reanalysis without infinite loops when reanalyzed result still has missing context', async () => {
-    const historical = samplePayload(1);
-    historical.flowContexts = {};
-    historical.sourceFiles = {};
-    historical.sourceContextMissing = true;
-    historical.request = { request: 'deleted/file.go#DeletedMethod' };
-
-    // Fresh response also has no source files (e.g. deleted file on disk)
-    const freshMissing = samplePayload(2);
-    freshMissing.flowContexts = {};
-    freshMissing.sourceFiles = {};
-
-    let fetchCount = 0;
-    const originalFetch = globalThis.fetch;
-    globalThis.fetch = async () => {
-      fetchCount++;
-      return {
-        ok: true,
-        json: async () => freshMissing
-      } as any;
-    };
-
-    try {
-      flowStore.adopt(historical);
-      // Wait for any asynchronous reanalysis tasks
-      await new Promise(resolve => setTimeout(resolve, 50));
-      // Fetch should be invoked exactly once, not looping indefinitely
-      expect(fetchCount).toBe(1);
-      expect(flowStore.isAutoReanalyzing).toBe(false);
-      expect(flowStore.notice).toContain('현재 워킹 트리에서도 해당 소스 문맥을 찾을 수 없습니다');
-    } finally {
-      globalThis.fetch = originalFetch;
-    }
-  });
-
-  it('normalizes query containing # into entrySymbol for reanalysis', async () => {
-    const historical = samplePayload(1);
-    historical.flowContexts = {};
-    historical.sourceFiles = {};
-    historical.sourceContextMissing = true;
-    historical.request = { request: 'service/handler.go#dispatchOrder' };
-
-    const requestedUrls: string[] = [];
-    const originalFetch = globalThis.fetch;
-    globalThis.fetch = async (url: any) => {
-      requestedUrls.push(String(url));
-      return {
-        ok: true,
-        json: async () => samplePayload(2)
-      } as any;
-    };
-
-    try {
-      flowStore.adopt(historical);
-      await flowStore.triggerAutoReanalysis();
-      const taskViewUrl = requestedUrls.find(u => u.includes('/api/task/view'));
-      expect(taskViewUrl).toBeDefined();
-      expect(taskViewUrl).toContain('entrySymbol=service%2Fhandler.go%23HandleOrder');
-      expect(taskViewUrl).not.toContain('query=');
-    } finally {
-      globalThis.fetch = originalFetch;
-    }
-  });
+it('returns to the first origin after multiple relation hops and restores the view mode', () => {
+  flowStore.adopt(samplePayload(1), true);
+  flowStore.setViewMode('process');
+  flowStore.overviewOpen = false;
+  flowStore.saveNavigationState();
+  flowStore.select('validate_cart');
+  flowStore.saveNavigationState();
+  flowStore.select('check_stock');
+  flowStore.setViewMode('code');
+  flowStore.overviewOpen = true;
+  flowStore.restoreNavigationState();
+  expect(flowStore.selectedStepId).toBe('checkout_click');
+  expect(flowStore.viewMode).toBe('process');
+  expect(flowStore.overviewOpen).toBe(false);
 });

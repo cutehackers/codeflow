@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { flowStore, LAYER_LABELS } from '../stores/flowStore.svelte';
+  import { flowStore } from '../stores/flowStore.svelte';
 
   interface Props {
     onSubmitQuery?: (query: string) => void;
@@ -16,8 +16,7 @@
 
   const scopeText = $derived.by(() => {
     if (!steps.length) return '';
-    const layerNames = [...new Set(steps.map(s => LAYER_LABELS[s.layer] || s.layer || '계층'))];
-    return `범위 · ${layerNames.join(' → ')} (${steps.length}단계)`;
+    return `범위 · 총 ${steps.length}단계`;
   });
 
   const changeText = $derived.by(() => {

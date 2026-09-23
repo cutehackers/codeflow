@@ -727,7 +727,7 @@ func writeTaskViewError(w http.ResponseWriter, err error, status int) {
 		} else if errors.Is(err, errUnsupportedFlowSequenceSchema) {
 			code = errUnsupportedFlowSequenceSchema.Error()
 		} else {
-			for _, candidate := range []string{"no_entrypoints_found", "missing_precondition", "invalid_precondition", "ambiguous_target", "incomparable_basis", "unavailable", "unknown", "conflict"} {
+			for _, candidate := range []string{"no_entrypoints_found", "missing_precondition", "invalid_precondition", "ambiguous_target", "incomparable_basis", "analysis_failed", "unavailable", "unknown", "conflict"} {
 				if strings.HasPrefix(message, candidate+":") || message == candidate {
 					code = candidate
 					if candidate == "no_entrypoints_found" {
@@ -811,6 +811,48 @@ func newTaskViewRequestID() string {
 		return fmt.Sprintf("req-%d", time.Now().UTC().UnixNano())
 	}
 	return "req-" + hex.EncodeToString(b[:])
+}
+
+func flowRequestCandidateDescription(candidate harvest.Candidate) string {
+	if candidate.IntentSignals.DocLine != nil && strings.TrimSpace(*candidate.IntentSignals.DocLine) != "" {
+		return *candidate.IntentSignals.DocLine
+	}
+	for _, value := range []string{candidate.IntentSignals.DerivedName, candidate.IntentSignals.ClassName, candidate.TriggerClass, candidate.EntrySymbolPath} {
+		if strings.TrimSpace(value) != "" {
+			return value
+		}
+	}
+	return candidate.EntrySymbolPath
+}
+
+func resolveFlowRecord(rawRequest string, resolved *semantic.ResolvedTarget, candidates []harvest.Candidate, snapshot protocol.Snapshot) (*fusion.FlowResolution, error) {
+	if strings.TrimSpace(rawRequest) == "" {
+		return nil, nil
+	}
+	if resolved == nil {
+		return nil, errors.New("flow target is missing")
+	}
+	for _, candidate := range candidates {
+		if candidate.CandidateID != resolved.CandidateID || candidate.EntrySymbolPath != resolved.EntrySymbolPath {
+			continue
+		}
+		return &fusion.FlowResolution{
+			SchemaVersion:   1,
+			Status:          "resolved",
+			RawRequest:      secret.Redact(strings.TrimSpace(rawRequest)).Text,
+			CandidateID:     candidate.CandidateID,
+			EntrySymbolPath: candidate.EntrySymbolPath,
+			FlowID:          fusion.ComputeFlowID(candidate.EntrySymbolPath),
+			Evidence: []fusion.FlowEvidence{{
+				CandidateID:     candidate.CandidateID,
+				EntrySymbolPath: candidate.EntrySymbolPath,
+				Description:     flowRequestCandidateDescription(candidate),
+				SnapshotID:      snapshot.SnapshotID,
+				ComputedBasisID: snapshot.ComputedBasisID,
+			}},
+		}, nil
+	}
+	return nil, errors.New("flow target is not a candidate in the current snapshot")
 }
 
 func (s *Server) serveTaskView(w http.ResponseWriter, r *http.Request) {
@@ -940,10 +982,19 @@ func (s *Server) serveTaskView(w http.ResponseWriter, r *http.Request) {
 		writeTaskViewError(w, err, http.StatusBadRequest)
 		return
 	}
+	flowResolution, err := resolveFlowRecord(reqQuery, resolved, candidates, snapshot)
+	if err != nil {
+		writeTaskViewError(w, err, http.StatusBadRequest)
+		return
+	}
 
 	slicer := slicing.NewRunner(pool)
 	slicePayload, err := slicer.SliceWithSnapshot(ctx, s.repoRoot, resolved.CandidateID, resolved.EntrySymbolPath, nil, snapshot)
 	if err != nil {
+		if isEntryAnalysisFailure(err) {
+			writeTaskViewError(w, fmt.Errorf("analysis_failed: %w", err), http.StatusUnprocessableEntity)
+			return
+		}
 		writeTaskViewError(w, fmt.Errorf("unavailable: slice error: %w", err), http.StatusInternalServerError)
 		return
 	}
@@ -1059,6 +1110,9 @@ func (s *Server) serveTaskView(w http.ResponseWriter, r *http.Request) {
 	}
 	result["sourceFiles"] = BuildSourceFiles(mapIR, snapshot)
 	result["request"] = &semantic.FeatureQueryParams{Request: reqText, EntrySymbol: resolved.EntrySymbolPath, FlowID: resolved.FlowID, Domain: domain}
+	if flowResolution != nil {
+		result["flowResolution"] = flowResolution
+	}
 	saved, err := s.SaveTaskView(ctx, result)
 	if err != nil {
 		writeTaskViewError(w, err, http.StatusInternalServerError)
@@ -1071,6 +1125,15 @@ func (s *Server) serveTaskView(w http.ResponseWriter, r *http.Request) {
 	}
 	s.storeTaskViewRecord(requestID, inputHash, snapshot.ComputedBasisID, mapIR.GenerationID, payload)
 	_, _ = w.Write(payload)
+}
+
+func isEntryAnalysisFailure(err error) bool {
+	if err == nil {
+		return false
+	}
+	message := err.Error()
+	return strings.Contains(message, "entry_symbol_not_found:") ||
+		strings.Contains(message, "entry_symbol_has_no_executable_steps:")
 }
 
 func (s *Server) captureAnalysisSnapshot(ctx context.Context) (protocol.Snapshot, *workspace.WorkspaceSnapshot, func(), error) {

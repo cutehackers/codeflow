@@ -126,6 +126,15 @@ func TestPipeline_StandaloneCurateFromStdin(t *testing.T) {
 	if len(frames) != 2 {
 		t.Fatalf("expected 2 frames, got %d", len(frames))
 	}
+	if limitations, ok := res["summaryLimitations"].([]any); !ok || len(limitations) == 0 {
+		t.Fatal("CLI omitted hierarchy limitations")
+	}
+	for _, raw := range frames {
+		if raw.(map[string]any)["status"] == "verified" {
+			t.Fatal("raw trace without evidence promoted to verified")
+		}
+	}
+
 }
 
 func TestPipeline_UnixPiping_CollectCurateView(t *testing.T) {
@@ -230,5 +239,70 @@ func TestArchitecture_StrictUnidirectionalDependency(t *testing.T) {
 				}
 			}
 		}
+	}
+}
+
+func TestCuratePreservesAnalysisLimitations(t *testing.T) {
+	bin := buildBinary(t)
+	input := `{"flowId":"flow-limited","truncated":true,"steps":[{"ordinal":1,"stepId":"entry","name":"entry"},{"ordinal":2,"stepId":"lookup","name":"lookup","kind":"call"}],"edges":[{"stepOrdinal":2,"kind":"unknown_edge","toSymbolPath":"external#lookup","resolutionStatus":"unresolved","unresolvedReason":"target unavailable"}]}`
+	command := exec.Command(bin, "curate", "-")
+	command.Stdin = strings.NewReader(input)
+	output, err := command.CombinedOutput()
+	if err != nil {
+		t.Fatalf("curate: %v: %s", err, output)
+	}
+	var result struct {
+		Frames []struct {
+			Role   string `json:"role"`
+			Status string `json:"status"`
+		} `json:"frames"`
+		Steps    []json.RawMessage `json:"steps"`
+		Edges    []json.RawMessage `json:"edges"`
+		Unknowns []struct {
+			Subject string `json:"subject"`
+			Reason  string `json:"reason"`
+		} `json:"unknowns"`
+	}
+	if err := json.Unmarshal(output, &result); err != nil {
+		t.Fatal(err)
+	}
+	if len(result.Frames) != 2 || result.Frames[1].Role != "boundary" || result.Frames[1].Status != "unknown" {
+		t.Fatalf("boundary lost: %s", output)
+	}
+	if len(result.Steps) != 2 || len(result.Edges) != 1 {
+		t.Fatalf("source graph lost: %s", output)
+	}
+	reasons := map[string]string{}
+	for _, item := range result.Unknowns {
+		reasons[item.Subject] = item.Reason
+	}
+	if reasons["external#lookup"] != "target unavailable" || reasons["flow-traversal"] == "" {
+		t.Fatalf("analysis limitations lost: %s", output)
+	}
+}
+
+func TestCurateRejectsDuplicateStepReferences(t *testing.T) {
+	command := exec.Command(buildBinary(t), "curate", "-")
+	command.Stdin = strings.NewReader(`{"flowId":"flow-invalid","steps":[{"stepId":"same"},{"stepId":"same"}]}`)
+	output, err := command.CombinedOutput()
+	if err == nil || !strings.Contains(string(output), "duplicate analysis step") {
+		t.Fatalf("duplicate references accepted: %v: %s", err, output)
+	}
+}
+
+func TestCurateRedactsTraceBeforeDerivingOutput(t *testing.T) {
+	command := exec.Command(buildBinary(t), "curate", "-")
+	command.Stdin = strings.NewReader(`{"flowId":"flow-redaction","steps":[{"ordinal":1,"stepId":"start","name":"password='private-name'","stateDelta":{"before":"token='private-before'","after":"token='private-after'"}}],"unknowns":[{"subject":"lookup","reason":"api_key='private-reason'"}]}`)
+	output, err := command.CombinedOutput()
+	if err != nil {
+		t.Fatalf("curate: %v: %s", err, output)
+	}
+	for _, value := range []string{"private-name", "private-before", "private-after", "private-reason"} {
+		if strings.Contains(string(output), value) {
+			t.Fatalf("secret retained in curated output: %s", value)
+		}
+	}
+	if !json.Valid(output) || !strings.Contains(string(output), "REDACTED") {
+		t.Fatal("redaction damaged JSON or missed fixture")
 	}
 }

@@ -121,6 +121,8 @@ class _SliceStep {
     required this.description,
     required this.symbolPath,
     required this.anchor,
+    this.invocationId,
+    this.callerStepOrdinal,
     this.guardCondition,
     this.stateBefore,
     this.stateAfter,
@@ -133,6 +135,8 @@ class _SliceStep {
   final String description;
   final String symbolPath;
   final Map<String, Object?> anchor;
+  final String? invocationId;
+  final int? callerStepOrdinal;
   final String? guardCondition;
   final String? stateBefore;
   final String? stateAfter;
@@ -147,6 +151,10 @@ class _SliceStep {
       'symbolPath': symbolPath,
       'anchor': anchor,
     };
+    if (invocationId != null) map['invocationId'] = invocationId;
+    if (callerStepOrdinal != null) {
+      map['callerStepOrdinal'] = callerStepOrdinal;
+    }
     if (guardCondition != null) map['guardCondition'] = guardCondition;
     if (stateBefore != null) map['stateBefore'] = stateBefore;
     if (stateAfter != null) map['stateAfter'] = stateAfter;
@@ -163,6 +171,7 @@ class _SliceEdge {
     required this.resolutionStatus,
     required this.depth,
     required this.stepOrdinal,
+    this.targetStepOrdinal,
   });
 
   final String kind;
@@ -173,14 +182,21 @@ class _SliceEdge {
   /// 1-based ordinal of the step that produced this edge, so FlowView can
   /// attach the delegation target to the right timeline card.
   final int stepOrdinal;
+  final int? targetStepOrdinal;
 
-  Map<String, Object?> toJson() => {
-        'kind': kind,
-        'toSymbolPath': toSymbolPath,
-        'resolutionStatus': resolutionStatus,
-        'depth': depth,
-        'stepOrdinal': stepOrdinal,
-      };
+  Map<String, Object?> toJson() {
+    final map = <String, Object?>{
+      'kind': kind,
+      'toSymbolPath': toSymbolPath,
+      'resolutionStatus': resolutionStatus,
+      'depth': depth,
+      'stepOrdinal': stepOrdinal,
+    };
+    if (targetStepOrdinal != null) {
+      map['targetStepOrdinal'] = targetStepOrdinal;
+    }
+    return map;
+  }
 }
 
 // --- POSIX & AST Helpers ----------------------------------------------------
@@ -258,15 +274,24 @@ class _ResolverContext {
   /// snapshot (SDK library, external package) is recorded as a genuine
   /// negative lookup: the analyzer attempted the resolution and the target
   /// is absent from the captured scope.
-  String? resolveImport(String importUri, String currentRelPath,
-      Map<String, String> workspacePackages) {
+  String? resolveImport(
+    String importUri,
+    String currentRelPath,
+    Map<String, String> workspacePackages,
+  ) {
     final owner = ownerNameFor(currentRelPath);
-    final resolved = _resolveImportPath(importUri, currentRelPath, owner,
-        workspacePackages,
-        ownerLibPrefix: libPrefixFor(currentRelPath));
+    final resolved = _resolveImportPath(
+      importUri,
+      currentRelPath,
+      owner,
+      workspacePackages,
+      ownerLibPrefix: libPrefixFor(currentRelPath),
+    );
     if (resolved == null) {
-      tracker?.recordMissing(importUri,
-          selector: 'import $importUri from $currentRelPath');
+      tracker?.recordMissing(
+        importUri,
+        selector: 'import $importUri from $currentRelPath',
+      );
     }
     return resolved;
   }
@@ -349,9 +374,13 @@ List<String> _extractImports(String source) {
 /// a root `lib/` that may not exist. [workspacePackages] maps every other
 /// package name in a monorepo workspace onto its package root so
 /// cross-package imports resolve too.
-String? _resolveImportPath(String importUri, String currentRelPath,
-    String packageName, Map<String, String> workspacePackages,
-    {String ownerLibPrefix = 'lib/'}) {
+String? _resolveImportPath(
+  String importUri,
+  String currentRelPath,
+  String packageName,
+  Map<String, String> workspacePackages, {
+  String ownerLibPrefix = 'lib/',
+}) {
   if (importUri.startsWith('package:')) {
     final rest = importUri.substring('package:'.length);
     final slash = rest.indexOf('/');
@@ -389,8 +418,9 @@ String? _resolveImportPath(String importUri, String currentRelPath,
 /// Extracts the provider variable name from a `ref.read(x)` / `ref.watch(x)`
 /// receiver, or null when the receiver is not a ref-read.
 String? _providerNameFromReceiver(String receiverOrFunc) {
-  final m = RegExp(r'^ref\.(?:read|watch)\(\s*([A-Za-z0-9_$]+)\s*\)$')
-      .firstMatch(receiverOrFunc.trim());
+  final m = RegExp(
+    r'^ref\.(?:read|watch)\(\s*([A-Za-z0-9_$]+)\s*\)$',
+  ).firstMatch(receiverOrFunc.trim());
   return m?.group(1);
 }
 
@@ -426,7 +456,8 @@ _ResolvedTarget? _resolveCallTarget({
     // The provider variable usually lives in the same file OR in an imported
     // domain file, so search the import closure too.
     if (targetClassName == null) {
-      final cleanReceiver = _providerNameFromReceiver(receiverOrFunc) ??
+      final cleanReceiver =
+          _providerNameFromReceiver(receiverOrFunc) ??
           receiverOrFunc
               .replaceAll(RegExp(r'^ref\.read\('), '')
               .replaceAll(RegExp(r'\)$'), '');
@@ -444,8 +475,11 @@ _ResolvedTarget? _resolveCallTarget({
       } else {
         // Search imported files for the provider definition.
         for (final uri in _extractImports(currentContent)) {
-          final resolvedPath =
-              ctx.resolveImport(uri, currentRelPath, workspacePackages);
+          final resolvedPath = ctx.resolveImport(
+            uri,
+            currentRelPath,
+            workspacePackages,
+          );
           if (resolvedPath == null) continue;
           final importedContent = ctx.readFile(resolvedPath);
           if (importedContent == null) continue;
@@ -520,8 +554,11 @@ _ResolvedTarget? _resolveCallTarget({
   // 3. Search in imported files
   final importUris = _extractImports(currentContent);
   for (final uri in importUris) {
-    final resolvedPath =
-        ctx.resolveImport(uri, currentRelPath, workspacePackages);
+    final resolvedPath = ctx.resolveImport(
+      uri,
+      currentRelPath,
+      workspacePackages,
+    );
     if (resolvedPath == null) continue;
     final importedScan = ctx.scanFile(resolvedPath);
     if (importedScan == null) continue;
@@ -603,8 +640,9 @@ void _collectWorkspacePackages(String repoRootPosix, Map<String, String> out) {
   for (final top in ['packages', 'apps']) {
     final topDir = Directory('$repoRootPosix/$top');
     if (!topDir.existsSync()) continue;
-    for (final entity in topDir.listSync(followLinks: false)
-      ..sort((a, b) => a.path.compareTo(b.path))) {
+    for (final entity in topDir.listSync(
+      followLinks: false,
+    )..sort((a, b) => a.path.compareTo(b.path))) {
       if (entity is Directory) {
         scanPackageDir(entity.path);
       }
@@ -621,20 +659,22 @@ void _collectWorkspacePackagesFromOverlay(
   Map<String, String> out, {
   Map<String, String>? packageDirs,
 }) {
-  final pubspecPaths = overlay.keys
-      .where((path) =>
-          path == 'pubspec.yaml' || path.endsWith('/pubspec.yaml'))
-      .toList()
-    ..sort();
+  final pubspecPaths =
+      overlay.keys
+          .where(
+            (path) => path == 'pubspec.yaml' || path.endsWith('/pubspec.yaml'),
+          )
+          .toList()
+        ..sort();
   for (final path in pubspecPaths) {
     final content = overlay[path];
     if (content == null) continue;
     for (final line in content.split('\n')) {
-      final m =
-          RegExp(r'^name:\s*([^\s#]+)').firstMatch(line.trimLeft());
+      final m = RegExp(r'^name:\s*([^\s#]+)').firstMatch(line.trimLeft());
       if (m != null) {
-        final dir =
-            path == 'pubspec.yaml' ? '' : path.substring(0, path.length - 13);
+        final dir = path == 'pubspec.yaml'
+            ? ''
+            : path.substring(0, path.length - 13);
         out[m.group(1)!] = dir;
         packageDirs?[dir] = m.group(1)!;
         break;
@@ -653,7 +693,8 @@ Map<String, Object?> sliceCandidate({
   AnalysisObservationTracker? tracker,
   String? snapshotId,
 }) {
-  final effectiveSnapshotId = snapshotId ??
+  final effectiveSnapshotId =
+      snapshotId ??
       (opts['snapshotId'] as String?) ??
       ((opts['snapshot'] as Map?)?['snapshotId'] as String?);
   final posixRoot = _toPosix(repoRoot);
@@ -662,14 +703,16 @@ Map<String, Object?> sliceCandidate({
   final pubspecContent = tracker != null
       ? tracker.read('pubspec.yaml')
       : contentOverlay != null
-          ? contentOverlay['pubspec.yaml']
-          : (pubspecFile.existsSync() ? pubspecFile.readAsStringSync() : null);
+      ? contentOverlay['pubspec.yaml']
+      : (pubspecFile.existsSync() ? pubspecFile.readAsStringSync() : null);
   if (tracker != null && pubspecContent != null) {
     tracker.recordDependency('pubspec.yaml');
   }
   if (pubspecContent != null) {
-    final match = RegExp(r'^name:\s*([a-zA-Z0-9_]+)', multiLine: true)
-        .firstMatch(pubspecContent);
+    final match = RegExp(
+      r'^name:\s*([a-zA-Z0-9_]+)',
+      multiLine: true,
+    ).firstMatch(pubspecContent);
     if (match != null) {
       packageName = match.group(1)!;
     }
@@ -685,9 +728,12 @@ Map<String, Object?> sliceCandidate({
   // Repo-relative path as published (may already carry packages/ prefix).
   final initialRelPath = initialRelPath0;
   if (tracker != null &&
-      !tracker.enumerateDartSourceFiles(libSubdir: '.').contains(initialRelPath)) {
+      !tracker
+          .enumerateDartSourceFiles(libSubdir: '.')
+          .contains(initialRelPath)) {
     throw ArgumentError(
-        'Entry source file is outside the captured source set: $initialRelPath');
+      'Entry source file is outside the captured source set: $initialRelPath',
+    );
   }
 
   // Monorepo workspace: map every sibling package's name onto its root so
@@ -704,8 +750,11 @@ Map<String, Object?> sliceCandidate({
     // the immutable overlay instead of the adapter host disk.
     final snapshotOverlay = tracker?.overlay ?? contentOverlay;
     if (snapshotOverlay != null) {
-      _collectWorkspacePackagesFromOverlay(snapshotOverlay, workspacePackages,
-          packageDirs: packageDirs);
+      _collectWorkspacePackagesFromOverlay(
+        snapshotOverlay,
+        workspacePackages,
+        packageDirs: packageDirs,
+      );
     }
   }
   for (final entry in workspacePackages.entries) {
@@ -746,10 +795,11 @@ Map<String, Object?> sliceCandidate({
 
   final steps = <_SliceStep>[];
   final edges = <_SliceEdge>[];
-  final visitedSet = <String>{};
+  final activeSymbols = <String>{};
   var truncated = false;
   var visitedCycleDetected = false;
   var totalRedactedCount = 0;
+  var entryMethodFound = false;
 
   String initialClass = '';
   String initialMethod = initialSymbol;
@@ -760,31 +810,33 @@ Map<String, Object?> sliceCandidate({
   }
 
   // Recursive slice walker
-  void sliceMethodBody({
+  int? sliceMethodBody({
     required String relPath,
     required String className,
     required String methodName,
     required int depth,
+    required String invocationId,
+    int? callerStepOrdinal,
   }) {
-    final fullSym =
-        className.isNotEmpty ? '$className.$methodName' : methodName;
+    final fullSym = className.isNotEmpty
+        ? '$className.$methodName'
+        : methodName;
     final entryKey = '$relPath#$fullSym';
 
-    if (visitedSet.contains(entryKey)) {
+    if (activeSymbols.contains(entryKey)) {
       visitedCycleDetected = true;
-      return;
+      return null;
     }
-    visitedSet.add(entryKey);
 
     if (depth > 5) {
       truncated = true;
-      return;
+      return null;
     }
 
     final fileContent = ctx.readFile(relPath);
-    if (fileContent == null) return;
+    if (fileContent == null) return null;
     final scan = ctx.scanFile(relPath);
-    if (scan == null) return;
+    if (scan == null) return null;
 
     ScannedMethod? targetMethod;
     if (className.isNotEmpty) {
@@ -808,18 +860,29 @@ Map<String, Object?> sliceCandidate({
       }
     }
 
-    if (targetMethod == null) return;
+    if (targetMethod == null) return null;
+    activeSymbols.add(entryKey);
+    if (depth == 1 &&
+        relPath == initialRelPath &&
+        className == initialClass &&
+        methodName == initialMethod) {
+      entryMethodFound = true;
+    }
 
     final fileHash = sha256Hex(fileContent);
-    final bodySource =
-        fileContent.substring(targetMethod.bodyStart, targetMethod.bodyEnd);
+    final bodySource = fileContent.substring(
+      targetMethod.bodyStart,
+      targetMethod.bodyEnd,
+    );
     final bodyStartOffset = targetMethod.bodyStart;
 
     // Symbol-scoped view range for FlowView: signature line through the end
     // of the method body. Presentation-only; never used for identity.
     final symbolRange = [
       _byteOffset(
-          fileContent, _lineStartOffset(fileContent, targetMethod.nameLine)),
+        fileContent,
+        _lineStartOffset(fileContent, targetMethod.nameLine),
+      ),
       _byteOffset(fileContent, targetMethod.bodyEnd),
     ];
 
@@ -827,8 +890,18 @@ Map<String, Object?> sliceCandidate({
     final proof = SnapshotSyntax(parsed.unit, valid: parsed.errors.isEmpty);
 
     // Slice statements in body
-    final stmtList =
-        _extractStatements(bodySource, bodyStartOffset, fileContent);
+    final stmtList = _extractStatements(
+      bodySource,
+      bodyStartOffset,
+      fileContent,
+    );
+    final localSteps = <_SliceStep>[];
+    int? firstLocalStepOrdinal;
+    void addLocalStep(_SliceStep step) {
+      steps.add(step);
+      localSteps.add(step);
+      firstLocalStepOrdinal ??= step.ordinal;
+    }
 
     for (final stmt in stmtList) {
       // Only real source tokens may enter the semantic ledger. Comments and
@@ -855,7 +928,7 @@ Map<String, Object?> sliceCandidate({
         'repoRelativePath': relPath,
         'byteRange': [
           _byteOffset(fileContent, stmt.startOffset),
-          _byteOffset(fileContent, stmt.endOffset)
+          _byteOffset(fileContent, stmt.endOffset),
         ],
         'fileHash': fileHash,
         'spanHash': spanHash,
@@ -874,15 +947,19 @@ Map<String, Object?> sliceCandidate({
         final redactDesc = _redactSecrets(desc);
         totalRedactedCount += redactDesc.count;
 
-        steps.add(_SliceStep(
-          ordinal: steps.length + 1,
-          kind: 'guard',
-          description: redactDesc.text,
-          symbolPath: fullSym,
-          anchor: anchor,
-          guardCondition: redactCond.text,
-          flowContext: flowContextMeta,
-        ));
+        addLocalStep(
+          _SliceStep(
+            ordinal: steps.length + 1,
+            kind: 'guard',
+            description: redactDesc.text,
+            symbolPath: fullSym,
+            anchor: anchor,
+            invocationId: invocationId,
+            callerStepOrdinal: callerStepOrdinal,
+            guardCondition: redactCond.text,
+            flowContext: flowContextMeta,
+          ),
+        );
       } else if (stmt.type == _StmtType.mutation) {
         final rawBefore = stmt.stateBefore;
         final rawAfter = stmt.stateAfter;
@@ -904,16 +981,20 @@ Map<String, Object?> sliceCandidate({
         final redactDesc = _redactSecrets(desc);
         totalRedactedCount += redactDesc.count;
 
-        steps.add(_SliceStep(
-          ordinal: steps.length + 1,
-          kind: 'mutation',
-          description: redactDesc.text,
-          symbolPath: fullSym,
-          anchor: anchor,
-          stateBefore: finalBefore,
-          stateAfter: finalAfter,
-          flowContext: flowContextMeta,
-        ));
+        addLocalStep(
+          _SliceStep(
+            ordinal: steps.length + 1,
+            kind: 'mutation',
+            description: redactDesc.text,
+            symbolPath: fullSym,
+            anchor: anchor,
+            invocationId: invocationId,
+            callerStepOrdinal: callerStepOrdinal,
+            stateBefore: finalBefore,
+            stateAfter: finalAfter,
+            flowContext: flowContextMeta,
+          ),
+        );
       } else if (stmt.type == _StmtType.call) {
         final receiver = stmt.callReceiver ?? '';
         final calledMethod = stmt.callMethod ?? '';
@@ -923,8 +1004,9 @@ Map<String, Object?> sliceCandidate({
           continue;
         }
 
-        final callTargetSym =
-            receiver.isNotEmpty ? '$receiver.$calledMethod' : calledMethod;
+        final callTargetSym = receiver.isNotEmpty
+            ? '$receiver.$calledMethod'
+            : calledMethod;
 
         // Determine receiver type if receiver is a variable or provider
         String? receiverType;
@@ -938,7 +1020,8 @@ Map<String, Object?> sliceCandidate({
           if (m != null) {
             receiverType = m.group(1);
           } else {
-            final cleanReceiver = _providerNameFromReceiver(receiver) ??
+            final cleanReceiver =
+                _providerNameFromReceiver(receiver) ??
                 receiver
                     .replaceAll(RegExp(r'^ref\.read\('), '')
                     .replaceAll(RegExp(r'\)$'), '');
@@ -953,8 +1036,11 @@ Map<String, Object?> sliceCandidate({
               receiverType = typeArg.split('<')[0].trim();
             } else {
               for (final uri in _extractImports(fileContent)) {
-                final resolvedPath =
-                    ctx.resolveImport(uri, relPath, workspacePackages);
+                final resolvedPath = ctx.resolveImport(
+                  uri,
+                  relPath,
+                  workspacePackages,
+                );
                 if (resolvedPath == null) continue;
                 final importedContent = ctx.readFile(resolvedPath);
                 if (importedContent == null) continue;
@@ -969,7 +1055,8 @@ Map<String, Object?> sliceCandidate({
           }
         }
 
-        final isBoundary = _isBoundarySymbol(callTargetSym, boundarySuffixes) ||
+        final isBoundary =
+            _isBoundarySymbol(callTargetSym, boundarySuffixes) ||
             _isBoundarySymbol(receiver, boundarySuffixes) ||
             (receiverType != null &&
                 _isBoundarySymbol(receiverType, boundarySuffixes));
@@ -985,115 +1072,183 @@ Map<String, Object?> sliceCandidate({
         );
 
         if (resolved != null) {
-          final isResolvedBoundary = isBoundary ||
+          final isResolvedBoundary =
+              isBoundary ||
               _isBoundarySymbol(resolved.symbolPath, boundarySuffixes) ||
               _isBoundarySymbol(resolved.className, boundarySuffixes);
-          final edgeKind =
-              isResolvedBoundary ? 'boundary_call' : 'resolved_cross_file';
-          final redactDesc = _redactSecrets(_deriveCallDescription(
+          final edgeKind = isResolvedBoundary
+              ? 'boundary_call'
+              : 'resolved_cross_file';
+          final redactDesc = _redactSecrets(
+            _deriveCallDescription(
               resolved.symbolPath,
-              isBoundary: isResolvedBoundary));
+              isBoundary: isResolvedBoundary,
+            ),
+          );
           totalRedactedCount += redactDesc.count;
 
-          steps.add(_SliceStep(
-            ordinal: steps.length + 1,
-            kind: 'call',
-            description: redactDesc.text,
-            symbolPath: resolved.symbolPath,
-            anchor: anchor,
-            effectTarget: isResolvedBoundary ? resolved.symbolPath : null,
-            flowContext: flowContextMeta,
-          ));
+          addLocalStep(
+            _SliceStep(
+              ordinal: steps.length + 1,
+              kind: stmt.isAwait ? 'await' : 'call',
+              description: redactDesc.text,
+              symbolPath: resolved.symbolPath,
+              anchor: anchor,
+              invocationId: invocationId,
+              callerStepOrdinal: callerStepOrdinal,
+              effectTarget: isResolvedBoundary ? resolved.symbolPath : null,
+              flowContext: flowContextMeta,
+            ),
+          );
 
-          edges.add(_SliceEdge(
-            kind: edgeKind,
-            toSymbolPath: resolved.fullEntryPath,
-            resolutionStatus: 'resolved',
-            depth: depth,
-            stepOrdinal: steps.last.ordinal,
-          ));
+          final callerOrdinal = localSteps.last.ordinal;
+          int? targetStepOrdinal;
 
-          // Traverse target
+          // Traverse target as a distinct invocation before recording a direct
+          // call edge. A second syntactic call receives a second invocation ID.
           if (depth < 5) {
-            sliceMethodBody(
+            targetStepOrdinal = sliceMethodBody(
               relPath: resolved.repoRelativePath,
               className: resolved.className,
               methodName: resolved.methodName,
               depth: depth + 1,
+              invocationId: sha256Hex(
+                jsonEncode([
+                  invocationId,
+                  relPath,
+                  stmt.startOffset,
+                  stmt.endOffset,
+                  resolved.fullEntryPath,
+                ]),
+              ),
+              callerStepOrdinal: callerOrdinal,
             );
           } else {
             truncated = true;
           }
+          edges.add(
+            _SliceEdge(
+              kind: edgeKind,
+              toSymbolPath: resolved.fullEntryPath,
+              resolutionStatus: 'resolved',
+              depth: depth,
+              stepOrdinal: callerOrdinal,
+              targetStepOrdinal: targetStepOrdinal,
+            ),
+          );
         } else if (isBoundary) {
           final boundarySym = receiverType != null
               ? '$receiverType.$calledMethod'
               : callTargetSym;
           final redactDesc = _redactSecrets(
-              _deriveCallDescription(boundarySym, isBoundary: true));
+            _deriveCallDescription(boundarySym, isBoundary: true),
+          );
           totalRedactedCount += redactDesc.count;
 
           final redactTarget = _redactSecrets(boundarySym);
           totalRedactedCount += redactTarget.count;
 
-          steps.add(_SliceStep(
-            ordinal: steps.length + 1,
-            kind: 'call',
-            description: redactDesc.text,
-            symbolPath: boundarySym,
-            anchor: anchor,
-            effectTarget: redactTarget.text,
-            flowContext: flowContextMeta,
-          ));
+          addLocalStep(
+            _SliceStep(
+              ordinal: steps.length + 1,
+              kind: 'call',
+              description: redactDesc.text,
+              symbolPath: boundarySym,
+              anchor: anchor,
+              invocationId: invocationId,
+              callerStepOrdinal: callerStepOrdinal,
+              effectTarget: redactTarget.text,
+              flowContext: flowContextMeta,
+            ),
+          );
 
-          edges.add(_SliceEdge(
-            kind: 'boundary_call',
-            toSymbolPath: '$relPath#$boundarySym',
-            resolutionStatus: 'resolved',
-            depth: depth,
-            stepOrdinal: steps.last.ordinal,
-          ));
+          edges.add(
+            _SliceEdge(
+              kind: 'boundary_call',
+              toSymbolPath: '$relPath#$boundarySym',
+              resolutionStatus: 'resolved',
+              depth: depth,
+              stepOrdinal: localSteps.last.ordinal,
+            ),
+          );
         } else {
           // Unresolved dynamic call / unknown edge
           if (calledMethod.isNotEmpty &&
               !_defaultDenylist.contains(calledMethod)) {
             final redactDesc = _redactSecrets(
-                _deriveCallDescription(callTargetSym, isBoundary: false));
+              _deriveCallDescription(callTargetSym, isBoundary: false),
+            );
             totalRedactedCount += redactDesc.count;
 
-            steps.add(_SliceStep(
-              ordinal: steps.length + 1,
-              kind: 'call',
-              description: redactDesc.text,
-              symbolPath: fullSym,
-              anchor: anchor,
-              flowContext: flowContextMeta,
-            ));
+            addLocalStep(
+              _SliceStep(
+                ordinal: steps.length + 1,
+                kind: 'call',
+                description: redactDesc.text,
+                symbolPath: fullSym,
+                anchor: anchor,
+                invocationId: invocationId,
+                callerStepOrdinal: callerStepOrdinal,
+                flowContext: flowContextMeta,
+              ),
+            );
 
-            edges.add(_SliceEdge(
-              kind: 'unknown_edge',
-              toSymbolPath:
-                  '$relPath#${_unresolvedDynamicSymbol(calledMethod)}',
-              resolutionStatus: 'unresolved_dynamic',
-              depth: depth,
-              stepOrdinal: steps.last.ordinal,
-            ));
+            edges.add(
+              _SliceEdge(
+                kind: 'unknown_edge',
+                toSymbolPath:
+                    '$relPath#${_unresolvedDynamicSymbol(calledMethod)}',
+                resolutionStatus: 'unresolved_dynamic',
+                depth: depth,
+                stepOrdinal: localSteps.last.ordinal,
+              ),
+            );
           }
         }
       } else if (stmt.type == _StmtType.branch) {
-        final redactDesc =
-            _redactSecrets(_deriveBranchDescription(stmt.rawText));
+        final redactDesc = _redactSecrets(
+          _deriveBranchDescription(stmt.rawText),
+        );
         totalRedactedCount += redactDesc.count;
 
-        steps.add(_SliceStep(
-          ordinal: steps.length + 1,
-          kind: 'branch',
-          description: redactDesc.text,
-          symbolPath: fullSym,
-          anchor: anchor,
-          flowContext: flowContextMeta,
-        ));
+        addLocalStep(
+          _SliceStep(
+            ordinal: steps.length + 1,
+            kind: 'branch',
+            description: redactDesc.text,
+            symbolPath: fullSym,
+            anchor: anchor,
+            invocationId: invocationId,
+            callerStepOrdinal: callerStepOrdinal,
+            flowContext: flowContextMeta,
+          ),
+        );
       }
     }
+    for (var i = 1; i < localSteps.length; i++) {
+      final previous = localSteps[i - 1];
+      final current = localSteps[i];
+      if (previous.kind == 'guard' ||
+          previous.kind == 'branch' ||
+          previous.kind == 'await' ||
+          current.kind == 'guard' ||
+          current.kind == 'branch' ||
+          current.kind == 'await') {
+        continue;
+      }
+      edges.add(
+        _SliceEdge(
+          kind: 'control_flow',
+          toSymbolPath: '$relPath#$fullSym',
+          resolutionStatus: 'resolved',
+          depth: depth,
+          stepOrdinal: previous.ordinal,
+          targetStepOrdinal: current.ordinal,
+        ),
+      );
+    }
+    activeSymbols.remove(entryKey);
+    return firstLocalStepOrdinal;
   }
 
   sliceMethodBody(
@@ -1101,29 +1256,16 @@ Map<String, Object?> sliceCandidate({
     className: initialClass,
     methodName: initialMethod,
     depth: 1,
+    invocationId: sha256Hex(entrySymbolPath),
   );
 
+  if (!entryMethodFound) {
+    throw ArgumentError('entry_symbol_not_found: $entrySymbolPath');
+  }
   if (steps.isEmpty) {
-    final fileContent = ctx.readFile(initialRelPath) ?? '';
-    final fileHash = sha256Hex(fileContent);
-    final fullSym = initialClass.isNotEmpty
-        ? '$initialClass.$initialMethod'
-        : initialMethod;
-    steps.add(_SliceStep(
-      ordinal: 1,
-      kind: 'call',
-      description: humanizeIdentifier(initialMethod),
-      symbolPath: fullSym,
-      anchor: {
-        'repoRelativePath': initialRelPath,
-        'byteRange': [0, utf8.encode(fileContent).length],
-        'fileHash': fileHash,
-        'spanHash': fileHash,
-        'enclosingSymbolPath': fullSym,
-        'canonicalAstFingerprint': sha256Hex(''),
-        'symbolRange': [0, utf8.encode(fileContent).length],
-      },
-    ));
+    throw ArgumentError(
+      'entry_symbol_has_no_executable_steps: $entrySymbolPath',
+    );
   }
 
   // Normalize ordinals
@@ -1158,6 +1300,7 @@ class _ExtractedStmt {
     this.stateAfter,
     this.callReceiver,
     this.callMethod,
+    this.isAwait = false,
   });
 
   final _StmtType type;
@@ -1169,10 +1312,14 @@ class _ExtractedStmt {
   final String? stateAfter;
   final String? callReceiver;
   final String? callMethod;
+  final bool isAwait;
 }
 
 List<_ExtractedStmt> _extractStatements(
-    String bodySource, int baseOffset, String fullFileSource) {
+  String bodySource,
+  int baseOffset,
+  String fullFileSource,
+) {
   final results = <_ExtractedStmt>[];
 
   // Regex patterns for statements
@@ -1226,13 +1373,15 @@ List<_ExtractedStmt> _extractStatements(
     final condEnd = j; // exclusive, at closing paren
     final cond = bodySource.substring(condStart, condEnd).trim();
     occupied.add([m.start, condEnd + 1]);
-    results.add(_ExtractedStmt(
-      type: _StmtType.guard,
-      startOffset: baseOffset + m.start,
-      endOffset: baseOffset + condEnd + 1,
-      rawText: bodySource.substring(m.start, condEnd + 1),
-      guardCondition: cond,
-    ));
+    results.add(
+      _ExtractedStmt(
+        type: _StmtType.guard,
+        startOffset: baseOffset + m.start,
+        endOffset: baseOffset + condEnd + 1,
+        rawText: bodySource.substring(m.start, condEnd + 1),
+        guardCondition: cond,
+      ),
+    );
     // A call awaited inside the condition (`if (await _signUp(draft) ...)`)
     // is a real delegation step, not just a guard — extract it too so the
     // slice can follow it across layers.
@@ -1241,7 +1390,8 @@ List<_ExtractedStmt> _extractStatements(
       final cRaw = cm.group(0)!;
       // Keep genuine invocations only: awaited calls, member calls, or
       // private callable fields. Skips type checks (`case Error(:final e)`).
-      final genuine = cRaw.startsWith('await') ||
+      final genuine =
+          cRaw.startsWith('await') ||
           cTarget.contains('.') ||
           cTarget.startsWith('_');
       if (cTarget.isEmpty || !genuine) {
@@ -1257,27 +1407,32 @@ List<_ExtractedStmt> _extractStatements(
         cReceiver = cTarget.substring(0, lastDot);
         cMethod = cTarget.substring(lastDot + 1);
       }
-      results.add(_ExtractedStmt(
-        type: _StmtType.call,
-        startOffset: baseOffset + condStart + cm.start,
-        endOffset: baseOffset + condStart + cm.end,
-        rawText: cm.group(0)!,
-        callReceiver: cReceiver,
-        callMethod: cMethod,
-      ));
+      results.add(
+        _ExtractedStmt(
+          type: _StmtType.call,
+          startOffset: baseOffset + condStart + cm.start,
+          endOffset: baseOffset + condStart + cm.end,
+          rawText: cm.group(0)!,
+          callReceiver: cReceiver,
+          callMethod: cMethod,
+          isAwait: cRaw.trimLeft().startsWith('await '),
+        ),
+      );
     }
   }
 
   // Throws (as guards / failure branches)
   for (final m in throwRe.allMatches(bodySource)) {
     occupied.add([m.start, m.end]);
-    results.add(_ExtractedStmt(
-      type: _StmtType.guard,
-      startOffset: baseOffset + m.start,
-      endOffset: baseOffset + m.end,
-      rawText: m.group(0)!,
-      guardCondition: '실패 시 예외 발생: ${m.group(1)!.trim()}',
-    ));
+    results.add(
+      _ExtractedStmt(
+        type: _StmtType.guard,
+        startOffset: baseOffset + m.start,
+        endOffset: baseOffset + m.end,
+        rawText: m.group(0)!,
+        guardCondition: '실패 시 예외 발생: ${m.group(1)!.trim()}',
+      ),
+    );
   }
 
   bool insideOccupied(int start, int end) {
@@ -1304,14 +1459,16 @@ List<_ExtractedStmt> _extractStatements(
       stateAfter = (m.group(1) ?? '').trim();
     }
 
-    results.add(_ExtractedStmt(
-      type: _StmtType.mutation,
-      startOffset: baseOffset + m.start,
-      endOffset: baseOffset + m.end,
-      rawText: raw,
-      stateBefore: stateBefore,
-      stateAfter: stateAfter,
-    ));
+    results.add(
+      _ExtractedStmt(
+        type: _StmtType.mutation,
+        startOffset: baseOffset + m.start,
+        endOffset: baseOffset + m.end,
+        rawText: raw,
+        stateBefore: stateBefore,
+        stateAfter: stateAfter,
+      ),
+    );
   }
 
   // Calls
@@ -1344,37 +1501,44 @@ List<_ExtractedStmt> _extractStatements(
       method = target.substring(lastDot + 1);
     }
 
-    results.add(_ExtractedStmt(
-      type: _StmtType.call,
-      startOffset: baseOffset + m.start,
-      endOffset: baseOffset + m.end,
-      rawText: raw,
-      callReceiver: receiver,
-      callMethod: method,
-    ));
+    results.add(
+      _ExtractedStmt(
+        type: _StmtType.call,
+        startOffset: baseOffset + m.start,
+        endOffset: baseOffset + m.end,
+        rawText: raw,
+        callReceiver: receiver,
+        callMethod: method,
+        isAwait: raw.trimLeft().startsWith('await '),
+      ),
+    );
   }
 
   // Branches
   for (final m in catchRe.allMatches(bodySource)) {
-    results.add(_ExtractedStmt(
-      type: _StmtType.branch,
-      startOffset: baseOffset + m.start,
-      endOffset: baseOffset + m.end,
-      rawText: m.group(0)!,
-    ));
+    results.add(
+      _ExtractedStmt(
+        type: _StmtType.branch,
+        startOffset: baseOffset + m.start,
+        endOffset: baseOffset + m.end,
+        rawText: m.group(0)!,
+      ),
+    );
   }
 
   // Check local variable assignments that contain secrets
   for (final m in varAssignRe.allMatches(bodySource)) {
     final raw = m.group(0)!;
     if (_secretPattern.hasMatch(raw)) {
-      results.add(_ExtractedStmt(
-        type: _StmtType.mutation,
-        startOffset: baseOffset + m.start,
-        endOffset: baseOffset + m.end,
-        rawText: raw,
-        stateAfter: 'secret value assigned',
-      ));
+      results.add(
+        _ExtractedStmt(
+          type: _StmtType.mutation,
+          startOffset: baseOffset + m.start,
+          endOffset: baseOffset + m.end,
+          rawText: raw,
+          stateAfter: 'secret value assigned',
+        ),
+      );
     }
   }
 
@@ -1488,7 +1652,7 @@ String _extractIntentIdentifier(String target) {
       'Service',
       'ApiClient',
       'DataSource',
-      'Manager'
+      'Manager',
     ]) {
       if (cls.endsWith(suf) && cls.length > suf.length) {
         cls = cls.substring(0, cls.length - suf.length);

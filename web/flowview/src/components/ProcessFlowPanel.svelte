@@ -1,5 +1,6 @@
 <script lang="ts">
-  import { flowStore, LAYER_LABELS, EDGE_LABELS } from '../stores/flowStore.svelte';
+  import { flowStore, EDGE_LABELS } from '../stores/flowStore.svelte';
+  import { conditionOutcomeLabel } from '../stores/conditionNavigation';
   import type { Step } from '../types/flow';
 
   const steps = $derived(flowStore.sceneSteps);
@@ -21,7 +22,6 @@
   {:else}
     {#each steps as step (step.stepId)}
       {@const isSelected = selectedStepId === step.stepId}
-      {@const layerLabel = LAYER_LABELS[step.layer] || step.layer || '계층 미확인'}
       {@const rels = getStepRelations(step)}
 
       <article
@@ -42,7 +42,6 @@
             <strong>{step.name}</strong>
             <small>{step.technicalName || ''}</small>
           </span>
-          <span class="tag">{layerLabel}</span>
         </button>
 
         {#if step.branch}
@@ -57,13 +56,14 @@
           {#if !rels.length}
             <span class="unresolved">분석에서 확인한 다음 연결 없음</span>
           {:else}
-            {#each rels as edge (edge.toStepId + edge.kind)}
+            {#each rels as edge, edgeIndex}
               {@const target = flowStore.steps.find(s => s.stepId === edge.toStepId)}
               {@const label = EDGE_LABELS[edge.kind] || '연결'}
               {#if target && edge.resolutionStatus === 'resolved'}
                 <span>{label} →</span>
-                <button type="button" data-select={target.stepId} onclick={() => onStepSelect(target.stepId)}>
+                <button type="button" data-select={target.stepId} data-navigation-focus={`process:${step.stepId}:${target.stepId}:${edge.kind}:${edgeIndex}`} onclick={() => {flowStore.saveNavigationState(); onStepSelect(target.stepId)}}>
                   {target.technicalName || target.name}
+                  {#if edge.conditions?.[0]} · {conditionOutcomeLabel(edge.conditions[0].outcome)}{/if}
                 </button>
               {:else}
                 <span class="unresolved">
@@ -130,14 +130,6 @@
     font-size: 10px;
     color: #666;
     overflow-wrap: anywhere;
-  }
-  .tag {
-    margin-left: auto;
-    font-size: 10px;
-    border: 1px solid #ccc;
-    padding: 2px 6px;
-    border-radius: 4px;
-    white-space: nowrap;
   }
   .process-condition {
     margin: 0 15px 12px;

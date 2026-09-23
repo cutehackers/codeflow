@@ -21,13 +21,19 @@ export interface FlowSequenceFrame {
   condition?: string;
   outcomes?: string[];
   collapsedDetail?: CollapsedDetail;
-  architecture?: string;
   status: 'verified' | 'partial' | 'unknown';
   frameMatchKey: string;
   isRecursion?: boolean;
 }
 
+export interface FlowSummaryLimitation {
+  code: string;
+  message: string;
+  frameRefs: string[];
+}
+
 export interface FlowSequence {
+  summaryLimitations?: FlowSummaryLimitation[];
   schemaId: string;
   schemaVersion: number;
   generationId: string;

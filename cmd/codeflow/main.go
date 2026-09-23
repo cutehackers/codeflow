@@ -29,9 +29,11 @@ import (
 	"codeflow/internal/collector/fusion"
 	"codeflow/internal/collector/harvest"
 	"codeflow/internal/collector/naming"
+	"codeflow/internal/collector/secret"
 	"codeflow/internal/collector/slicing"
 	"codeflow/internal/collector/storage"
 	"codeflow/internal/curator"
+	"codeflow/internal/curator/semantic"
 	"codeflow/internal/presenter"
 	"codeflow/internal/presenter/flowview"
 )
@@ -202,7 +204,7 @@ func reorderFlags(fs *flag.FlagSet, args []string) []string {
 	var flags, pos []string
 	for i := 0; i < len(args); i++ {
 		a := args[i]
-		if !strings.HasPrefix(a, "-") {
+		if a == "-" || !strings.HasPrefix(a, "-") {
 			pos = append(pos, a)
 			continue
 		}
@@ -663,6 +665,12 @@ func runCurate(args []string) {
 		os.Exit(1)
 	}
 
+	rawData, _, err = secret.RedactJSON(rawData)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "error sanitizing trace input")
+		os.Exit(1)
+	}
+
 	if len(strings.TrimSpace(string(rawData))) == 0 {
 		fmt.Fprintf(os.Stderr, "error: empty trace input\n")
 		os.Exit(1)
@@ -685,11 +693,22 @@ func runCurate(args []string) {
 	}
 
 	c := curator.NewCurator()
-	frames := c.CurateFlowSequence(trace)
+	curation, err := c.CurateTrace(trace)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "invalid FlowSequence: %v\n", err)
+		os.Exit(1)
+	}
 
 	result := map[string]any{
-		"flowId": trace.FlowID,
-		"frames": frames,
+		"flowId":   trace.FlowID,
+		"frames":   curation.Sequence.Frames,
+		"steps":    curation.Map.Steps,
+		"edges":    curation.Map.Edges,
+		"unknowns": curation.Map.Unknowns,
+	}
+
+	if len(curation.Sequence.SummaryLimitations) > 0 {
+		result["summaryLimitations"] = curation.Sequence.SummaryLimitations
 	}
 
 	enc := json.NewEncoder(os.Stdout)
@@ -712,11 +731,16 @@ func runServe(args []string) {
 		os.Exit(2)
 	}
 	posArgs := fs.Args()
+	if len(posArgs) > 1 {
+		fmt.Fprintln(os.Stderr, "view accepts one repository path or JSON input")
+		os.Exit(2)
+	}
 	target := "."
 	if len(posArgs) == 1 {
 		target = posArgs[0]
 	}
 
+	var importedView map[string]any
 	// Stdin or JSON file mode
 	if target == "-" || strings.HasSuffix(target, ".json") {
 		var inputData []byte
@@ -731,20 +755,31 @@ func runServe(args []string) {
 			os.Exit(1)
 		}
 
-		var sb map[string]any
-		if err := json.Unmarshal(inputData, &sb); err != nil {
-			fmt.Fprintf(os.Stderr, "JSON parse error: %v\n", err)
+		importedView, err = decodeFlowViewInput(inputData)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "invalid FlowView input: %v\n", err)
 			os.Exit(1)
 		}
-
-		frames, _ := sb["frames"].([]any)
-		if len(frames) == 0 {
+		encoded, err := json.Marshal(importedView["flowSequence"])
+		if err != nil {
+			fmt.Fprintln(os.Stderr, "cannot encode FlowSequence")
+			os.Exit(1)
+		}
+		var sequence semantic.FlowSequence
+		if err := json.Unmarshal(encoded, &sequence); err != nil {
+			fmt.Fprintln(os.Stderr, "cannot decode FlowSequence")
+			os.Exit(1)
+		}
+		if len(sequence.Frames) == 0 {
 			fmt.Println("안내: 빈 FlowSequence (확인된 관문 프레임 없음)")
 		} else {
-			fmt.Printf("FlowSequence 검증 성공: %d개 프레임 확인됨\n", len(frames))
+			fmt.Printf("FlowSequence 검증 성공: %d개 프레임 확인됨\n", len(sequence.Frames))
 		}
-
-		if *dryRunFlag || os.Getenv("CODEFLOW_NONINTERACTIVE") != "" {
+		if *flowFlag != "" || *queryFlag != "" || *entryFlag != "" {
+			fmt.Fprintln(os.Stderr, "JSON input cannot be combined with --flow, --query or --entry")
+			os.Exit(2)
+		}
+		if *dryRunFlag {
 			return
 		}
 		target = "."
@@ -765,6 +800,22 @@ func runServe(args []string) {
 	srv.Start()
 
 	viewURL := srv.URL()
+	if importedView != nil {
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		view, saveErr := srv.SaveTaskView(ctx, importedView)
+		cancel()
+		if saveErr != nil {
+			fmt.Fprintf(os.Stderr, "save input view: %v\n", saveErr)
+			_ = srv.Shutdown(context.Background())
+			os.Exit(1)
+		}
+		id, ok := view["viewId"].(string)
+		if !ok || id == "" {
+			fmt.Fprintln(os.Stderr, "stored view identity missing")
+			os.Exit(1)
+		}
+		viewURL = srv.TaskViewURL(id)
+	}
 	if *flowFlag != "" {
 		viewURL += "&flow=" + url.QueryEscape(*flowFlag)
 	}

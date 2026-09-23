@@ -12,6 +12,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net/http"
 	"net/url"
 	"path/filepath"
 	"strings"
@@ -23,13 +24,60 @@ import (
 	"codeflow/internal/collector/contractharness"
 	"codeflow/internal/collector/fusion"
 	"codeflow/internal/collector/harvest"
+	"codeflow/internal/collector/secret"
 	"codeflow/internal/collector/slicing"
 	"codeflow/internal/collector/storage"
 	"codeflow/internal/curator"
+	"codeflow/internal/curator/semantic"
 	"codeflow/internal/presenter/flowview"
 )
 
 var errMethodNotFound = errors.New("method not found")
+
+func flowCandidateDescription(candidate harvest.Candidate) string {
+	if candidate.IntentSignals.DocLine != nil && strings.TrimSpace(*candidate.IntentSignals.DocLine) != "" {
+		return *candidate.IntentSignals.DocLine
+	}
+	for _, value := range []string{candidate.IntentSignals.DerivedName, candidate.IntentSignals.ClassName, candidate.TriggerClass, candidate.EntrySymbolPath} {
+		if strings.TrimSpace(value) != "" {
+			return value
+		}
+	}
+	return candidate.EntrySymbolPath
+}
+
+func flowResolution(rawRequest string, candidate harvest.Candidate, snapshot protocol.Snapshot) *fusion.FlowResolution {
+	request := secret.Redact(strings.TrimSpace(rawRequest)).Text
+	return &fusion.FlowResolution{
+		SchemaVersion:   1,
+		Status:          "resolved",
+		RawRequest:      request,
+		CandidateID:     candidate.CandidateID,
+		EntrySymbolPath: candidate.EntrySymbolPath,
+		FlowID:          fusion.ComputeFlowID(candidate.EntrySymbolPath),
+		Evidence: []fusion.FlowEvidence{{
+			CandidateID:     candidate.CandidateID,
+			EntrySymbolPath: candidate.EntrySymbolPath,
+			Description:     flowCandidateDescription(candidate),
+			SnapshotID:      snapshot.SnapshotID,
+			ComputedBasisID: snapshot.ComputedBasisID,
+		}},
+	}
+}
+
+func flowResolutionInput(args map[string]any) (string, string, error) {
+	rawRequest, _ := args["request"].(string)
+	rawRequest = strings.TrimSpace(rawRequest)
+	candidateID, _ := args["candidateId"].(string)
+	candidateID = strings.TrimSpace(candidateID)
+	if rawRequest == "" && candidateID != "" {
+		return "", "", fmt.Errorf("candidateId requires the original request")
+	}
+	if rawRequest != "" && candidateID == "" {
+		return "", "", fmt.Errorf("natural-language analysis requires candidateId from harvest_flows")
+	}
+	return rawRequest, candidateID, nil
+}
 
 // GenerateAuthToken generates a random per-run 32-byte hex token.
 func GenerateAuthToken() string {
@@ -487,13 +535,14 @@ func (s *Server) listTools() []map[string]any {
 		},
 		{
 			"name":        "get_flow_payload",
-			"description": "Retrieve FlowSpec JSON by flowId or entrySymbolPath. Set compact: true (or format: 'compact') to receive the ~500-token curated FlowSequenceFrame macro gateways.",
+			"description": "Retrieve FlowSpec JSON by flowId or entrySymbolPath, or the exact stored FlowView by viewId. Set compact: true (or format: 'compact') for gateway summaries preserving canonical IDs and child references.",
 			"inputSchema": map[string]any{
 				"type": "object",
 				"properties": map[string]any{
+					"viewId":          map[string]any{"type": "string", "description": "Exact stored analysis ID, mutually exclusive with flowId and entrySymbolPath"},
 					"flowId":          map[string]any{"type": "string", "description": "Target flow ID"},
 					"entrySymbolPath": map[string]any{"type": "string", "description": "Target entry symbol path"},
-					"compact":         map[string]any{"type": "boolean", "description": "Return high-density ~500-token macro gateway summary"},
+					"compact":         map[string]any{"type": "boolean", "description": "Return gateway summaries with source step references, relationships, conditions and analysis limitations"},
 					"format":          map[string]any{"type": "string", "enum": []string{"full", "compact"}, "description": "Payload format ('compact' or 'full')"},
 					"target":          targetProp,
 				},
@@ -501,12 +550,14 @@ func (s *Server) listTools() []map[string]any {
 		},
 		{
 			"name":        "analyze_flow",
-			"description": "Slice and publish one exact entry point. Returns a persisted FlowSpec containing flowId; when the user requested a visual result, pass that exact flowId to open_review.",
+			"description": "Slice and publish one exact entry point. For a natural-language request, pass the exact request and candidateId returned by harvest_flows; CodeFlow verifies that candidate against the current snapshot before persisting it. Returns a persisted FlowSpec containing flowId; when the user requested a visual result, pass that exact flowId to open_review.",
 			"inputSchema": map[string]any{
 				"type":     "object",
 				"required": []string{"entrySymbolPath"},
 				"properties": map[string]any{
 					"entrySymbolPath": map[string]any{"type": "string"},
+					"request":         map[string]any{"type": "string", "description": "Original natural-language flow request. Requires candidateId."},
+					"candidateId":     map[string]any{"type": "string", "description": "Exact candidateId chosen from harvest_flows. Requires request."},
 					"target":          targetProp,
 				},
 			},
@@ -640,6 +691,9 @@ func (s *Server) executeTool(ctx context.Context, name string, args map[string]a
 		}, nil
 
 	case "get_flow_payload":
+		if viewID, _ := args["viewId"].(string); viewID != "" {
+			return s.flowViewPayload(ctx, args, viewID)
+		}
 		flowID, _ := args["flowId"].(string)
 		if flowID == "" {
 			if entry, ok := args["entrySymbolPath"].(string); ok && entry != "" {
@@ -665,8 +719,8 @@ func (s *Server) executeTool(ctx context.Context, name string, args map[string]a
 			return nil, err
 		}
 		if format, _ := args["format"].(string); format == "compact" || args["compact"] == true {
-			compact := curator.BuildCompactPayload(&spec, nil, 0, 0)
-			return compact, nil
+			model := semantic.ProjectFlowSpec(&spec, "")
+			return curator.BuildCompactAnalysisPayload(model, semantic.BuildFlowSequence(model))
 		}
 		return spec, nil
 
@@ -675,6 +729,10 @@ func (s *Server) executeTool(ctx context.Context, name string, args map[string]a
 		if entry == "" {
 			return nil, fmt.Errorf("entrySymbolPath required")
 		}
+		rawRequest, selectedCandidateID, err := flowResolutionInput(args)
+		if err != nil {
+			return nil, err
+		}
 
 		target := s.resolveTarget(args["target"])
 		snapshot, releaseSnapshot, err := s.captureAnalysisSnapshot(ctx, target)
@@ -682,7 +740,7 @@ func (s *Server) executeTool(ctx context.Context, name string, args map[string]a
 			return nil, err
 		}
 		defer releaseSnapshot()
-		_, _, slicer, err := s.getPoolAndRunnersForSnapshot(ctx, target, "", &snapshot)
+		_, harvester, slicer, err := s.getPoolAndRunnersForSnapshot(ctx, target, "", &snapshot)
 		if err != nil {
 			return nil, err
 		}
@@ -694,6 +752,26 @@ func (s *Server) executeTool(ctx context.Context, name string, args map[string]a
 
 		h := sha256.Sum256([]byte(entry))
 		candidateID := "cand-" + hex.EncodeToString(h[:8])
+		var resolution *fusion.FlowResolution
+		if rawRequest != "" {
+			candidates, err := harvester.RunWithSnapshot(ctx, target, snapshot)
+			if err != nil {
+				return nil, fmt.Errorf("harvest selected candidate: %w", err)
+			}
+			var selected *harvest.Candidate
+			for i := range candidates {
+				candidate := &candidates[i]
+				if candidate.CandidateID == selectedCandidateID && candidate.EntrySymbolPath == entry {
+					selected = candidate
+					break
+				}
+			}
+			if selected == nil {
+				return nil, fmt.Errorf("flow resolution is not a candidate in the current snapshot")
+			}
+			resolution = flowResolution(rawRequest, *selected, snapshot)
+			candidateID = selected.CandidateID
+		}
 
 		sliced, err := slicer.SliceWithSnapshot(ctx, target, candidateID, entry, nil, snapshot)
 		if err != nil {
@@ -720,6 +798,7 @@ func (s *Server) executeTool(ctx context.Context, name string, args map[string]a
 		if err != nil {
 			return nil, fmt.Errorf("fuse error: %w", err)
 		}
+		spec.FlowResolution = resolution
 
 		existingPtr, _ := st.ReadPointer()
 		var existingIdx *storage.GenerationIndex
@@ -746,7 +825,13 @@ func (s *Server) executeTool(ctx context.Context, name string, args map[string]a
 			}
 		}
 
-		specBytes, _ := json.Marshal(spec)
+		specBytes, err := json.Marshal(spec)
+		if err != nil {
+			return nil, fmt.Errorf("encode flow spec: %w", err)
+		}
+		if err := contractharness.Validate(contractharness.BaseURL+"flowspec.schema.json", specBytes); err != nil {
+			return nil, fmt.Errorf("flow resolution schema validation failed: %w", err)
+		}
 		if err := sess.AddFlowSpec(spec.FlowID, specBytes, storage.FlowSummary{
 			FlowID:          spec.FlowID,
 			Title:           spec.Title,
@@ -922,7 +1007,28 @@ func (s *Server) executeTool(ctx context.Context, name string, args map[string]a
 			if err != nil {
 				return nil, err
 			}
-			saved, err := fv.SaveTaskView(ctx, restored)
+			if existingViewID, ok := restored["viewId"].(string); ok && existingViewID != "" {
+				if _, hasResolution := restored["flowResolution"]; !hasResolution {
+					return map[string]any{
+						"status":  "ready",
+						"flowId":  flowID,
+						"url":     fv.TaskViewURL(existingViewID),
+						"viewUrl": fv.TaskViewURL(existingViewID),
+						"viewId":  existingViewID,
+						"token":   fv.AuthToken(),
+					}, nil
+				}
+			}
+			request, _ := restored["request"].(map[string]any)
+			entrySymbol, _ := request["entrySymbol"].(string)
+			if strings.TrimSpace(entrySymbol) == "" {
+				return nil, fmt.Errorf("open review requires an entry symbol for flow %s", flowID)
+			}
+			resolution, err := restoredFlowResolution(restored)
+			if err != nil {
+				return nil, err
+			}
+			saved, err := createCurrentTaskView(ctx, fv, entrySymbol, flowID, resolution)
 			if err != nil {
 				return nil, err
 			}
@@ -943,4 +1049,77 @@ func (s *Server) executeTool(ctx context.Context, name string, args map[string]a
 	default:
 		return nil, fmt.Errorf("%w: %s", errMethodNotFound, name)
 	}
+}
+
+// createCurrentTaskView uses the same current-analysis endpoint as FlowView's
+// request form. A FlowSpec alone has no retained source snapshot, so it must
+// never be converted directly into a review result.
+func restoredFlowResolution(restored map[string]any) (*fusion.FlowResolution, error) {
+	raw, ok := restored["flowResolution"]
+	if !ok {
+		return nil, fmt.Errorf("open review requires a preserved flow resolution; reopen the legacy View directly or analyze the request again")
+	}
+	data, err := json.Marshal(raw)
+	if err != nil {
+		return nil, fmt.Errorf("encode flow resolution: %w", err)
+	}
+	var resolution fusion.FlowResolution
+	if err := json.Unmarshal(data, &resolution); err != nil {
+		return nil, fmt.Errorf("decode flow resolution: %w", err)
+	}
+	if resolution.SchemaVersion != 1 || resolution.Status != "resolved" || strings.TrimSpace(resolution.RawRequest) == "" || strings.TrimSpace(resolution.EntrySymbolPath) == "" || strings.TrimSpace(resolution.CandidateID) == "" {
+		return nil, fmt.Errorf("open review requires a complete flow resolution")
+	}
+	return &resolution, nil
+}
+
+func createCurrentTaskView(ctx context.Context, fv *flowview.Server, entrySymbol, flowID string, resolution *fusion.FlowResolution) (map[string]any, error) {
+	if resolution == nil || resolution.EntrySymbolPath != entrySymbol || resolution.FlowID != flowID {
+		return nil, fmt.Errorf("flow resolution does not match the selected flow")
+	}
+	requestBody, err := json.Marshal(map[string]any{
+		"mode": "feature",
+		"feature": map[string]string{
+			"request":     resolution.RawRequest,
+			"entrySymbol": entrySymbol,
+			"flowId":      flowID,
+		},
+	})
+	if err != nil {
+		return nil, fmt.Errorf("encode current FlowView request: %w", err)
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, "http://"+fv.Addr()+"/api/task/view", strings.NewReader(string(requestBody)))
+	if err != nil {
+		return nil, fmt.Errorf("create current FlowView request: %w", err)
+	}
+	req.Header.Set("X-CodeFlow-Token", fv.AuthToken())
+	req.Header.Set("Content-Type", "application/json")
+	response, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("create current FlowView: %w", err)
+	}
+	defer response.Body.Close()
+
+	responseBody, err := io.ReadAll(io.LimitReader(response.Body, 8<<20))
+	if err != nil {
+		return nil, fmt.Errorf("read current FlowView: %w", err)
+	}
+	if response.StatusCode < http.StatusOK || response.StatusCode >= http.StatusMultipleChoices {
+		var failure struct {
+			Message string `json:"message"`
+		}
+		_ = json.Unmarshal(responseBody, &failure)
+		if failure.Message != "" {
+			return nil, fmt.Errorf("create current FlowView: %s", failure.Message)
+		}
+		return nil, fmt.Errorf("create current FlowView: HTTP %d", response.StatusCode)
+	}
+	var view map[string]any
+	if err := json.Unmarshal(responseBody, &view); err != nil {
+		return nil, fmt.Errorf("decode current FlowView: %w", err)
+	}
+	if view["sourceContextMissing"] == true || view["needsReanalysis"] == true {
+		return nil, fmt.Errorf("create current FlowView: source context was not preserved")
+	}
+	return view, nil
 }

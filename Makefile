@@ -1,6 +1,6 @@
-.PHONY: build build-adapter build-ui test-ui build-all package test test-all fmt vet check-naming clean
+.PHONY: build build-adapter build-ui test-ui test-flowview build-all package test test-all fmt vet check-naming clean
 
-build:
+build: build-ui
 	mkdir -p bin
 	go build -o bin/codeflow ./cmd/codeflow
 
@@ -10,12 +10,16 @@ build-adapter:
 
 build-ui:
 	cd web/flowview && npm run check && npm run build
+	perl -pi -e 's/[ \t]+$$//' web/flowview/dist/index.html
 	cp web/flowview/dist/index.html internal/presenter/flowview/svelte_flow_view.html
 	mkdir -p docs/samples
 	cp web/flowview/dist/index.html docs/samples/live-semantic-map-prototype.html
 
 test-ui:
 	cd web/flowview && npm test
+
+test-flowview:
+	cd web/live-comprehension-workspace && npm run test:flowview
 
 build-all: build build-adapter
 

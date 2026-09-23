@@ -54,3 +54,13 @@ func (s *Server) AuthToken() string {
 func (s *Server) Handler() http.Handler {
 	return s.inner.Handler()
 }
+
+// SaveTaskView preserves a validated imported hierarchy in the local view store.
+func (s *Server) SaveTaskView(ctx context.Context, view map[string]any) (map[string]any, error) {
+	return s.inner.SaveTaskView(ctx, view)
+}
+
+// TaskViewURL opens one immutable stored analysis without starting analysis.
+func (s *Server) TaskViewURL(id string) string {
+	return s.inner.TaskViewURL(id)
+}

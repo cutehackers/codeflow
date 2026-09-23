@@ -41,6 +41,36 @@ func TestRedact(t *testing.T) {
 	}
 }
 
+func TestRedactSensitiveCallAssignmentKeepsValidCode(t *testing.T) {
+	input := `const credential = request.headers.get('authorization');`
+	for _, redact := range []func(string) secret.RedactionResult{secret.Redact, secret.RedactSource} {
+		result := redact(input)
+		if result.Count != 1 {
+			t.Fatalf("redaction count = %d, want 1", result.Count)
+		}
+		if result.Text != `const credential = "***REDACTED***";` {
+			t.Fatalf("redacted call assignment = %q", result.Text)
+		}
+		if strings.Contains(result.Text, "authorization") {
+			t.Fatalf("redacted call assignment leaks header name: %q", result.Text)
+		}
+	}
+}
+
+func TestRedactJSONKeepsSensitiveCallAssignmentValid(t *testing.T) {
+	raw := []byte(`{"steps":[{"description":"credential = request.headers.get('authorization')"}]}`)
+	clean, count, err := secret.RedactJSON(raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if count != 1 {
+		t.Fatalf("redaction count = %d, want 1", count)
+	}
+	if got := string(clean); !strings.Contains(got, `credential = \"***REDACTED***\"`) || strings.Contains(got, "authorization") {
+		t.Fatalf("redacted JSON = %s", got)
+	}
+}
+
 func TestRedactJSON(t *testing.T) {
 	raw := []byte(`{"title":"Login Flow","secret_data":"api_key = 'secret_token_123'","steps":[{"name":"submit","param":"password: 'pwd'"}]}`)
 	clean, count, err := secret.RedactJSON(raw)

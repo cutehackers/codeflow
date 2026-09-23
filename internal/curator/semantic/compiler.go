@@ -79,6 +79,10 @@ func CompileDeterministicFeatureMap(target *ResolvedTarget, intent *TaskIntent, 
 	if err := validateCompilerVS02Result(sliceResult, input, opts); err != nil {
 		return nil, nil, fmt.Errorf("missing_precondition: %w", err)
 	}
+	if err := slicing.ValidateExecutionReferences(sliceResult.Steps, sliceResult.Edges); err != nil {
+		return nil, nil, fmt.Errorf("invalid_identity: %w", err)
+	}
+
 	evidenceRecords, err := ExtractAndRedactEvidenceFromSnapshot(target, sliceResult, *input)
 	if err != nil {
 		return nil, nil, fmt.Errorf("invalid_evidence: %w", err)
@@ -97,6 +101,7 @@ func CompileDeterministicFeatureMap(target *ResolvedTarget, intent *TaskIntent, 
 
 	semanticSteps := make([]SemanticStep, 0, len(sliceResult.Steps))
 	evidence := make([]SemanticEvidence, 0, len(sliceResult.Steps))
+	evidenceIncluded := make(map[string]bool, len(evidenceRecords))
 	unknowns := make([]fusion.Unknown, 0)
 	stepByOrdinal := make(map[int]*SemanticStep, len(sliceResult.Steps))
 	stepBySymbol := make(map[string][]SemanticStep, len(sliceResult.Steps))
@@ -110,10 +115,18 @@ func CompileDeterministicFeatureMap(target *ResolvedTarget, intent *TaskIntent, 
 		if err != nil {
 			return nil, nil, fmt.Errorf("invalid_identity: %w", err)
 		}
+		if sourceStep.InvocationID != "" {
+			sum := sha256.Sum256([]byte(stepID + "\x00" + sourceStep.InvocationID))
+			stepID = "step-" + hex.EncodeToString(sum[:])
+		}
 		if stepIDs[stepID] {
 			stepID, err = fusion.ComputeDisambiguatedStructuralStepID(target.FlowID, sourceStep.Anchor, sourceStep.SymbolPath, sourceStep.Kind)
 			if err != nil {
 				return nil, nil, fmt.Errorf("ambiguous_target: %w", err)
+			}
+			if sourceStep.InvocationID != "" {
+				sum := sha256.Sum256([]byte(fmt.Sprintf("%s\x00%s\x00%d:%d", stepID, sourceStep.InvocationID, sourceStep.Anchor.ByteRange[0], sourceStep.Anchor.ByteRange[1])))
+				stepID = "step-" + hex.EncodeToString(sum[:])
 			}
 			if stepIDs[stepID] {
 				return nil, nil, fmt.Errorf("ambiguous_target: duplicate structural step identity %s", stepID)
@@ -126,6 +139,7 @@ func CompileDeterministicFeatureMap(target *ResolvedTarget, intent *TaskIntent, 
 			return nil, nil, fmt.Errorf("invalid_evidence: step %s has no validated evidence", stepID)
 		}
 		semanticStep := SemanticStep{
+			AssignmentSourceOrdinal: sourceStep.AssignmentSourceOrdinal, InvocationID: sourceStep.InvocationID, CallerStepOrdinal: sourceStep.CallerStepOrdinal,
 			StepID:             stepID,
 			StructuralIdentity: structuralIdentity(sourceStep.Anchor, sourceStep.SymbolPath, sourceStep.Kind),
 			Ordinal:            sourceStep.Ordinal,
@@ -157,20 +171,24 @@ func CompileDeterministicFeatureMap(target *ResolvedTarget, intent *TaskIntent, 
 			canonicalSymbol := sourceStep.Anchor.RepoRelativePath + "#" + sourceStep.SymbolPath
 			stepBySymbol[canonicalSymbol] = append(stepBySymbol[canonicalSymbol], semanticStep)
 		}
-		evidence = append(evidence, SemanticEvidence{
-			EvidenceID:         evidenceID,
-			Kind:               "source",
-			SourceAuthority:    "code",
-			ComputedBasisID:    opts.ComputedBasisID,
-			DocumentRevisionID: record.DocumentRevisionID,
-			Anchor:             sourceStep.Anchor,
-			Producer:           &ProducerInfo{Name: sliceResult.Language, Version: sliceResult.AnalyzerVersion},
-			ValidationStatus:   record.ValidationStatus,
-			RedactionStatus:    record.RedactionStatus,
-			SnapshotID:         opts.SnapshotID,
-			ByteRange:          sourceStep.Anchor.ByteRange,
-			LineRange:          [2]int{record.CodeLens.StartLine, record.CodeLens.EndLine},
-		})
+		if !evidenceIncluded[evidenceID] {
+			evidenceIncluded[evidenceID] = true
+			evidence = append(evidence, SemanticEvidence{
+				EvidenceID:             evidenceID,
+				Kind:                   "source",
+				SourceAuthority:        "code",
+				ComputedBasisID:        opts.ComputedBasisID,
+				DocumentRevisionID:     record.DocumentRevisionID,
+				Anchor:                 sourceStep.Anchor,
+				Producer:               &ProducerInfo{Name: sliceResult.Language, Version: sliceResult.AnalyzerVersion},
+				ValidationStatus:       record.ValidationStatus,
+				SourceValidationStatus: record.ValidationStatus,
+				RedactionStatus:        record.RedactionStatus,
+				SnapshotID:             opts.SnapshotID,
+				ByteRange:              sourceStep.Anchor.ByteRange,
+				LineRange:              [2]int{record.CodeLens.StartLine, record.CodeLens.EndLine},
+			})
+		}
 	}
 	if result := sliceResult.ValidatedResult; result != nil && result.Closure.Status != "closed" {
 		reason := strings.Join(result.Closure.IncompleteReasons, ", ")
@@ -200,7 +218,9 @@ func CompileDeterministicFeatureMap(target *ResolvedTarget, intent *TaskIntent, 
 			status = "unknown"
 		}
 		toID := ""
-		if candidates := stepBySymbol[sourceEdge.ToSymbolPath]; len(candidates) == 1 {
+		if sourceEdge.TargetStepOrdinal != nil {
+			toID = stepByOrdinal[*sourceEdge.TargetStepOrdinal].StepID
+		} else if candidates := stepBySymbol[sourceEdge.ToSymbolPath]; len(candidates) == 1 && candidates[0].InvocationID == "" {
 			toID = candidates[0].StepID
 		} else if len(candidates) > 1 {
 			// A relation-level ambiguity is not a query-target ambiguity. The
@@ -225,7 +245,7 @@ func CompileDeterministicFeatureMap(target *ResolvedTarget, intent *TaskIntent, 
 				boundaryTargets = append(boundaryTargets, toID)
 			}
 			from.Rules = append(from.Rules, "boundary:"+sourceEdge.ToSymbolPath)
-			unknowns = append(unknowns, fusion.Unknown{Subject: sourceEdge.ToSymbolPath, Reason: "edge target is outside the selected structural slice"})
+			unknowns = append(unknowns, fusion.Unknown{Subject: sourceEdge.ToSymbolPath, Reason: unresolvedSliceReason(sourceEdge)})
 			continue
 		}
 		if status != "resolved" {
@@ -234,7 +254,11 @@ func CompileDeterministicFeatureMap(target *ResolvedTarget, intent *TaskIntent, 
 		if !stepIDs[toID] {
 			return nil, nil, fmt.Errorf("invalid_identity: edge target %s is not a canonical step", sourceEdge.ToSymbolPath)
 		}
-		semanticEdges = append(semanticEdges, SemanticEdge{FromStepID: from.StepID, ToStepID: toID, ToSymbolPath: sourceEdge.ToSymbolPath, Kind: sourceEdge.Kind, ResolutionStatus: status})
+		conditions := make([]SemanticBranchCondition, 0, len(sourceEdge.Conditions))
+		for _, condition := range sourceEdge.Conditions {
+			conditions = append(conditions, SemanticBranchCondition{StepID: stepByOrdinal[condition.StepOrdinal].StepID, Outcome: condition.Outcome})
+		}
+		semanticEdges = append(semanticEdges, SemanticEdge{Conditions: conditions, FromStepID: from.StepID, ToStepID: toID, ToSymbolPath: sourceEdge.ToSymbolPath, Kind: sourceEdge.Kind, ResolutionStatus: status})
 	}
 
 	sort.SliceStable(semanticSteps, func(i, j int) bool { return semanticSteps[i].Ordinal < semanticSteps[j].Ordinal })
@@ -510,4 +534,11 @@ func deref(value *string) string {
 		return ""
 	}
 	return *value
+}
+
+func unresolvedSliceReason(edge slicing.SliceEdge) string {
+	if edge.UnresolvedReason != "" {
+		return edge.UnresolvedReason
+	}
+	return "edge target is outside the selected structural slice"
 }

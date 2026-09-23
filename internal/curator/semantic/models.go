@@ -92,28 +92,37 @@ type MapSummary struct {
 }
 
 type SemanticStep struct {
-	StepID             string             `json:"stepId"`
-	StructuralIdentity string             `json:"structuralIdentity"`
-	Ordinal            int                `json:"ordinal"`
-	Name               string             `json:"name"`
-	TechnicalName      string             `json:"technicalName,omitempty"`
-	Layer              string             `json:"layer,omitempty"`
-	Kind               string             `json:"kind,omitempty"`
-	Anchor             slicing.Anchor     `json:"anchor"`
-	CodeLens           *fusion.CodeLens   `json:"codeLens,omitempty"`
-	StateDelta         *fusion.StateDelta `json:"stateDelta,omitempty"`
-	SideEffect         *string            `json:"sideEffect,omitempty"`
-	Branch             *string            `json:"branch,omitempty"`
-	Rules              []string           `json:"rules,omitempty"`
-	EvidenceRefs       []string           `json:"evidenceRefs,omitempty"`
+	AssignmentSourceOrdinal *int               `json:"assignmentSourceOrdinal,omitempty"`
+	InvocationID            string             `json:"invocationId,omitempty"`
+	CallerStepOrdinal       *int               `json:"callerStepOrdinal,omitempty"`
+	StepID                  string             `json:"stepId"`
+	StructuralIdentity      string             `json:"structuralIdentity"`
+	Ordinal                 int                `json:"ordinal"`
+	Name                    string             `json:"name"`
+	TechnicalName           string             `json:"technicalName,omitempty"`
+	Layer                   string             `json:"layer,omitempty"`
+	Kind                    string             `json:"kind,omitempty"`
+	Anchor                  slicing.Anchor     `json:"anchor"`
+	CodeLens                *fusion.CodeLens   `json:"codeLens,omitempty"`
+	StateDelta              *fusion.StateDelta `json:"stateDelta,omitempty"`
+	SideEffect              *string            `json:"sideEffect,omitempty"`
+	Branch                  *string            `json:"branch,omitempty"`
+	Rules                   []string           `json:"rules,omitempty"`
+	EvidenceRefs            []string           `json:"evidenceRefs,omitempty"`
+}
+
+type SemanticBranchCondition struct {
+	StepID  string `json:"stepId"`
+	Outcome string `json:"outcome"`
 }
 
 type SemanticEdge struct {
-	FromStepID       string `json:"fromStepId"`
-	ToStepID         string `json:"toStepId"`
-	ToSymbolPath     string `json:"toSymbolPath"`
-	Kind             string `json:"kind"`
-	ResolutionStatus string `json:"resolutionStatus"`
+	Conditions       []SemanticBranchCondition `json:"conditions,omitempty"`
+	FromStepID       string                    `json:"fromStepId"`
+	ToStepID         string                    `json:"toStepId"`
+	ToSymbolPath     string                    `json:"toSymbolPath"`
+	Kind             string                    `json:"kind"`
+	ResolutionStatus string                    `json:"resolutionStatus"`
 }
 
 type RequirementAlignment struct {
@@ -174,18 +183,19 @@ type DeltaChange struct {
 }
 
 type SemanticEvidence struct {
-	EvidenceID         string         `json:"evidenceId"`
-	Kind               string         `json:"kind"`
-	SourceAuthority    string         `json:"sourceAuthority"`
-	ComputedBasisID    string         `json:"computedBasisId,omitempty"`
-	DocumentRevisionID string         `json:"documentRevisionId,omitempty"`
-	Anchor             slicing.Anchor `json:"anchor"`
-	Producer           *ProducerInfo  `json:"producer,omitempty"`
-	ValidationStatus   string         `json:"validationStatus,omitempty"`
-	RedactionStatus    string         `json:"redactionStatus,omitempty"`
-	SnapshotID         string         `json:"snapshotId,omitempty"`
-	ByteRange          [2]int         `json:"byteRange,omitempty"`
-	LineRange          [2]int         `json:"lineRange,omitempty"`
+	SourceValidationStatus string         `json:"sourceValidationStatus,omitempty"`
+	EvidenceID             string         `json:"evidenceId"`
+	Kind                   string         `json:"kind"`
+	SourceAuthority        string         `json:"sourceAuthority"`
+	ComputedBasisID        string         `json:"computedBasisId,omitempty"`
+	DocumentRevisionID     string         `json:"documentRevisionId,omitempty"`
+	Anchor                 slicing.Anchor `json:"anchor"`
+	Producer               *ProducerInfo  `json:"producer,omitempty"`
+	ValidationStatus       string         `json:"validationStatus,omitempty"`
+	RedactionStatus        string         `json:"redactionStatus,omitempty"`
+	SnapshotID             string         `json:"snapshotId,omitempty"`
+	ByteRange              [2]int         `json:"byteRange,omitempty"`
+	LineRange              [2]int         `json:"lineRange,omitempty"`
 }
 
 type ProducerInfo struct {

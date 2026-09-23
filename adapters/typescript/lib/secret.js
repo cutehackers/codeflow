@@ -3,6 +3,7 @@
 // Single-gate secret pattern matching internal/secret (R5, A6)
 const secretPattern = /(?:(?:\b(?:api[_-]?key|secret|token|password|credential|authorization|private[_-]?key|access[_-]?token|client[_-]?secret)\b)|[A-Za-z][A-Za-z0-9]*(?:api[_-]?key|secret|token|password|credential|authorization|private[_-]?key|access[_-]?token|client[_-]?secret))\s*(?:===|==|:=|[:=])\s*['"]?[^\s;'"}]+['"]?/gi;
 const quotedSecretPattern = /"(?:(?:api[_-]?key|secret|token|password|credential|authorization|private[_-]?key|access[_-]?token|client[_-]?secret)[A-Za-z0-9_-]*|[A-Za-z][A-Za-z0-9_-]*(?:api[_-]?key|secret|token|password|credential|authorization|private[_-]?key|access[_-]?token|client[_-]?secret)[A-Za-z0-9_-]*)"\s*:\s*(?:"[^"\\]*(?:\\.[^"\\]*)*"?|[^,\s}\]]+)/gis;
+const sensitiveAssignmentPattern = /((?:\b(?:const|let|var)\s+|^\s*)\b(?:api[_-]?key|secret|token|password|credential|authorization|private[_-]?key|access[_-]?token|client[_-]?secret)\b\s*(?::=|:(?!=)|=(?!=|>))\s*)([^;\r\n]+)/gim;
 
 function redactRaw(input) {
   let count = 0;
@@ -10,9 +11,18 @@ function redactRaw(input) {
     count++;
     return '***REDACTED***';
   });
-  text = text.replace(secretPattern, (match) => {
+  // A sensitive variable can receive its value through a call such as
+  // request.headers.get(...). Redact the complete expression, not only its
+  // first token, so the remaining display text cannot expose a header name or
+  // become a broken source fragment.
+  text = text.replace(sensitiveAssignmentPattern, (_, prefix) => {
     count++;
-    const opMatch = match.match(/^(.*?\b(?:api[_-]?key|secret|token|password)\s*(?:===|==|:=|[:=]))\s*/i);
+    return `${prefix}"***REDACTED***"`;
+  });
+  text = text.replace(secretPattern, (match) => {
+    if (match.includes('***REDACTED***')) return match;
+    count++;
+    const opMatch = match.match(/^(.*?\b(?:api[_-]?key|secret|token|password|credential|authorization|private[_-]?key|access[_-]?token|client[_-]?secret)\s*(?:===|==|:=|[:=]))\s*/i);
     if (opMatch) return `${opMatch[1]} "***REDACTED***"`;
     return '***REDACTED***';
   });

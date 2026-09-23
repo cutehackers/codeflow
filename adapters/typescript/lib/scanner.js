@@ -2,6 +2,7 @@
 
 const fs = require('fs');
 const path = require('path');
+const { scanSyntaxFunctions } = require('./syntax_functions');
 
 const GENERIC_PARAMS = '<(?:[^<>]|<(?:[^<>]|<[^<>]*>)*>)*>';
 const NESTED_PARENS = '\\((?:[^()]|\\([^()]*\\))*\\)';
@@ -57,9 +58,8 @@ function isRegexStart(str, slashIndex) {
  * @param {string} source
  * @returns {object}
  */
-function scanSource(source) {
+function scanSource(source, fileName) {
   const classes = [];
-  const topLevelFunctions = [];
   const imports = [];
 
   // 1. Extract import statements
@@ -97,100 +97,9 @@ function scanSource(source) {
     }
   }
 
-  function isInsideClass(pos) {
-    for (const cls of classes) {
-      if (pos >= cls.bodyStart && pos <= cls.bodyEnd) {
-        return true;
-      }
-    }
-    return false;
-  }
-
-  // 3. Find top-level function declarations and arrow functions
-  const candidateFns = [];
-
-  const fnRe = new RegExp(fnRegex.source, 'g');
-  let fnMatch;
-  while ((fnMatch = fnRe.exec(source)) !== null) {
-    if (isInsideClass(fnMatch.index)) {
-      continue;
-    }
-    const fnName = fnMatch[1];
-    const bodyStart = fnMatch.index + fnMatch[0].length;
-    const bodyEnd = findMatchingBrace(source, bodyStart - 1);
-    const resolvedEnd = bodyEnd >= 0 ? bodyEnd : source.length;
-
-    candidateFns.push({
-      matchIndex: fnMatch.index,
-      name: fnName,
-      bodyStart,
-      bodyEnd: resolvedEnd,
-      isAsync: fnMatch[0].includes('async'),
-    });
-
-    if (bodyEnd >= 0 && bodyEnd > bodyStart) {
-      fnRe.lastIndex = bodyEnd + 1;
-    }
-  }
-
-  const arrowRe = new RegExp(arrowRegex.source, 'g');
-  let arrowMatch;
-  while ((arrowMatch = arrowRe.exec(source)) !== null) {
-    if (isInsideClass(arrowMatch.index)) {
-      continue;
-    }
-    const fnName = arrowMatch[1];
-    const bodyStart = arrowMatch.index + arrowMatch[0].length;
-    const bodyEnd = findMatchingBrace(source, bodyStart - 1);
-    const resolvedEnd = bodyEnd >= 0 ? bodyEnd : source.length;
-
-    candidateFns.push({
-      matchIndex: arrowMatch.index,
-      name: fnName,
-      bodyStart,
-      bodyEnd: resolvedEnd,
-      isAsync: arrowMatch[0].includes('async'),
-    });
-
-    if (bodyEnd >= 0 && bodyEnd > bodyStart) {
-      arrowRe.lastIndex = bodyEnd + 1;
-    }
-  }
-
-  // Sort candidate top-level functions by declaration order
-  candidateFns.sort((a, b) => a.matchIndex - b.matchIndex);
-
-  // Filter out any candidate that is nested inside another top-level function
-  const directTopLevel = [];
-  for (const fn of candidateFns) {
-    const isInsideOther = directTopLevel.some(
-      parent => fn.matchIndex >= parent.matchIndex && fn.bodyEnd <= parent.bodyEnd
-    );
-    if (!isInsideOther) {
-      directTopLevel.push(fn);
-    }
-  }
-
-  // For each direct top-level function, register it and recursively scan its body
-  for (const fn of directTopLevel) {
-    topLevelFunctions.push({
-      name: fn.name,
-      localName: fn.name,
-      parentScope: '',
-      bodyStart: fn.bodyStart,
-      bodyEnd: fn.bodyEnd,
-      isAsync: fn.isAsync,
-    });
-
-    if (fn.bodyEnd > fn.bodyStart) {
-      const nested = scanFunctionBody(source, fn.bodyStart, fn.bodyEnd, fn.name);
-      topLevelFunctions.push(...nested);
-    }
-  }
-
   return {
     classes,
-    topLevelFunctions,
+    topLevelFunctions: scanSyntaxFunctions(source, fileName).functions,
     imports,
   };
 }

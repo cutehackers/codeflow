@@ -14,7 +14,7 @@
       id="view-code"
       type="button"
       aria-pressed={viewMode === 'code'}
-      aria-controls="code-flow"
+      aria-controls="source-panel"
       onclick={() => setView('code')}
     >
       코드 흐름
@@ -23,7 +23,7 @@
       id="view-process"
       type="button"
       aria-pressed={viewMode === 'process'}
-      aria-controls="process-flow"
+      aria-controls="source-panel"
       onclick={() => setView('process')}
     >
       처리 흐름

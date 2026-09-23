@@ -369,7 +369,7 @@ func TestTier3_MCPServer_EndToEndTools(t *testing.T) {
 // TIER 4: FlowView, Installer & End-to-End Workflows
 // ---------------------------------------------------------------------------
 
-func TestTier4_FlowView_7LaneRendering(t *testing.T) {
+func TestTier4_FlowView_GatewayRoleRendering(t *testing.T) {
 	root := moduleRoot(t)
 	appDir := filepath.Join(root, "testdata", "ts_example_app")
 
@@ -395,11 +395,51 @@ func TestTier4_FlowView_7LaneRendering(t *testing.T) {
 	bodyBytes, _ := io.ReadAll(resp.Body)
 	body := string(bodyBytes)
 
-	// Check that the 7 canonical layers are represented
-	expectedLanes := []string{"presentation", "controller", "usecase", "domain", "data", "infra", "external"}
-	for _, lane := range expectedLanes {
-		if !strings.Contains(body, lane) && !strings.Contains(strings.ToLower(body), lane) {
-			t.Errorf("expected lane %q in FlowView UI", lane)
+	lowerBody := strings.ToLower(body)
+
+	// Check that the 6 canonical business flow roles and their UI labels are represented (FA-08, §12.9)
+	expectedRoles := []struct {
+		role  string
+		label string
+	}{
+		{role: "entry", label: "시작"},
+		{role: "decision", label: "판단"},
+		{role: "process", label: "처리"},
+		{role: "effect", label: "외부 효과"},
+		{role: "result", label: "결과"},
+		{role: "boundary", label: "분석 경계"},
+	}
+	for _, item := range expectedRoles {
+		if !strings.Contains(lowerBody, item.role) {
+			t.Errorf("expected business flow role %q in FlowView UI", item.role)
+		}
+		if !strings.Contains(body, item.label) {
+			t.Errorf("expected business flow role label %q in FlowView UI", item.label)
+		}
+	}
+
+	// Verify required FlowView UI containers and interactive markers
+	expectedContainers := []string{
+		"data-view=\"flowview\"",
+		"id=\"execution-navigation\"",
+		"id=\"code-flow\"",
+		"id=\"context\"",
+		"id=\"query-input\"",
+		"id=\"request-form\"",
+	}
+	for _, container := range expectedContainers {
+		if !strings.Contains(body, container) {
+			t.Errorf("expected container marker %q in FlowView UI", container)
+		}
+	}
+
+	// Verify that deprecated architecture layer concept is purged from FlowView UI (FA-08, §12.9)
+	if strings.Contains(lowerBody, "architecture") {
+		t.Errorf("deprecated 'architecture' marker should not appear in FlowView UI")
+	}
+	for _, deprecated := range []string{"presentation", "usecase", "infra"} {
+		if strings.Contains(lowerBody, deprecated) {
+			t.Errorf("deprecated architecture layer %q should not appear in FlowView UI", deprecated)
 		}
 	}
 }

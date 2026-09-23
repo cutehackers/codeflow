@@ -19,6 +19,7 @@ const CAPABILITIES = Object.freeze({
   progress: true,
   batchAck: true,
   snapshotOverlay: true,
+  flowContext: true,
   analysisMetadata: true,
 	maxMessageBytes: 128 * 1024 * 1024,
   maxInFlight: 64,

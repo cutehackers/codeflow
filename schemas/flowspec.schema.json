@@ -15,6 +15,35 @@
   ],
   "additionalProperties": false,
   "properties": {
+	"flowResolution": {
+	  "type": "object",
+	  "additionalProperties": false,
+	  "required": ["schemaVersion", "status", "rawRequest", "candidateId", "entrySymbolPath", "flowId", "evidence"],
+	  "properties": {
+		"schemaVersion": {"const": 1},
+		"status": {"const": "resolved"},
+		"rawRequest": {"type": "string", "minLength": 1},
+		"candidateId": {"type": "string", "minLength": 1},
+		"entrySymbolPath": {"type": "string", "minLength": 1},
+		"flowId": {"type": "string", "minLength": 1},
+		"evidence": {
+		  "type": "array",
+		  "minItems": 1,
+		  "items": {
+			"type": "object",
+			"additionalProperties": false,
+			"required": ["candidateId", "entrySymbolPath", "description", "snapshotId", "computedBasisId"],
+			"properties": {
+			  "candidateId": {"type": "string", "minLength": 1},
+			  "entrySymbolPath": {"type": "string", "minLength": 1},
+			  "description": {"type": "string", "minLength": 1},
+			  "snapshotId": {"type": "string", "minLength": 1},
+			  "computedBasisId": {"type": "string", "minLength": 1}
+			}
+		  }
+		}
+	  }
+	},
     "flowId": {
       "$ref": "https://codeflow.local/schemas/identity.schema.json#/$defs/flowId"
     },
@@ -45,6 +74,9 @@
           "anchor"
         ],
         "properties": {
+          "invocationId": { "type": "string", "minLength": 1, "maxLength": 256 },
+          "callerStepOrdinal": { "type": "integer", "minimum": 1 },
+          "assignmentSourceOrdinal": { "type": "integer", "minimum": 1 },
           "ordinal": { "type": "integer", "minimum": 1 },
           "name": {
             "type": "string",
@@ -93,7 +125,7 @@
           },
           "kind": {
             "type": "string",
-            "enum": ["guard", "mutation", "call", "branch"],
+            "enum": ["guard", "mutation", "call", "branch", "return", "throw", "await", "break", "continue"],
             "description": "OPTIONAL structural kind carried over from the slice step so FlowView can label the step in natural language (조건 확인/상태 변경/기능 실행/흐름 분기). Presentation-only; never used for identity."
           },
           "layer": {
@@ -165,9 +197,10 @@
         "additionalProperties": false,
         "required": ["kind", "toSymbolPath", "resolutionStatus"],
         "properties": {
+          "conditions": {"type": "array", "minItems": 1, "maxItems": 1, "items": {"type": "object", "additionalProperties": false, "required": ["stepOrdinal", "outcome"], "properties": {"stepOrdinal": {"type": "integer", "minimum": 1}, "outcome": {"type": "string", "enum": ["truthy", "falsy", "nullish", "non_nullish"]}}}},
           "kind": {
             "type": "string",
-            "enum": ["resolved_cross_file", "boundary_call", "unknown_edge"]
+            "enum": ["resolved_cross_file", "boundary_call", "unknown_edge", "control_flow", "parallel_wait", "failure", "finally", "return", "await_resume", "await_loop_back", "loop_back", "loop_reentry", "loop_exit", "loop_exit_back", "switch_exit"]
           },
           "toSymbolPath": {
             "type": "string",
@@ -177,6 +210,8 @@
             "type": "string",
             "enum": ["resolved", "unresolved_dynamic", "unresolved_type", "truncated"]
           },
+          "unresolvedReason": { "type": "string", "minLength": 1 },
+          "targetStepOrdinal": { "type": "integer", "minimum": 1 },
           "stepOrdinal": {
             "type": "integer",
             "minimum": 1,

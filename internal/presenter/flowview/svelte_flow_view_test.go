@@ -15,11 +15,11 @@ func TestFlowViewServesSvelteUI(t *testing.T) {
 
 	requiredMarkers := []string{
 		"data-view=\"flowview\"",
-		"MACRO CONTEXT FLOWSEQUENCE",
-		"Blast Radius Radar",
-		"id=\"flow-sequence\"",
-		"id=\"radar-card\"",
-		"id=\"radar-svg\"",
+		"요청 흐름의 관문과 연결",
+		"id=\"execution-navigation\"",
+		"요청 흐름 안의 전후 연결",
+		"id=\"code-flow\"",
+		"id=\"context\"",
 		"id=\"query-input\"",
 		"id=\"request-form\"",
 	}

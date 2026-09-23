@@ -11,6 +11,7 @@ import (
 // CandidateFrame represents an unranked gateway scene produced by the macro-clumping stage.
 type CandidateFrame struct {
 	Role            string // entry | decision | process | effect | result | boundary
+	Category        string
 	Title           string
 	PrimaryStepRef  string
 	StepRefs        []string
@@ -21,6 +22,89 @@ type CandidateFrame struct {
 	Score           int
 	SymbolPath      string
 	Status          string
+}
+
+func classifyFusionDecisionPurpose(step fusion.FlowStep) string {
+	text := strings.ToLower(step.Name)
+	if step.StepID != nil {
+		text += " " + strings.ToLower(*step.StepID)
+	}
+	if step.Branch != nil {
+		text += " " + strings.ToLower(*step.Branch)
+	}
+
+	matches := make(map[string]bool)
+	for _, rule := range step.Rules {
+		r := strings.ToLower(rule)
+		if strings.Contains(r, "auth") || strings.Contains(r, "permission") || strings.Contains(r, "credential") || strings.Contains(r, "role") || strings.Contains(r, "access") {
+			matches["auth"] = true
+		}
+		if strings.Contains(r, "limit") || strings.Contains(r, "quota") || strings.Contains(r, "rate") || strings.Contains(r, "balance") {
+			matches["limit"] = true
+		}
+		if strings.Contains(r, "validation") || strings.Contains(r, "validate") || strings.Contains(r, "verify") || strings.Contains(r, "schema") {
+			matches["validation"] = true
+		}
+		if strings.Contains(r, "precondition") || strings.Contains(r, "status") || strings.Contains(r, "ready") || strings.Contains(r, "state_check") {
+			matches["precondition"] = true
+		}
+	}
+
+	if len(matches) == 0 {
+		if strings.Contains(text, "permission") || strings.Contains(text, "authorize") ||
+			strings.Contains(text, "role") || strings.Contains(text, "credential") ||
+			strings.Contains(text, "access") || strings.Contains(text, "forbidden") ||
+			strings.Contains(text, "unauthorized") || strings.Contains(text, "allow") ||
+			strings.Contains(text, "token") || strings.Contains(text, "authenticate") ||
+			strings.Contains(text, "권한") || strings.Contains(text, "인증") ||
+			strings.Contains(text, "인가") || strings.Contains(text, "접근") ||
+			strings.Contains(text, "토큰") {
+			matches["auth"] = true
+		}
+		if strings.Contains(text, "limit") || strings.Contains(text, "quota") ||
+			strings.Contains(text, "rate") || strings.Contains(text, "threshold") ||
+			strings.Contains(text, "balance") || strings.Contains(text, "amount") ||
+			strings.Contains(text, "budget") || strings.Contains(text, "한도") ||
+			strings.Contains(text, "잔액") || strings.Contains(text, "초과") {
+			matches["limit"] = true
+		}
+		if strings.Contains(text, "validate") || strings.Contains(text, "valid") ||
+			strings.Contains(text, "schema") || strings.Contains(text, "format") ||
+			strings.Contains(text, "required") || strings.Contains(text, "verify") ||
+			strings.Contains(text, "검증") || strings.Contains(text, "유효") ||
+			strings.Contains(text, "형식") || strings.Contains(text, "누락") {
+			matches["validation"] = true
+		}
+		if strings.Contains(text, "ready") || strings.Contains(text, "init") ||
+			strings.Contains(text, "state") || strings.Contains(text, "status") ||
+			strings.Contains(text, "enabled") || strings.Contains(text, "active") ||
+			strings.Contains(text, "상태") || strings.Contains(text, "준비") ||
+			strings.Contains(text, "활성") {
+			matches["precondition"] = true
+		}
+	}
+
+	if len(matches) == 1 {
+		for k := range matches {
+			return k
+		}
+	}
+	return ""
+}
+
+func fusionPurposeLabel(cat string) string {
+	switch cat {
+	case "auth":
+		return "권한·인증 확인"
+	case "validation":
+		return "입력값 검증"
+	case "limit":
+		return "한도·한계 확인"
+	case "precondition":
+		return "상태·준비 확인"
+	default:
+		return "조건 판단"
+	}
 }
 
 func getStepID(step fusion.FlowStep, idx int) string {
@@ -214,23 +298,29 @@ func (mc *MacroClumper) Clump(steps []fusion.FlowStep, edges []fusion.FlowEdge) 
 			}
 		}
 
-		// Consecutive guard merging within same enclosing symbol:
-		if role == "decision" && len(candidates) > 0 && candidates[len(candidates)-1].Role == "decision" && candidates[len(candidates)-1].SymbolPath == sym {
-			last := &candidates[len(candidates)-1]
-			last.StepRefs = append(last.StepRefs, getStepID(step, i))
-			last.Title = "사전 유효성 검증"
-			st := computeFusionStepStatus(step)
-			if (st == "unknown" || st == "partial") && last.Status == "verified" {
-				last.Status = "partial"
-			}
-			if last.CollapsedDetail == nil {
-				last.CollapsedDetail = &CollapsedDetail{
-					Count:  0,
-					Reason: "연속 유효성 검증 가드 병합",
+		stepCategory := ""
+		if role == "decision" {
+			stepCategory = classifyFusionDecisionPurpose(step)
+			// Consecutive guard merging within same enclosing symbol with exact same purpose:
+			if stepCategory != "" && len(candidates) > 0 && candidates[len(candidates)-1].Role == "decision" &&
+				candidates[len(candidates)-1].SymbolPath == sym && candidates[len(candidates)-1].Category == stepCategory {
+				last := &candidates[len(candidates)-1]
+				last.StepRefs = append(last.StepRefs, getStepID(step, i))
+				label := fusionPurposeLabel(stepCategory)
+				last.Title = label
+				st := computeFusionStepStatus(step)
+				if (st == "unknown" || st == "partial") && last.Status == "verified" {
+					last.Status = "partial"
 				}
+				if last.CollapsedDetail == nil {
+					last.CollapsedDetail = &CollapsedDetail{
+						Count:  0,
+						Reason: fmt.Sprintf("동일한 목적(%s)을 가진 연속 검증 단계 묶음", label),
+					}
+				}
+				last.CollapsedDetail.Count++
+				continue
 			}
-			last.CollapsedDetail.Count++
-			continue
 		}
 
 		// Consecutive mutation merging within same enclosing symbol:
@@ -259,6 +349,7 @@ func (mc *MacroClumper) Clump(steps []fusion.FlowStep, edges []fusion.FlowEdge) 
 		// Create new CandidateFrame
 		candidates = append(candidates, CandidateFrame{
 			Role:           role,
+			Category:       stepCategory,
 			Title:          step.Name,
 			PrimaryStepRef: getStepID(step, i),
 			StepRefs:       []string{getStepID(step, i)},

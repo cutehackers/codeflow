@@ -66,7 +66,7 @@ func TestFlowViewTaskViewEndpoint(t *testing.T) {
 	}
 
 	// 3. Unambiguous query
-	reqValid := httptest.NewRequest(http.MethodGet, "http://127.0.0.1/api/task/view?token="+srv.AuthToken()+"&entrySymbol=app/page.tsx%23HomePage.onQuickCheckout", nil)
+	reqValid := httptest.NewRequest(http.MethodGet, "http://127.0.0.1/api/task/view?token="+srv.AuthToken()+"&query=빠른+결제&entrySymbol=app/page.tsx%23HomePage.onQuickCheckout", nil)
 	recValid := httptest.NewRecorder()
 	srv.httpServer.Handler.ServeHTTP(recValid, reqValid)
 
@@ -86,6 +86,20 @@ func TestFlowViewTaskViewEndpoint(t *testing.T) {
 	if _, ok := resDoc["projection"]; !ok {
 		t.Error("missing projection in response")
 	}
+	resolution, ok := resDoc["flowResolution"].(map[string]any)
+	if !ok {
+		t.Fatal("missing flowResolution for a natural-language request")
+	}
+	if resolution["rawRequest"] != "빠른 결제" || resolution["status"] != "resolved" {
+		t.Fatalf("unexpected flow resolution: %v", resolution)
+	}
+	if resolution["entrySymbolPath"] != "app/page.tsx#HomePage.onQuickCheckout" {
+		t.Fatalf("resolution entry differs from the selected candidate: %v", resolution)
+	}
+	evidence, ok := resolution["evidence"].([]any)
+	if !ok || len(evidence) != 1 {
+		t.Fatalf("expected one verified selection evidence record, got %v", resolution["evidence"])
+	}
 	sbDoc, ok := resDoc["flowSequence"].(map[string]any)
 	if !ok || sbDoc == nil {
 		t.Fatal("missing or invalid flowSequence in response")
@@ -96,6 +110,13 @@ func TestFlowViewTaskViewEndpoint(t *testing.T) {
 	frames, ok := sbDoc["frames"].([]any)
 	if !ok || len(frames) == 0 {
 		t.Errorf("expected at least 1 frame in flowSequence, got %v", sbDoc["frames"])
+	}
+	for _, fRaw := range frames {
+		if fMap, ok := fRaw.(map[string]any); ok {
+			if arch, hasArch := fMap["architecture"]; hasArch && arch != "" {
+				t.Errorf("flowSequence frame must not contain deprecated architecture field: %v", fMap)
+			}
+		}
 	}
 	baseline, _ := resDoc["baseline"].(map[string]any)
 	if baseline == nil || baseline["status"] != "none" {

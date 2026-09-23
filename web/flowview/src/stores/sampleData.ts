@@ -197,7 +197,6 @@ export function samplePayload(version: 1 | 2 = 1): FlowTaskViewData {
       },
       condition: s.branch,
       outcomes: role === 'decision' ? ['success', 'failure'] : ['success'],
-      architecture: s.layer,
       status: 'verified' as const,
       frameMatchKey: `${role}|${s.symbol}`
     };

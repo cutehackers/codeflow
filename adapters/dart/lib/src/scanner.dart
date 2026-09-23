@@ -133,11 +133,7 @@ class _CodeFrame {
 }
 
 class _StringFrame {
-  _StringFrame({
-    required this.quote,
-    required this.raw,
-    required this.triple,
-  });
+  _StringFrame({required this.quote, required this.raw, required this.triple});
 
   final int quote;
   final bool raw;
@@ -230,11 +226,9 @@ _MaskOutput _maskSource(String src) {
         }
         final triple =
             i + 2 < src.length && src[i + 1] == ch && src[i + 2] == ch;
-        frames.add(_StringFrame(
-          quote: ch.codeUnitAt(0),
-          raw: isRaw,
-          triple: triple,
-        ));
+        frames.add(
+          _StringFrame(quote: ch.codeUnitAt(0), raw: isRaw, triple: triple),
+        );
         if (triple) {
           writeMasked(i, i + 3);
           i += 3;
@@ -258,10 +252,7 @@ _MaskOutput _maskSource(String src) {
       i += 2;
       continue;
     }
-    if (!sf.raw &&
-        ch == r'$' &&
-        i + 1 < src.length &&
-        src[i + 1] == '{') {
+    if (!sf.raw && ch == r'$' && i + 1 < src.length && src[i + 1] == '{') {
       out.write('  ');
       frames.add(_CodeFrame(interpolation: true));
       i += 2;
@@ -269,10 +260,7 @@ _MaskOutput _maskSource(String src) {
     }
     final q = String.fromCharCode(sf.quote);
     if (sf.triple) {
-      if (ch == q &&
-          i + 2 < src.length &&
-          src[i + 1] == q &&
-          src[i + 2] == q) {
+      if (ch == q && i + 2 < src.length && src[i + 1] == q && src[i + 2] == q) {
         writeMasked(i, i + 3);
         frames.removeLast();
         i += 3;
@@ -426,7 +414,13 @@ List<int> _computeLineStarts(String text) {
 }
 
 /// Segment of line [line] clipped to [from, to) as a string.
-String _lineSegment(String masked, List<int> lineStarts, int line, int from, int to) {
+String _lineSegment(
+  String masked,
+  List<int> lineStarts,
+  int line,
+  int from,
+  int to,
+) {
   final ls = lineStarts[line];
   var le = line + 1 < lineStarts.length ? lineStarts[line + 1] : masked.length;
   le -= 1; // drop trailing newline if present
@@ -463,24 +457,37 @@ ScanResult scanSource(String source) {
     final name = m.group(2)!;
     final declLine = _lineIndexAt(lineStarts, m.start);
     var brace = -1;
-    for (var j = m.end; j < masked.length; j++) {
+    for (var j = m.end; j < masked.length;) {
+      // Dart permits a primary constructor directly after the class name:
+      // `class Controller({required this.service}) extends ValueNotifier {`.
+      // Its named-parameter braces are not the class body. Skip the complete
+      // parameter list before looking for the declaration's body brace.
+      if (masked[j] == '(') {
+        final closeParen = _matchParen(masked, j);
+        if (closeParen == null) break;
+        j = closeParen + 1;
+        continue;
+      }
       if (masked[j] == '{') {
         brace = j;
         break;
       }
       if (masked[j] == ';') break; // malformed / forward declaration
+      j++;
     }
     if (brace < 0) continue;
     final end = _matchBrace(masked, brace);
     if (end == null) continue;
-    classes.add(ScannedClass(
-      name: name,
-      keyword: m.group(1)!,
-      declLine: declLine,
-      bodyStart: brace,
-      bodyEnd: end + 1,
-      methods: [],
-    ));
+    classes.add(
+      ScannedClass(
+        name: name,
+        keyword: m.group(1)!,
+        declLine: declLine,
+        bodyStart: brace,
+        bodyEnd: end + 1,
+        methods: [],
+      ),
+    );
   }
   classes.sort((a, b) => a.bodyStart.compareTo(b.bodyStart));
 
@@ -512,7 +519,13 @@ ScanResult scanSource(String source) {
     final firstLine = _lineIndexAt(lineStarts, cls.bodyStart + 1);
     final lastLine = _lineIndexAt(lineStarts, cls.bodyEnd);
     for (var ln = firstLine; ln <= lastLine; ln++) {
-      final seg = _lineSegment(masked, lineStarts, ln, cls.bodyStart + 1, cls.bodyEnd);
+      final seg = _lineSegment(
+        masked,
+        lineStarts,
+        ln,
+        cls.bodyStart + 1,
+        cls.bodyEnd,
+      );
       if (seg.isEmpty) continue;
       if (depth == 0) {
         final found = tryCallable(ln, seg);
@@ -533,7 +546,8 @@ ScanResult scanSource(String source) {
   final totalLines = lineStarts.length;
   for (var ln = 0; ln < totalLines; ln++) {
     final lineStart = lineStarts[ln];
-    while (classPtr < classes.length && classes[classPtr].bodyEnd <= lineStart) {
+    while (classPtr < classes.length &&
+        classes[classPtr].bodyEnd <= lineStart) {
       classPtr++;
     }
     final inClass =
@@ -561,6 +575,8 @@ ScanResult scanSource(String source) {
     lines: lines,
     classes: classes,
     topLevelFunctions: topLevelFunctions,
-    docComments: maskOut.comments.where((c) => c.text.trimLeft().startsWith('///')).toList(),
+    docComments: maskOut.comments
+        .where((c) => c.text.trimLeft().startsWith('///'))
+        .toList(),
   );
 }

@@ -1,6 +1,8 @@
 package semantic
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"math"
 	"strings"
@@ -155,8 +157,10 @@ func ResolveFeatureQueryTarget(query *TaskViewQuery, candidates []harvest.Candid
 			}
 		}
 		// If not in candidate list, allow direct entry
+		digest := sha256.Sum256([]byte(entrySymbol))
 		return &ResolvedTarget{
 			EntrySymbolPath: entrySymbol,
+			CandidateID:     "cand-" + hex.EncodeToString(digest[:8]),
 			FlowID:          fusion.ComputeFlowID(entrySymbol),
 			Title:           entrySymbol,
 		}, nil

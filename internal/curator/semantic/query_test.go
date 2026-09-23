@@ -155,6 +155,9 @@ func TestResolveFeatureQueryTarget_ZeroEntrypoints(t *testing.T) {
 	if err != nil {
 		t.Fatalf("explicit entrySymbol should bypass empty candidates, got: %v", err)
 	}
+	if target.CandidateID != "cand-c3f61f6f9432d53f" {
+		t.Fatalf("direct entry candidate identity = %q", target.CandidateID)
+	}
 	if target.EntrySymbolPath != "auth/service.go#Login" {
 		t.Fatalf("expected entrySymbol %q, got %q", "auth/service.go#Login", target.EntrySymbolPath)
 	}

@@ -19,6 +19,10 @@ import (
 	"codeflow/internal/collector/storage"
 )
 
+// sliceSemanticsVersion separates reusable facts when execution relations change.
+// Stored FlowViews retain their original immutable results.
+const sliceSemanticsVersion = "v41-async-caller-normal-return"
+
 // Anchor represents an exact byte-range anchor within a source file.
 type Anchor struct {
 	RepoRelativePath        string `json:"repoRelativePath"`
@@ -35,7 +39,7 @@ type Anchor struct {
 
 // StatementNodeMetadata represents verified statement AST node metadata.
 type StatementNodeMetadata struct {
-	NodeKind  string `json:"nodeKind"` // must be "statement"
+	NodeKind  string `json:"nodeKind"` // statement | expression | control_header
 	ByteRange [2]int `json:"byteRange"`
 	LineRange [2]int `json:"lineRange"`
 }
@@ -69,25 +73,37 @@ type FlowContextMetadata struct {
 
 // SliceStep represents a single guard, mutation, call, or branch step extracted from AST.
 type SliceStep struct {
-	Ordinal        int                  `json:"ordinal"`
-	Kind           string               `json:"kind"`
-	Description    string               `json:"description"`
-	SymbolPath     string               `json:"symbolPath"`
-	Anchor         Anchor               `json:"anchor"`
-	GuardCondition *string              `json:"guardCondition,omitempty"`
-	StateBefore    *string              `json:"stateBefore,omitempty"`
-	StateAfter     *string              `json:"stateAfter,omitempty"`
-	EffectTarget   *string              `json:"effectTarget,omitempty"`
-	Layer          string               `json:"layer,omitempty"`
-	FlowContext    *FlowContextMetadata `json:"flowContext,omitempty"`
+	AssignmentSourceOrdinal *int                 `json:"assignmentSourceOrdinal,omitempty"`
+	InvocationID            string               `json:"invocationId,omitempty"`
+	CallerStepOrdinal       *int                 `json:"callerStepOrdinal,omitempty"`
+	Ordinal                 int                  `json:"ordinal"`
+	Kind                    string               `json:"kind"`
+	Description             string               `json:"description"`
+	SymbolPath              string               `json:"symbolPath"`
+	Anchor                  Anchor               `json:"anchor"`
+	GuardCondition          *string              `json:"guardCondition,omitempty"`
+	StateBefore             *string              `json:"stateBefore,omitempty"`
+	StateAfter              *string              `json:"stateAfter,omitempty"`
+	EffectTarget            *string              `json:"effectTarget,omitempty"`
+	Layer                   string               `json:"layer,omitempty"`
+	FlowContext             *FlowContextMetadata `json:"flowContext,omitempty"`
 }
 
 // SliceEdge represents a call link between symbols/files or boundaries.
+// BranchCondition identifies the source decision and its required evaluation result.
+type BranchCondition struct {
+	StepOrdinal int    `json:"stepOrdinal"`
+	Outcome     string `json:"outcome"`
+}
+
 type SliceEdge struct {
-	Kind             string `json:"kind"`
-	ToSymbolPath     string `json:"toSymbolPath"`
-	ResolutionStatus string `json:"resolutionStatus"`
-	Depth            int    `json:"depth"`
+	Conditions        []BranchCondition `json:"conditions,omitempty"`
+	UnresolvedReason  string            `json:"unresolvedReason,omitempty"`
+	TargetStepOrdinal *int              `json:"targetStepOrdinal,omitempty"`
+	Kind              string            `json:"kind"`
+	ToSymbolPath      string            `json:"toSymbolPath"`
+	ResolutionStatus  string            `json:"resolutionStatus"`
+	Depth             int               `json:"depth"`
 	// StepOrdinal is OPTIONAL: 1-based ordinal of the step that produced this
 	// edge. Absent in older adapter payloads — consumers must not guess.
 	StepOrdinal *int   `json:"stepOrdinal,omitempty"`
@@ -197,6 +213,14 @@ func (r *Runner) Slice(ctx context.Context, repoRoot, candidateID, entrySymbolPa
 // SliceWithSnapshot executes a structural slice against an explicit immutable
 // basis and optional content overlay.
 func (r *Runner) SliceWithSnapshot(ctx context.Context, repoRoot, candidateID, entrySymbolPath string, opts map[string]any, snapshot protocol.Snapshot) (*SlicedPayload, error) {
+	// Advertise support without mutating the caller's options. The capability
+	// participates in cache identity so old analysis facts remain immutable.
+	executionOpts := make(map[string]any, len(opts)+1)
+	for key, value := range opts {
+		executionOpts[key] = value
+	}
+	executionOpts["includeExecutionSemantics"] = true
+	opts = executionOpts
 	// Best-effort cache lookup before calling adapter.
 	if repoRoot != "" {
 		cacheKey := computeSliceCacheKeyForSnapshot(snapshot, candidateID, entrySymbolPath, opts)
@@ -242,6 +266,9 @@ func (r *Runner) SliceWithSnapshot(ctx context.Context, repoRoot, candidateID, e
 	var payload SlicedPayload
 	if err := json.Unmarshal(sanitizedBytes, &payload); err != nil {
 		return nil, fmt.Errorf("unmarshal sliced payload: %w", err)
+	}
+	if err := ValidateExecutionReferences(payload.Steps, payload.Edges); err != nil {
+		return nil, fmt.Errorf("invalid execution references: %w", err)
 	}
 	if err := payload.BindValidatedResult(envelope); err != nil {
 		return nil, fmt.Errorf("bind validated slice result: %w", err)
@@ -291,6 +318,9 @@ func cachedSlicePayload(snapshot protocol.Snapshot, candidateID, entrySymbolPath
 	if err := json.Unmarshal(envelope.Payload, &payload); err != nil || payload.CandidateID != candidateID || payload.EntrySymbolPath != entrySymbolPath {
 		return nil, false
 	}
+	if err := ValidateExecutionReferences(payload.Steps, payload.Edges); err != nil {
+		return nil, false
+	}
 	if err := payload.BindValidatedResult(envelope); err != nil {
 		return nil, false
 	}
@@ -302,7 +332,7 @@ func cachedSlicePayload(snapshot protocol.Snapshot, candidateID, entrySymbolPath
 // computeSliceCacheKeyForSnapshot so the entry hash comes from captured bytes.
 func computeSliceCacheKey(repoRoot, candidateID, entrySymbolPath string, opts map[string]any, basis ...string) string {
 	fileByteHash := ""
-	versionInfo := "v4-ast-context"
+	versionInfo := sliceSemanticsVersion
 	if len(basis) > 0 && basis[0] != "" {
 		versionInfo += "|" + basis[0]
 	}
@@ -329,7 +359,7 @@ func computeSliceCacheKeyForSnapshot(snapshot protocol.Snapshot, candidateID, en
 			fileByteHash = hex.EncodeToString(h[:])
 		}
 	}
-	versionInfo := "v4-ast-context"
+	versionInfo := sliceSemanticsVersion
 	if snapshot.ComputedBasisID != "" {
 		versionInfo += "|" + snapshot.ComputedBasisID
 	}

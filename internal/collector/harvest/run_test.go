@@ -111,6 +111,9 @@ func copyExampleApp(t *testing.T) string {
 		if err != nil {
 			return err
 		}
+		if d.IsDir() && d.Name() == ".codeflow" {
+			return filepath.SkipDir
+		}
 		rel, rerr := filepath.Rel(src, path)
 		if rerr != nil {
 			return rerr

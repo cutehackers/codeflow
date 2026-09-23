@@ -1,9 +1,9 @@
 <script lang="ts">
-  import { flowStore, GATEWAY_ROLES, LAYER_LABELS, EDGE_LABELS } from '../stores/flowStore.svelte';
+  import { flowStore, GATEWAY_ROLES, EDGE_LABELS } from '../stores/flowStore.svelte';
   import type { FlowContext, DisplayedLine } from '../types/flow';
-  import type { FlowSequenceFrame } from '../types/flow_sequence';
+  import { sourceWindow } from '../stores/flowNavigation';
 
-  const frames = $derived(flowStore.selectedFrame ? [{ ...flowStore.selectedFrame, primaryStepRef: flowStore.selectedStepId || flowStore.selectedFrame.primaryStepRef }] : []);
+  const frames = $derived(flowStore.selectedFrame ? [flowStore.selectedFrame] : []);
   const selectedFrameId = $derived(flowStore.selectedFrameId);
   const selectedStepId = $derived(flowStore.selectedStepId);
   const compare = $derived(flowStore.compare);
@@ -23,13 +23,14 @@
     const match = isBaseline ? data.semanticMap.steps.find(s => s.stepId === stepId || (s.structuralIdentity && s.structuralIdentity === step?.structuralIdentity)) : null;
     const context = data.flowContexts[match?.stepId || stepId];
     if (!context) return null;
+    if (context.precision === 'exact' && !expandedSet.has(stepId)) return context;
     const source = data.sourceFiles?.[context.canonicalPath || ''];
     if (!source?.length) return context;
     const known = new Map(context.displayedLines.map(line => [line.lineNumber, line]));
     const lines = source.map(line => known.get(line.lineNumber) || line);
     if (expandedSet.has(stepId)) return {...context, displayedLines: lines};
     const focus = context.displayedLines.find(line => line.isHit)?.lineNumber || context.displayedLines[0]?.lineNumber || 1;
-    return {...context, displayedLines: lines.slice(Math.max(0,focus-5), Math.max(0,focus-5)+16)};
+    return {...context, displayedLines: sourceWindow(lines, focus)};
   }
 
   function getDisplayedLines(context: FlowContext | null, isExpanded: boolean): DisplayedLine[] {
@@ -47,26 +48,26 @@
 
   function onFrameSelect(frameID: string) {
     if (flowStore.selectedFrameId !== frameID) flowStore.select(frameID);
-    const frameEl = document.querySelector(`[data-flow-frame="${frameID}"], [data-flow-step="${flowStore.selectedStepId}"]`);
 
   }
 </script>
 
-<div id="code-flow" class="flow-panel">
+<div id="code-flow" class="flow-panel" data-code-focus>
   {#if !frames.length}
     <p class="empty">이 요청에서 확인된 처리 단계가 없습니다.</p>
   {:else}
     {#each frames as frame, index (frame.frameID)}
-      {@const isSelected = selectedFrameId === frame.frameID || (!selectedFrameId && selectedStepId === frame.primaryStepRef)}
-      {@const isExpanded = expandedSet.has(frame.primaryStepRef)}
-      {@const currContext = getContext(frame.primaryStepRef, false)}
-      {@const baseContext = compare ? getContext(frame.primaryStepRef, true) : null}
+      {@const focusStepID = selectedStepId || frame.primaryStepRef}
+      {@const isSelected = selectedFrameId === frame.frameID || (!selectedFrameId && selectedStepId === focusStepID)}
+      {@const isExpanded = expandedSet.has(focusStepID)}
+      {@const currContext = getContext(focusStepID, false)}
+      {@const baseContext = compare ? getContext(focusStepID, true) : null}
       {@const currLines = getDisplayedLines(currContext, isExpanded)}
       {@const baseLines = getDisplayedLines(baseContext, isExpanded)}
-      {@const roleName = GATEWAY_ROLES[frame.role] || (frame.architecture ? `${frame.role.toUpperCase()} (${LAYER_LABELS[frame.architecture] || frame.architecture})` : frame.role.toUpperCase())}
-      {@const path = currContext?.canonicalPath || frame.sourceAnchor?.repoRelativePath || ''}
-      {@const rels = getStepRelations(frame.primaryStepRef)}
-      {@const delta = getDelta(frame.primaryStepRef)}
+      {@const roleName = GATEWAY_ROLES[frame.role] || frame.role.toUpperCase()}
+      {@const path = currContext?.canonicalPath || flowStore.selectedStep?.anchor?.repoRelativePath || ''}
+      {@const rels = getStepRelations(focusStepID)}
+      {@const delta = getDelta(focusStepID)}
       {@const isSurgery = compare && (delta?.kind === 'added_behavior' || delta?.kind === 'changed_rule')}
       {@const desc = frame.text || (frame.condition ? `조건 · ${frame.condition}` : '다음 구현 연결 및 처리')}
 
@@ -75,37 +76,40 @@
       <article
         class="code-card"
         class:selected={isSelected}
-        class:outside-focus={matchingStepIds !== null && !matchingStepIds.has(frame.primaryStepRef)}
-        class:condition-match={matchingStepIds !== null && matchingStepIds.has(frame.primaryStepRef)}
+        class:outside-focus={matchingStepIds !== null && !matchingStepIds.has(focusStepID)}
+        class:condition-match={matchingStepIds !== null && matchingStepIds.has(focusStepID)}
         data-card={frame.frameID}
-        data-step-card={frame.primaryStepRef}
+        data-step-card={focusStepID}
         onclick={() => onFrameSelect(frame.frameID)}
       >
         <header class="card-head">
           <div class="card-head-top">
             <span class="card-frame-badge">FRAME {String(frame.ordinal || index + 1).padStart(2, '0')} · {roleName}</span>
             {#if isSurgery}
-              <span class="surgery-badge">⚡ ACTIVE SURGERY</span>
+              <span class="surgery-badge">변경된 코드</span>
+            {/if}
+            {#if currContext?.precision === 'exact' && currContext.sourceValidationStatus === 'verified'}
+              <span class="delta-tag">소스 확인</span>
             {/if}
             {#if compare && delta}
               {#if delta.kind === 'changed_rule'}
-                <span class="delta-tag mod">~ RULE CHG</span>
+                <span class="delta-tag mod">~ 조건 변경</span>
               {:else if delta.kind === 'added_behavior'}
-                <span class="delta-tag add">+ NEW SURGERY</span>
+                <span class="delta-tag add">+ 새 처리</span>
               {:else if delta.kind === 'removed_behavior'}
                 <span class="delta-tag del">- REMOVED</span>
               {/if}
             {:else if frame.status === 'partial'}
-              <span class="delta-tag mod">PARTIAL</span>
+              <span class="delta-tag mod">근거 일부 미확인</span>
             {:else if frame.status === 'unknown'}
-              <span class="delta-tag del">UNKNOWN</span>
+              <span class="delta-tag del">{frame.role === 'boundary' ? '연결 미확인' : '분석 미확인'}</span>
             {/if}
           </div>
           <div class="card-head-body">
-            <h3>{#if isSurgery}⚡ {/if}{frame.title}</h3>
+            <h3>{#if isSurgery}{/if}{frame.title}</h3>
             <p class="card-text">{desc}</p>
             {#if flowStore.selectedStep?.stepId !== flowStore.selectedFrame?.primaryStepRef}<p>{flowStore.selectedStep?.name}</p>{/if}
-            <div class="path">{path} · {frame.technicalAnchor || frame.sourceAnchor?.enclosingSymbolPath || ''}</div>
+            <div class="path">{path} · {flowStore.selectedStep?.technicalName || flowStore.selectedStep?.anchor?.enclosingSymbolPath || ''}</div>
           </div>
         </header>
 
@@ -120,12 +124,12 @@
             <div>
               <div class="compare-title">이전 · 선택한 분석</div>
               <!-- svelte-ignore a11y_no_noninteractive_tabindex -->
-              <pre class="source" tabindex="0" aria-label="이전 코드"><code>{#each baseLines as line (line.lineNumber)}<span class="line" class:hit={line.isHit}><span class="ln">{line.lineNumber}</span><span class="txt">{line.text}</span></span>{/each}</code></pre>
+              <pre class="source" tabindex="0" aria-label="이전 코드"><code>{#each baseLines as line (line.lineNumber)}<span class="line" class:hit={line.isHit}><span class="ln">{line.lineNumber}</span><span class="txt">{#if line.selection}{line.selection.before}<mark>{line.selection.text}</mark>{line.selection.after}{:else}{line.text}{/if}</span></span>{/each}</code></pre>
             </div>
             <div>
               <div class="compare-title">현재 코드</div>
               <!-- svelte-ignore a11y_no_noninteractive_tabindex -->
-              <pre class="source" tabindex="0" aria-label="현재 코드"><code>{#each currLines as line (line.lineNumber)}<span class="line" class:hit={line.isHit}><span class="ln">{line.lineNumber}</span><span class="txt">{line.text}</span></span>{/each}</code></pre>
+              <pre class="source" tabindex="0" aria-label="현재 코드"><code>{#each currLines as line (line.lineNumber)}<span class="line" class:hit={line.isHit}><span class="ln">{line.lineNumber}</span><span class="txt">{#if line.selection}{line.selection.before}<mark>{line.selection.text}</mark>{line.selection.after}{:else}{line.text}{/if}</span></span>{/each}</code></pre>
             </div>
           </div>
         {:else if currContext && currLines.length}
@@ -136,19 +140,19 @@
           {/if}
         {:else}
           {#if flowStore.isAutoReanalyzing}
-            <p class="source-empty">과거 세션 소스 컨텍스트가 누락되어 최신 워킹 트리 기반으로 자동 재분석 중입니다…</p>
+            <p class="source-empty">소스 문맥을 불러오는 중입니다…</p>
           {:else}
-            <p class="source-empty">이 분석에 연결된 소스가 없습니다. 코드 내용을 추정하지 않습니다.</p>
+            <p class="source-empty">이 분석에 보존된 소스가 없습니다. 필요하면 다시 분석을 눌러 주세요.</p>
           {/if}
         {/if}
 
         {#if currContext?.sourceLimitation}<p class="code-note">{currContext.sourceLimitation}</p>{/if}
         <div class="code-tools">
-          <button type="button" data-expand={frame.primaryStepRef} onclick={(e) => { e.stopPropagation(); flowStore.toggleExpand(frame.primaryStepRef); }}>
+          <button type="button" data-expand={focusStepID} disabled={!currContext?.displayedLines.length} onclick={(e) => { e.stopPropagation(); flowStore.toggleExpand(focusStepID); }}>
             {isExpanded ? '코드 접기' : '코드 더 보기'}
           </button>
           <span class="precision">
-            {currContext?.precision === 'exact' ? '선택 문장 강조' : '주변 코드 · 정확한 문장 범위 미확인'}
+            {currContext?.precision === 'exact' ? '선택 코드 범위 강조' : '주변 코드 · 정확한 코드 범위 미확인'}
           </span>
         </div>
 
@@ -191,11 +195,11 @@
     box-shadow: 2px 2px 0 var(--ink, #171717);
   }
   .code-card.outside-focus {
-    opacity: 0.35;
+    border-style: dashed;
   }
   .code-card.condition-match {
-    border-color: #2b8a3e;
-    background: #fbfefb;
+    border-color: #707070;
+    background: #fdfdfd;
   }
   .card-head {
     border-bottom: 1px solid #eeeeee;
@@ -239,9 +243,9 @@
     border: 1px solid #171717;
   }
   .delta-tag.del {
-    background: #ffe3e3;
-    color: #c92a2a;
-    border: 1px solid #ffa8a8;
+    background: #e9e9e9;
+    color: #4c4c4c;
+    border: 1px solid #bababa;
   }
   .card-head-body h3 {
     margin: 3px 0 4px;
@@ -257,11 +261,11 @@
   .path {
     font-family: ui-monospace, monospace;
     font-size: 9.5px;
-    color: #888888;
+    color: #626262;
   }
   .collapsed-banner {
-    background: #f7f7f5;
-    border: 1px dashed #d5d5d0;
+    background: #f7f7f7;
+    border: 1px dashed #d5d5d5;
     border-radius: 4px;
     padding: 4px 8px;
     margin-bottom: 10px;
@@ -270,6 +274,9 @@
   }
   .source {
     margin: 0;
+    box-sizing: border-box;
+    max-width: 100%;
+    min-width: 0;
     background: #f9f9f9;
     border: 1px solid #e0e0e0;
     border-radius: 5px;
@@ -281,9 +288,9 @@
   }
   .source-empty {
     font-size: 11px;
-    color: #888888;
+    color: #626262;
     padding: 12px;
-    background: #fafaf8;
+    background: #fafafa;
     border: 1px dashed #dddddd;
     border-radius: 5px;
   }
@@ -294,7 +301,7 @@
   .ln {
     width: 28px;
     text-align: right;
-    color: #aaaaaa;
+    color: #595959;
     user-select: none;
     font-size: 10px;
   }
@@ -303,15 +310,15 @@
     color: #222222;
   }
   .line.hit {
-    background: #fff8d6;
+    background: #f7f7f7;
     font-weight: 700;
   }
   .line.struct {
-    background: #f1f7ff;
+    background: #f6f6f6;
   }
   .code-note {
     font-size: 10px;
-    color: #888888;
+    color: #626262;
     margin-top: 4px;
   }
   .code-tools {
@@ -333,7 +340,7 @@
     background: #f0f0f0;
   }
   .precision {
-    color: #888888;
+    color: #626262;
   }
   .step-relations {
     margin-top: 8px;
@@ -356,7 +363,7 @@
   }
   .compare-grid {
     display: grid;
-    grid-template-columns: 1fr 1fr;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
     gap: 10px;
   }
   .compare-title {
@@ -365,4 +372,6 @@
     margin-bottom: 4px;
     color: #555555;
   }
+  .compare-grid > div { min-width: 0; }
+  @media(max-width:800px) { .compare-grid { grid-template-columns: minmax(0,1fr); } }
 </style>

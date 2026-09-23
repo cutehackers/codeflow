@@ -13,6 +13,36 @@
     "frames"
   ],
   "properties": {
+    "summaryLimitations": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "code",
+          "message",
+          "frameRefs"
+        ],
+        "properties": {
+          "code": {
+            "type": "string",
+            "minLength": 1
+          },
+          "message": {
+            "type": "string",
+            "minLength": 1
+          },
+          "frameRefs": {
+            "type": "array",
+            "minItems": 1,
+            "uniqueItems": true,
+            "items": {
+              "type": "string",
+              "minLength": 1
+            }
+          }
+        }
+      }
+    },
     "schemaId": {
       "type": "string",
       "enum": [
@@ -74,7 +104,6 @@
               "reason": { "type": "string" }
             }
           },
-          "architecture": { "type": "string" },
           "status": {
             "type": "string",
             "enum": ["verified", "partial", "unknown"]

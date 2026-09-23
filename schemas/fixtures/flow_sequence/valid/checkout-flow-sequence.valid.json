@@ -19,7 +19,6 @@
         "repoRelativePath": "src/checkout.ts",
         "enclosingSymbolPath": "CheckoutButton.onClick"
       },
-      "architecture": "UI",
       "status": "verified",
       "frameMatchKey": "entry|CheckoutButton.onClick"
     },
@@ -38,7 +37,6 @@
         "count": 1,
         "reason": "1 continuous validation step collapsed"
       },
-      "architecture": "Service",
       "status": "verified",
       "frameMatchKey": "decision|CartService.validate"
     }

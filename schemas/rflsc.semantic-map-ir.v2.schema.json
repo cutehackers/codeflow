@@ -325,6 +325,9 @@
             "type": "string",
             "minLength": 1
           },
+          "invocationId": { "type": "string", "minLength": 1, "maxLength": 256 },
+          "callerStepOrdinal": { "type": "integer", "minimum": 1 },
+          "assignmentSourceOrdinal": { "type": "integer", "minimum": 1 },
           "ordinal": {
             "type": "integer",
             "minimum": 1
@@ -484,6 +487,7 @@
           "resolutionStatus"
         ],
         "properties": {
+          "conditions": {"type": "array", "minItems": 1, "maxItems": 1, "items": {"type": "object", "additionalProperties": false, "required": ["stepId", "outcome"], "properties": {"stepId": {"type": "string", "minLength": 1}, "outcome": {"type": "string", "enum": ["truthy", "falsy", "nullish", "non_nullish"]}}}},
           "fromStepId": {
             "type": "string",
             "minLength": 1
@@ -563,6 +567,9 @@
           },
           "producer": {
             "type": "object"
+          },
+          "sourceValidationStatus": {
+            "enum": ["verified", "unknown", "invalid", "stale", "orphaned"]
           },
           "validationStatus": {
             "enum": [

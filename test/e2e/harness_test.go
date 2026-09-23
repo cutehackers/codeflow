@@ -45,11 +45,14 @@ func fixtureDir(t *testing.T, fixtureName string) string {
 	return path
 }
 
-// copyDir recursively copies a directory tree from src to dst.
+// copyDir copies fixture sources without carrying runtime analysis state.
 func copyDir(src, dst string) error {
 	return filepath.Walk(src, func(p string, info os.FileInfo, err error) error {
 		if err != nil {
 			return err
+		}
+		if info.IsDir() && info.Name() == ".codeflow" {
+			return filepath.SkipDir
 		}
 		rel, err := filepath.Rel(src, p)
 		if err != nil {
@@ -67,7 +70,7 @@ func copyDir(src, dst string) error {
 	})
 }
 
-// makeTempCopy creates a temporary directory with a full copy of the fixture repo.
+// makeTempCopy creates an isolated fixture without prior analysis state.
 func makeTempCopy(t *testing.T, fixtureName string) string {
 	t.Helper()
 	src := fixtureDir(t, fixtureName)

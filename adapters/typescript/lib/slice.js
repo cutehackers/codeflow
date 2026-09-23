@@ -1,4 +1,6 @@
 'use strict';
+const { normalReturnEdges } = require('./normal_return');
+const { calledThrowEdges, awaitedCalledThrowEdges } = require('./exception_propagation');
 
 const fs = require('fs');
 const path = require('path');
@@ -6,6 +8,8 @@ const { sha256Hex, canonicalAstFingerprint, byteOffset } = require('./sha256');
 const { redactSecrets } = require('./secret');
 const { humanizeIdentifier } = require('./humanize');
 const { scanSource } = require('./scanner');
+const { resolveHookMember } = require('./hook_binding');
+const { extractExecutionStatements } = require('./syntax_execution');
 const { overlayFor, createAnalysisTracker } = require('./analysis');
 
 const boundarySuffixes = [
@@ -47,6 +51,7 @@ function sliceFlow(params) {
   const repoRoot = path.resolve(params.repoRoot);
   const candidateId = params.candidateId;
   const entrySymbolPath = params.entrySymbolPath;
+  const includeExecutionSemantics = params.opts?.includeExecutionSemantics === true;
   const maxDepth = (params.opts && params.opts.maxDepth) || 5;
   const tracker = params.__analysisTracker || createAnalysisTracker(params, 'slice');
   const overlay = tracker.overlay || overlayFor(params);
@@ -80,7 +85,7 @@ function sliceFlow(params) {
     if (scanCache.has(p)) return scanCache.get(p);
     const content = readFile(p);
     if (content === null) return null;
-    const scan = scanSource(content);
+    const scan = scanSource(content, p);
     scanCache.set(p, scan);
     return scan;
   }
@@ -91,8 +96,17 @@ function sliceFlow(params) {
   let truncated = false;
   let visitedCycleDetected = false;
   let totalRedactedCount = 0;
+  const synchronousInvocations = new Set();
+  const normalReturnCallerInvocations = new Set();
+  const normalReturnExcludedOrdinals = new Set();
+  const prevailingFinallyReturnOrdinals = new Set();
+  const directThrowInvocations = new Set();
+  const directThrowCallerInvocations = new Set();
+  const asyncThrowInvocations = new Set();
+  const caughtCallTargets = new Map();
+  const awaitedCaughtCallTargets = new Map();
 
-  function sliceSymbolBody({ currentRelPath, className, methodName, depth }) {
+  function sliceSymbolBody({ currentRelPath, className, methodName, depth, invocationId, callerStepOrdinal }) {
     const fullSym = className ? `${className}.${methodName}` : methodName;
     const visitKey = `${currentRelPath}#${fullSym}`;
 
@@ -107,6 +121,9 @@ function sliceFlow(params) {
     }
 
     activeStack.add(visitKey);
+    const firstStepIndex = steps.length;
+    const invocation = includeExecutionSemantics
+      ? { invocationId, ...(callerStepOrdinal ? { callerStepOrdinal } : {}) } : {};
 
     try {
       const code = readFile(currentRelPath);
@@ -186,9 +203,19 @@ function sliceFlow(params) {
       const bodyText = code.substring(bodyStart, bodyEnd);
       const symbolRange = [byteOffset(code, bodyStart), byteOffset(code, bodyEnd)];
 
-      const stmts = extractStatements(bodyText, bodyStart, code);
+      const stmts = includeExecutionSemantics
+        ? extractExecutionStatements(code, currentRelPath, bodyStart, bodyEnd, extractStatements)
+        : extractStatements(bodyText, bodyStart, code);
 
+      if (stmts.normalReturnEligible) synchronousInvocations.add(invocationId);
+      if (stmts.normalReturnCallerEligible) normalReturnCallerInvocations.add(invocationId);
+      if (stmts.directThrowEligible) directThrowInvocations.add(invocationId);
+      if (stmts.directThrowCallerEligible) directThrowCallerInvocations.add(invocationId);
+      if (stmts.asyncThrowEligible) asyncThrowInvocations.add(invocationId);
+      const statementOrdinals = new Map();
       for (const stmt of stmts) {
+        const callName = stmt.methodName && `${stmt.receiver ? stmt.receiver + '.' : ''}${stmt.methodName}`;
+        if (stmt.type === 'call' && callName && uiNoiseDenylist.has(callName)) continue;
         const spanBytes = code.substring(stmt.startOffset, stmt.endOffset);
         const spanHash = sha256Hex(spanBytes);
         const canonicalAst = canonicalAstFingerprint(spanBytes);
@@ -203,7 +230,9 @@ function sliceFlow(params) {
           symbolRange,
         };
 
+        const context = stmt.flowContext && params.snapshot?.snapshotId ? {flowContext: {...stmt.flowContext, canonicalPath: currentRelPath, snapshotId: params.snapshot.snapshotId, sourceHash: fileHash}} : {};
         const stepOrdinal = steps.length + 1;
+        statementOrdinals.set(stmt, stepOrdinal);
 
         if (stmt.type === 'guard') {
           const condRedact = redactSecrets(stmt.guardCondition || '');
@@ -211,6 +240,8 @@ function sliceFlow(params) {
           totalRedactedCount += condRedact.count + descRedact.count;
 
           steps.push({
+            ...invocation,
+            ...context,
             ordinal: stepOrdinal,
             kind: 'guard',
             description: descRedact.text,
@@ -221,13 +252,15 @@ function sliceFlow(params) {
             stateAfter: null,
             effectTarget: null,
           });
-        } else if (stmt.type === 'mutation') {
+        } else if (['mutation', 'await', 'break', 'continue'].includes(stmt.type)) {
           const descRedact = redactSecrets(stmt.description || stmt.rawText);
           totalRedactedCount += descRedact.count;
 
           steps.push({
+            ...invocation,
+            ...context,
             ordinal: stepOrdinal,
-            kind: 'mutation',
+            kind: stmt.type,
             description: descRedact.text,
             symbolPath: fullSym,
             anchor,
@@ -236,7 +269,9 @@ function sliceFlow(params) {
             stateAfter: stmt.stateAfter || null,
             effectTarget: null,
           });
-        } else if (stmt.type === 'call' || stmt.type === 'effect') {
+        } else if (stmt.type === 'call' || stmt.type === 'effect' || stmt.type === 'return' || stmt.type === 'throw') {
+          const condRedact = redactSecrets(stmt.guardCondition || '');
+          totalRedactedCount += condRedact.count;
           const descRedact = redactSecrets(stmt.description || stmt.rawText);
           totalRedactedCount += descRedact.count;
 
@@ -244,12 +279,14 @@ function sliceFlow(params) {
           const effectTarget = isBoundary ? `${stmt.receiver ? stmt.receiver + '.' : ''}${stmt.methodName}` : null;
 
           steps.push({
+            ...invocation,
+            ...context,
             ordinal: stepOrdinal,
-            kind: 'call',
+            kind: ['return', 'throw'].includes(stmt.type) ? stmt.type : 'call',
             description: descRedact.text,
             symbolPath: fullSym,
             anchor,
-            guardCondition: null,
+            guardCondition: condRedact.text || null,
             stateBefore: null,
             stateAfter: null,
             effectTarget,
@@ -275,23 +312,32 @@ function sliceFlow(params) {
               readFile,
               getScan,
               tsConfig,
+              callOffset: stmt.startOffset,
+              callEndOffset: stmt.endOffset,
             });
 
             if (target) {
-              edges.push({
+              const edge = {
                 kind: 'resolved_cross_file',
                 toSymbolPath: `${target.relPath}#${target.className ? target.className + '.' : ''}${target.methodName}`,
                 resolutionStatus: 'resolved',
                 depth: depth + 1,
                 stepOrdinal,
-              });
+              };
+              edges.push(edge);
 
-              sliceSymbolBody({
+              const targetStepOrdinal = sliceSymbolBody({
                 currentRelPath: target.relPath,
                 className: target.className,
                 methodName: target.methodName,
                 depth: depth + 1,
+                invocationId: sha256Hex(JSON.stringify([invocationId, currentRelPath, stmt.startOffset, stmt.endOffset, edge.toSymbolPath])),
+                callerStepOrdinal: stepOrdinal,
               });
+              if (includeExecutionSemantics) {
+                if (targetStepOrdinal) edge.targetStepOrdinal = targetStepOrdinal;
+                else edge.resolutionStatus = depth + 1 >= maxDepth ? 'truncated' : 'unresolved_type';
+              }
             } else {
               const rawTarget = `${stmt.receiver ? stmt.receiver + '.' : ''}${stmt.methodName}`;
               const safeTarget = rawTarget.replace(/[^A-Za-z0-9_.$-]/g, '_') || 'unknown';
@@ -309,6 +355,8 @@ function sliceFlow(params) {
           totalRedactedCount += descRedact.count;
 
           steps.push({
+            ...invocation,
+            ...context,
             ordinal: stepOrdinal,
             kind: 'branch',
             description: descRedact.text,
@@ -321,6 +369,64 @@ function sliceFlow(params) {
           });
         }
       }
+      if (includeExecutionSemantics) {
+        for (const statement of stmts) {
+          if (!statement.awaitedCall && !statement.normalReturnUnsupported) continue;
+          const ordinal = statementOrdinals.get(statement);
+          if (ordinal) normalReturnExcludedOrdinals.add(ordinal);
+        }
+        if (stmts.prevailingFinallyReturnIndex >= 0) {
+          const prevailingOrdinal = statementOrdinals.get(stmts[stmts.prevailingFinallyReturnIndex]);
+          if (prevailingOrdinal) prevailingFinallyReturnOrdinals.add(prevailingOrdinal);
+        }
+        for (const statement of stmts) {
+          if (statement.catchTargetIndex === undefined) continue;
+          const callerOrdinal = statementOrdinals.get(statement);
+          const catchOrdinal = statementOrdinals.get(stmts[statement.catchTargetIndex]);
+          if (callerOrdinal && catchOrdinal) {
+            caughtCallTargets.set(callerOrdinal, catchOrdinal);
+            if (statement.awaitedCatchCall) awaitedCaughtCallTargets.set(callerOrdinal, catchOrdinal);
+          }
+        }
+        function emittedPredecessors(path, seen = new Set()) {
+          if (seen.has(path.index)) return [];
+          const nextSeen = new Set([...seen, path.index]);
+          const statement = stmts[path.index];
+          if (!statement) return [];
+          if (statementOrdinals.has(statement)) return [{ stepOrdinal: statementOrdinals.get(statement), conditions: path.conditions, loopBack: path.loopBack, loopReentry: path.loopReentry, loopExit: path.loopExit, switchExit: path.switchExit, parallel: path.parallel, failure: path.failure, finally: path.finally }];
+          return (statement.predecessorPaths || []).flatMap(previous => emittedPredecessors({ index: previous.index, conditions: [...previous.conditions, ...path.conditions], loopBack: path.loopBack || previous.loopBack, loopReentry: path.loopReentry || previous.loopReentry, loopExit: path.loopExit || previous.loopExit, switchExit: path.switchExit || previous.switchExit, parallel: path.parallel || previous.parallel, failure: path.failure || previous.failure, finally: path.finally || previous.finally }, nextSeen));
+        }
+        const emittedSteps = new Map(steps.slice(firstStepIndex).map(step => [step.ordinal, step]));
+        for (const statement of stmts) {
+          const targetStepOrdinal = statementOrdinals.get(statement);
+          if (!targetStepOrdinal) continue;
+          if (statement.assignmentSourceIndex !== undefined) {
+            const sourceOrdinal = statementOrdinals.get(stmts[statement.assignmentSourceIndex]);
+            const target = emittedSteps.get(targetStepOrdinal);
+            if (sourceOrdinal && target) target.assignmentSourceOrdinal = sourceOrdinal;
+          }
+          const paths = (statement.predecessorPaths || []).flatMap(path => emittedPredecessors(path));
+          const emitted = new Set();
+          for (const path of paths) {
+            const conditions = path.conditions.map(condition => ({ stepOrdinal: statementOrdinals.get(stmts[condition.index]), outcome: condition.outcome }));
+            const key = JSON.stringify([path.stepOrdinal, conditions, !!path.loopBack, !!path.loopReentry, !!path.loopExit, !!path.switchExit, !!path.parallel, !!path.failure, !!path.finally]);
+            if (emitted.has(key)) continue;
+            emitted.add(key);
+            if (conditions.some(condition => !condition.stepOrdinal)) {
+              edges.push({ kind: 'unknown_edge', toSymbolPath: `${currentRelPath}#${fullSym}.control_flow.condition_${path.stepOrdinal}_${targetStepOrdinal}`, resolutionStatus: 'unresolved_type', depth,
+                stepOrdinal: path.stepOrdinal, unresolvedReason: '조건 판단의 단계 참조를 확인하지 못했습니다.' });
+              continue;
+            }
+            edges.push({ kind: path.finally ? 'finally' : path.failure ? 'failure' : path.switchExit ? 'switch_exit' : path.parallel ? 'parallel_wait' : path.loopExit && path.loopBack ? 'loop_exit_back' : path.loopExit ? 'loop_exit' : path.loopReentry ? 'loop_reentry' : path.loopBack && emittedSteps.get(path.stepOrdinal)?.kind === 'await' ? 'await_loop_back' : path.loopBack ? 'loop_back' : emittedSteps.get(path.stepOrdinal)?.kind === 'await' ? 'await_resume' : 'control_flow', toSymbolPath: `${currentRelPath}#${fullSym}`, resolutionStatus: 'resolved', depth, stepOrdinal: path.stepOrdinal, targetStepOrdinal,
+              ...(conditions.length ? { conditions } : {}) });
+          }
+          if (statement.controlFlowLimitation) {
+            edges.push({ kind: 'unknown_edge', toSymbolPath: `${currentRelPath}#${fullSym}.control_flow.step_${targetStepOrdinal}`, resolutionStatus: 'unresolved_type', depth,
+              stepOrdinal: targetStepOrdinal, unresolvedReason: statement.controlFlowLimitation });
+          }
+        }
+      }
+      return steps.length > firstStepIndex ? steps[firstStepIndex].ordinal : undefined;
     } finally {
       activeStack.delete(visitKey);
     }
@@ -339,6 +445,7 @@ function sliceFlow(params) {
     className: initClass,
     methodName: initMethod,
     depth: 0,
+    invocationId: sha256Hex(entrySymbolPath),
   });
 
   // Fallback Root Step: schemas/sliced-payload.schema.json mandates minItems: 1 for steps.
@@ -370,6 +477,12 @@ function sliceFlow(params) {
         symbolRange: [0, fileBytesLen],
       },
     });
+  }
+
+  if (includeExecutionSemantics) {
+    edges.push(...normalReturnEdges(steps, edges, synchronousInvocations, normalReturnCallerInvocations, normalReturnExcludedOrdinals, prevailingFinallyReturnOrdinals));
+    edges.push(...calledThrowEdges(steps, edges, directThrowInvocations, caughtCallTargets, directThrowCallerInvocations));
+    edges.push(...awaitedCalledThrowEdges(steps, edges, asyncThrowInvocations, awaitedCaughtCallTargets));
   }
 
   // Normalize ordinals
@@ -483,37 +596,13 @@ function findHookBinding(code, identifier) {
   return null;
 }
 
-function resolveCallTarget({ repoRoot, currentRelPath, scan, receiver, methodName, readFile, getScan, tsConfig }) {
+function resolveCallTarget({ repoRoot, currentRelPath, scan, receiver, methodName, readFile, getScan, tsConfig, callOffset, callEndOffset }) {
   const currentDir = path.dirname(currentRelPath);
   const cfg = tsConfig || { baseUrl: '.', paths: {} };
   const currentCode = readFile(currentRelPath) || '';
 
   const receiverParts = receiver ? receiver.split('.') : [];
   const rootReceiver = receiverParts.length > 0 ? receiverParts[0] : '';
-
-  // 1. Same-file resolution (this.method or local function)
-  if (!receiver || receiver === 'this') {
-    for (const cls of scan.classes) {
-      for (const m of cls.methods) {
-        if (m.name === methodName) {
-          return { relPath: currentRelPath, className: cls.name, methodName: m.name };
-        }
-      }
-    }
-    for (const fn of scan.topLevelFunctions) {
-      if (fn.name === methodName || fn.localName === methodName) {
-        return { relPath: currentRelPath, className: fn.parentScope || '', methodName: fn.localName || fn.name };
-      }
-    }
-  }
-
-  // 2. Track destructured hook bindings in current file:
-  let hookSource = null;
-  if (!receiver || receiver === 'this') {
-    hookSource = findHookBinding(currentCode, methodName);
-  } else if (rootReceiver) {
-    hookSource = findHookBinding(currentCode, rootReceiver);
-  }
 
   // Helper to resolve candidates from an import specifier
   function getCandidatePaths(imp, fromDir = currentDir) {
@@ -556,6 +645,39 @@ function resolveCallTarget({ repoRoot, currentRelPath, scan, receiver, methodNam
     return candidatePaths;
   }
 
+  const hookTarget = resolveHookMember({
+    code: currentCode, scan, currentRelPath, receiver, methodName, offset: callOffset, endOffset: callEndOffset,
+    resolveModule(imp) {
+      const files = [];
+      for (const base of getCandidatePaths(imp)) {
+        for (const candidate of [base, ...['.ts', '.tsx', '.js', '.jsx'].map(ext => base + ext), ...['index.ts', 'index.tsx', 'index.js', 'index.jsx'].map(name => path.join(base, name))]) {
+          const relPath = path.relative(repoRoot, candidate).replace(/\\/g, '/');
+          if (relPath.startsWith('..')) continue;
+          const targetScan = getScan(relPath);
+          if (targetScan && !files.some(file => file.relPath === relPath)) files.push({ relPath, scan: targetScan, code: readFile(relPath) });
+        }
+      }
+      return files;
+    },
+  });
+  if (hookTarget !== undefined) return hookTarget;
+
+  // 1. Same-file resolution (this.method or local function)
+  if (!receiver || receiver === 'this') {
+    for (const cls of scan.classes) {
+      for (const m of cls.methods) {
+        if (m.name === methodName) {
+          return { relPath: currentRelPath, className: cls.name, methodName: m.name };
+        }
+      }
+    }
+    for (const fn of scan.topLevelFunctions) {
+      if (fn.name === methodName || fn.localName === methodName) {
+        return { relPath: currentRelPath, className: fn.parentScope || '', methodName: fn.localName || fn.name };
+      }
+    }
+  }
+
   // Helper to search a target file scan for matching class methods or functions
   function searchTargetScan(targetScan, targetRel, visitedFiles = new Set()) {
     if (!targetScan || visitedFiles.has(targetRel)) return null;
@@ -567,8 +689,7 @@ function resolveCallTarget({ repoRoot, currentRelPath, scan, receiver, methodNam
         !receiver ||
         receiver === 'this' ||
         cls.name.toLowerCase() === receiver.toLowerCase() ||
-        receiverParts.some(p => cls.name.toLowerCase() === p.toLowerCase() || cls.name.toLowerCase().includes(p.toLowerCase()) || p.toLowerCase().includes(cls.name.toLowerCase())) ||
-        (hookSource && (cls.name.toLowerCase().includes(hookSource.toLowerCase()) || hookSource.toLowerCase().includes(cls.name.toLowerCase())));
+        receiverParts.some(p => cls.name.toLowerCase() === p.toLowerCase() || cls.name.toLowerCase().includes(p.toLowerCase()) || p.toLowerCase().includes(cls.name.toLowerCase()));
 
       if (matchesClass) {
         for (const m of cls.methods) {
@@ -592,11 +713,8 @@ function resolveCallTarget({ repoRoot, currentRelPath, scan, receiver, methodNam
     for (const fn of targetScan.topLevelFunctions) {
       const fnLocal = fn.localName || fn.name;
       if (
-        fn.name === methodName ||
-        fnLocal === methodName ||
-        fn.name.endsWith('.' + methodName) ||
-        (hookSource && (fn.name === hookSource || fnLocal === hookSource)) ||
-        (receiver && (fn.name === receiver || receiverParts.some(p => fn.name === p || fnLocal === p)))
+        (receiver && fn.name === receiver + '.' + methodName) ||
+        (!receiver && !fn.parentScope && fn.name === methodName)
       ) {
         return {
           relPath: targetRel,

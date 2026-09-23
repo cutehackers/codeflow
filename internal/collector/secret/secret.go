@@ -15,6 +15,11 @@ var secretKeyPattern = regexp.MustCompile("(?i)(?:api[_-]?key|secret|token|passw
 
 var secretPattern = regexp.MustCompile(`(?i)(?:\b(?:api[_-]?key|secret|token|password|credential|authorization|private[_-]?key|access[_-]?token|client[_-]?secret)\b|[A-Za-z][A-Za-z0-9]*(?:api[_-]?key|secret|token|password|credential|authorization|private[_-]?key|access[_-]?token|client[_-]?secret))\s*[:=]\s*['"]?[^\s;'"}]+['"]?`)
 
+// sensitiveAssignmentPattern covers code that derives a sensitive variable from
+// a call. Redacting only the first token of the right-hand side would leave a
+// header name and an invalid source fragment in the FlowView.
+var sensitiveAssignmentPattern = regexp.MustCompile(`(?im)((?:\b(?:const|let|var)\s+|^\s*)\b(?:api[_-]?key|secret|token|password|credential|authorization|private[_-]?key|access[_-]?token|client[_-]?secret)\b\s*[:=]\s*)([^;\r\n]+)`)
+
 // quotedSecretPattern covers JSON-like diagnostics that are incomplete or
 // otherwise malformed, so a quoted key and a long value are redacted before
 // any diagnostic clipping. Valid JSON takes the recursive RedactJSON path.
@@ -42,7 +47,18 @@ func Redact(input string) RedactionResult {
 		count++
 		return `***REDACTED***`
 	})
+	redactedJSON = sensitiveAssignmentPattern.ReplaceAllStringFunc(redactedJSON, func(match string) string {
+		replacement, ok := redactedSensitiveCallAssignment(match)
+		if !ok {
+			return match
+		}
+		count++
+		return replacement
+	})
 	replaced := secretPattern.ReplaceAllStringFunc(redactedJSON, func(m string) string {
+		if strings.Contains(m, "***REDACTED***") {
+			return m
+		}
 		count++
 		return `***REDACTED***`
 	})
@@ -56,13 +72,36 @@ func Redact(input string) RedactionResult {
 // newline positions so snapshot line numbers stay valid after redaction.
 func RedactSource(input string) RedactionResult {
 	count := 0
-	for _, pattern := range []*regexp.Regexp{broadQuotedSecretPattern, quotedSecretPattern, secretPattern} {
+	for _, pattern := range []*regexp.Regexp{broadQuotedSecretPattern, quotedSecretPattern} {
 		input = pattern.ReplaceAllStringFunc(input, func(match string) string {
 			count++
 			return "***REDACTED***" + strings.Repeat("\n", strings.Count(match, "\n"))
 		})
 	}
+	input = sensitiveAssignmentPattern.ReplaceAllStringFunc(input, func(match string) string {
+		replacement, ok := redactedSensitiveCallAssignment(match)
+		if !ok {
+			return match
+		}
+		count++
+		return replacement
+	})
+	input = secretPattern.ReplaceAllStringFunc(input, func(match string) string {
+		if strings.Contains(match, "***REDACTED***") {
+			return match
+		}
+		count++
+		return "***REDACTED***" + strings.Repeat("\n", strings.Count(match, "\n"))
+	})
 	return RedactionResult{Text: input, Count: count}
+}
+
+func redactedSensitiveCallAssignment(match string) (string, bool) {
+	parts := sensitiveAssignmentPattern.FindStringSubmatch(match)
+	if len(parts) < 3 || !strings.Contains(parts[2], "(") {
+		return match, false
+	}
+	return parts[1] + `"***REDACTED***"`, true
 }
 
 // RedactJSON parses arbitrary JSON, recursively sanitizes all string fields,

@@ -72,7 +72,7 @@ func capabilityProbeFiles(adapter string) map[string]string {
 	case "dart":
 		return map[string]string{
 			"pubspec.yaml":  "name: capability_probe\nenvironment:\n  sdk: '>=3.0.0 <4.0.0'\n",
-			"lib/main.dart": "void main() {}\n",
+			"lib/main.dart": "var state = 0;\nvoid main() { state = 1; }\n",
 		}
 	case "typescript":
 		return map[string]string{

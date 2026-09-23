@@ -1,8 +1,11 @@
 <script lang="ts">
-  import { flowStore, LAYER_LABELS, EDGE_LABELS } from '../stores/flowStore.svelte';
-  import BlastRadiusRadar from './BlastRadiusRadar.svelte';
+  import { flowStore, EDGE_LABELS } from '../stores/flowStore.svelte';
 
+  import { selectedCodeLimitations } from '../stores/flowNavigation';
+
+  const limitations = $derived(selectedCodeLimitations(flowStore.data, flowStore.selectedStep));
   const selectedStep = $derived(flowStore.selectedStep);
+  const conditionLabel = $derived(!selectedStep?.kind || ['guard', 'branch', 'decision', 'failure'].includes(selectedStep.kind) ? '판단 조건' : '실행 조건');
   const viewMode = $derived(flowStore.viewMode);
 
   const context = $derived.by(() => {
@@ -30,9 +33,8 @@
   }
 </script>
 
-<aside class="context" id="context" aria-label="선택한 코드의 맥락">
-  <!-- 2. BLAST RADIUS RADAR -->
-  <BlastRadiusRadar />
+<aside class="context" id="context" data-navigation-panel aria-label="선택한 코드의 맥락">
+
 
   <!-- STEP CONTEXT DETAILS -->
   <div id="context-detail">
@@ -41,11 +43,10 @@
     {:else if viewMode === 'process'}
       <div class="eyebrow muted">선택한 처리</div>
       <h2>{selectedStep.name}</h2>
-      <p class="caption">{LAYER_LABELS[selectedStep.layer] || selectedStep.layer || '계층 미확인'}</p>
 
       {#if selectedStep.branch}
         <section class="context-section">
-          <h3>판단 조건</h3>
+          <h3>{conditionLabel}</h3>
           <p>{selectedStep.branch}</p>
         </section>
       {/if}
@@ -77,7 +78,7 @@
 
       {#if selectedStep.branch}
         <section class="context-section">
-          <h3>분기 조건</h3>
+          <h3>{conditionLabel}</h3>
           <p>{selectedStep.branch}</p>
         </section>
       {/if}
@@ -111,8 +112,16 @@
 
       <details>
         <summary>소스 범위와 설명</summary>
-        <p>{context?.sourceLimitation || '선택한 분석과 같은 시점의 소스입니다. 실제 실행 여부와 결과는 확인하지 않았습니다.'}</p>
+        <p>{context?.sourceLimitation || (context ? '선택한 분석과 같은 시점의 소스입니다. 실제 실행 여부와 결과는 확인하지 않았습니다.' : '이 분석에 보존된 소스 문맥이 없습니다.')}</p>
       </details>
+    {/if}
+    {#if selectedStep && limitations.length}
+      <section class="context-section" aria-label="관련 분석 한계">
+        <h3>관련 분석 한계</h3>
+        {#each limitations as reason}
+          <p>{reason}</p>
+        {/each}
+      </section>
     {/if}
   </div>
 </aside>
@@ -175,4 +184,6 @@
   details p {
     margin-top: 8px;
   }
+  @media(max-width:1150px) { .context { position:static; max-height:none; } }
+  @media(min-width:651px) and (max-width:1150px) { .context { grid-column:2; } }
 </style>

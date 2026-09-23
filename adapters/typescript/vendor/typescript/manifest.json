@@ -1,0 +1,10 @@
+{
+  "package": "typescript",
+  "version": "5.9.3",
+  "source": "https://www.npmjs.com/package/typescript",
+  "sha256": {
+    "typescript.js": "3ae902c92cc44dace175c0e69e13a4b0899f6983c6121d76b9ab8dd5795e7675",
+    "LICENSE.txt": "a7d00bfd54525bc694b6e32f64c7ebcf5e6b7ae3657be5cc12767bce74654a47",
+    "ThirdPartyNoticeText.txt": "1af3c68039c57e539422da82a4faada506ce6d0ea6f90e0b699d02dbcdb7a90c"
+  }
+}

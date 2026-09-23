@@ -36,6 +36,42 @@ func dartOrSkip(t *testing.T) {
 	}
 }
 
+func callMCPTool(t *testing.T, srv *mcp.Server, ctx context.Context, name string, args map[string]any) (map[string]any, bool) {
+	t.Helper()
+	arguments, err := json.Marshal(args)
+	if err != nil {
+		t.Fatal(err)
+	}
+	input := &bytes.Buffer{}
+	output := &bytes.Buffer{}
+	input.WriteString(fmt.Sprintf(`{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":%q,"arguments":%s}}`+"\n", name, arguments))
+	if err := srv.Serve(ctx, input, output); err != nil {
+		t.Fatal(err)
+	}
+	var response struct {
+		Result struct {
+			IsError bool `json:"isError"`
+			Content []struct {
+				Text string `json:"text"`
+			} `json:"content"`
+		} `json:"result"`
+	}
+	if err := json.Unmarshal(output.Bytes(), &response); err != nil {
+		t.Fatalf("decode MCP tool response: %v, raw=%s", err, output.String())
+	}
+	if len(response.Result.Content) == 0 {
+		t.Fatalf("MCP tool %s returned no content", name)
+	}
+	var result map[string]any
+	if err := json.Unmarshal([]byte(response.Result.Content[0].Text), &result); err != nil {
+		if response.Result.IsError {
+			return map[string]any{"error": response.Result.Content[0].Text}, true
+		}
+		t.Fatalf("decode MCP tool content: %v, content=%s", err, response.Result.Content[0].Text)
+	}
+	return result, response.Result.IsError
+}
+
 func TestMCPServerToolsAndExecution(t *testing.T) {
 	dartOrSkip(t)
 	root := moduleRoot(t)
@@ -340,6 +376,100 @@ func TestMCPServer_DynamicTarget(t *testing.T) {
 	}
 	if resp.Result.IsError {
 		t.Fatalf("expected successful harvest on dynamic target, got error: %v", resp.Result.Content)
+	}
+}
+
+func copyExampleAppDir(t *testing.T, src string) string {
+	t.Helper()
+	dst := t.TempDir()
+	err := filepath.Walk(src, func(p string, info os.FileInfo, err error) error {
+		if err != nil {
+			return err
+		}
+		if info.IsDir() && info.Name() == ".codeflow" {
+			return filepath.SkipDir
+		}
+		rel, err := filepath.Rel(src, p)
+		if err != nil {
+			return err
+		}
+		target := filepath.Join(dst, rel)
+		if info.IsDir() {
+			return os.MkdirAll(target, 0o755)
+		}
+		data, err := os.ReadFile(p)
+		if err != nil {
+			return err
+		}
+		return os.WriteFile(target, data, info.Mode())
+	})
+	if err != nil {
+		t.Fatalf("copy fixture: %v", err)
+	}
+	return dst
+}
+
+func TestMCPAnalyzeFlowRequiresVerifiedRequestedCandidate(t *testing.T) {
+	dartOrSkip(t)
+	root := moduleRoot(t)
+	isolatedRepo := copyExampleAppDir(t, filepath.Join(root, "testdata", "example_app"))
+	srv, err := mcp.NewServer(mcp.Config{
+		RepoRoot:     isolatedRepo,
+		DartAdapter:  "dartrun:" + filepath.Join(root, "adapters", "dart"),
+		RequireToken: false,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer srv.Close()
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	harvested, isError := callMCPTool(t, srv, ctx, "harvest_flows", map[string]any{})
+	if isError {
+		t.Fatalf("harvest failed: %v", harvested)
+	}
+	candidates, ok := harvested["candidates"].([]any)
+	if !ok || len(candidates) == 0 {
+		t.Fatalf("expected harvest candidates, got %v", harvested)
+	}
+	candidate, ok := candidates[0].(map[string]any)
+	if !ok {
+		t.Fatalf("invalid candidate: %v", candidates[0])
+	}
+	entry, _ := candidate["entrySymbolPath"].(string)
+	candidateID, _ := candidate["candidateId"].(string)
+	if entry == "" || candidateID == "" {
+		t.Fatalf("candidate lacks identity: %v", candidate)
+	}
+
+	_, isError = callMCPTool(t, srv, ctx, "analyze_flow", map[string]any{
+		"entrySymbolPath": entry,
+		"request":         "사용자가 요청한 흐름",
+		"candidateId":     candidateID + "-wrong",
+	})
+	if !isError {
+		t.Fatal("analyze_flow accepted a candidate that was not harvested from the current snapshot")
+	}
+
+	_, isError = callMCPTool(t, srv, ctx, "analyze_flow", map[string]any{
+		"entrySymbolPath": entry + "__missing",
+	})
+	if !isError {
+		t.Fatal("analyze_flow accepted an entry symbol that the adapter could not locate")
+	}
+
+	analyzed, isError := callMCPTool(t, srv, ctx, "analyze_flow", map[string]any{
+		"entrySymbolPath": entry,
+		"request":         "사용자가 요청한 흐름",
+		"candidateId":     candidateID,
+	})
+	if isError {
+		t.Fatalf("analyze_flow rejected its harvested candidate: %v", analyzed)
+	}
+	resolution, ok := analyzed["flowResolution"].(map[string]any)
+	if !ok || resolution["rawRequest"] != "사용자가 요청한 흐름" || resolution["entrySymbolPath"] != entry {
+		t.Fatalf("analysis did not persist the verified flow-resolution record: %v", analyzed["flowResolution"])
 	}
 }
 

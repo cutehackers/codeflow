@@ -64,6 +64,14 @@ function run() {
   assert.strictEqual(rNeg3.count, 0, 'Method calls and properties must not be redacted');
   assert.strictEqual(rNeg3.text, sNeg3);
 
+  // TS-SEC-07b: A sensitive target assigned from a framework request must not
+  // leak the source header or leave a malformed code fragment in FlowView.
+  const sSensitiveCall = "const credential = request.headers.get('authorization');";
+  const rSensitiveCall = redactSecrets(sSensitiveCall);
+  assert.strictEqual(rSensitiveCall.count, 1);
+  assert.strictEqual(rSensitiveCall.text, 'const credential = "***REDACTED***";');
+  assert(!rSensitiveCall.text.includes('authorization'));
+
   // TS-SEC-08: Slicer integration test with embedded secrets in guards & methods
   const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'codeflow-sec-'));
   try {

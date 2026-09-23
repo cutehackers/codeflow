@@ -91,23 +91,24 @@ type FlowContextSelection struct {
 
 // FlowContextProjection is the derived Flow Context projection for FlowView.
 type FlowContextProjection struct {
-	StepID             string                      `json:"stepId"`
-	GenerationID       string                      `json:"generationId"`
-	SnapshotID         string                      `json:"snapshotId"`
-	Precision          FlowContextPrecision        `json:"precision"`
-	ExpansionScope     FlowExpansionScope          `json:"expansionScope"`
-	Authority          string                      `json:"authority"`
-	EvidenceStatus     string                      `json:"evidenceStatus"`
-	CanonicalPath      string                      `json:"canonicalPath"`
-	Statement          *StatementProjection        `json:"statement,omitempty"`
-	StructuralContext  StructuralContextProjection `json:"structuralContext"`
-	CallableSignature  CallableSignatureProjection `json:"callableSignature"`
-	Callable           *CallableProjection         `json:"callable,omitempty"`
-	DirectRelation     DirectRelationProjection    `json:"directRelation"`
-	SourceLimitation   string                      `json:"sourceLimitation,omitempty"`
-	SourceRedacted     bool                        `json:"sourceRedacted"`
-	DisplayedLineRange [2]int                      `json:"displayedLineRange"`
-	DisplayedLines     []FlowContextLine           `json:"displayedLines"`
+	SourceValidationStatus string                      `json:"sourceValidationStatus,omitempty"`
+	StepID                 string                      `json:"stepId"`
+	GenerationID           string                      `json:"generationId"`
+	SnapshotID             string                      `json:"snapshotId"`
+	Precision              FlowContextPrecision        `json:"precision"`
+	ExpansionScope         FlowExpansionScope          `json:"expansionScope"`
+	Authority              string                      `json:"authority"`
+	EvidenceStatus         string                      `json:"evidenceStatus"`
+	CanonicalPath          string                      `json:"canonicalPath"`
+	Statement              *StatementProjection        `json:"statement,omitempty"`
+	StructuralContext      StructuralContextProjection `json:"structuralContext"`
+	CallableSignature      CallableSignatureProjection `json:"callableSignature"`
+	Callable               *CallableProjection         `json:"callable,omitempty"`
+	DirectRelation         DirectRelationProjection    `json:"directRelation"`
+	SourceLimitation       string                      `json:"sourceLimitation,omitempty"`
+	SourceRedacted         bool                        `json:"sourceRedacted"`
+	DisplayedLineRange     [2]int                      `json:"displayedLineRange"`
+	DisplayedLines         []FlowContextLine           `json:"displayedLines"`
 }
 
 // DeriveFlowContextParams supplies the inputs needed to derive a step's Flow Context.
@@ -258,7 +259,8 @@ func DeriveFlowContext(params DeriveFlowContextParams) *FlowContextProjection {
 		return outer[0] <= inner[0] && inner[1] <= outer[1]
 	}
 	stmt, call, sig := meta.Statement.ByteRange, meta.Callable.ByteRange, meta.Callable.SignatureByteRange
-	if meta.Statement.NodeKind != "statement" || !validRange(stmt) ||
+	selectionKind := meta.Statement.NodeKind
+	if (selectionKind != "statement" && selectionKind != "expression" && selectionKind != "control_header") || !validRange(stmt) ||
 		step.Anchor.ByteRange != stmt || step.Anchor.FileHash != meta.SourceHash ||
 		step.Anchor.SpanHash != sha256Hex(source[stmt[0]:stmt[1]]) {
 		return fallback(PrecisionUnknown, "선택한 근거와 문장 범위가 일치하지 않습니다")
@@ -274,6 +276,7 @@ func DeriveFlowContext(params DeriveFlowContextParams) *FlowContextProjection {
 					evidence.Anchor.RepoRelativePath == path && evidence.ByteRange == stmt &&
 					evidence.Anchor.FileHash == meta.SourceHash && evidence.Anchor.SpanHash == step.Anchor.SpanHash {
 					p.EvidenceStatus = evidence.ValidationStatus
+					p.SourceValidationStatus = evidence.SourceValidationStatus
 				}
 			}
 		}
@@ -311,7 +314,7 @@ func DeriveFlowContext(params DeriveFlowContextParams) *FlowContextProjection {
 		return fallback(PrecisionUnknown, "구조의 바이트 범위와 줄 범위가 일치하지 않습니다")
 	}
 	p.Precision = PrecisionExact
-	p.Statement = &StatementProjection{NodeKind: "statement", ByteRange: stmt, LineRange: stmtLines, Source: sliceLines(lines, stmtLines[0], stmtLines[1])}
+	p.Statement = &StatementProjection{NodeKind: selectionKind, ByteRange: stmt, LineRange: stmtLines, Source: sliceLines(lines, stmtLines[0], stmtLines[1])}
 	p.StructuralContext = StructuralContextProjection{Status: st.Status}
 	if st.Status == "present" {
 		lr := lineRange(*st.ByteRange)

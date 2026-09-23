@@ -27,7 +27,6 @@ type FlowSequenceFrame struct {
 	Condition       *string          `json:"condition,omitempty"`
 	Outcomes        []string         `json:"outcomes,omitempty"`
 	CollapsedDetail *CollapsedDetail `json:"collapsedDetail,omitempty"`
-	Architecture    string           `json:"architecture,omitempty"`
 	Status          string           `json:"status"` // verified | partial | unknown
 	FrameMatchKey   string           `json:"frameMatchKey"`
 	IsRecursion     bool             `json:"isRecursion,omitempty"`
@@ -35,13 +34,14 @@ type FlowSequenceFrame struct {
 
 // FlowSequence holds the canonical projection of business gateway scenes derived from SemanticMapIR.
 type FlowSequence struct {
-	SchemaID        string              `json:"schemaId"`
-	SchemaVersion   int                 `json:"schemaVersion"`
-	FlowID          string              `json:"flowID"`
-	GenerationID    string              `json:"generationId"`
-	ComputedBasisID string              `json:"computedBasisId"`
-	SnapshotID      string              `json:"snapshotID"`
-	Frames          []FlowSequenceFrame `json:"frames"`
+	SummaryLimitations []FlowSummaryLimitation `json:"summaryLimitations,omitempty"`
+	SchemaID           string                  `json:"schemaId"`
+	SchemaVersion      int                     `json:"schemaVersion"`
+	FlowID             string                  `json:"flowID"`
+	GenerationID       string                  `json:"generationId"`
+	ComputedBasisID    string                  `json:"computedBasisId"`
+	SnapshotID         string                  `json:"snapshotID"`
+	Frames             []FlowSequenceFrame     `json:"frames"`
 }
 
 // NormalizeFrameMatchKey constructs a stable frame-matching key using canonical
@@ -62,6 +62,10 @@ func NormalizeFrameMatchKey(role, symbolPath, technicalName, title string) strin
 // It partitions steps at entry, decision, process (state/transaction), external effect,
 // result, and boundary, collapsing intermediate continuous steps into the previous frame.
 func BuildFlowSequence(mapIR *SemanticMapIR) *FlowSequence {
+	return buildFlowSequence(mapIR, nil)
+}
+
+func buildFlowSequence(mapIR *SemanticMapIR, review *FlowCurationReview) *FlowSequence {
 	if mapIR == nil {
 		return nil
 	}
@@ -96,6 +100,12 @@ func BuildFlowSequence(mapIR *SemanticMapIR) *FlowSequence {
 	if totalSteps == 0 {
 		return sequence
 	}
+	assignmentSources := make(map[int]bool)
+	for _, step := range steps {
+		if step.AssignmentSourceOrdinal != nil {
+			assignmentSources[*step.AssignmentSourceOrdinal] = true
+		}
+	}
 
 	// Index external/async edges by fromStepId
 	hasExternalOrAsync := make(map[string]bool)
@@ -129,38 +139,8 @@ func BuildFlowSequence(mapIR *SemanticMapIR) *FlowSequence {
 		evidenceMap[ev.EvidenceID] = ev
 	}
 
-	computeStepStatus := func(s SemanticStep) string {
-		if unknownSubjects[s.TechnicalName] || unknownSubjects[s.Name] {
-			return "unknown"
-		}
-		if len(s.EvidenceRefs) == 0 {
-			return "partial"
-		}
-		verifiedCount := 0
-		unknownCount := 0
-		for _, ref := range s.EvidenceRefs {
-			ev, ok := evidenceMap[ref]
-			if !ok {
-				return "partial"
-			}
-			switch ev.ValidationStatus {
-			case "verified":
-				verifiedCount++
-			case "unknown", "invalid":
-				unknownCount++
-			default:
-				// partial or unstated
-			}
-		}
-		if unknownCount == len(s.EvidenceRefs) {
-			return "unknown"
-		}
-		if verifiedCount == len(s.EvidenceRefs) && unknownCount == 0 {
-			return "verified"
-		}
-		return "partial"
-	}
-
+	connections := groupingConnections(mapIR.Edges)
+	limitedFrames := make([]string, 0)
 	for i, step := range steps {
 		role := ""
 		isIntermediate := false
@@ -174,34 +154,43 @@ func BuildFlowSequence(mapIR *SemanticMapIR) *FlowSequence {
 		} else if step.Kind == "external_effect" || step.Kind == "external" || step.SideEffect != nil || hasExternalOrAsync[step.StepID] {
 			// 4. External effect / async handoff
 			role = "effect"
-		} else if step.Kind == "guard" || step.Kind == "branch" || step.Kind == "decision" || step.Kind == "failure" || step.Branch != nil {
-			// 2. Decision / branch / failure
+		} else if step.Kind == "guard" || step.Kind == "branch" || step.Kind == "decision" || step.Kind == "failure" || (step.Kind == "" && step.Branch != nil) {
+			// A known statement kind separates a decision from a call or return
+			// that merely executes under an inherited condition.
+			// Untyped historical steps retain their condition-based classification.
 			role = "decision"
 		} else if step.Kind == "mutation" || step.StateDelta != nil {
 			// 3. Process / transaction boundary / state mutation
 			role = "process"
-		} else if step.Kind == "return" || i == totalSteps-1 {
+		} else if step.InvocationID != "" && (step.Kind == "return" || step.Kind == "throw") {
+			// Local completion does not prove termination of the core flow.
+			role = "process"
+		} else if step.Kind == "return" || step.Kind == "result" {
 			role = "result"
 		} else {
 			// Continuous intermediate step without state boundary or side effect
 			isIntermediate = true
 		}
 
-		if isIntermediate && len(sequence.Frames) > 0 {
+		if review != nil {
+			review.Candidates = append(review.Candidates, gatewayCandidateDecision(step, role, isIntermediate))
+		}
+
+		if isIntermediate && i > 0 && len(sequence.Frames) > 0 &&
+			!isStepBoundary(steps[i-1], boundaryTargets, unknownSubjects) &&
+			!assignmentSources[step.Ordinal] &&
+			connections.canFold(steps[i-1], step, sequence.Frames[len(sequence.Frames)-1].Role) {
 			// Collapse into current frame
 			lastIdx := len(sequence.Frames) - 1
 			sequence.Frames[lastIdx].StepRefs = append(sequence.Frames[lastIdx].StepRefs, step.StepID)
 			if sequence.Frames[lastIdx].CollapsedDetail == nil {
 				sequence.Frames[lastIdx].CollapsedDetail = &CollapsedDetail{
 					Count:  0,
-					Reason: "연속 내부 처리 단계 접힘",
+					Reason: "같은 호출 문맥의 확인된 직접 처리 연결",
 				}
 			}
 			sequence.Frames[lastIdx].CollapsedDetail.Count++
-			if sequence.Frames[lastIdx].Condition == nil && step.Branch != nil && *step.Branch != "" {
-				sequence.Frames[lastIdx].Condition = step.Branch
-			}
-			collapsedStatus := computeStepStatus(step)
+			collapsedStatus := flowStepStatus(step, unknownSubjects, evidenceMap)
 			if collapsedStatus == "unknown" && sequence.Frames[lastIdx].Status == "verified" {
 				sequence.Frames[lastIdx].Status = "partial"
 			} else if collapsedStatus == "partial" && sequence.Frames[lastIdx].Status == "verified" {
@@ -247,8 +236,8 @@ func BuildFlowSequence(mapIR *SemanticMapIR) *FlowSequence {
 		}
 
 		// Status determination: lack of evidence -> partial / unknown
-		status := computeStepStatus(step)
-		if role == "boundary" {
+		status := flowStepStatus(step, unknownSubjects, evidenceMap)
+		if role == "boundary" || isStepBoundary(step, boundaryTargets, unknownSubjects) {
 			status = "unknown"
 		}
 
@@ -262,21 +251,48 @@ func BuildFlowSequence(mapIR *SemanticMapIR) *FlowSequence {
 			TechnicalAnchor: step.TechnicalName,
 			StepRefs:        []string{step.StepID},
 			PrimaryStepRef:  step.StepID,
-			Condition:       step.Branch,
-			Outcomes:        outcomes,
-			Architecture:    step.Layer,
-			Status:          status,
-			FrameMatchKey:   matchKey,
+
+			Outcomes:      outcomes,
+			Status:        status,
+			FrameMatchKey: matchKey,
 		}
 
+		if step.Branch != nil {
+			condition := *step.Branch
+			frame.Condition = &condition
+		}
 		if step.Anchor.RepoRelativePath != "" {
 			anchorCopy := step.Anchor
+			if step.Anchor.SymbolRange != nil {
+				symbolRange := *step.Anchor.SymbolRange
+				anchorCopy.SymbolRange = &symbolRange
+			}
 			frame.SourceAnchor = &anchorCopy
 		}
 
+		hasIncoming := false
+		for _, edge := range connections.incoming[step.StepID] {
+			if edge.ResolutionStatus == "resolved" {
+				hasIncoming = true
+				break
+			}
+		}
+		if i > 0 && (!hasIncoming || (step.InvocationID != "" && isIntermediate)) {
+			limitedFrames = append(limitedFrames, frame.FrameID)
+		}
 		sequence.Frames = append(sequence.Frames, frame)
 	}
 
+	if len(limitedFrames) > 0 {
+		sequence.SummaryLimitations = []FlowSummaryLimitation{{Code: "grouping_evidence_missing", Message: "일부 처리를 관문으로 묶지 못했습니다. 실행 연결 또는 같은 처리 목적의 근거가 부족해 단계를 구분해 표시합니다.", FrameRefs: limitedFrames}}
+	}
+	groupExpressionEvaluations(sequence, steps, connections, boundaryTargets, unknownSubjects)
+	groupDecisionEvaluations(sequence, steps, connections, boundaryTargets, unknownSubjects)
+	groupAssignmentResults(sequence, steps, connections, boundaryTargets, unknownSubjects)
+	groupCoreFlowExecutionSegments(sequence, steps, connections)
+	if review != nil {
+		completeCurationReview(review, sequence, connections, mapIR)
+	}
 	return sequence
 }
 
@@ -317,4 +333,36 @@ func (sequence *FlowSequence) FindMatchingFrame(matchKey string) *FlowSequenceFr
 		return matched
 	}
 	return nil
+}
+
+func flowStepStatus(s SemanticStep, unknownSubjects map[string]bool, evidenceMap map[string]SemanticEvidence) string {
+	if unknownSubjects[s.TechnicalName] || unknownSubjects[s.Name] {
+		return "unknown"
+	}
+	if len(s.EvidenceRefs) == 0 {
+		return "partial"
+	}
+	verifiedCount := 0
+	unknownCount := 0
+	for _, ref := range s.EvidenceRefs {
+		ev, ok := evidenceMap[ref]
+		if !ok {
+			return "partial"
+		}
+		switch ev.ValidationStatus {
+		case "verified":
+			verifiedCount++
+		case "unknown", "invalid":
+			unknownCount++
+		default:
+			// partial or unstated
+		}
+	}
+	if unknownCount == len(s.EvidenceRefs) {
+		return "unknown"
+	}
+	if verifiedCount == len(s.EvidenceRefs) && unknownCount == 0 {
+		return "verified"
+	}
+	return "partial"
 }

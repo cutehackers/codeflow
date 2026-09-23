@@ -131,26 +131,17 @@ func TestBuildFlowSequence_ConstructsValidFlowSequence(t *testing.T) {
 		t.Fatalf("contractharness.ValidateFlowSequence failed: %v", err)
 	}
 
-	// Verify frame count: step-3-helper was collapsed into frame-02 (CartService.validate)
-	// Frames:
-	// 1: step-1 (entry)
-	// 2: step-2 (decision) + step-3-helper (collapsed)
-	// 3: step-4 (process)
-	// 4: step-5 (effect)
-	// 5: step-6 (result)
-	if len(sb.Frames) != 5 {
-		t.Fatalf("expected 5 frames, got %d", len(sb.Frames))
+	// A call into a different routine does not establish that formatting is
+	// merely a detail of the preceding validation. Preserve this transition.
+	if len(sb.Frames) != 6 {
+		t.Fatalf("expected 6 independent frames, got %d", len(sb.Frames))
 	}
-
 	f2 := sb.Frames[1]
-	if f2.Role != "decision" {
-		t.Errorf("frame 2 expected role decision, got %s", f2.Role)
+	if f2.Role != "decision" || len(f2.StepRefs) != 1 || f2.StepRefs[0] != "step-2" {
+		t.Fatalf("validation changed: %+v", f2)
 	}
-	if len(f2.StepRefs) != 2 || f2.StepRefs[0] != "step-2" || f2.StepRefs[1] != "step-3-helper" {
-		t.Errorf("frame 2 expected collapsed step-3-helper in stepRefs, got %v", f2.StepRefs)
-	}
-	if f2.CollapsedDetail == nil || f2.CollapsedDetail.Count != 1 {
-		t.Errorf("frame 2 expected collapsedDetail count 1, got %+v", f2.CollapsedDetail)
+	if f2.CollapsedDetail != nil {
+		t.Fatal("unproven grouping presented as collapsed detail")
 	}
 
 	// Verify FrameMatchKey: canonical symbol and role without line/byte or snapshot
@@ -251,7 +242,7 @@ func TestFlowSequencePreservesMeaningAcrossSameFileAndLayer(t *testing.T) {
 	condition := "stock > 0"
 	for _, layer := range []string{"domain", ""} {
 		t.Run("layer="+layer, func(t *testing.T) {
-			m := &SemanticMapIR{Steps: []SemanticStep{
+			m := &SemanticMapIR{Edges: []SemanticEdge{{FromStepID: "entry", ToStepID: "helper", Kind: "sequence", ResolutionStatus: "resolved"}}, Steps: []SemanticStep{
 				{StepID: "entry", Kind: "user_action"},
 				{StepID: "helper", Kind: "call"},
 				{StepID: "decision", Kind: "guard", Branch: &condition},

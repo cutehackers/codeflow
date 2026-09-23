@@ -80,9 +80,12 @@ func (sr *SignificanceRanker) Rank(candidates []CandidateFrame) []FlowSequenceFr
 		intermediates = append(intermediates, scoredIndex{index: i, score: score})
 	}
 
-	// Stable sort descending by score
+	// Stable sort descending by score with deterministic tie-breaker
 	sort.SliceStable(intermediates, func(i, j int) bool {
-		return intermediates[i].score > intermediates[j].score
+		if intermediates[i].score != intermediates[j].score {
+			return intermediates[i].score > intermediates[j].score
+		}
+		return candidates[intermediates[i].index].PrimaryStepRef < candidates[intermediates[j].index].PrimaryStepRef
 	})
 
 	needed := targetCount - len(keepIndices)

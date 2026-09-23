@@ -2,6 +2,7 @@ package slicing_test
 
 import (
 	"context"
+	"crypto/sha256"
 	"fmt"
 	"os"
 	"os/exec"
@@ -14,6 +15,7 @@ import (
 	"codeflow/internal/analyzer/protocol"
 	"codeflow/internal/collector/harvest"
 	"codeflow/internal/collector/slicing"
+	"codeflow/internal/collector/storage"
 )
 
 func moduleRoot(t *testing.T) string {
@@ -203,5 +205,38 @@ func TestSliceCacheHitIsSnapshotAndBasisBound(t *testing.T) {
 	}
 	if _, err := runner.SliceWithSnapshot(ctx, root, candidateID, entry, nil, wrongBasis); err == nil {
 		t.Fatal("cache entry from a different snapshot basis was reused")
+	}
+}
+
+func TestSliceCacheRejectsPriorExecutionRelationSemantics(t *testing.T) {
+	root := t.TempDir()
+	const source = "class Mock { void run() {} }\n"
+	snapshot, err := protocol.NewSnapshot(4, map[string]string{"mock.dart": source}, "binding-basis")
+	if err != nil {
+		t.Fatal(err)
+	}
+	pool := protocol.NewPool(protocol.Config{BinPath: provideMockAdapterBinary(t)}, 1)
+	defer pool.Close()
+	runner := slicing.NewRunner(pool)
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	const candidateID = "cand-bindingcache"
+	if _, err := runner.SliceWithSnapshot(ctx, root, candidateID, "mock.dart#Mock.run", nil, snapshot); err != nil {
+		t.Fatal(err)
+	}
+	dir := filepath.Join(root, ".codeflow", "facts", "slice")
+	entries, err := os.ReadDir(dir)
+	if err != nil || len(entries) != 1 {
+		t.Fatalf("cache entries = %v, error = %v", entries, err)
+	}
+	// Preserve a valid result under the immediately previous execution-relation
+	// cache identity. A finalizer throw recovery cannot be inferred from that payload.
+	legacyKey := storage.SliceCacheKey(fmt.Sprintf("%x", sha256.Sum256([]byte(source))), candidateID, "v34-prevailing-finally-return|binding-basis", "")
+	if err := os.Rename(filepath.Join(dir, entries[0].Name()), filepath.Join(dir, legacyKey+".json")); err != nil {
+		t.Fatal(err)
+	}
+	pool.Close()
+	if _, err := runner.SliceWithSnapshot(ctx, root, candidateID, "mock.dart#Mock.run", nil, snapshot); err == nil {
+		t.Fatal("analysis reused a result produced by the previous execution-relation implementation")
 	}
 }

@@ -1,6 +1,8 @@
 <script lang="ts">
   import { flowStore, DELTA_LABELS } from '../stores/flowStore.svelte';
+  import { implementationSymbol, navigationTitle } from '../stores/flowNavigation';
   let baselineId = $state('');
+  $effect(() => { baselineId = flowStore.baseline?.viewId || ''; });
 </script>
 <section class="notice" aria-label="분석 안내">
   <span role="status">{flowStore.notice}</span>
@@ -22,6 +24,16 @@
     {#if flowStore.compare}<button onclick={() => { flowStore.compare = false; }}>비교 닫기</button>{/if}
     {#if flowStore.pending?.viewId}<button onclick={() => window.openFlowView(flowStore.pending!.viewId!)}>새 분석 열기</button>{/if}
   </div>
+  {#each flowStore.data?.flowSequence?.summaryLimitations || [] as limitation}
+    <details class="summary-limitation">
+      <summary>요약 한계 · {limitation.frameRefs.length}개 관문</summary>
+      <p>{limitation.message} 코드를 펼쳐 처리 내용을 확인할 수 있습니다.</p>
+      {#each limitation.frameRefs as ref}
+        {@const frame = flowStore.frames.find(item => item.frameID === ref)}
+        {#if frame}<button onclick={() => { flowStore.select(ref); if (!flowStore.expandedFrames.has(ref)) flowStore.toggleFrame(ref); }}>{frame.ordinal}. {navigationTitle(frame.title, implementationSymbol(flowStore.steps.find(step => step.stepId === frame.primaryStepRef)))}</button>{/if}
+      {/each}
+    </details>
+  {/each}
   {#if flowStore.compare}
     <details><summary>변경 {flowStore.activeDeltaChanges.length}건</summary>
       {#each flowStore.activeDeltaChanges as change}
@@ -31,6 +43,7 @@
   {/if}
 </section>
 <style>
+  .summary-limitation{flex-basis:100%;border-top:1px dashed #999;padding-top:9px;overflow-wrap:anywhere}.summary-limitation summary{cursor:pointer}.summary-limitation button{margin:3px;max-width:100%;overflow-wrap:anywhere;text-align:left}
   .notice {
     margin: 16px 30px 14px;
     border: 1px solid var(--line, #dddddd);

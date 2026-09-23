@@ -30,7 +30,7 @@ Select the most direct execution path based on the user's intent:
 
 1. **Flow Comprehension (Default)**:
    - Discover entry points with `harvest_flows(target, query)`.
-   - Slice AST trace and obtain `flowId` with `analyze_flow(target, entrySymbolPath)`.
+   - Select one harvested candidate with source evidence, then call `analyze_flow(target, entrySymbolPath, request, candidateId)` using the original request and that candidate's exact ID.
    - Retrieve curated ~500-token payload via `get_flow_payload(target, flowId, compact: true)`.
    - Detailed guide: [references/flow-comprehension.md](references/flow-comprehension.md).
 
@@ -41,7 +41,7 @@ Select the most direct execution path based on the user's intent:
    - Detailed guide: [references/flowview-workbench.md](references/flowview-workbench.md).
 
 3. **Explicit Re-analysis**:
-   - CodeFlow does not watch files continuously. After code modifications, re-analyze on demand with `analyze_flow(target, entrySymbolPath)` and update the view with `open_review(target, flowId)`.
+   - CodeFlow does not watch files continuously. After code modifications, re-analyze on demand with the same original request and verified candidate identity, then update the view with `open_review(target, flowId)`.
    - Detailed guide: [references/flowview-workbench.md](references/flowview-workbench.md).
 
 4. **Blast Radius & Boundary Inspection**:
@@ -60,6 +60,7 @@ Select the most direct execution path based on the user's intent:
 - **Anti-Telemetry Guard**: NEVER leak internal compiler, benchmark, or engine telemetry (such as epochs, lag, internal settlement flags, locks) into user responses. Prioritize developer code comprehension by presenting only business flow traversals, architecture layers, and verifiable source code.
 - **Zero-Hallucination Guard**: Never invent unverified execution hops or assume dynamic dispatch targets. Report unverified transitions honestly as `boundary` gateways and ground them with `report_unknowns`.
 - **Preserve Verified Identity**: Treat AST facts, exact line numbers, and file hashes as immutable evidence. Never rewrite or fabricate flow identities or anchors.
+- **Requested Flow Selection Guard**: A natural-language request must retain the exact request text and a `candidateId` returned by the current `harvest_flows` result when calling `analyze_flow`. If harvest returns no usable candidate, do not analyze a guessed entry point. Use CodeGraph to locate source evidence, run harvest again, or ask the user to distinguish candidates.
 
 ## Response Contract
 

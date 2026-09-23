@@ -1,13 +1,63 @@
 package fusion_test
 
 import (
+	"encoding/json"
 	"os"
 	"testing"
 	"time"
 
+	"codeflow/internal/collector/contractharness"
 	"codeflow/internal/collector/fusion"
 	"codeflow/internal/collector/slicing"
 )
+
+func TestFlowSpecFlowResolutionSchema(t *testing.T) {
+	spec := fusion.FlowSpec{
+		FlowID:      "flow-1234567890abcdef",
+		Title:       "bacteria war",
+		BasisSha:    "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+		GeneratedAt: time.Now().UTC().Format(time.RFC3339Nano),
+		FlowResolution: &fusion.FlowResolution{
+			SchemaVersion:   1,
+			Status:          "resolved",
+			RawRequest:      "세균전의 흐름",
+			CandidateID:     "cand-1234567890abcdef",
+			EntrySymbolPath: "lib/bacteria.dart#BacteriaWar.start",
+			FlowID:          "flow-1234567890abcdef",
+			Evidence: []fusion.FlowEvidence{{
+				CandidateID:     "cand-1234567890abcdef",
+				EntrySymbolPath: "lib/bacteria.dart#BacteriaWar.start",
+				Description:     "Start bacteria war",
+				SnapshotID:      "snapshot-test",
+				ComputedBasisID: "basis-test",
+			}},
+		},
+		Steps: []fusion.FlowStep{{
+			Ordinal:    1,
+			Name:       "start",
+			Provenance: "derived",
+			Freshness:  "fresh",
+			Confidence: 1,
+			BasisSha:   "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+			Anchor: slicing.Anchor{
+				RepoRelativePath:        "lib/bacteria.dart",
+				ByteRange:               [2]int{0, 1},
+				FileHash:                "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+				SpanHash:                "fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210",
+				EnclosingSymbolPath:     "BacteriaWar.start",
+				CanonicalAstFingerprint: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+			},
+		}},
+		Unknowns: []fusion.Unknown{},
+	}
+	raw, err := json.Marshal(spec)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := contractharness.Validate(contractharness.BaseURL+"flowspec.schema.json", raw); err != nil {
+		t.Fatalf("flow resolution is not schema-compatible: %v", err)
+	}
+}
 
 func TestFusionAuthorityMatrixAndSchemaConformance(t *testing.T) {
 	entry := "lib/features/auth/email_signup_notifier.dart#EmailSignupNotifier.submit"

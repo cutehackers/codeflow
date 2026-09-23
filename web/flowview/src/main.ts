@@ -1,7 +1,7 @@
 import './app.css';
 import { mount } from 'svelte';
 import App from './App.svelte';
-import { flowStore } from './stores/flowStore.svelte';
+import { flowStore, type SavedNavigationState } from './stores/flowStore.svelte';
 import type { FlowTaskViewData } from './types/flow';
 
 const target = document.getElementById('app');
@@ -24,6 +24,12 @@ const token = params.get('token') || '';
 (window as any).__codeflowToken = token;
 let sequence = 0;
 let controller: AbortController | null = null;
+const viewNavigation = new Map<string, { navigation: SavedNavigationState; baseline: FlowTaskViewData | null; delta: FlowTaskViewData['semanticDelta']; returnTo: SavedNavigationState | null }>();
+function rememberView() {
+  if (!flowStore.home && flowStore.data?.viewId) {
+    viewNavigation.set(flowStore.data.viewId, { navigation: flowStore.captureNavigationState(), baseline: flowStore.baseline, delta: flowStore.data.semanticDelta, returnTo: flowStore.savedNavigationState });
+  }
+}
 
 async function api(path: string, signal?: AbortSignal) {
   const url = new URL(path, location.origin);
@@ -41,7 +47,8 @@ function setURL(viewId?: string) {
   if (url.href !== location.href) history.pushState({}, '', url);
 }
 
-async function load(path: string, preserve: boolean): Promise<boolean> {
+async function load(path: string, preserve: boolean, restore = false): Promise<boolean> {
+  rememberView();
   controller?.abort();
   controller = new AbortController();
   const ticket = ++sequence;
@@ -50,11 +57,24 @@ async function load(path: string, preserve: boolean): Promise<boolean> {
   flowStore.errorCode = '';
   flowStore.notice = preserve ? '다시 분석 중…' : '흐름을 여는 중…';
   try {
-    const data: FlowTaskViewData = await api(path, controller.signal);
+    let data: FlowTaskViewData = await api(path, controller.signal);
+    if (ticket !== sequence) return false;
+    // Do not replace the comparison until its fixed baseline has a matching delta.
+    if (preserve && flowStore.compare && flowStore.baseline?.viewId && data.viewId) {
+      const delta = await api(`/api/view/compare?viewId=${encodeURIComponent(data.viewId)}&baselineId=${encodeURIComponent(flowStore.baseline.viewId)}`, controller.signal);
+      data = { ...data, semanticDelta: delta };
+    }
     if (ticket !== sequence) return false;
     const adopted = flowStore.adopt(data, !preserve);
     if (adopted) {
       flowStore.home = false;
+      const previous = restore && data.viewId ? viewNavigation.get(data.viewId) : undefined;
+      if (previous) {
+        flowStore.baseline = previous.baseline;
+        flowStore.data = { ...data, semanticDelta: previous.delta };
+        flowStore.savedNavigationState = previous.returnTo;
+        flowStore.applyNavigationState(previous.navigation);
+      }
       setURL(data.viewId);
       try { const saved = await api('/api/views'); if (ticket === sequence) flowStore.views = saved.views || []; } catch { /* Current result remains readable if listing fails. */ }
     }
@@ -80,7 +100,7 @@ window.cancelFlowRequest = () => {
   flowStore.notice = '요청을 취소했습니다. 기존 화면을 유지합니다.';
 };
 
-window.openFlowView = (id) => load(`/api/view?viewId=${encodeURIComponent(id)}`, false);
+window.openFlowView = (id) => load(`/api/view?viewId=${encodeURIComponent(id)}`, false, true);
 window.fetchTaskView = (query = '', entry = '', flow = '', reanalyze = false) => {
   const saved = reanalyze ? flowStore.data?.request : undefined;
   const search = new URLSearchParams({ mode: 'feature' });
@@ -94,6 +114,7 @@ window.fetchTaskView = (query = '', entry = '', flow = '', reanalyze = false) =>
 };
 
 window.showFlowHome = async () => {
+  rememberView();
   window.cancelFlowRequest();
   const ticket = sequence;
   flowStore.home = true;

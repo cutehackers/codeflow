@@ -22,6 +22,7 @@ console.log('  Running TypeScript Adapter Comprehensive Test Suite ');
 console.log('======================================================\n');
 
 try {
+  require('./slice_while_execution.test').run();
   scannerQuotes.run();
   scannerRegex.run();
   scannerComments.run();
@@ -37,6 +38,14 @@ try {
   harvestDeterminism.run();
   harvestFrontend.run();
   sliceFrontendChaining.run();
+  require('./slice_hook_binding.test').run();
+  require('./slice_execution_semantics.test').run();
+  require('./slice_control_connections.test').run();
+  require('./slice_expression_body.test').run();
+  require('./slice_normal_return.test').run();
+  require('./syntax_branch_paths.test').run();
+  require('./slice_flow_context.test').run();
+  require('./parser_bundle.test').run();
   adversarialChallenge.run();
 
   console.log('\n======================================================');

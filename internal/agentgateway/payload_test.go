@@ -1,8 +1,10 @@
 package agentgateway_test
 
 import (
+	"codeflow/internal/curator/semantic"
 	"encoding/json"
 	"fmt"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -83,9 +85,13 @@ func TestCompactPayload_TokenCountBudget(t *testing.T) {
 	}
 
 	c := curator.NewCurator()
-	frames := c.CurateFlowSpec(spec)
+	sequence := c.CurateFlowSpec(spec)
+	frames := sequence.Frames
 
-	payload := agentgateway.BuildCompactPayload(&spec, frames, 2, 4)
+	payload := agentgateway.BuildCompactPayload(sequence, 2, 4)
+	if len(sequence.SummaryLimitations) == 0 || !reflect.DeepEqual(payload.SummaryLimitations, sequence.SummaryLimitations) {
+		t.Fatal("summary limitations lost")
+	}
 
 	data, err := json.Marshal(payload)
 	if err != nil {
@@ -103,13 +109,21 @@ func TestCompactPayload_TokenCountBudget(t *testing.T) {
 		t.Errorf("unexpected radar summary: %+v", payload.RadarSummary)
 	}
 
-	// 2. Verify frame ceiling: 4~7 frames
-	if len(payload.Frames) < 1 || len(payload.Frames) > 7 {
-		t.Errorf("expected 1~7 frames, got %d", len(payload.Frames))
+	// Compact is a projection, not another opportunity to regroup or invent locations.
+	if len(payload.Frames) != len(frames) {
+		t.Fatalf("frame count changed: %d vs %d", len(payload.Frames), len(frames))
+	}
+	for i, frame := range payload.Frames {
+		if frame.ID != frames[i].FrameID || frame.PrimaryStepRef != frames[i].PrimaryStepRef || frame.Steps != len(frames[i].StepRefs) {
+			t.Errorf("frame identity changed: %+v", frame)
+		}
+		if strings.Contains(frame.File, ":") {
+			t.Errorf("byte offsets were presented as line numbers: %s", frame.File)
+		}
 	}
 
 	// 3. Token count estimation: 1 token ~= 4 chars (GPT/Claude/BPE benchmark)
-	// Spec requires average ~500 tokens, strictly under 1,000 tokens
+	// This small fixture should remain compact. Large flows must preserve their steps.
 	tokenEstimate := len(data) / 4
 	if tokenEstimate > 1000 {
 		t.Fatalf("payload exceeded 1,000 tokens ceiling: %d tokens (%d bytes)", tokenEstimate, len(data))
@@ -123,4 +137,19 @@ func TestCompactPayload_TokenCountBudget(t *testing.T) {
 
 func strPtr(s string) *string {
 	return &s
+}
+
+func TestCompactPayloadPreservesEvidenceStatus(t *testing.T) {
+	for _, status := range []string{"verified", "partial", "unknown"} {
+		t.Run(status, func(t *testing.T) {
+			frames := []curator.FlowSequenceFrame{{FrameID: "f", Status: status, StepRefs: []string{"s"}, PrimaryStepRef: "s"}}
+			payload := agentgateway.BuildCompactPayload(&semantic.FlowSequence{FlowID: "flow", Frames: frames}, -1, -1)
+			if payload.Frames[0].Status != status {
+				t.Fatal("evidence status lost")
+			}
+			if payload.RadarSummary != nil {
+				t.Fatal("unmeasured relation count is not absent")
+			}
+		})
+	}
 }
