@@ -11,7 +11,7 @@ const app = mount(App, { target });
 declare global {
   interface Window {
     flowStore: typeof flowStore;
-    fetchTaskView: (query?: string, entry?: string, flow?: string, reanalyze?: boolean) => Promise<boolean>;
+    fetchTaskView: (query?: string, entry?: string, flow?: string, reanalyze?: boolean, expectedSnapshotId?: string) => Promise<boolean>;
     openFlowView: (id: string) => Promise<boolean>;
     showFlowHome: () => Promise<void>;
     compareFlowViews: (baselineId: string) => Promise<void>;
@@ -21,6 +21,7 @@ declare global {
 window.flowStore = flowStore;
 const params = new URLSearchParams(location.search);
 const token = params.get('token') || '';
+const studyLayout = params.get('studyLayout') === 'code-focused' ? 'code-focused' : '';
 (window as any).__codeflowToken = token;
 let sequence = 0;
 let controller: AbortController | null = null;
@@ -35,7 +36,12 @@ async function api(path: string, signal?: AbortSignal) {
   const url = new URL(path, location.origin);
   const response = await fetch(url, { signal, headers: token ? { 'X-CodeFlow-Token': token } : {} });
   const data = await response.json().catch(() => null);
-  if (!response.ok) throw Object.assign(new Error(data?.message || `요청 실패 (${response.status})`), { candidates: data?.candidateTargets || [], code: data?.code || data?.error || '' });
+  if (!response.ok) {
+    const message = data?.code === 'analysis_failed'
+      ? [data?.target ? `대상 ${data.target}` : '', data?.reason || data?.message, data?.nextAction].filter(Boolean).join(' · ')
+      : data?.message || `요청 실패 (${response.status})`;
+    throw Object.assign(new Error(message), { candidates: data?.candidateTargets || [], code: data?.code || data?.error || '' });
+  }
   return data;
 }
 
@@ -44,6 +50,7 @@ function setURL(viewId?: string) {
   url.search = '';
   if (token) url.searchParams.set('token', token);
   if (viewId) url.searchParams.set('viewId', viewId);
+  if (studyLayout) url.searchParams.set('studyLayout', studyLayout);
   if (url.href !== location.href) history.pushState({}, '', url);
 }
 
@@ -67,6 +74,7 @@ async function load(path: string, preserve: boolean, restore = false): Promise<b
     if (ticket !== sequence) return false;
     const adopted = flowStore.adopt(data, !preserve);
     if (adopted) {
+      flowStore.pendingRequest = '';
       flowStore.home = false;
       const previous = restore && data.viewId ? viewNavigation.get(data.viewId) : undefined;
       if (previous) {
@@ -101,15 +109,17 @@ window.cancelFlowRequest = () => {
 };
 
 window.openFlowView = (id) => load(`/api/view?viewId=${encodeURIComponent(id)}`, false, true);
-window.fetchTaskView = (query = '', entry = '', flow = '', reanalyze = false) => {
+window.fetchTaskView = (query = '', entry = '', flow = '', reanalyze = false, expectedSnapshotId = '') => {
   const saved = reanalyze ? flowStore.data?.request : undefined;
   const search = new URLSearchParams({ mode: 'feature' });
   const isSymbol = query.includes('#');
   const request = saved?.request || (isSymbol ? '' : query);
   const symbol = saved?.entrySymbol || entry || (isSymbol ? query : '');
+  if (!reanalyze) flowStore.pendingRequest = request;
   if (request) search.set('query', request);
   if (symbol) search.set('entrySymbol', symbol);
   if (saved?.flowId || flow) search.set('flowId', saved?.flowId || flow);
+  if (expectedSnapshotId) search.set('expectedSnapshotId', expectedSnapshotId);
   return load(`/api/task/view?${search}`, reanalyze);
 };
 
@@ -122,6 +132,7 @@ window.showFlowHome = async () => {
   flowStore.listError = '';
   flowStore.errorCode = '';
   flowStore.candidates = [];
+  flowStore.pendingRequest = '';
   setURL();
   try {
     const saved = await api('/api/views');

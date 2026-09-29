@@ -8,11 +8,22 @@
   import CodeFlowPanel from './components/CodeFlowPanel.svelte';
   import ProcessFlowPanel from './components/ProcessFlowPanel.svelte';
   import ContextAside from './components/ContextAside.svelte';
+  import CandidateChoices from './components/CandidateChoices.svelte';
   import { flowStore } from './stores/flowStore.svelte';
+  import { summarizeUnknownBoundaries } from './stores/flowNavigation';
 
+  const codeFocusedStudyLayout = new URLSearchParams(window.location.search).get('studyLayout') === 'code-focused';
   const viewMode = $derived(flowStore.viewMode);
   const steps = $derived(flowStore.steps);
   const unknowns = $derived(flowStore.data?.semanticMap?.unknowns || []);
+  const unknownSummaries = $derived(summarizeUnknownBoundaries(unknowns));
+  const analysisLimitations = $derived([
+    flowStore.data?.resolutionLimitation,
+    flowStore.data?.codeReadingPathLimitation,
+    flowStore.data?.sourceContextMissing ? '소스 근거 미확인 · 재분석 필요' : '',
+    unknowns.length > 0 ? `미확인 연결 ${unknowns.length}건` : '',
+    flowStore.data?.flowSequence?.summaryLimitations?.length ? `요약 한계 ${flowStore.data.flowSequence.summaryLimitations.length}건` : '',
+  ].filter((item): item is string => !!item));
   let olderViewsOpen = $state(false);
 
   function mostRecentViews() {
@@ -28,16 +39,6 @@
   const latestViews = $derived(mostRecentViews());
   const hiddenViewCount = $derived(flowStore.views.length - latestViews.length);
   const displayedViews = $derived(olderViewsOpen ? flowStore.views : latestViews);
-
-  function boundaryDescription(value: {reason?: string; subject?: string} | string) {
-    const reason = typeof value === 'string' ? value : value.reason || '';
-    const subject = typeof value === 'string' || value.subject === 'causalObservationClosure' ? '' : value.subject || '';
-    let description = '소스 근거가 부족해 처리 연결을 확인하지 못했습니다.';
-    if (reason.includes('outside the selected')) description = '선택한 코드 범위 밖의 호출입니다.';
-    else if (reason.includes('multiple canonical')) description = '호출 대상을 하나로 확인하지 못했습니다.';
-    else if (reason.includes('closure')) description = '요청한 흐름의 끝까지 연결을 확인하지 못했습니다.';
-    return subject ? `${subject} · ${description}` : description;
-  }
 
   function onQuerySubmit(query: string) {
     const event = new CustomEvent('codeflow:query', { detail: { query } });
@@ -102,11 +103,7 @@
             <li>
               <strong>3. 프로젝트 최상위 심볼 선택</strong>
               {#if flowStore.candidates.length}
-                <div class="recovery-buttons">
-                  {#each flowStore.candidates as candidate}
-                    <button type="button" onclick={() => window.fetchTaskView('', candidate)}>{candidate}</button>
-                  {/each}
-                </div>
+                <CandidateChoices candidates={flowStore.candidates} request={flowStore.pendingRequest} />
               {:else}
                 <p class="muted">감지된 공개 심볼이 없습니다. 진입 심볼을 직접 입력해 주세요.</p>
               {/if}
@@ -114,8 +111,8 @@
           </ol>
         </div>
       {:else if flowStore.candidates.length}
-        <p>분석할 진입점을 선택하세요.</p>
-        {#each flowStore.candidates as candidate}<button onclick={() => window.fetchTaskView('', candidate)}>{candidate}</button>{/each}
+        <p>요청과 연결된 코드를 확인할 진입점을 선택하세요. 선택 전에는 새 흐름을 저장하지 않습니다.</p>
+        <CandidateChoices candidates={flowStore.candidates} request={flowStore.pendingRequest} />
       {/if}
       <section class="view-library" aria-label="저장된 FlowView">
         <header class="library-header"><div><h2>다시 이어서 읽기</h2><p>저장된 분석에서 탐색을 이어갑니다.</p></div><span class="view-count">{flowStore.views.length}개 FlowView</span></header>
@@ -154,10 +151,22 @@
       </div>
       <div class="request-details">
         <span class="request-detail"><strong>진입점:</strong> <code>{flowStore.flowResolution?.entrySymbolPath || flowStore.data?.request?.entrySymbol || ''}</code></span>
-        {#if flowStore.flowResolution?.evidence?.length}
-          <span class="request-detail"><strong>선택 근거:</strong> {flowStore.flowResolution.evidence.map(e => e.description).join(', ')}</span>
+        {#if flowStore.data?.requestedFocus}
+          <span class="request-detail"><strong>선택한 구현:</strong> <code>{flowStore.data.requestedFocus.symbolPath}</code> · {flowStore.data.requestedFocus.reason}</span>
         {/if}
-        <span class="request-detail"><strong>분석 한계:</strong> {#if flowStore.data?.sourceContextMissing}소스 근거 미확인 · 재분석 필요{:else if unknowns.length > 0}미확인 연결 {unknowns.length}건{:else if flowStore.data?.flowSequence?.summaryLimitations?.length}요약 한계 {flowStore.data.flowSequence.summaryLimitations.length}건{:else}코드 근거 확인 완료{/if}</span>
+        {#if flowStore.flowResolution?.evidence?.length}
+          {#each flowStore.flowResolution.evidence as evidence}
+            <span class="request-detail"><strong>후보 정보:</strong> {evidence.description}{#if evidence.sourceAnchor} · 검증한 코드 <code>{evidence.sourceAnchor.repoRelativePath}#{evidence.sourceAnchor.enclosingSymbolPath}</code>{/if}</span>
+          {/each}
+          <span class="request-detail">요청과 코드의 의미 연결은 선택자의 판단입니다. CodeFlow는 표시된 심볼과 코드 범위를 검증했습니다.</span>
+        {/if}
+        {#if analysisLimitations.length}
+          {#each analysisLimitations as limitation}
+            <span class="request-detail"><strong>분석 한계:</strong> {limitation}</span>
+          {/each}
+        {:else}
+          <span class="request-detail"><strong>분석 한계:</strong> 코드 근거 확인 완료</span>
+        {/if}
       </div>
     </div>
   </section>
@@ -172,7 +181,7 @@
   <ViewToolbar />
 
   <!-- Main 3-Column Workbench -->
-  <main class="layout">
+  <main class="layout" class:code-focused-study={codeFocusedStudyLayout}>
     <!-- Left Navigation Rail -->
     <NavRail />
 
@@ -205,7 +214,7 @@
         <div id="boundaries" class="boundaries">
           <details>
             <summary>확인하지 못한 연결 {unknowns.length}건</summary>
-            {#each [...new Set(unknowns.map(boundaryDescription))] as description}<p>{description}</p>{/each}
+            {#each unknownSummaries as summary}<p>{summary.count > 1 ? `${summary.count}건 · ` : ''}{summary.description}</p>{/each}
           </details>
         </div>
       {/if}
@@ -286,6 +295,17 @@
     gap: 24px;
     align-items: start;
   }
+  @media (min-width: 1151px) {
+    .layout.code-focused-study {
+      grid-template-columns: 260px minmax(0, 1fr);
+    }
+    .layout.code-focused-study :global(.context) {
+      grid-column: 1 / -1;
+      position: static;
+      max-height: none;
+      border-top: 1px solid var(--line, #dddddd);
+    }
+  }
   .center {
     min-width: 0;
     border-left: 1px solid var(--line, #dddddd);
@@ -319,6 +339,7 @@
   }
   .boundaries p {
     margin-top: 6px;
+    overflow-wrap: anywhere;
   }
   .footer {
     padding: 22px 30px;
@@ -383,12 +404,6 @@
     margin: 4px 0 0 0;
     font-size: 12px;
     color: #555;
-  }
-  .recovery-buttons {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 8px;
-    margin-top: 6px;
   }
   .request-panel {
     margin: 16px 30px 0;

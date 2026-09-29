@@ -34,7 +34,7 @@ func TestCurationReviewPreservesIndependentDecisionsAcrossRequests(t *testing.T)
 		if !reflect.DeepEqual(review.Sequence, semantic.BuildFlowSequence(model)) || !reflect.DeepEqual(review, semantic.ReviewFlowSequence(model)) {
 			t.Fatal("review changed canonical result or is nondeterministic")
 		}
-		if baseline != nil && !reflect.DeepEqual(baseline, review.Sequence) {
+		if baseline != nil && !reflect.DeepEqual(baseline.Frames, review.Sequence.Frames) {
 			t.Fatal("request wording alone changed source-based grouping")
 		}
 		baseline = review.Sequence
@@ -103,5 +103,84 @@ func TestCurationReviewDoesNotExposeSourcePointers(t *testing.T) {
 		if condition != "request.allowed" || symbolRange != [2]int{0, 80} {
 			t.Fatal("curation result exposed mutable source pointers")
 		}
+	}
+}
+
+func TestCurationReviewSeparatesProofObligationsFromRequestImportance(t *testing.T) {
+	model := &semantic.SemanticMapIR{
+		MapID: "map-guard",
+		Steps: []semantic.SemanticStep{{StepID: "guard", Kind: "guard", Ordinal: 1}},
+		Quality: semantic.MapQuality{CriticalObligations: []semantic.CriticalObligation{{
+			ObligationID: "ob-guard", Kind: "critical_branch", Required: true,
+			TargetRef: "guard", Status: "verified",
+		}}},
+	}
+	review := semantic.ReviewFlowSequence(model)
+	if review.Candidates[0].RequestSpecific {
+		t.Fatalf("proof obligation was mistaken for request importance: %+v", review.Candidates[0])
+	}
+	model.RequirementAlignment = []semantic.RequirementAlignment{{
+		Status: "confirmed", CoveredStepRefs: []string{"guard"},
+	}}
+	review = semantic.ReviewFlowSequence(model)
+	if !review.Candidates[0].RequestSpecific {
+		t.Fatalf("confirmed request alignment was ignored: %+v", review.Candidates[0])
+	}
+	model.RequirementAlignment[0].Status = "partial"
+	review = semantic.ReviewFlowSequence(model)
+	if review.Candidates[0].RequestSpecific {
+		t.Fatalf("candidate coverage was mistaken for proven request importance: %+v", review.Candidates[0])
+	}
+}
+
+func TestCurationReviewDoesNotMakeEveryCoveredStepIndividuallyEssential(t *testing.T) {
+	anchor := slicing.Anchor{RepoRelativePath: "app/move.dart", EnclosingSymbolPath: "Move.apply"}
+	model := &semantic.SemanticMapIR{
+		MapID: "map-move",
+		Steps: []semantic.SemanticStep{
+			{StepID: "entry", Kind: "user_action", Ordinal: 1, InvocationID: "move", Anchor: anchor},
+			{StepID: "prepare", Kind: "mutation", Ordinal: 2, InvocationID: "move", Anchor: anchor},
+			{StepID: "commit", Kind: "mutation", Ordinal: 3, InvocationID: "move", Anchor: anchor},
+		},
+		Edges: []semantic.SemanticEdge{
+			{FromStepID: "entry", ToStepID: "prepare", Kind: "control_flow", ResolutionStatus: "resolved"},
+			{FromStepID: "prepare", ToStepID: "commit", Kind: "control_flow", ResolutionStatus: "resolved"},
+		},
+		RequirementAlignment: []semantic.RequirementAlignment{{
+			CriterionID: "AC-01", Status: "confirmed", CoveredStepRefs: []string{"entry", "prepare", "commit"},
+		}},
+	}
+	review := semantic.ReviewFlowSequence(model)
+	for _, candidate := range review.Candidates {
+		if candidate.RequestSpecific {
+			t.Fatalf("criterion coverage alone made %s individually essential", candidate.StepRef)
+		}
+	}
+	if len(review.Sequence.SummaryLimitations) == 0 || review.Sequence.SummaryLimitations[0].Code != "grouping_evidence_missing" {
+		t.Fatalf("broad criterion hid unresolved process grouping: %+v", review.Sequence.SummaryLimitations)
+	}
+}
+
+func TestPartialAlignmentDoesNotHideFlatProcessLimitation(t *testing.T) {
+	anchor := slicing.Anchor{RepoRelativePath: "entry.dart", EnclosingSymbolPath: "GameRules.apply"}
+	model := &semantic.SemanticMapIR{
+		MapID: "map-flat-process",
+		Steps: []semantic.SemanticStep{
+			{StepID: "entry", Kind: "user_action", Ordinal: 1, InvocationID: "apply", Anchor: anchor},
+			{StepID: "first", Kind: "mutation", Ordinal: 2, InvocationID: "apply", Anchor: anchor},
+			{StepID: "second", Kind: "mutation", Ordinal: 3, InvocationID: "apply", Anchor: anchor},
+		},
+		Edges: []semantic.SemanticEdge{
+			{FromStepID: "entry", ToStepID: "first", Kind: "control_flow", ResolutionStatus: "resolved"},
+			{FromStepID: "first", ToStepID: "second", Kind: "control_flow", ResolutionStatus: "resolved"},
+		},
+		RequirementAlignment: []semantic.RequirementAlignment{{Status: "partial", CoveredStepRefs: []string{"first", "second"}}},
+	}
+	review := semantic.ReviewFlowSequence(model)
+	if review.Candidates[1].RequestSpecific || review.Candidates[2].RequestSpecific {
+		t.Fatalf("partial coverage promoted both mutations to essential: %+v", review.Candidates)
+	}
+	if len(review.Sequence.SummaryLimitations) == 0 || review.Sequence.SummaryLimitations[0].Code != "grouping_evidence_missing" {
+		t.Fatalf("flat process was presented as complete grouping: %+v", review.Sequence.SummaryLimitations)
 	}
 }

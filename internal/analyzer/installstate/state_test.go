@@ -8,14 +8,15 @@ import (
 func TestSaveAndLoad(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	want := State{
-		Version:     1,
-		Binary:      "/tmp/codeflow",
-		SourceRoot:  "/tmp/source",
-		OwnedSource: true,
-		AdapterSpec: "dartrun:/tmp/source/adapters/dart",
-		SkillPath:   "/tmp/skill",
-		SkillSHA256: "abc",
-		MCPName:     "codeflow",
+		Version:       1,
+		Binary:        "/tmp/codeflow",
+		SourceRoot:    "/tmp/source",
+		OwnedSource:   true,
+		AdapterSpec:   "dartrun:/tmp/source/adapters/dart",
+		GoAdapterSpec: "/tmp/codeflow_go_adapter",
+		SkillPath:     "/tmp/skill",
+		SkillSHA256:   "abc",
+		MCPName:       "codeflow",
 	}
 	if err := Save(want); err != nil {
 		t.Fatalf("Save: %v", err)

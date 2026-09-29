@@ -16,12 +16,20 @@ const (
 	SemanticMapV2SchemaID      = BaseURL + "rflsc.semantic-map-ir.v2.schema.json"
 	FlowProjectionV2SchemaID   = BaseURL + "rflsc.flowview-projection.v2.schema.json"
 	FlowSequenceSchemaID       = BaseURL + "flow_sequence.schema.json"
+	CodeReadingPathSchemaID    = BaseURL + "code-reading-path.schema.json"
 )
 
 // ValidateFlowSequence verifies schema compliance for FlowSequence.
 func ValidateFlowSequence(data []byte) error {
 	if err := Validate(FlowSequenceSchemaID, data); err != nil {
 		return fmt.Errorf("flow_sequence schema: %w", err)
+	}
+	return nil
+}
+
+func ValidateCodeReadingPath(data []byte) error {
+	if err := Validate(CodeReadingPathSchemaID, data); err != nil {
+		return fmt.Errorf("code reading path schema: %w", err)
 	}
 	return nil
 }
@@ -91,8 +99,13 @@ func ValidateTaskViewQuery(data []byte) error {
 		fID, _ := feat["flowId"].(string)
 		entry, _ := feat["entrySymbol"].(string)
 		dom, _ := feat["domain"].(string)
+		focusSymbol, _ := feat["focusSymbol"].(string)
+		focusReason, _ := feat["focusReason"].(string)
 		if req == "" && fID == "" && entry == "" && dom == "" {
 			return &SemanticValidationError{Scope: "task-view-query", Message: "feature mode requires at least one start condition (request, flowId, entrySymbol, domain)"}
+		}
+		if (focusSymbol == "") != (focusReason == "") {
+			return &SemanticValidationError{Scope: "task-view-query", Message: "focusSymbol and focusReason must be provided together"}
 		}
 	}
 	return nil

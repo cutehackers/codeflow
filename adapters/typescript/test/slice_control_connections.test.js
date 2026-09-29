@@ -97,9 +97,12 @@ async function retry() { return 12; }
     }
 
     const valueAssignment = analyze('valueAssignment');
-    const assignmentStep = valueAssignment.steps.find(step => step.kind === 'mutation');
+    const assignmentStep = valueAssignment.steps.find(step => step.kind === 'mutation' && step.description.includes('total = before()'));
     const valueCall = valueAssignment.steps.find(step => step.description === 'before()');
+    assert(assignmentStep && valueCall, 'direct value assignment or source call missing');
     assert.strictEqual(assignmentStep.assignmentSourceOrdinal, valueCall.ordinal, 'direct value source omitted');
+    const scopedWrite = sliceFlow({ repoRoot: root, candidateId: 'cand-control', entrySymbolPath: 'flow.ts#update', opts: { includeExecutionSemantics: true, includeValueRoles: true } });
+    assert(scopedWrite.steps.filter(step => step.kind === 'mutation').every(step => !step.valueRole), 'field write was mislabeled as local binding');
     for (const name of ['commaAssignment', 'targetAssignment', 'nestedAssignment', 'update', 'logical']) {
       assert(!analyze(name).steps.some(step => step.assignmentSourceOrdinal !== undefined), `${name}: unrelated evaluation labeled as direct value`);
     }

@@ -45,6 +45,7 @@
             "enum": ["guard", "mutation", "effect", "call", "branch", "return", "throw", "await", "break", "continue"],
             "description": "Structural kinds from AST statement slicing."
           },
+          "valueRole": { "type": "string", "enum": ["local_binding"] },
           "description": { "type": "string", "minLength": 1 },
           "symbolPath": {
             "type": "string",
@@ -77,7 +78,7 @@
           "conditions": {"type": "array", "minItems": 1, "maxItems": 1, "items": {"type": "object", "additionalProperties": false, "required": ["stepOrdinal", "outcome"], "properties": {"stepOrdinal": {"type": "integer", "minimum": 1}, "outcome": {"type": "string", "enum": ["truthy", "falsy", "nullish", "non_nullish"]}}}},
           "kind": {
             "type": "string",
-            "enum": ["resolved_cross_file", "unknown_edge", "boundary_call", "control_flow", "parallel_wait", "failure", "finally", "return", "await_resume", "await_loop_back", "loop_back", "loop_reentry", "loop_exit", "loop_exit_back", "switch_exit"]
+            "enum": ["resolved_cross_file", "callback_argument", "unknown_edge", "boundary_call", "control_flow", "parallel_wait", "failure", "finally", "return", "await_resume", "await_loop_back", "loop_back", "loop_reentry", "loop_exit", "loop_exit_back", "switch_exit"]
           },
           "toSymbolPath": {
             "type": "string",
@@ -98,7 +99,7 @@
           "targetStepOrdinal": {
             "type": "integer",
             "minimum": 1,
-            "description": "Explicit target step. Calls target invocation entry, control_flow targets the same invocation, and return targets the caller continuation."
+            "description": "Explicit target step. Calls target invocation entry, callback_argument targets the nested function's first source step without asserting execution, control_flow targets the same invocation, and return targets the caller continuation."
           },
           "stepOrdinal": {
             "type": "integer",

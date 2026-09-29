@@ -82,7 +82,7 @@ func capabilityProbeFiles(adapter string) map[string]string {
 	default:
 		return map[string]string{
 			"go.mod":  "module capability.probe\n\ngo 1.22\n",
-			"main.go": "package main\nfunc main() {}\n",
+			"main.go": "package main\nfunc main() { println(\"probe\") }\n",
 		}
 	}
 }

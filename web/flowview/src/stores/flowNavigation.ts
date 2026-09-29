@@ -1,5 +1,98 @@
-import type { Edge, FlowTaskViewData, Step } from '../types/flow';
-import type { FlowSequenceFrame } from '../types/flow_sequence';
+import type { CodeReadingPath, Edge, FlowTaskViewData, Step } from '../types/flow';
+import type { FlowSequence, FlowSequenceFrame } from '../types/flow_sequence';
+
+// The curator identifies source-backed steps whose invocation is not proven.
+// Keep those frames accessible without presenting them as the requested
+// execution path. This changes navigation only, never frame membership.
+export function partitionExecutionNavigation(sequence: FlowSequence | null | undefined): {
+  execution: FlowSequenceFrame[];
+  unproven: FlowSequenceFrame[];
+} {
+  if (!sequence) return {execution: [], unproven: []};
+  const unprovenIDs = new Set(sequence.summaryLimitations
+    ?.filter(limitation => limitation.code === 'invocation_unproven')
+    .flatMap(limitation => limitation.frameRefs) || []);
+  return {
+    execution: sequence.frames.filter(frame => !unprovenIDs.has(frame.frameID)),
+    unproven: sequence.frames.filter(frame => unprovenIDs.has(frame.frameID)),
+  };
+}
+
+export function partitionCodeReadingNavigation(sequence: FlowSequence | null | undefined, path: CodeReadingPath | null | undefined): {
+  reading: FlowSequenceFrame[];
+  other: FlowSequenceFrame[];
+  unproven: FlowSequenceFrame[];
+} {
+  const execution = partitionExecutionNavigation(sequence);
+  if (!path?.nodes.length) return {reading: execution.execution, other: [], unproven: execution.unproven};
+  const frames = new Map(execution.execution.map(frame => [frame.frameID, frame]));
+  const selected = new Set<string>();
+  const reading = path.nodes.flatMap(node => {
+    const frame = frames.get(node.frameId);
+    if (!frame || selected.has(node.frameId)) return [];
+    selected.add(node.frameId);
+    return [frame];
+  });
+  return {reading, other: execution.execution.filter(frame => !selected.has(frame.frameID)), unproven: execution.unproven};
+}
+
+// A short reading relation retains its confirmed intermediate source steps.
+// Keep loop revisits and other already selected points in the main path.
+export function codeReadingRelationDetailSteps(relation: CodeReadingPath['relations'][number], path: CodeReadingPath, edges: Edge[], steps: Step[]): Step[] {
+  const selected = new Set(path.nodes.map(node => node.stepId));
+  const byID = new Map(steps.map(step => [step.stepId, step]));
+  const seen = new Set<string>();
+  return relation.edgeIndexes.slice(0, -1).flatMap(index => {
+    const stepID = edges[index]?.toStepId;
+    if (!stepID || selected.has(stepID) || seen.has(stepID)) return [];
+    seen.add(stepID);
+    const step = byID.get(stepID);
+    return step ? [step] : [];
+  });
+}
+
+export function codeReadingRelationDetailOwners(path: CodeReadingPath, edges: Edge[], steps: Step[]): Map<string, string> {
+  const owners = new Map<string, string>();
+  for (const relation of path.relations) {
+    const key = `${relation.fromNodeId}\u0000${relation.toNodeId}`;
+    for (const step of codeReadingRelationDetailSteps(relation, path, edges, steps)) {
+      if (!owners.has(step.stepId)) owners.set(step.stepId, key);
+    }
+  }
+  return owners;
+}
+
+export interface OmittedCodeReadingBranch {
+  edgeIndex: number;
+  outcome: NonNullable<Edge['conditions']>[number]['outcome'];
+  toStepId: string;
+}
+
+export function omittedCodeReadingBranches(path: CodeReadingPath | null | undefined, edges: Edge[]): Map<string, OmittedCodeReadingBranch[]> {
+  const omitted = new Map<string, OmittedCodeReadingBranch[]>();
+  if (!path) return omitted;
+  const represented = new Set(path.nodes.map(node => node.stepId));
+  const used = new Set<number>();
+  for (const relation of path.relations) {
+    for (const index of relation.edgeIndexes) {
+      const edge = edges[index];
+      if (!edge) continue;
+      used.add(index);
+      represented.add(edge.fromStepId);
+      represented.add(edge.toStepId);
+    }
+  }
+  for (const [edgeIndex, edge] of edges.entries()) {
+    if (used.has(edgeIndex) || !represented.has(edge.fromStepId) || edge.resolutionStatus !== 'resolved') continue;
+    for (const condition of edge.conditions || []) {
+      if (condition.stepId !== edge.fromStepId) continue;
+      const branches = omitted.get(edge.fromStepId) || [];
+      branches.push({edgeIndex, outcome: condition.outcome, toStepId: edge.toStepId});
+      omitted.set(edge.fromStepId, branches);
+    }
+  }
+  return omitted;
+}
 
 export interface FlowRelation {
   id: string;
@@ -17,6 +110,21 @@ export function incomingRelationSummary(relations: FlowRelation[]): string | nul
   return `${relations.length}개 선행 연결 · 동시 완료를 뜻하지 않음`;
 }
 
+function verifiedReturnBypassPairs(steps: Step[], edges: Edge[]): Set<string> {
+  const byID = new Map(steps.map(step => [step.stepId, step]));
+  const byOrdinal = new Map(steps.map(step => [step.ordinal, step]));
+  const pairs = new Set<string>();
+  for (const edge of edges) {
+    if (edge.kind !== 'return' || edge.resolutionStatus !== 'resolved') continue;
+    const returned = byID.get(edge.fromStepId);
+    const caller = byOrdinal.get(returned?.callerStepOrdinal);
+    if (returned?.kind === 'return' && caller?.kind === 'call' && returned.invocationId &&
+      caller.invocationId && returned.invocationId !== caller.invocationId)
+      pairs.add(`${caller.stepId}\u0000${edge.toStepId}`);
+  }
+  return pairs;
+}
+
 export function buildFlowRelations(data: FlowTaskViewData | null): FlowRelation[] {
   if (!data) return [];
   const steps = new Map(data.semanticMap.steps.map(s => [s.stepId, s]));
@@ -24,6 +132,7 @@ export function buildFlowRelations(data: FlowTaskViewData | null): FlowRelation[
   for (const frame of data.flowSequence?.frames || []) {
     for (const ref of frame.stepRefs) parents.set(ref, frame);
   }
+  const bypassPairs = verifiedReturnBypassPairs(data.semanticMap.steps, data.semanticMap.edges);
   return data.semanticMap.edges.map((edge, index) => ({
     id: `${index}:${edge.fromStepId}:${edge.toStepId}:${edge.kind}`,
     edge,
@@ -32,7 +141,8 @@ export function buildFlowRelations(data: FlowTaskViewData | null): FlowRelation[
     fromFrame: parents.get(edge.fromStepId) || null,
     toFrame: parents.get(edge.toStepId) || null,
     resolved: edge.resolutionStatus === 'resolved' && steps.has(edge.fromStepId) && steps.has(edge.toStepId),
-  }));
+  })).filter(relation => relation.edge.kind !== 'control_flow' ||
+    !bypassPairs.has(`${relation.edge.fromStepId}\u0000${relation.edge.toStepId}`));
 }
 
 export function validateFlowReferences(data: FlowTaskViewData): string | null {
@@ -59,17 +169,94 @@ export function validateFlowReferences(data: FlowTaskViewData): string | null {
     }
   }
   if (parents.size !== steps.size) return '관문에 포함되지 않은 실행 단계가 있습니다.';
+  const focus = data.requestedFocus;
+  if (focus && (!focus.symbolPath || !focus.reason || !focus.evidenceRefs?.length ||
+    !steps.has(focus.callStepId) || !steps.has(focus.entryStepId) ||
+    focus.snapshotId !== data.flowSequence.snapshotID ||
+    !parents.has(focus.callStepId) || !parents.has(focus.entryStepId))) return '요청한 구현의 코드 근거를 확인할 수 없습니다.';
   for (const limitation of data.flowSequence.summaryLimitations || []) {
     if (!limitation.message || !Array.isArray(limitation.frameRefs) || !limitation.frameRefs.length || limitation.frameRefs.some(ref => !frames.has(ref))) return '요약 한계의 대상 관문을 찾을 수 없습니다.';
+  }
+  const path = data.codeReadingPath;
+  if (path) {
+    if (path.schemaId !== 'https://codeflow.local/schemas/code-reading-path.schema.json' || path.schemaVersion !== 2 ||
+      path.snapshotId !== data.flowSequence.snapshotID || path.computedBasisId !== data.flowSequence.computedBasisId ||
+      path.request !== data.flowResolution?.rawRequest || !path.nodes.length || !Array.isArray(path.relations) ||
+      path.nodes[0].stepId !== data.semanticMap.steps[0]?.stepId) return '코드 읽기 경로의 분석 기준이 맞지 않습니다.';
+    const unproven = new Set(data.flowSequence.summaryLimitations?.filter(item => item.code === 'invocation_unproven').flatMap(item => item.frameRefs) || []);
+    const selected = new Set<string>();
+    const nodeIndex = new Map(path.nodes.map((node, index) => [node.stepId, index]));
+    const bypassPairs = verifiedReturnBypassPairs(data.semanticMap.steps, data.semanticMap.edges);
+    for (const [index, node] of path.nodes.entries()) {
+      const step = data.semanticMap.steps.find(item => item.stepId === node.stepId);
+      const context = data.flowContexts?.[node.stepId];
+      if (!step || selected.has(node.stepId) || unproven.has(node.frameId) ||
+        !data.flowSequence.frames.some(frame => frame.frameID === node.frameId && frame.stepRefs.includes(node.stepId)) ||
+        !node.codeViewAvailable || !node.inclusionReason || !node.requestPart || !path.request.includes(node.requestPart) || !node.evidenceRefs?.length ||
+        node.symbol !== `${node.sourceAnchor.repoRelativePath}#${node.sourceAnchor.enclosingSymbolPath}` ||
+        node.sourceAnchor.repoRelativePath !== step.anchor?.repoRelativePath ||
+        node.sourceAnchor.enclosingSymbolPath !== step.anchor?.enclosingSymbolPath ||
+        context?.snapshotId !== path.snapshotId || context?.precision !== 'exact' || context?.sourceValidationStatus !== 'verified' ||
+        context?.statement?.byteRange[0] !== node.sourceAnchor.byteRange[0] || context.statement.byteRange[1] !== node.sourceAnchor.byteRange[1] ||
+        !Array.isArray(node.previousNodeIds) || !Array.isArray(node.nextNodeIds) ||
+        (index > 0 && !node.previousNodeIds.length) ||
+        (index === 0 && node.previousNodeIds.length > 0) ||
+        (!node.nextNodeIds.length && node.role !== 'outcome' && node.role !== 'boundary'))
+        return '코드 읽기 경로의 소스 또는 연결 근거를 확인할 수 없습니다.';
+      selected.add(node.stepId);
+    }
+    const previous = new Map(path.nodes.map(node => [node.stepId, [] as string[]]));
+    const next = new Map(path.nodes.map(node => [node.stepId, [] as string[]]));
+    const pairs = new Set<string>();
+    for (const relation of path.relations) {
+      const fromIndex = nodeIndex.get(relation.fromNodeId);
+      const toIndex = nodeIndex.get(relation.toNodeId);
+      const pair = `${relation.fromNodeId}\u0000${relation.toNodeId}`;
+      if (fromIndex === undefined || toIndex === undefined || fromIndex >= toIndex || pairs.has(pair) ||
+        relation.status !== 'verified' || !relation.edgeIndexes?.length)
+        return '코드 읽기 경로의 연결 근거를 확인할 수 없습니다.';
+      pairs.add(pair);
+      let cursor = relation.fromNodeId;
+      for (const [index, edgeIndex] of relation.edgeIndexes.entries()) {
+        const edge = data.semanticMap.edges[edgeIndex];
+        const selectedPosition = edge ? nodeIndex.get(edge.toStepId) : undefined;
+        const loopRevisit = edge && ['loop_back', 'loop_reentry', 'loop_exit_back', 'await_loop_back'].includes(edge.kind) &&
+          selectedPosition !== undefined && selectedPosition < fromIndex;
+        if (!edge || edge.fromStepId !== cursor || edge.resolutionStatus !== 'resolved' || edge.kind === 'callback_argument' ||
+          (edge.kind === 'control_flow' && bypassPairs.has(`${edge.fromStepId}\u0000${edge.toStepId}`)) ||
+          (index < relation.edgeIndexes.length - 1 && selectedPosition !== undefined && !loopRevisit))
+          return '코드 읽기 경로의 연결 근거를 확인할 수 없습니다.';
+        cursor = edge.toStepId;
+      }
+      if (cursor !== relation.toNodeId) return '코드 읽기 경로의 연결 근거를 확인할 수 없습니다.';
+      next.get(relation.fromNodeId)!.push(relation.toNodeId);
+      previous.get(relation.toNodeId)!.push(relation.fromNodeId);
+    }
+    for (const node of path.nodes) {
+      if (JSON.stringify(node.previousNodeIds) !== JSON.stringify(previous.get(node.stepId)) ||
+        JSON.stringify(node.nextNodeIds) !== JSON.stringify(next.get(node.stepId)))
+        return '코드 읽기 경로의 연결 근거를 확인할 수 없습니다.';
+    }
+    if (focus && !pairs.has(`${focus.callStepId}\u0000${focus.entryStepId}`))
+      return '요청한 구현의 코드 근거를 확인할 수 없습니다.';
   }
   return null;
 }
 
+export function requestedFocusFrame(sequence: FlowSequence, entryStepId: string | undefined): FlowSequenceFrame | undefined {
+  return entryStepId ? sequence.frames.find(frame => frame.stepRefs.includes(entryStepId)) : undefined;
+}
+
 // Source bundles may contain ranges rather than a complete file starting at line 1.
-export function sourceWindow<T extends {lineNumber: number}>(lines: T[], focusLine: number): T[] {
+export function sourceWindow<T extends {lineNumber: number; isHit?: boolean}>(lines: T[], focusLine: number): T[] {
   const focusIndex = lines.findIndex(line => line.lineNumber >= focusLine);
-  const start = Math.max(0, (focusIndex < 0 ? lines.length - 1 : focusIndex) - 4);
-  return lines.slice(start, start + 16);
+  const firstHit = lines.findIndex(line => line.isHit);
+  let lastHit = firstHit;
+  for (let index = firstHit + 1; index < lines.length; index++) {
+    if (lines[index].isHit) lastHit = index;
+  }
+  const start = Math.max(0, (firstHit < 0 ? (focusIndex < 0 ? lines.length - 1 : focusIndex) : firstHit) - 4);
+  return lines.slice(start, Math.max(start + 16, lastHit + 5));
 }
 
 export function implementationSymbol(step: Step | undefined): string {
@@ -160,4 +347,37 @@ export function selectedCodeLimitations(data: FlowTaskViewData | null, step: Ste
     if (typeof item === 'string' || !item.subject || !subjects.has(item.subject) || !item.reason?.trim()) return [];
     return [labels[item.reason] || item.reason];
   }))];
+}
+
+export function summarizeUnknownBoundaries(
+  unknowns: Array<{reason?: string; subject?: string} | string>,
+): Array<{description: string; count: number}> {
+  const counts = new Map<string, number>();
+  for (const unknown of unknowns) {
+    const reason = typeof unknown === 'string' ? unknown : unknown.reason || '';
+    const subject = typeof unknown === 'string' ? '' : unknown.subject || '';
+    const separator = subject.lastIndexOf('#');
+    const path = separator >= 0 ? subject.slice(0, separator) : '';
+    const symbol = separator >= 0 ? subject.slice(separator + 1) : subject;
+    const target = /^unresolved_dynamic\.callback_\d+$/.test(symbol)
+      ? '전달된 콜백'
+      : symbol.startsWith('unresolved_dynamic.')
+        ? `${symbol.slice('unresolved_dynamic.'.length)} 호출`
+        : symbol === 'causalObservationClosure' ? '' : symbol;
+    let explanation = '코드에서 다음 처리와의 연결을 확인하지 못했습니다.';
+    if (reason.includes('콜백을 전달한 코드는 확인했지만')) {
+      explanation = '실제 호출 시점과 실행 여부를 확인하지 못했습니다.';
+    } else if (reason.includes('재귀 호출이')) {
+      explanation = '재귀 호출의 다음 실행 문장은 분석 범위 때문에 펼치지 못했습니다.';
+    } else if (reason.includes('outside the selected')) {
+      explanation = '선택한 코드 범위 밖의 호출입니다.';
+    } else if (reason.includes('multiple canonical')) {
+      explanation = '호출 대상을 하나로 확인하지 못했습니다.';
+    } else if (reason.includes('closure')) {
+      explanation = '요청한 흐름의 끝까지 연결을 확인하지 못했습니다.';
+    }
+    const description = [path, target, explanation].filter(Boolean).join(' · ');
+    counts.set(description, (counts.get(description) || 0) + 1);
+  }
+  return [...counts].map(([description, count]) => ({description, count}));
 }

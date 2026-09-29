@@ -147,6 +147,7 @@ func CompileDeterministicFeatureMap(target *ResolvedTarget, intent *TaskIntent, 
 			TechnicalName:      sourceStep.SymbolPath,
 			Layer:              sourceStep.Layer,
 			Kind:               sourceStep.Kind,
+			ValueRole:          sourceStep.ValueRole,
 			Anchor:             sourceStep.Anchor,
 			CodeLens:           record.CodeLens,
 			SideEffect:         sourceStep.EffectTarget,
@@ -156,7 +157,7 @@ func CompileDeterministicFeatureMap(target *ResolvedTarget, intent *TaskIntent, 
 		if semanticStep.Name == "" {
 			semanticStep.Name = sourceStep.SymbolPath
 		}
-		if sourceStep.StateBefore != nil || sourceStep.StateAfter != nil {
+		if sourceStep.ValueRole != "local_binding" && (sourceStep.StateBefore != nil || sourceStep.StateAfter != nil) {
 			semanticStep.StateDelta = &fusion.StateDelta{Before: deref(sourceStep.StateBefore), After: deref(sourceStep.StateAfter)}
 		}
 		semanticSteps = append(semanticSteps, semanticStep)
@@ -217,6 +218,15 @@ func CompileDeterministicFeatureMap(target *ResolvedTarget, intent *TaskIntent, 
 		if status == "" {
 			status = "unknown"
 		}
+		if status != "resolved" {
+			boundaryID := boundaryTargetID(target.FlowID, sourceEdge.ToSymbolPath, sourceEdge.Kind)
+			if !containsString(boundaryTargets, boundaryID) {
+				boundaryTargets = append(boundaryTargets, boundaryID)
+			}
+			from.Rules = append(from.Rules, "boundary:"+sourceEdge.ToSymbolPath)
+			unknowns = append(unknowns, fusion.Unknown{Subject: sourceEdge.ToSymbolPath, Reason: unresolvedSliceReason(sourceEdge)})
+			continue
+		}
 		toID := ""
 		if sourceEdge.TargetStepOrdinal != nil {
 			toID = stepByOrdinal[*sourceEdge.TargetStepOrdinal].StepID
@@ -248,9 +258,6 @@ func CompileDeterministicFeatureMap(target *ResolvedTarget, intent *TaskIntent, 
 			unknowns = append(unknowns, fusion.Unknown{Subject: sourceEdge.ToSymbolPath, Reason: unresolvedSliceReason(sourceEdge)})
 			continue
 		}
-		if status != "resolved" {
-			unknowns = append(unknowns, fusion.Unknown{Subject: sourceEdge.ToSymbolPath, Reason: "edge resolution is not verified: " + status})
-		}
 		if !stepIDs[toID] {
 			return nil, nil, fmt.Errorf("invalid_identity: edge target %s is not a canonical step", sourceEdge.ToSymbolPath)
 		}
@@ -263,6 +270,13 @@ func CompileDeterministicFeatureMap(target *ResolvedTarget, intent *TaskIntent, 
 
 	sort.SliceStable(semanticSteps, func(i, j int) bool { return semanticSteps[i].Ordinal < semanticSteps[j].Ordinal })
 	sort.SliceStable(evidence, func(i, j int) bool { return evidence[i].EvidenceID < evidence[j].EvidenceID })
+	completionMode := make(map[string]string)
+	for _, sourceStep := range sliceResult.Steps {
+		if mode := verifiedDirectReturnMode(sourceStep, sliceResult.SnapshotID); mode != "" {
+			completionMode[stepByOrdinal[sourceStep.Ordinal].StepID] = mode
+		}
+	}
+	semanticEdges = deriveDirectReturnConnections(semanticSteps, semanticEdges, completionMode)
 
 	taskID, taskRevision, taskStatus, taskMode, requested := "task-unknown", 1, "parsed", "feature", target.Title
 	var criteria []AcceptanceCriterion
@@ -539,6 +553,14 @@ func deref(value *string) string {
 func unresolvedSliceReason(edge slicing.SliceEdge) string {
 	if edge.UnresolvedReason != "" {
 		return edge.UnresolvedReason
+	}
+	switch edge.ResolutionStatus {
+	case "unresolved_dynamic", "unresolved":
+		return "unresolved_dynamic_call"
+	case "unresolved_type":
+		return "unresolved_type"
+	case "truncated":
+		return "truncated_traversal"
 	}
 	return "edge target is outside the selected structural slice"
 }

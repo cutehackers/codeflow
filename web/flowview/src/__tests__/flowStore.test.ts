@@ -17,6 +17,7 @@ describe('FlowStore (Svelte 5 Runes)', () => {
     flowStore.viewMode = 'code';
     flowStore.overviewOpen = true;
     flowStore.expandedFrames = new Set();
+    flowStore.expandedReadingRelations = new Set();
     flowStore.selectedRelationId = null;
   });
 
@@ -275,6 +276,18 @@ describe('FlowStore (Svelte 5 Runes)', () => {
     expect(flowStore.expandedFrames.has('frame-02')).toBe(true);
     expect(flowStore.selectedFrameId).toBe('frame-01');
     expect(flowStore.conditionFilter).toBe('validate_cart');
+  });
+
+  it('restores an expanded reading relation after following its detail code', () => {
+    flowStore.adopt(samplePayload(1), true);
+    const relationKey = 'entry\u0000result';
+    flowStore.toggleReadingRelation(relationKey);
+    flowStore.saveNavigationState();
+    flowStore.toggleReadingRelation(relationKey);
+    flowStore.select('validate_cart');
+    flowStore.restoreNavigationState();
+    expect(flowStore.expandedReadingRelations.has(relationKey)).toBe(true);
+    expect(flowStore.selectedStepId).toBe('checkout_click');
   });
 });
 

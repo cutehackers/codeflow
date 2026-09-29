@@ -234,12 +234,19 @@ function extractExecutionStatements(code, fileName, bodyStart, bodyEnd, extractS
       const valueStart = statements.length;
       expressionCalls(node.initializer, condition);
       const bindingPattern = !ts.isIdentifier(node.name);
-      if (statements.length > valueStart || bindingPattern) {
+      // Creating a function or class value does not execute its body. Other
+      // initializers still assign a value even when they contain no call.
+      const deferredBody = ts.isFunctionLike(node.initializer) || ts.isClassExpression(node.initializer);
+      if (!deferredBody) {
         const directValue = !bindingPattern && ts.isCallExpression(node.initializer)
           && statements.length === valueStart + 1 && statements[valueStart].type === 'call';
-        const startOffset = node.getStart(tree);
-        const rawText = code.slice(startOffset, node.end);
-        emit({ type: 'mutation', startOffset, endOffset: node.end, rawText, description: rawText,
+        const wholeStatement = node.parent.declarations.length === 1 && ts.isVariableStatement(node.parent.parent)
+          ? node.parent.parent : node;
+        const startOffset = wholeStatement.getStart(tree);
+        const rawText = code.slice(startOffset, wholeStatement.end);
+        const description = statements.length > valueStart ? code.slice(node.getStart(tree), node.end) : rawText;
+        emit({ type: 'mutation', startOffset, endOffset: wholeStatement.end, rawText, description,
+          ...(ts.isVariableStatement(node.parent.parent) ? { valueRole: 'local_binding' } : {}),
           ...(directValue ? { assignmentSourceIndex: valueStart } : {}),
           ...(bindingPattern ? { controlFlowLimitation: '구조 분해 초기화의 키·기본값·반복자 실행 연결을 확인하지 못했습니다.' } : {}) });
       }

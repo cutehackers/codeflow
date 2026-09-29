@@ -1,6 +1,8 @@
 package fusion_test
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"os"
 	"testing"
@@ -10,6 +12,39 @@ import (
 	"codeflow/internal/collector/fusion"
 	"codeflow/internal/collector/slicing"
 )
+
+func TestAttachFlowResolutionSourceAnchorRequiresSameSnapshotEntry(t *testing.T) {
+	const source = "package service\nfunc Run() { println(\"ok\") }\n"
+	span := "println(\"ok\")"
+	start := len("package service\nfunc Run() { ")
+	fileHash := sha256.Sum256([]byte(source))
+	spanHash := sha256.Sum256([]byte(span))
+	anchor := slicing.Anchor{
+		RepoRelativePath: "service.go", ByteRange: [2]int{start, start + len(span)},
+		FileHash: hex.EncodeToString(fileHash[:]), SpanHash: hex.EncodeToString(spanHash[:]),
+		EnclosingSymbolPath: "Run", CanonicalAstFingerprint: hex.EncodeToString(spanHash[:]),
+	}
+	newResolution := func() *fusion.FlowResolution {
+		return &fusion.FlowResolution{EntrySymbolPath: "service.go#Run", Evidence: []fusion.FlowEvidence{{EntrySymbolPath: "service.go#Run"}}}
+	}
+	resolution := newResolution()
+	if err := fusion.AttachFlowResolutionSourceAnchor(resolution, anchor, map[string]string{"service.go": source}); err != nil {
+		t.Fatal(err)
+	}
+	if resolution.Evidence[0].SourceAnchor == nil || *resolution.Evidence[0].SourceAnchor != anchor {
+		t.Fatalf("validated source anchor was not retained: %+v", resolution.Evidence)
+	}
+	wrongSymbol := anchor
+	wrongSymbol.EnclosingSymbolPath = "Other.Run"
+	if err := fusion.AttachFlowResolutionSourceAnchor(newResolution(), wrongSymbol, map[string]string{"service.go": source}); err == nil {
+		t.Fatal("different entry symbol accepted as selection evidence")
+	}
+	wrongHash := anchor
+	wrongHash.SpanHash = "0000000000000000000000000000000000000000000000000000000000000000"
+	if err := fusion.AttachFlowResolutionSourceAnchor(newResolution(), wrongHash, map[string]string{"service.go": source}); err == nil {
+		t.Fatal("stale source bytes accepted as selection evidence")
+	}
+}
 
 func TestFlowSpecFlowResolutionSchema(t *testing.T) {
 	spec := fusion.FlowSpec{

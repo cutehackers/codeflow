@@ -188,7 +188,7 @@ func validateInvocationRelations(model *SemanticMapIR) error {
 		required = required || step.Kind == "await" || step.Kind == "break" || step.Kind == "continue"
 	}
 	for _, edge := range model.Edges {
-		if (edge.Kind == "return" && invocationAware) || edge.Kind == "failure" || edge.Kind == "parallel_wait" || edge.Kind == "await_resume" || edge.Kind == "await_loop_back" || edge.Kind == "loop_back" || edge.Kind == "loop_reentry" || edge.Kind == "loop_exit" || edge.Kind == "loop_exit_back" {
+		if edge.Kind == "callback_argument" || (edge.Kind == "return" && invocationAware) || edge.Kind == "failure" || edge.Kind == "parallel_wait" || edge.Kind == "await_resume" || edge.Kind == "await_loop_back" || edge.Kind == "loop_back" || edge.Kind == "loop_reentry" || edge.Kind == "loop_exit" || edge.Kind == "loop_exit_back" {
 			required = true
 		}
 	}

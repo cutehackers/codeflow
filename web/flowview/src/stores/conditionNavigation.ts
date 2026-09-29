@@ -33,6 +33,7 @@ export function conditionReachability(data: FlowTaskViewData | null, selections:
     steps.add(id);
     const source = sourceSteps.get(id)!;
     for (const edge of outgoing.get(id) || []) {
+      if (edge.kind === 'callback_argument') continue;
       let conditionMismatch = false;
       for (const condition of edge.conditions || []) {
         const outcome = decisions.get(condition.stepId);

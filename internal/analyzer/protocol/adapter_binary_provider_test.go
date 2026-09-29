@@ -68,3 +68,15 @@ func provideMockAdapterBinary(t *testing.T) string {
 	}
 	return mockAdapterBinaryPath
 }
+
+// ProvideGoAdapterBinary returns the compiled Go adapter binary path.
+func ProvideGoAdapterBinary(t *testing.T) string {
+	t.Helper()
+	return provideGoAdapterBinary(t)
+}
+
+// RepoRootDir returns the repository root directory.
+func RepoRootDir(t *testing.T) string {
+	t.Helper()
+	return repoRootDir(t)
+}

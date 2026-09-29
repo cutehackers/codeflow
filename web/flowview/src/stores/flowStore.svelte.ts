@@ -1,6 +1,6 @@
 import { tick } from 'svelte';
 import { conditionChoices, conditionReachability, retainReachableConditions, type ConditionSelection } from './conditionNavigation';
-import { buildFlowRelations, validateFlowReferences } from './flowNavigation';
+import { buildFlowRelations, partitionExecutionNavigation, requestedFocusFrame, validateFlowReferences } from './flowNavigation';
 import type { FlowTaskViewData, Step, FlowContext, FlowResolution } from '../types/flow';
 import type { FlowSequence, FlowSequenceFrame } from '../types/flow_sequence';
 import type { ChangeImpactGraph } from '../types/impact';
@@ -16,6 +16,7 @@ export const GATEWAY_ROLES: Record<string, string> = {
 
 export const EDGE_LABELS: Record<string, string> = {
   resolved_cross_file: '호출',
+  callback_argument: '콜백 전달 · 실행 여부 미확인',
   call: '호출',
   calls: '호출',
   successor: '다음 처리',
@@ -53,8 +54,10 @@ export interface SavedNavigationState {
   compare: boolean;
   viewMode: 'code' | 'process';
   overviewOpen: boolean;
+  unprovenOpen: boolean;
   scrollY: number;
   expandedFrames: string[];
+  expandedReadingRelations: string[];
   expandedCode: string[];
   conditionFilter: string | null;
   conditionSelections: ConditionSelection[];
@@ -94,8 +97,10 @@ class FlowStore {
   get conditionChoices() { return conditionChoices(this.data); }
   get conditionReachability() { return conditionReachability(this.data, this.conditionSelections); }
   expandedFrames = $state<Set<string>>(new Set());
+  expandedReadingRelations = $state<Set<string>>(new Set());
   selectedRelationId = $state<string | null>(null);
   overviewOpen = $state(true);
+  unprovenOpen = $state(false);
   get relations() { return buildFlowRelations(this.data); }
   get selectedRelation() { return this.relations.find(r => r.id === this.selectedRelationId) || null; }
   get incomingRelations() { return this.relations.filter(r => r.edge.toStepId === this.selectedStepId); }
@@ -108,6 +113,11 @@ class FlowStore {
     const next = new Set(this.expandedFrames);
     if (next.has(frameID)) next.delete(frameID); else next.add(frameID);
     this.expandedFrames = next;
+  }
+  toggleReadingRelation(key: string) {
+    const next = new Set(this.expandedReadingRelations);
+    if (next.has(key)) next.delete(key); else next.add(key);
+    this.expandedReadingRelations = next;
   }
   selectRelation(id: string | null) {
     this.selectedRelationId = id;
@@ -123,6 +133,7 @@ class FlowStore {
   listError = $state('');
   errorCode = $state('');
   candidates = $state<string[]>([]);
+  pendingRequest = $state('');
   views = $state<Array<{viewId: string; title: string; savedAt?: string}>>([]);
   impactCache = $state<Map<string, ChangeImpactGraph>>(new Map());
   savedNavigationState = $state<SavedNavigationState | null>(null);
@@ -189,7 +200,7 @@ class FlowStore {
     if (!branch) return null;
     const ids = new Set<string>([branch.stepId]);
     for (const edge of this.data?.semanticMap?.edges || []) {
-      if (edge.resolutionStatus === 'resolved' && (edge.fromStepId === branch.stepId || edge.toStepId === branch.stepId)) {
+      if (edge.resolutionStatus === 'resolved' && edge.kind !== 'callback_argument' && (edge.fromStepId === branch.stepId || edge.toStepId === branch.stepId)) {
         ids.add(edge.fromStepId);
         ids.add(edge.toStepId);
       }
@@ -230,6 +241,7 @@ class FlowStore {
     if (frame) {
       this.selectedFrameId = frame.frameID;
       this.selectedStepId = stepOrFrameId === frame.frameID ? frame.primaryStepRef : stepOrFrameId;
+      if (partitionExecutionNavigation(this.flowSequence).unproven.some(item => item.frameID === frame.frameID)) this.unprovenOpen = true;
       const selected = this.selectedStepId;
       void tick().then(() => {
         if (selected !== this.selectedStepId || typeof document === 'undefined') return;
@@ -273,8 +285,10 @@ class FlowStore {
       compare: this.compare,
       viewMode: this.viewMode,
       overviewOpen: this.overviewOpen,
+      unprovenOpen: this.unprovenOpen,
       scrollY: typeof window === 'undefined' ? 0 : window.scrollY,
       expandedFrames: [...this.expandedFrames],
+      expandedReadingRelations: [...this.expandedReadingRelations],
       expandedCode: [...this.expanded],
       conditionFilter: this.conditionFilter,
       conditionSelections: this.conditionSelections.map(selection => ({ ...selection })),
@@ -294,7 +308,9 @@ class FlowStore {
     this.compare = saved.compare;
     this.viewMode = saved.viewMode;
     this.overviewOpen = saved.overviewOpen;
+    this.unprovenOpen = saved.unprovenOpen;
     this.expandedFrames = new Set(saved.expandedFrames);
+    this.expandedReadingRelations = new Set(saved.expandedReadingRelations || []);
     this.expanded = new Set(saved.expandedCode);
     this.conditionFilter = saved.conditionFilter;
     this.conditionSelections = retainReachableConditions(this.data, saved.conditionSelections || []);
@@ -344,6 +360,14 @@ class FlowStore {
       return candidates.length === 1 ? candidates[0].stepId : null;
     };
     const retainedExpanded = new Set([...this.expanded].map(remapStep).filter((id): id is string => !!id));
+    const availableReadingRelations = new Set(newData.codeReadingPath?.relations.map(relation => `${relation.fromNodeId}\u0000${relation.toNodeId}`) || []);
+    const retainedReadingRelations = new Set([...this.expandedReadingRelations].flatMap(key => {
+      const [from, to] = key.split('\u0000');
+      const remappedFrom = remapStep(from);
+      const remappedTo = remapStep(to);
+      const remappedKey = remappedFrom && remappedTo ? `${remappedFrom}\u0000${remappedTo}` : '';
+      return availableReadingRelations.has(remappedKey) ? [remappedKey] : [];
+    }));
     const retainedFilter = this.conditionFilter ? remapStep(this.conditionFilter) : null;
     const retainedConditions = this.conditionSelections.length && remapStep(this.conditionSelections[0].stepId)
       ? retainReachableConditions(newData, this.conditionSelections.flatMap(selection => { const stepId = remapStep(selection.stepId); return stepId ? [{ ...selection, stepId }] : []; })) : [];
@@ -356,16 +380,21 @@ class FlowStore {
     if (force || !current) {
       this.expanded = new Set();
       this.expandedFrames = new Set();
+      this.expandedReadingRelations = new Set();
       this.conditionFilter = null;
       this.conditionSelections = [];
-      this.selectedFrameId = newData.flowSequence.frames[0]?.frameID || null;
-      this.selectedStepId = newData.flowSequence.frames[0]?.primaryStepRef || null;
+      const firstReadingNode = newData.codeReadingPath?.nodes[0];
+      const focusFrame = requestedFocusFrame(newData.flowSequence, newData.requestedFocus?.entryStepId);
+      this.selectedFrameId = firstReadingNode?.frameId || focusFrame?.frameID || newData.flowSequence.frames[0]?.frameID || null;
+      this.selectedStepId = firstReadingNode?.stepId || newData.requestedFocus?.entryStepId || newData.flowSequence.frames[0]?.primaryStepRef || null;
+      this.unprovenOpen = false;
       this.savedNavigationState = null;
     } else {
       this.selectedFrameId = matches[0].frameID;
       this.selectedStepId = retainedStep!.stepId;
       this.expanded = retainedExpanded;
       this.expandedFrames = new Set(retainedFrames);
+      this.expandedReadingRelations = retainedReadingRelations;
       this.conditionFilter = retainedFilter;
       this.conditionSelections = retainedConditions;
     }

@@ -7,6 +7,7 @@ build: build-ui
 build-adapter:
 	mkdir -p bin
 	dart compile exe adapters/dart/bin/codeflow_dart_adapter.dart -o bin/dart-adapter
+	go build -o bin/codeflow_go_adapter ./adapters/go
 
 build-ui:
 	cd web/flowview && npm run check && npm run build
@@ -25,7 +26,7 @@ build-all: build build-adapter
 
 package: build-all
 	mkdir -p dist
-	tar -czvf dist/codeflow-local.tar.gz -C . bin/codeflow bin/dart-adapter skills/codeflow adapters/typescript
+	tar -czvf dist/codeflow-local.tar.gz -C . bin/codeflow bin/dart-adapter bin/codeflow_go_adapter skills/codeflow adapters/typescript
 
 test:
 	CGO_ENABLED=0 go test ./...

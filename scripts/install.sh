@@ -207,6 +207,10 @@ if [ "$IS_CHECKOUT" = true ]; then
   fi
   chmod 755 "$INSTALL_PATH"
 
+  GO_ADAPTER_BIN="$INSTALL_DIR/codeflow_go_adapter"
+  (cd "$SRC_DIR" && go build -o "$GO_ADAPTER_BIN" ./adapters/go)
+  chmod 755 "$GO_ADAPTER_BIN"
+
   ADAPTER_BIN="$INSTALL_DIR/dart-adapter"
   DART_SRC="$SRC_DIR/adapters/dart"
   if [ -n "${CODEFLOW_TEST_DART_BIN:-}" ] && [ -f "${CODEFLOW_TEST_DART_BIN}" ]; then
@@ -301,21 +305,36 @@ else
 
   tar -xzf "$TMP_DIR/$TARBALL_NAME" -C "$TMP_DIR"
 
+  [ -f "$TMP_DIR/bin/codeflow" ] || die "Release archive is missing the CodeFlow binary"
+  [ -f "$TMP_DIR/bin/codeflow_go_adapter" ] || die "Release archive is missing the Go adapter"
+  [ -f "$TMP_DIR/bin/dart-adapter" ] || die "Release archive is missing the Dart adapter"
+  [ -f "$TMP_DIR/adapters/typescript/bin/codeflow_ts_adapter.js" ] || die "Release archive is missing the TypeScript adapter"
+  [ -f "$TMP_DIR/adapters/typescript/vendor/typescript/typescript.js" ] || die "Release archive is missing the TypeScript parser"
+  [ -f "$TMP_DIR/skills/codeflow/SKILL.md" ] || die "Release archive is missing the CodeFlow skill"
+
   SKILL_SOURCE="$TMP_DIR/skills/codeflow"
   preflight_skill_update "$SKILL_SOURCE"
+
+  chmod 755 "$TMP_DIR/bin/codeflow" "$TMP_DIR/bin/codeflow_go_adapter" "$TMP_DIR/bin/dart-adapter"
+  info "Verifying release Dart adapter protocol"
+  "$TMP_DIR/bin/codeflow" install-check-adapter --language dart --adapter-spec "$TMP_DIR/bin/dart-adapter"
+  info "Verifying release Go adapter protocol"
+  "$TMP_DIR/bin/codeflow" install-check-adapter --language go --adapter-spec "$TMP_DIR/bin/codeflow_go_adapter"
+  info "Verifying release TypeScript adapter protocol"
+  "$TMP_DIR/bin/codeflow" install-check-adapter --language typescript --adapter-spec "noderun:$TMP_DIR/adapters/typescript"
 
   cp -f "$TMP_DIR/bin/codeflow" "$INSTALL_PATH"
   chmod 755 "$INSTALL_PATH"
 
+  GO_ADAPTER_BIN="$INSTALL_DIR/codeflow_go_adapter"
+  cp -f "$TMP_DIR/bin/codeflow_go_adapter" "$GO_ADAPTER_BIN"
+  chmod 755 "$GO_ADAPTER_BIN"
+
   ADAPTER_BIN="$INSTALL_DIR/dart-adapter"
-  if [ -f "$TMP_DIR/bin/dart-adapter" ]; then
-    cp -f "$TMP_DIR/bin/dart-adapter" "$ADAPTER_BIN"
-    chmod 755 "$ADAPTER_BIN"
-    ln -sf "$ADAPTER_BIN" "$INSTALL_DIR/codeflow_dart_adapter" 2>/dev/null || cp -f "$ADAPTER_BIN" "$INSTALL_DIR/codeflow_dart_adapter"
-    ADAPTER_SPEC="$ADAPTER_BIN"
-  else
-    ADAPTER_SPEC=""
-  fi
+  cp -f "$TMP_DIR/bin/dart-adapter" "$ADAPTER_BIN"
+  chmod 755 "$ADAPTER_BIN"
+  ln -sf "$ADAPTER_BIN" "$INSTALL_DIR/codeflow_dart_adapter" 2>/dev/null || cp -f "$ADAPTER_BIN" "$INSTALL_DIR/codeflow_dart_adapter"
+  ADAPTER_SPEC="$ADAPTER_BIN"
 
   if [ -d "$TMP_DIR/adapters/typescript" ]; then
     TS_DEST_LIB="$HOME/.local/share/codeflow/adapters/typescript"
@@ -356,6 +375,12 @@ if [ -n "$ADAPTER_SPEC" ]; then
   info "Verifying installed Dart adapter protocol"
   "$INSTALL_PATH" install-check-adapter --language dart --adapter-spec "$ADAPTER_SPEC"
 fi
+info "Verifying installed Go adapter protocol"
+"$INSTALL_PATH" install-check-adapter --language go --adapter-spec "$GO_ADAPTER_BIN"
+TS_ADAPTER_BIN="$INSTALL_DIR/codeflow_ts_adapter"
+[ -x "$TS_ADAPTER_BIN" ] || die "TypeScript adapter is missing from the installation"
+info "Verifying installed TypeScript adapter protocol"
+"$INSTALL_PATH" install-check-adapter --language typescript --adapter-spec "$TS_ADAPTER_BIN"
 
 # Collect robust runtime PATH for GUI desktop clients
 collect_runtime_path() {
@@ -549,7 +574,7 @@ rm -f "$AGY_MCP_DIR"/*.json
 cat <<'EOF' > "$AGY_MCP_DIR/harvest_flows.json"
 {
   "name": "harvest_flows",
-  "description": "Find candidate entry points for a natural-language flow request. Returns ranked candidate list with candidateId, entrySymbolPath, and intentSignals.",
+  "description": "Find candidate entry points for a natural-language flow request. The optional query is a literal filter, not semantic matching. If it matches none, all candidates are returned for source-based selection.",
   "parameters": {
     "type": "object",
     "properties": {
@@ -569,7 +594,7 @@ EOF
 cat <<'EOF' > "$AGY_MCP_DIR/analyze_flow.json"
 {
   "name": "analyze_flow",
-  "description": "Slice and publish one exact entry point. Returns a persisted FlowSpec containing flowId; when the user requested a visual result, pass that exact flowId to open_review.",
+  "description": "Slice and publish one exact entry point. For a natural-language request, pass the original request and exact candidateId from harvest_flows. Returns a persisted FlowSpec containing flowId.",
   "parameters": {
     "type": "object",
     "required": ["entrySymbolPath"],
@@ -577,6 +602,14 @@ cat <<'EOF' > "$AGY_MCP_DIR/analyze_flow.json"
       "entrySymbolPath": {
         "type": "string",
         "description": "Exact entry symbol path from harvest_flows (e.g. app/page.tsx#HomePage.submit)"
+      },
+      "request": {
+        "type": "string",
+        "description": "Original natural-language flow request. Requires candidateId."
+      },
+      "candidateId": {
+        "type": "string",
+        "description": "Exact candidateId chosen from harvest_flows. Requires request."
       },
       "target": {
         "type": "string",
@@ -590,10 +623,14 @@ EOF
 cat <<'EOF' > "$AGY_MCP_DIR/get_flow_payload.json"
 {
   "name": "get_flow_payload",
-  "description": "Retrieve FlowSpec JSON by flowId or entrySymbolPath. Set compact: true to receive high-density ~500-token macro gateway summary.",
+  "description": "Retrieve FlowSpec by flowId or entrySymbolPath, or the exact stored FlowView by viewId. Set compact: true for gateway summaries with canonical IDs and source step references.",
   "parameters": {
     "type": "object",
     "properties": {
+      "viewId": {
+        "type": "string",
+        "description": "Exact stored analysis ID, mutually exclusive with flowId and entrySymbolPath"
+      },
       "flowId": {
         "type": "string",
         "description": "Target flow ID returned by analyze_flow or publish_core_flow"
@@ -604,7 +641,7 @@ cat <<'EOF' > "$AGY_MCP_DIR/get_flow_payload.json"
       },
       "compact": {
         "type": "boolean",
-        "description": "When true, returns ~500-token CompactFlowPayload with 4-7 macro gateways and radar summary"
+        "description": "Return gateway summaries with source step references, relationships, conditions, and analysis limitations"
       },
       "format": {
         "type": "string",
@@ -623,7 +660,7 @@ EOF
 cat <<'EOF' > "$AGY_MCP_DIR/open_review.json"
 {
   "name": "open_review",
-  "description": "Return the authenticated URL for a saved viewId or a persisted flowId. A saved view is restored without analysis.",
+  "description": "Return a current FlowView for a persisted flowId or restore a saved viewId. A new view may contain many uncurated gateways: inspect get_flow_payload with viewId and compact=true, then use curate_code_reading_path when evidence supports a shorter requested path.",
   "parameters": {
     "type": "object",
     "properties": {
@@ -635,10 +672,59 @@ cat <<'EOF' > "$AGY_MCP_DIR/open_review.json"
         "type": "string",
         "description": "Saved FlowView result ID to restore exact result without re-analysis"
       },
+      "focusSymbol": {
+        "type": "string",
+        "description": "Optional exact path#symbol of the requested implementation. Requires focusReason and flowId."
+      },
+      "focusReason": {
+        "type": "string",
+        "description": "Why this implementation explains the request. Requires focusSymbol and flowId."
+      },
       "target": {
         "type": "string",
         "description": "Target repository path or subdirectory (defaults to working directory)"
       }
+    }
+  }
+}
+EOF
+
+cat <<'EOF' > "$AGY_MCP_DIR/curate_code_reading_path.json"
+{
+  "name": "curate_code_reading_path",
+  "description": "Select source-backed code points for the exact request in an existing FlowView. Read its steps and indexed edges first. Verified intermediate code remains expandable beneath a short relation. Inspect other confirmed decision outcomes and include those needed for the request. CodeFlow verifies source, relations, and CodeView, then saves a new viewId for open_review.",
+  "parameters": {
+    "type": "object",
+    "required": ["viewId", "selections", "relations"],
+    "properties": {
+      "viewId": {"type": "string"},
+      "selections": {
+        "type": "array",
+        "minItems": 1,
+        "items": {
+          "type": "object",
+          "required": ["stepId", "role", "requestPart", "inclusionReason"],
+          "properties": {
+            "stepId": {"type": "string"},
+            "role": {"type": "string", "enum": ["entry", "decision", "transform", "state_change", "effect", "handoff", "outcome", "boundary"]},
+            "requestPart": {"type": "string"},
+            "inclusionReason": {"type": "string"}
+          }
+        }
+      },
+      "relations": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "required": ["fromStepId", "toStepId", "edgeIndexes"],
+          "properties": {
+            "fromStepId": {"type": "string"},
+            "toStepId": {"type": "string"},
+            "edgeIndexes": {"type": "array", "minItems": 1, "items": {"type": "integer", "minimum": 0}}
+          }
+        }
+      },
+      "target": {"type": "string", "description": "Target repository path or subdirectory (defaults to working directory)"}
     }
   }
 }
@@ -757,15 +843,16 @@ cat <<'EOF' > "$AGY_MCP_DIR/instructions.md"
 
 CodeFlow provides business-flow-first code comprehension, FlowSequence Storyboard generation, and interactive FlowView visual review across polyglot codebases.
 
-## Official 8 Core Tools:
-1. `harvest_flows`: Discover candidate entry points for a natural language flow query.
-2. `analyze_flow`: Slice AST execution paths and publish FlowSpec by entrySymbolPath.
-3. `get_flow_payload`: Retrieve curated flow payload (~500-token macro gateway summary with `compact: true`).
-4. `open_review`: Generate authenticated FlowView URL for interactive visual inspection.
-5. `report_unknowns`: Inspect unresolved boundaries, missing types, and dynamic dispatch cutoffs.
-6. `publish_core_flow`: Publish verified architecture-layer core flow with 6-field anchors.
-7. `approve_step`: Record human or agent step approval and business rules.
-8. `submit_flow_draft`: Submit structured session journey draft.
+## Official 9 Core Tools:
+1. `harvest_flows`: Discover candidate entry points. Query filtering is literal.
+2. `analyze_flow`: Analyze one entry point. Pass the original request and selected candidateId for natural-language requests.
+3. `get_flow_payload`: Retrieve a flow or saved view; compact mode retains source step IDs and relationships.
+4. `open_review`: Create or restore a FlowView URL.
+5. `curate_code_reading_path`: Verify and save a request-specific reading path from selected source-backed steps and relations.
+6. `report_unknowns`: Inspect unresolved boundaries, missing types, and dynamic dispatch cutoffs.
+7. `publish_core_flow`: Publish a verified architecture-layer core flow.
+8. `approve_step`: Record human or agent step approval and business rules.
+9. `submit_flow_draft`: Submit a structured session journey draft.
 EOF
 info "Installed Antigravity MCP tool schemas ($AGY_MCP_DIR)"
 
@@ -781,6 +868,7 @@ fi
   --source-root "${SRC_DIR:-${WORKSPACE_ROOT:-}}" \
   --owned-source="$OWNED_SOURCE" \
   --adapter-spec "$ADAPTER_SPEC" \
+  --go-adapter-spec "$GO_ADAPTER_BIN" \
   --skill-path "$SKILL_DEST" \
   --skill-sha256 "$SKILL_SHA256" \
   --mcp-name "$MCP_NAME"

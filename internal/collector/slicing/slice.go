@@ -21,7 +21,7 @@ import (
 
 // sliceSemanticsVersion separates reusable facts when execution relations change.
 // Stored FlowViews retain their original immutable results.
-const sliceSemanticsVersion = "v41-async-caller-normal-return"
+const sliceSemanticsVersion = "v70-dart-branch-and-update-evidence"
 
 // Anchor represents an exact byte-range anchor within a source file.
 type Anchor struct {
@@ -39,15 +39,16 @@ type Anchor struct {
 
 // StatementNodeMetadata represents verified statement AST node metadata.
 type StatementNodeMetadata struct {
-	NodeKind  string `json:"nodeKind"` // statement | expression | control_header
-	ByteRange [2]int `json:"byteRange"`
-	LineRange [2]int `json:"lineRange"`
+	NodeKind               string `json:"nodeKind"` // statement | expression | control_header
+	DirectReturnCompletion bool   `json:"directReturnCompletion,omitempty"`
+	ByteRange              [2]int `json:"byteRange"`
+	LineRange              [2]int `json:"lineRange"`
 }
 
-// StructuralContextMetadata represents enclosing condition, callback, or builder metadata.
+// StructuralContextMetadata represents an enclosing condition, loop, callback, or builder.
 type StructuralContextMetadata struct {
 	Status    string  `json:"status"`             // "present" | "none"
-	NodeKind  string  `json:"nodeKind,omitempty"` // "condition" | "callback" | "builder"
+	NodeKind  string  `json:"nodeKind,omitempty"` // "condition" | "loop" | "callback" | "builder"
 	ByteRange *[2]int `json:"byteRange,omitempty"`
 	LineRange *[2]int `json:"lineRange,omitempty"`
 }
@@ -55,6 +56,7 @@ type StructuralContextMetadata struct {
 // CallableMetadata represents enclosing callable signature and span metadata.
 type CallableMetadata struct {
 	Signature          string `json:"signature"`
+	CompletionMode     string `json:"completionMode,omitempty"`
 	SignatureByteRange [2]int `json:"signatureByteRange"`
 	SignatureLineRange [2]int `json:"signatureLineRange"`
 	ByteRange          [2]int `json:"byteRange"`
@@ -78,6 +80,7 @@ type SliceStep struct {
 	CallerStepOrdinal       *int                 `json:"callerStepOrdinal,omitempty"`
 	Ordinal                 int                  `json:"ordinal"`
 	Kind                    string               `json:"kind"`
+	ValueRole               string               `json:"valueRole,omitempty"`
 	Description             string               `json:"description"`
 	SymbolPath              string               `json:"symbolPath"`
 	Anchor                  Anchor               `json:"anchor"`
@@ -215,11 +218,13 @@ func (r *Runner) Slice(ctx context.Context, repoRoot, candidateID, entrySymbolPa
 func (r *Runner) SliceWithSnapshot(ctx context.Context, repoRoot, candidateID, entrySymbolPath string, opts map[string]any, snapshot protocol.Snapshot) (*SlicedPayload, error) {
 	// Advertise support without mutating the caller's options. The capability
 	// participates in cache identity so old analysis facts remain immutable.
-	executionOpts := make(map[string]any, len(opts)+1)
+	executionOpts := make(map[string]any, len(opts)+3)
 	for key, value := range opts {
 		executionOpts[key] = value
 	}
 	executionOpts["includeExecutionSemantics"] = true
+	executionOpts["includeCallbackRelations"] = true
+	executionOpts["includeValueRoles"] = true
 	opts = executionOpts
 	// Best-effort cache lookup before calling adapter.
 	if repoRoot != "" {
@@ -267,7 +272,7 @@ func (r *Runner) SliceWithSnapshot(ctx context.Context, repoRoot, candidateID, e
 	if err := json.Unmarshal(sanitizedBytes, &payload); err != nil {
 		return nil, fmt.Errorf("unmarshal sliced payload: %w", err)
 	}
-	if err := ValidateExecutionReferences(payload.Steps, payload.Edges); err != nil {
+	if err := ValidateCollectedExecutionReferences(payload.Steps, payload.Edges); err != nil {
 		return nil, fmt.Errorf("invalid execution references: %w", err)
 	}
 	if err := payload.BindValidatedResult(envelope); err != nil {
@@ -318,7 +323,7 @@ func cachedSlicePayload(snapshot protocol.Snapshot, candidateID, entrySymbolPath
 	if err := json.Unmarshal(envelope.Payload, &payload); err != nil || payload.CandidateID != candidateID || payload.EntrySymbolPath != entrySymbolPath {
 		return nil, false
 	}
-	if err := ValidateExecutionReferences(payload.Steps, payload.Edges); err != nil {
+	if err := ValidateCollectedExecutionReferences(payload.Steps, payload.Edges); err != nil {
 		return nil, false
 	}
 	if err := payload.BindValidatedResult(envelope); err != nil {

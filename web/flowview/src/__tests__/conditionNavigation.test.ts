@@ -21,6 +21,15 @@ describe('conditional source navigation', () => {
     expect(result.steps.has('missing')).toBe(false);
     expect(result.limited).toBe(true);
   });
+  it('does not treat callback delivery as execution reachability', () => {
+    const data = conditionalData();
+    data.semanticMap.edges = [
+      {fromStepId:'root',toStepId:'yes',kind:'control_flow',resolutionStatus:'resolved',conditions:[{stepId:'root',outcome:'truthy'}]},
+      {fromStepId:'yes',toStepId:'nested',kind:'callback_argument',resolutionStatus:'resolved'}
+    ];
+    const result = conditionReachability(data,[{stepId:'root',outcome:'truthy'}]);
+    expect(result.steps.has('nested')).toBe(false);
+  });
 });
 
 it('distinguishes nullish fallback from boolean false without changing graph selection', () => {
@@ -65,4 +74,3 @@ it('evaluates secondary condition in compound multi-condition edges', () => {
   ]);
   expect(result.steps.has('nested')).toBe(false);
 });
-

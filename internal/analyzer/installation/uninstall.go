@@ -154,6 +154,12 @@ func Uninstall(ctx context.Context) (UninstallResult, error) {
 		}
 		result.Removed = append(result.Removed, "adapter binary")
 	}
+	if state.GoAdapterSpec != "" && filepath.IsAbs(state.GoAdapterSpec) {
+		if err := os.Remove(state.GoAdapterSpec); err != nil && !os.IsNotExist(err) {
+			return result, fmt.Errorf("remove Go adapter binary: %w", err)
+		}
+		result.Removed = append(result.Removed, "Go adapter binary")
+	}
 
 	if home != "" {
 		extraBinaries := []string{

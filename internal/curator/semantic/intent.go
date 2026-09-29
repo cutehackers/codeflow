@@ -94,9 +94,10 @@ func NormalizeTaskIntent(raw string, opts IntentOptions) (*TaskIntent, error) {
 	unresolved := make([]string, 0)
 	lower := strings.ToLower(trimmed)
 
-	// Check for ambiguity markers (e.g. A인지 B인지, 혹은, 또는, either/or)
+	// A bare "or" may describe two outcomes of one flow. Candidate ambiguity is
+	// resolved from source evidence; only explicit choice phrasing is marked here.
 	if strings.Contains(trimmed, "인지") || strings.Contains(trimmed, "혹은") || strings.Contains(trimmed, "또는") ||
-		strings.Contains(lower, " either ") || strings.Contains(lower, " or ") {
+		strings.Contains(lower, " either ") || strings.HasPrefix(lower, "either ") {
 		unresolved = append(unresolved, "multiple plausible flow candidates found in request phrasing")
 	}
 

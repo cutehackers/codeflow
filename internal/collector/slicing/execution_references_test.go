@@ -49,6 +49,57 @@ func TestValidateExecutionReferences(t *testing.T) {
 	}
 }
 
+func TestValidateCollectedExecutionReferencesRequiresConfirmedCallTarget(t *testing.T) {
+	caller, target := 1, 2
+	steps := []slicing.SliceStep{
+		{Ordinal: caller, Kind: "call", InvocationID: "root", SymbolPath: "start", Anchor: slicing.Anchor{RepoRelativePath: "start.ts"}},
+		{Ordinal: target, Kind: "return", InvocationID: "callee", CallerStepOrdinal: &caller, SymbolPath: "calculate", Anchor: slicing.Anchor{RepoRelativePath: "calc.ts"}},
+	}
+	call := slicing.SliceEdge{Kind: "resolved_cross_file", StepOrdinal: &caller, TargetStepOrdinal: &target, ToSymbolPath: "calc.ts#calculate", ResolutionStatus: "resolved"}
+	if err := slicing.ValidateCollectedExecutionReferences(steps, []slicing.SliceEdge{call}); err != nil {
+		t.Fatalf("valid confirmed call rejected: %v", err)
+	}
+	call.TargetStepOrdinal = nil
+	if err := slicing.ValidateExecutionReferences(steps, []slicing.SliceEdge{call}); err != nil {
+		t.Fatalf("historical call rejected: %v", err)
+	}
+	if err := slicing.ValidateCollectedExecutionReferences(steps, []slicing.SliceEdge{call}); err == nil {
+		t.Fatal("new collection accepted a confirmed call without a target step")
+	}
+}
+
+func TestValidateCallbackArgumentReference(t *testing.T) {
+	for _, name := range []string{"valid", "wrong entry", "same invocation", "outside source", "claimed caller", "wrong target", "unknown execution"} {
+		t.Run(name, func(t *testing.T) {
+			from, to := 1, 2
+			steps := []slicing.SliceStep{
+				{Ordinal: 1, InvocationID: "outer", SymbolPath: "Rules.run", Anchor: slicing.Anchor{RepoRelativePath: "lib/rules.dart", EnclosingSymbolPath: "Rules.run", ByteRange: [2]int{0, 80}}},
+				{Ordinal: 2, InvocationID: "callback", SymbolPath: "Rules.run", Anchor: slicing.Anchor{RepoRelativePath: "lib/rules.dart", EnclosingSymbolPath: "Rules.run", ByteRange: [2]int{30, 40}}},
+				{Ordinal: 3, InvocationID: "callback", SymbolPath: "Rules.run", Anchor: slicing.Anchor{RepoRelativePath: "lib/rules.dart", EnclosingSymbolPath: "Rules.run", ByteRange: [2]int{45, 50}}},
+			}
+			edge := slicing.SliceEdge{Kind: "callback_argument", StepOrdinal: &from, TargetStepOrdinal: &to, ToSymbolPath: "lib/rules.dart#Rules.run", ResolutionStatus: "resolved"}
+			switch name {
+			case "wrong entry":
+				to = 3
+			case "same invocation":
+				steps[1].InvocationID = "outer"
+			case "outside source":
+				steps[0].Anchor.ByteRange = [2]int{0, 20}
+			case "claimed caller":
+				steps[1].CallerStepOrdinal = &from
+				steps[2].CallerStepOrdinal = &from
+			case "wrong target":
+				edge.ToSymbolPath = "lib/other.dart#Rules.run"
+			case "unknown execution":
+				edge.ResolutionStatus = "unresolved_dynamic"
+			}
+			if err := slicing.ValidateExecutionReferences(steps, []slicing.SliceEdge{edge}); (err == nil) != (name == "valid") {
+				t.Fatalf("ValidateExecutionReferences() = %v, valid = %v", err, name == "valid")
+			}
+		})
+	}
+}
+
 func TestValidateControlFlowReferences(t *testing.T) {
 	for _, name := range []string{"valid", "different invocation", "completion", "missing target", "wrong symbol"} {
 		t.Run(name, func(t *testing.T) {
@@ -150,6 +201,27 @@ func TestAwaitResumptionRequiresMatchingAwaitSource(t *testing.T) {
 			steps := []slicing.SliceStep{{Ordinal: 1, Kind: tc.sourceKind, InvocationID: "root", SymbolPath: "start", Anchor: anchor}, {Ordinal: 2, Kind: "mutation", InvocationID: "root", SymbolPath: "start", Anchor: anchor}}
 			edges := []slicing.SliceEdge{{Kind: tc.edgeKind, StepOrdinal: &from, TargetStepOrdinal: &to, ToSymbolPath: "flow.ts#start", ResolutionStatus: "resolved"}}
 			if err := slicing.ValidateExecutionReferences(steps, edges); (err == nil) != tc.valid {
+				t.Fatalf("validation=%v want valid=%v", err, tc.valid)
+			}
+		})
+	}
+}
+
+func TestValueRoleRequiresARecognizedMutationFact(t *testing.T) {
+	anchor := slicing.Anchor{RepoRelativePath: "flow.ts", EnclosingSymbolPath: "run"}
+	for _, tc := range []struct {
+		name  string
+		kind  string
+		role  string
+		valid bool
+	}{
+		{name: "local binding", kind: "mutation", role: "local_binding", valid: true},
+		{name: "unknown role", kind: "mutation", role: "state_write"},
+		{name: "wrong kind", kind: "call", role: "local_binding"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			steps := []slicing.SliceStep{{Ordinal: 1, Kind: tc.kind, ValueRole: tc.role, InvocationID: "run", SymbolPath: "run", Anchor: anchor}}
+			if err := slicing.ValidateExecutionReferences(steps, nil); (err == nil) != tc.valid {
 				t.Fatalf("validation=%v want valid=%v", err, tc.valid)
 			}
 		})

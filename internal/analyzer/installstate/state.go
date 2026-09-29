@@ -14,14 +14,15 @@ const fileName = "install-state.json"
 
 // State is the ownership record used by `codeflow uninstall`.
 type State struct {
-	Version     int    `json:"version"`
-	Binary      string `json:"binary"`
-	SourceRoot  string `json:"sourceRoot"`
-	OwnedSource bool   `json:"ownedSource"`
-	AdapterSpec string `json:"adapterSpec"`
-	SkillPath   string `json:"skillPath"`
-	SkillSHA256 string `json:"skillSHA256"`
-	MCPName     string `json:"mcpName"`
+	Version       int    `json:"version"`
+	Binary        string `json:"binary"`
+	SourceRoot    string `json:"sourceRoot"`
+	OwnedSource   bool   `json:"ownedSource"`
+	AdapterSpec   string `json:"adapterSpec"`
+	GoAdapterSpec string `json:"goAdapterSpec,omitempty"`
+	SkillPath     string `json:"skillPath"`
+	SkillSHA256   string `json:"skillSHA256"`
+	MCPName       string `json:"mcpName"`
 }
 
 func Path() (string, error) {

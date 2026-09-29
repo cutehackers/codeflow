@@ -43,6 +43,30 @@ func TestAnalysisMetadataBindsOverlayBasis(t *testing.T) {
 	}
 }
 
+func TestHarvestTopLevelFunctionHasValidIntentScope(t *testing.T) {
+	files := map[string]string{"cmd/query.go": "package main\n\nfunc ProcessQuery() { println(\"done\") }\n"}
+	candidates := harvest("/does/not/exist", files)
+	if len(candidates) != 1 {
+		t.Fatalf("harvested candidates = %d, want 1", len(candidates))
+	}
+	signals := candidates[0]["intentSignals"].(map[string]any)
+	if signals["className"] != "query" || candidates[0]["entrySymbolPath"] != "cmd/query.go#ProcessQuery" {
+		t.Fatalf("top-level function lost its source scope: %+v", candidates[0])
+	}
+	raw, err := json.Marshal(candidates[0])
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := contractharness.Validate(contractharness.BaseURL+"candidate.schema.json", raw); err != nil {
+		t.Fatalf("top-level function candidate violates public contract: %v", err)
+	}
+	v2 := v2TrackerResult(t, "top-level-function", "harvest_candidates", files, nil, nil)
+	protocolCandidates := mapList(v2["payload"].(map[string]any)["candidates"])
+	if len(protocolCandidates) != 1 || protocolCandidates[0]["intentSignals"].(map[string]any)["className"] != "query" {
+		t.Fatalf("current protocol emitted an invalid top-level function scope: %+v", protocolCandidates)
+	}
+}
+
 func TestSliceReadsOverlayWithoutWorktreeFallback(t *testing.T) {
 	params := map[string]any{
 		"repoRoot":        "/does/not/exist",
@@ -50,7 +74,7 @@ func TestSliceReadsOverlayWithoutWorktreeFallback(t *testing.T) {
 		"entrySymbolPath": "lib/main.go#Handle",
 		"computedBasisId": "basis-overlay",
 		"contentOverlay": map[string]any{
-			"lib/main.go": "package main\nfunc Handle() {}\n",
+			"lib/main.go": "package main\nfunc Handle() { println(\"done\") }\n",
 		},
 	}
 	result, err := analyze("slice", params)
@@ -294,7 +318,7 @@ func TestV2ObservationTrackerUsesActualOperationReads(t *testing.T) {
 
 	harvestFiles := map[string]string{
 		"go.mod":      "module example.test\n",
-		"cmd/main.go": "package main\nfunc Handle() {}\n",
+		"cmd/main.go": "package main\nfunc Handle() { println(\"done\") }\n",
 		"README.md":   "not consulted",
 	}
 	harvest := v2TrackerResult(t, "harvest", "harvest_candidates", harvestFiles, []string{"negative_lookup"}, nil)
@@ -425,7 +449,7 @@ func TestV2DetectDoesNotClaimDependencyFrontierWithoutGoMod(t *testing.T) {
 func TestV2SliceClosesWithZeroMissesOnCleanSnapshot(t *testing.T) {
 	result := v2TrackerResult(t, "slice-clean-close", "slice", map[string]string{
 		"go.mod":  "module example.com/clean\n\ngo 1.24\n",
-		"main.go": "package main\n\nfunc Handle() {}\n",
+		"main.go": "package main\n\nfunc Handle() { println(\"done\") }\n",
 	}, []string{"negative_lookup", "membership", "dependency_frontier"}, map[string]any{
 		"candidateId": "clean#Handle", "entrySymbolPath": "main.go#Handle",
 	})

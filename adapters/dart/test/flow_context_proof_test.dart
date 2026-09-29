@@ -17,6 +17,128 @@ Map<String, Object?> slice(
 );
 
 void main() {
+  test('callable completion distinguishes direct and deferred bodies', () {
+    const source = '''
+class Service {
+  int run() {
+    return 1;
+  }
+  Future<int> later() async {
+    return 2;
+  }
+}
+''';
+    final result = slice(source);
+    final steps = (result['steps'] as List).cast<Map>();
+    final direct = steps.firstWhere(
+      (step) => step['kind'] == 'return' && step['symbolPath'] == 'Service.run',
+    );
+    expect(direct['flowContext']['callable']['completionMode'], 'synchronous');
+    expect(
+      direct['flowContext']['statement']['directReturnCompletion'],
+      isTrue,
+    );
+    final deferredResult = sliceCandidate(
+      repoRoot: '/unused',
+      candidateId: 'later',
+      entrySymbolPath: 'lib/service.dart#Service.later',
+      snapshotId: 'snapshot-test',
+      contentOverlay: {
+        'pubspec.yaml': 'name: test\n',
+        'lib/service.dart': source,
+      },
+    );
+    final deferred = (deferredResult['steps'] as List).cast<Map>().firstWhere(
+      (step) =>
+          step['kind'] == 'return' && step['symbolPath'] == 'Service.later',
+    );
+    expect(deferred['flowContext']['callable']['completionMode'], 'deferred');
+  });
+
+  test('return through finally cannot directly resume its caller', () {
+    const source = '''
+class Service {
+  int run() {
+    try {
+      return 1;
+    } finally {
+      print('cleanup');
+    }
+  }
+}
+''';
+    final result = slice(source);
+    final steps = (result['steps'] as List).cast<Map>();
+    final returned = steps.firstWhere((step) => step['kind'] == 'return');
+    expect(
+      returned['flowContext']['callable']['completionMode'],
+      'synchronous',
+    );
+    expect(
+      returned['flowContext']['statement']['directReturnCompletion'],
+      isFalse,
+    );
+  });
+
+  test(
+    'return in finally can complete directly after overriding try return',
+    () {
+      const source = '''
+class Service {
+  int run() {
+    try {
+      return 1;
+    } finally {
+      return 2;
+    }
+  }
+}
+''';
+      final steps = (slice(source)['steps'] as List).cast<Map>();
+      final returns = steps.where((step) => step['kind'] == 'return').toList();
+      expect(returns, hasLength(2));
+      expect(
+        returns[0]['flowContext']['statement']['directReturnCompletion'],
+        isFalse,
+      );
+      expect(
+        returns[1]['flowContext']['statement']['directReturnCompletion'],
+        isTrue,
+      );
+    },
+  );
+
+  test('simple switch case labels have exact source context', () {
+    const source = '''
+enum Owner { first, second }
+class Service {
+  int run(Owner owner) {
+    switch (owner) {
+      case Owner.first:
+        return 1;
+      case Owner.second:
+        return 2;
+    }
+  }
+}
+''';
+    final steps = (slice(source)['steps'] as List).cast<Map>();
+    final cases = steps.where((step) {
+      final range = (step['anchor']['byteRange'] as List).cast<int>();
+      return utf8
+          .decode(utf8.encode(source).sublist(range[0], range[1]))
+          .startsWith('case ');
+    }).toList();
+    expect(cases, hasLength(2));
+    for (final step in cases) {
+      final anchor = step['anchor'] as Map;
+      final context = step['flowContext'] as Map;
+      expect(context['statement']['nodeKind'], 'control_header');
+      expect(context['statement']['byteRange'], anchor['byteRange']);
+      expect(context['structuralContext']['nodeKind'], 'condition');
+    }
+  });
+
   test('comments and strings never become semantic steps', () {
     const source = '''
 class Service {
@@ -39,15 +161,28 @@ class Service {
         .join('\n');
     expect(serialized, isNot(contains('deletedCall')));
     expect(serialized, isNot(contains('blockComment')));
-    expect(serialized, isNot(contains('stringCall')));
+    expect(serialized, contains('final text = "client.stringCall();";'));
     expect(serialized, contains('execute'));
     final steps = (result['steps'] as List).cast<Map>();
-    final guard = steps.firstWhere((s) => s['kind'] == 'guard');
     expect(
-      guard['flowContext'],
-      isNull,
-      reason: 'if header is not an executable statement node',
+      steps.where((step) => step['kind'] == 'call').any((step) {
+        final range = (step['anchor']['byteRange'] as List).cast<int>();
+        return utf8
+            .decode(utf8.encode(source).sublist(range[0], range[1]))
+            .contains('stringCall');
+      }),
+      isFalse,
     );
+    final guard = steps.firstWhere((s) => s['kind'] == 'guard');
+    final context = guard['flowContext'] as Map<String, Object?>;
+    final statement = context['statement'] as Map<String, Object?>;
+    final range = (statement['byteRange'] as List).cast<int>();
+    expect(
+      utf8.decode(utf8.encode(source).sublist(range[0], range[1])),
+      'if (ready)',
+    );
+    final structure = context['structuralContext'] as Map<String, Object?>;
+    expect(structure['nodeKind'], 'condition');
   });
 
   test(
@@ -75,11 +210,28 @@ class Service {
         final node = statements.nodes.singleWhere(
           (n) =>
               utf8.encode(source.substring(0, n.offset)).length == range[0] &&
-              utf8.encode(source.substring(0, n.end)).length == range[1],
+              utf8
+                      .encode(
+                        source.substring(
+                          0,
+                          n is IfStatement ? n.rightParenthesis.end : n.end,
+                        ),
+                      )
+                      .length ==
+                  range[1],
         );
-        expect(node, isA<ExpressionStatement>());
+        expect(
+          node,
+          anyOf(
+            isA<ExpressionStatement>(),
+            isA<IfStatement>(),
+            isA<VariableDeclarationStatement>(),
+          ),
+        );
         expect(meta['snapshotId'], 'snapshot-test');
-        expect(meta['structuralContext']['nodeKind'], 'condition');
+        if (node is IfStatement) {
+          expect(meta['structuralContext']['nodeKind'], 'condition');
+        }
         proven++;
       }
       expect(proven, greaterThan(0));

@@ -11,6 +11,12 @@ func TestBuildFlowSequenceGroupsCoreFlowHandlerSegments(t *testing.T) {
 	anchor := func(symbol string) slicing.Anchor {
 		return slicing.Anchor{RepoRelativePath: "app/checkout.ts", EnclosingSymbolPath: symbol}
 	}
+	callAnchor := anchor("Checkout.onSubmit")
+	callAnchor.FileHash = "checkout-source"
+	callAnchor.ByteRange = [2]int{120, 153}
+	awaitAnchor := anchor("Checkout.onSubmit")
+	awaitAnchor.FileHash = "checkout-source"
+	awaitAnchor.ByteRange = [2]int{114, 154}
 	condition := "response.success"
 	mapIR := &SemanticMapIR{
 		GenerationID:    "generation-handler",
@@ -22,9 +28,9 @@ func TestBuildFlowSequenceGroupsCoreFlowHandlerSegments(t *testing.T) {
 			{StepID: "reduce", Ordinal: 3, Name: "cart.reduce()", TechnicalName: "Cart.calculateTotal", Kind: "call", InvocationID: "calculate", Anchor: anchor("Cart.calculateTotal"), Rules: []string{"boundary:reduce"}},
 			{StepID: "calculated", Ordinal: 4, Name: "return cart.reduce()", TechnicalName: "Cart.calculateTotal", Kind: "return", InvocationID: "calculate", Anchor: anchor("Cart.calculateTotal")},
 			{StepID: "payload", Ordinal: 5, Name: "orderPayload = { total: calculateTotal() }", TechnicalName: "Checkout.onSubmit", Kind: "mutation", InvocationID: "handler", Anchor: anchor("Checkout.onSubmit")},
-			{StepID: "checkout", Ordinal: 6, Name: "api.orders.checkout(orderPayload)", TechnicalName: "Checkout.onSubmit", Kind: "call", InvocationID: "handler", Anchor: anchor("Checkout.onSubmit")},
+			{StepID: "checkout", Ordinal: 6, Name: "api.orders.checkout(orderPayload)", TechnicalName: "Checkout.onSubmit", Kind: "call", InvocationID: "handler", Anchor: callAnchor},
 			{StepID: "submitted", Ordinal: 7, Name: "return { success: true }", TechnicalName: "api.orders.checkout", Kind: "return", InvocationID: "checkout", Anchor: anchor("api.orders.checkout")},
-			{StepID: "wait", Ordinal: 8, Name: "await api.orders.checkout(orderPayload)", TechnicalName: "Checkout.onSubmit", Kind: "await", InvocationID: "handler", Anchor: anchor("Checkout.onSubmit"), Rules: []string{"boundary:await"}},
+			{StepID: "wait", Ordinal: 8, Name: "await api.orders.checkout(orderPayload)", TechnicalName: "Checkout.onSubmit", Kind: "await", InvocationID: "handler", Anchor: awaitAnchor, Rules: []string{"boundary:await"}},
 			{StepID: "response", Ordinal: 9, Name: "response = await api.orders.checkout(orderPayload)", TechnicalName: "Checkout.onSubmit", Kind: "mutation", InvocationID: "handler", Anchor: anchor("Checkout.onSubmit")},
 			{StepID: "decision", Ordinal: 10, Name: "if (response.success)", TechnicalName: "Checkout.onSubmit", Kind: "branch", InvocationID: "handler", Anchor: anchor("Checkout.onSubmit")},
 			{StepID: "complete", Ordinal: 11, Name: "setStatus('completed')", TechnicalName: "Checkout.onSubmit", Kind: "call", InvocationID: "handler", Branch: &condition, Anchor: anchor("Checkout.onSubmit"), Rules: []string{"boundary:status"}},
@@ -53,5 +59,27 @@ func TestBuildFlowSequenceGroupsCoreFlowHandlerSegments(t *testing.T) {
 		if frame.Title != wantTitles[index] || !reflect.DeepEqual(frame.StepRefs, wantChildren[index]) {
 			t.Fatalf("frame %d = %+v, want title %q and children %v", index+1, frame, wantTitles[index], wantChildren[index])
 		}
+	}
+}
+
+func TestAwaitedCoreFlowCallNeedsMatchingSourceAndDirectExecution(t *testing.T) {
+	called := SemanticStep{StepID: "call", Kind: "call", InvocationID: "handler", Name: "save()", Anchor: slicing.Anchor{
+		RepoRelativePath: "app/checkout.ts", EnclosingSymbolPath: "Checkout.onSubmit", FileHash: "source", ByteRange: [2]int{20, 26},
+	}}
+	awaited := SemanticStep{StepID: "await", Kind: "await", InvocationID: "handler", Name: "await save()", Anchor: slicing.Anchor{
+		RepoRelativePath: "app/checkout.ts", EnclosingSymbolPath: "Checkout.onSubmit", FileHash: "source", ByteRange: [2]int{10, 27},
+	}}
+	steps := []SemanticStep{called, awaited}
+	connections := groupingConnections([]SemanticEdge{{FromStepID: "call", ToStepID: "await", Kind: "control_flow", ResolutionStatus: "resolved"}})
+	if !isAwaitedCoreFlowCall(0, steps, connections) {
+		t.Fatal("verified call inside its await expression was not recognized")
+	}
+	steps[1].Anchor.ByteRange = [2]int{30, 42}
+	if isAwaitedCoreFlowCall(0, steps, connections) {
+		t.Fatal("a similarly named later await must not group an unrelated call")
+	}
+	steps[1] = awaited
+	if isAwaitedCoreFlowCall(0, steps, groupingConnections(nil)) {
+		t.Fatal("source overlap without a confirmed execution edge is insufficient")
 	}
 }

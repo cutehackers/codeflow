@@ -1,8 +1,153 @@
 import { describe, it, expect } from 'vitest';
-import { buildFlowRelations, incomingRelationSummary, validateFlowReferences, sourceWindow, navigationRole, navigationTitle, buildNavigationTitles, executionNavigationLabel, selectedCodeLimitations, type FlowRelation } from '../stores/flowNavigation';
+import { buildFlowRelations, incomingRelationSummary, validateFlowReferences, sourceWindow, navigationRole, navigationTitle, buildNavigationTitles, executionNavigationLabel, selectedCodeLimitations, summarizeUnknownBoundaries, partitionExecutionNavigation, partitionCodeReadingNavigation, codeReadingRelationDetailSteps, codeReadingRelationDetailOwners, omittedCodeReadingBranches, requestedFocusFrame, type FlowRelation } from '../stores/flowNavigation';
 import { samplePayload } from '../stores/sampleData';
 
+it('keeps unproven invocation code accessible outside the requested execution path', () => {
+  const data = samplePayload(1);
+  const frames = data.flowSequence!.frames;
+  const original = frames.map(frame => ({id: frame.frameID, refs: [...frame.stepRefs]}));
+  data.flowSequence!.summaryLimitations = [{
+    code: 'invocation_unproven',
+    message: '실행 관계 미확인',
+    frameRefs: [frames[1].frameID],
+  }];
+  const sections = partitionExecutionNavigation(data.flowSequence);
+  expect(sections.execution.map(frame => frame.frameID)).toEqual(frames.filter(frame => frame !== frames[1]).map(frame => frame.frameID));
+  expect(sections.unproven.map(frame => frame.frameID)).toEqual([frames[1].frameID]);
+  expect(frames.map(frame => ({id: frame.frameID, refs: frame.stepRefs}))).toEqual(original);
+  expect(partitionExecutionNavigation({...data.flowSequence!, summaryLimitations: []}).unproven).toEqual([]);
+});
+
+it('opens a verified requested implementation and rejects stale focus references', () => {
+  const data = samplePayload(1);
+  const entry = data.semanticMap.steps.find(step => data.flowSequence!.frames[1].stepRefs.includes(step.stepId))!;
+  data.requestedFocus = {
+    symbolPath: 'service.ts#applyMove', reason: '요청한 이동 처리를 구현한다',
+    callStepId: data.semanticMap.steps[0].stepId, entryStepId: entry.stepId,
+    snapshotId: data.flowSequence!.snapshotID, evidenceRefs: ['source-proof'],
+  };
+  expect(validateFlowReferences(data)).toBeNull();
+  expect(requestedFocusFrame(data.flowSequence!, data.requestedFocus.entryStepId)?.frameID).toBe(data.flowSequence!.frames[1].frameID);
+  data.requestedFocus.snapshotId = 'stale-snapshot';
+  expect(validateFlowReferences(data)).toBeTruthy();
+});
+
+it('shows curator-selected code points first while retaining every other gateway', () => {
+  const sequence = samplePayload(1).flowSequence!;
+  const selectedFrames = [sequence.frames[0], sequence.frames[2]];
+  const path = {nodes: selectedFrames.map(frame => ({frameId: frame.frameID}))} as any;
+  const navigation = partitionCodeReadingNavigation(sequence, path);
+  expect(navigation.reading.map(frame => frame.frameID)).toEqual(selectedFrames.map(frame => frame.frameID));
+  expect(navigation.other.map(frame => frame.frameID)).toEqual(sequence.frames.filter(frame => !selectedFrames.includes(frame)).map(frame => frame.frameID));
+  expect([...navigation.reading, ...navigation.other, ...navigation.unproven]).toHaveLength(sequence.frames.length);
+});
+
+it('keeps verified intermediate steps accessible below a short reading relation', () => {
+  const data = samplePayload(1);
+  const [entry, decision, effect, result] = data.semanticMap.steps.slice(0, 4);
+  const path = {nodes: [{stepId: entry.stepId}, {stepId: result.stepId}]} as any;
+  const relation = {fromNodeId: entry.stepId, toNodeId: result.stepId, edgeIndexes: [0, 1, 2]} as any;
+  const edges = [
+    {fromStepId: entry.stepId, toStepId: decision.stepId},
+    {fromStepId: decision.stepId, toStepId: effect.stepId},
+    {fromStepId: effect.stepId, toStepId: result.stepId},
+  ] as any;
+  expect(codeReadingRelationDetailSteps(relation, path, edges, data.semanticMap.steps).map(step => step.stepId))
+    .toEqual([decision.stepId, effect.stepId]);
+  path.relations = [relation, {...relation, fromNodeId: 'other', edgeIndexes: [1, 2]}];
+  expect(codeReadingRelationDetailOwners(path, edges, data.semanticMap.steps).get(effect.stepId))
+    .toBe(`${entry.stepId}\u0000${result.stepId}`);
+});
+
+it('identifies other confirmed outcomes from decisions inside summarized relations', () => {
+  const edges = [
+    {fromStepId: 'entry', toStepId: 'decision', kind: 'control_flow', resolutionStatus: 'resolved'},
+    {fromStepId: 'decision', toStepId: 'success', kind: 'control_flow', resolutionStatus: 'resolved', conditions: [{stepId: 'decision', outcome: 'truthy'}]},
+    {fromStepId: 'decision', toStepId: 'failure', kind: 'control_flow', resolutionStatus: 'resolved', conditions: [{stepId: 'decision', outcome: 'falsy'}]},
+    {fromStepId: 'decision', toStepId: 'unknown', kind: 'control_flow', resolutionStatus: 'unresolved', conditions: [{stepId: 'decision', outcome: 'nullish'}]},
+  ] as any;
+  const path = {nodes: [{stepId: 'entry'}, {stepId: 'success'}], relations: [{fromNodeId: 'entry', toNodeId: 'success', edgeIndexes: [0, 1]}]} as any;
+  expect(omittedCodeReadingBranches(path, edges).get('decision')).toEqual([{edgeIndex: 2, outcome: 'falsy', toStepId: 'failure'}]);
+  expect(omittedCodeReadingBranches(null, edges).size).toBe(0);
+});
+
+it('restores a reading path that revisits an earlier selected loop condition', () => {
+  const data = samplePayload(1);
+  const steps = data.semanticMap.steps.slice(0, 4);
+  data.semanticMap.steps = steps;
+  data.flowSequence!.frames = data.flowSequence!.frames.slice(0, 4);
+  data.flowResolution = {schemaVersion: 1, status: 'resolved', rawRequest: 'process loop'};
+  const kinds = ['call', 'branch', 'mutation', 'return'];
+  const roles = ['entry', 'decision', 'state_change', 'outcome'];
+  for (const [index, step] of steps.entries()) {
+    step.kind = kinds[index];
+    const anchor = {...step.anchor!, byteRange: [index * 10, index * 10 + 5], fileHash: 'file', spanHash: step.stepId} as any;
+    step.anchor = anchor;
+    data.flowContexts![step.stepId] = {
+      ...data.flowContexts![step.stepId], precision: 'exact', sourceValidationStatus: 'verified',
+      statement: {byteRange: anchor.byteRange},
+    };
+  }
+  const [entry, condition, body, result] = steps.map(step => step.stepId);
+  data.semanticMap.edges = [
+    {fromStepId: entry, toStepId: condition, kind: 'control_flow', resolutionStatus: 'resolved'},
+    {fromStepId: condition, toStepId: body, kind: 'control_flow', resolutionStatus: 'resolved'},
+    {fromStepId: body, toStepId: condition, kind: 'loop_back', resolutionStatus: 'resolved'},
+    {fromStepId: condition, toStepId: result, kind: 'control_flow', resolutionStatus: 'resolved'},
+  ];
+  const links = [[entry, condition, 'control_flow', [0]], [condition, body, 'control_flow', [1]], [body, result, 'conditional', [2, 3]]] as const;
+  data.codeReadingPath = {
+    schemaId: 'https://codeflow.local/schemas/code-reading-path.schema.json', schemaVersion: 2,
+    request: 'process loop', snapshotId: data.flowSequence!.snapshotID, computedBasisId: data.flowSequence!.computedBasisId,
+    nodes: steps.map((step, index) => ({
+      nodeId: step.stepId, stepId: step.stepId, frameId: data.flowSequence!.frames[index].frameID,
+      symbol: `${step.anchor!.repoRelativePath}#${step.anchor!.enclosingSymbolPath}`, sourceAnchor: step.anchor!,
+      role: roles[index], requestPart: 'loop', inclusionReason: 'Verified loop code',
+      previousNodeIds: index ? [steps[index - 1].stepId] : [], nextNodeIds: index < 3 ? [steps[index + 1].stepId] : [],
+      status: 'verified', evidenceRefs: ['proof'], codeViewAvailable: true,
+    })),
+    relations: links.map(([fromNodeId, toNodeId, kind, edgeIndexes]) => ({fromNodeId, toNodeId, kind, status: 'verified', edgeIndexes: [...edgeIndexes]})),
+  } as any;
+  expect(validateFlowReferences(data)).toBeNull();
+  data.semanticMap.edges[2].kind = 'control_flow';
+  expect(validateFlowReferences(data)).toBeTruthy();
+});
+
+it('groups repeated unknowns without showing internal callback identities', () => {
+  const callbackReason = '콜백을 전달한 코드는 확인했지만 실제 호출 시점과 실행 여부는 확인되지 않았습니다.';
+  const summaries = summarizeUnknownBoundaries([
+    {subject:'lib/controller.dart#unresolved_dynamic.notifyListeners',reason:'unresolved_dynamic_call'},
+    {subject:'lib/controller.dart#unresolved_dynamic.notifyListeners',reason:'unresolved_dynamic_call'},
+    {subject:'lib/controller.dart#unresolved_dynamic.callback_123',reason:callbackReason},
+    {subject:'lib/controller.dart#unresolved_dynamic.callback_456',reason:callbackReason},
+    {subject:'lib/controller.dart#Controller.retry',reason:'재귀 호출이 현재 분석 경로에 있어 다음 실행 문장을 펼치지 못했습니다.'},
+  ]);
+  expect(summaries).toEqual([
+    {description:'lib/controller.dart · notifyListeners 호출 · 코드에서 다음 처리와의 연결을 확인하지 못했습니다.',count:2},
+    {description:'lib/controller.dart · 전달된 콜백 · 실제 호출 시점과 실행 여부를 확인하지 못했습니다.',count:2},
+    {description:'lib/controller.dart · Controller.retry · 재귀 호출의 다음 실행 문장은 분석 범위 때문에 펼치지 못했습니다.',count:1},
+  ]);
+});
+
 describe('flow navigation evidence', () => {
+  it('shows a verified synchronous callee return without a caller bypass', () => {
+    const data = samplePayload(1);
+    const [call, entry, returned, next] = data.semanticMap.steps;
+    call.kind = 'call'; call.ordinal = 1; call.invocationId = 'caller';
+    entry.kind = 'guard'; entry.ordinal = 2; entry.invocationId = 'callee'; entry.callerStepOrdinal = 1;
+    returned.kind = 'return'; returned.ordinal = 3; returned.invocationId = 'callee'; returned.callerStepOrdinal = 1;
+    next.kind = 'mutation'; next.ordinal = 4; next.invocationId = 'caller';
+    data.semanticMap.edges = [
+      {fromStepId: call.stepId, toStepId: entry.stepId, kind: 'resolved_cross_file', resolutionStatus: 'resolved'},
+      {fromStepId: entry.stepId, toStepId: returned.stepId, kind: 'control_flow', resolutionStatus: 'resolved'},
+      {fromStepId: call.stepId, toStepId: next.stepId, kind: 'control_flow', resolutionStatus: 'resolved'},
+      {fromStepId: returned.stepId, toStepId: next.stepId, kind: 'return', resolutionStatus: 'resolved'},
+    ];
+    const relations = buildFlowRelations(data);
+    expect(relations).toHaveLength(3);
+    expect(relations.some(relation => relation.edge.fromStepId === call.stepId && relation.edge.toStepId === next.stepId)).toBe(false);
+    expect(relations.some(relation => relation.edge.fromStepId === returned.stepId && relation.edge.toStepId === next.stepId)).toBe(true);
+  });
   it('keeps branches and a shared target without inventing adjacent links', () => {
     const data = samplePayload(1);
     const [a,b,c,d] = data.semanticMap.steps;
@@ -33,6 +178,14 @@ describe('flow navigation evidence', () => {
 it('keeps the selected source line visible in sparse source bundles', () => {
   const lines = Array.from({length: 40}, (_, i) => ({lineNumber: i + 200}));
   expect(sourceWindow(lines, 225).map(l => l.lineNumber)).toContain(225);
+});
+
+it('shows every selected line of a long source statement before expansion', () => {
+  const lines = Array.from({length: 40}, (_, i) => ({lineNumber: i + 1, isHit: i >= 10 && i <= 30}));
+  const visible = sourceWindow(lines, 11);
+  expect(visible[0].lineNumber).toBeLessThan(11);
+  expect(visible.at(-1)?.lineNumber).toBeGreaterThan(31);
+  expect(visible.filter(line => line.isHit)).toHaveLength(21);
 });
 
 it('uses a known function instead of a raw code statement in navigation', () => {

@@ -37,9 +37,8 @@
     if (!context?.displayedLines) return [];
     const all = context.displayedLines;
     if (isExpanded || all.length <= 16) return all;
-    const hit = all.findIndex(l => l.isHit);
-    const start = Math.max(0, (hit < 0 ? 0 : hit) - 4);
-    return all.slice(start, start + 16);
+    const hit = all.find(l => l.isHit);
+    return sourceWindow(all, hit?.lineNumber || all[0]?.lineNumber || 1);
   }
 
   function getStepRelations(stepId: string) {
@@ -63,6 +62,7 @@
       {@const currContext = getContext(focusStepID, false)}
       {@const baseContext = compare ? getContext(focusStepID, true) : null}
       {@const currLines = getDisplayedLines(currContext, isExpanded)}
+      {@const hasSelectedCode = !currContext?.sourceLimitation && currLines.some(line => line.isHit && !!line.selection?.text)}
       {@const baseLines = getDisplayedLines(baseContext, isExpanded)}
       {@const roleName = GATEWAY_ROLES[frame.role] || frame.role.toUpperCase()}
       {@const path = currContext?.canonicalPath || flowStore.selectedStep?.anchor?.repoRelativePath || ''}
@@ -70,6 +70,7 @@
       {@const delta = getDelta(focusStepID)}
       {@const isSurgery = compare && (delta?.kind === 'added_behavior' || delta?.kind === 'changed_rule')}
       {@const desc = frame.text || (frame.condition ? `조건 · ${frame.condition}` : '다음 구현 연결 및 처리')}
+      {@const sourceBoundaries = flowStore.data?.flowSequence?.summaryLimitations?.filter(item => item.code === 'source_code_unavailable' && item.frameRefs.includes(frame.frameID)) || []}
 
       <!-- svelte-ignore a11y_click_events_have_key_events -->
       <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
@@ -88,7 +89,7 @@
             {#if isSurgery}
               <span class="surgery-badge">변경된 코드</span>
             {/if}
-            {#if currContext?.precision === 'exact' && currContext.sourceValidationStatus === 'verified'}
+            {#if currContext?.precision === 'exact' && currContext.sourceValidationStatus === 'verified' && hasSelectedCode}
               <span class="delta-tag">소스 확인</span>
             {/if}
             {#if compare && delta}
@@ -147,12 +148,13 @@
         {/if}
 
         {#if currContext?.sourceLimitation}<p class="code-note">{currContext.sourceLimitation}</p>{/if}
+        {#each sourceBoundaries as boundary}<p class="code-note">{boundary.message}</p>{/each}
         <div class="code-tools">
           <button type="button" data-expand={focusStepID} disabled={!currContext?.displayedLines.length} onclick={(e) => { e.stopPropagation(); flowStore.toggleExpand(focusStepID); }}>
             {isExpanded ? '코드 접기' : '코드 더 보기'}
           </button>
           <span class="precision">
-            {currContext?.precision === 'exact' ? '선택 코드 범위 강조' : '주변 코드 · 정확한 코드 범위 미확인'}
+            {hasSelectedCode ? '선택 코드 범위 강조' : '주변 코드 · 정확한 코드 범위 미표시'}
           </span>
         </div>
 
@@ -262,6 +264,7 @@
     font-family: ui-monospace, monospace;
     font-size: 9.5px;
     color: #626262;
+    overflow-wrap: anywhere;
   }
   .collapsed-banner {
     background: #f7f7f7;
@@ -360,6 +363,8 @@
     padding: 1.5px 6px;
     border-radius: 3px;
     color: #444444;
+    min-width: 0;
+    overflow-wrap: anywhere;
   }
   .compare-grid {
     display: grid;

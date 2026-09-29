@@ -211,10 +211,11 @@ _MaskOutput _maskSource(String src) {
       if (ch == '}') {
         if (frame.interpolation && frame.braceDepth == 0) {
           frames.removeLast();
+          out.write(' ');
         } else {
           frame.braceDepth--;
+          out.write(ch);
         }
-        out.write(ch);
         i++;
         continue;
       }
@@ -284,7 +285,7 @@ _MaskOutput _maskSource(String src) {
 
 final _classLikeRe = RegExp(
   r'^[ \t]*(?:(?:abstract|base|interface|final|sealed)\s+)*(?:mixin\s+)?'
-  r'(class|mixin|enum|extension)\s+([A-Za-z_$][\w$]*)',
+  r'(class|mixin|enum|extension)\s+(?:const\s+)?([A-Za-z_$][\w$]*)',
   multiLine: true,
 );
 

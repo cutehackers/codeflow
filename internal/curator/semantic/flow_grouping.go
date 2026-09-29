@@ -1,7 +1,6 @@
 package semantic
 
-// FlowSummaryLimitation describes a limitation of gateway grouping, independently
-// of source verification and unresolved execution targets.
+// FlowSummaryLimitation describes a reading-path limitation at the affected frames.
 type FlowSummaryLimitation struct {
 	Code      string   `json:"code"`
 	Message   string   `json:"message"`
@@ -16,6 +15,12 @@ type flowGroupingConnections struct {
 func groupingConnections(edges []SemanticEdge) flowGroupingConnections {
 	result := flowGroupingConnections{incoming: make(map[string][]SemanticEdge), outgoing: make(map[string][]SemanticEdge)}
 	for _, edge := range edges {
+		// Passing a callback is a source relation, not an execution path.
+		// It must remain visible in SemanticMapIR without changing which steps
+		// can be grouped by proven execution edges.
+		if edge.Kind == "callback_argument" {
+			continue
+		}
 		result.outgoing[edge.FromStepID] = append(result.outgoing[edge.FromStepID], edge)
 		result.incoming[edge.ToStepID] = append(result.incoming[edge.ToStepID], edge)
 	}
@@ -31,6 +36,16 @@ func (c flowGroupingConnections) canFold(previous, current SemanticStep, parentR
 	if previous.Branch != nil || current.Branch != nil {
 		return false
 	}
+	// A control decision or transfer is independently navigable even when an
+	// older adapter omitted its optional condition text.
+	switch previous.Kind {
+	case "guard", "branch", "decision", "break", "continue", "await":
+		return false
+	}
+	switch current.Kind {
+	case "break", "continue", "await":
+		return false
+	}
 	if previous.InvocationID != current.InvocationID || previous.Kind == "return" || previous.Kind == "throw" || current.Kind == "return" || current.Kind == "throw" {
 		return false
 	}
@@ -43,10 +58,8 @@ func (c flowGroupingConnections) canFold(previous, current SemanticStep, parentR
 	// A step that enters a separately resolved implementation is a core-flow
 	// transition. Keep the call visible as its own gateway even when its caller
 	// has a direct continuation edge to it.
-	for _, edge := range c.outgoing[current.StepID] {
-		if edge.ResolutionStatus == "resolved" && (edge.Kind == "resolved_cross_file" || edge.Kind == "external" || edge.Kind == "async") {
-			return false
-		}
+	if c.hasResolvedImplementationTransition(current.StepID) {
+		return false
 	}
 	outgoing, incoming := c.outgoing[previous.StepID], c.incoming[current.StepID]
 	if len(outgoing) != 1 || len(incoming) != 1 {
@@ -62,4 +75,43 @@ func (c flowGroupingConnections) canFold(previous, current SemanticStep, parentR
 	default:
 		return false
 	}
+}
+
+func (c flowGroupingConnections) hasResolvedImplementationTransition(stepID string) bool {
+	for _, edge := range c.outgoing[stepID] {
+		if edge.ResolutionStatus == "resolved" && (edge.Kind == "resolved_cross_file" || edge.Kind == "external" || edge.Kind == "async") {
+			return true
+		}
+	}
+	return false
+}
+
+func (c flowGroupingConnections) hasResolvedImplementationEntry(stepID string) bool {
+	for _, edge := range c.incoming[stepID] {
+		if edge.ResolutionStatus == "resolved" && edge.Kind == "resolved_cross_file" {
+			return true
+		}
+	}
+	return false
+}
+
+func (c flowGroupingConnections) hasResolvedConditionalEntry(stepID string) bool {
+	incoming := c.incoming[stepID]
+	return len(incoming) == 1 && incoming[0].ResolutionStatus == "resolved" && len(incoming[0].Conditions) == 1
+}
+
+func (c flowGroupingConnections) hasResolvedControlTransfer(step SemanticStep) bool {
+	if step.Kind != "break" && step.Kind != "continue" {
+		return false
+	}
+	for _, edge := range c.outgoing[step.StepID] {
+		if edge.ResolutionStatus != "resolved" {
+			continue
+		}
+		switch edge.Kind {
+		case "loop_back", "loop_exit", "loop_exit_back", "switch_exit":
+			return true
+		}
+	}
+	return false
 }

@@ -130,7 +130,7 @@ func coreFlowExecutionSegments(steps []SemanticStep, connections flowGroupingCon
 		if step.InvocationID != rootInvocation {
 			continue
 		}
-		if index > start && isAwaitedCoreFlowCall(index, steps) {
+		if index > start && isAwaitedCoreFlowCall(index, steps, connections) {
 			appendSegment(index, "preparation")
 			start = index
 			startKind = "awaited_operation"
@@ -156,9 +156,13 @@ func coreFlowExecutionSegments(steps []SemanticStep, connections flowGroupingCon
 	return segments
 }
 
-func isAwaitedCoreFlowCall(index int, steps []SemanticStep) bool {
+func isAwaitedCoreFlowCall(index int, steps []SemanticStep, connections flowGroupingConnections) bool {
 	called := steps[index]
-	if called.Kind != "call" || strings.TrimSpace(called.Name) == "" {
+	if called.Kind != "call" || called.InvocationID == "" || called.Anchor.RepoRelativePath == "" || called.Anchor.FileHash == "" {
+		return false
+	}
+	callRange := called.Anchor.ByteRange
+	if callRange[0] < 0 || callRange[1] <= callRange[0] {
 		return false
 	}
 	for _, candidate := range steps[index+1:] {
@@ -168,9 +172,21 @@ func isAwaitedCoreFlowCall(index int, steps []SemanticStep) bool {
 		if candidate.Kind == "branch" || candidate.Kind == "guard" || candidate.Kind == "decision" {
 			return false
 		}
-		if candidate.Kind == "await" && strings.Contains(strings.TrimSpace(candidate.Name), strings.TrimSpace(called.Name)) {
-			return true
+		if candidate.Kind != "await" {
+			continue
 		}
+		awaitRange := candidate.Anchor.ByteRange
+		if candidate.Anchor.RepoRelativePath != called.Anchor.RepoRelativePath || candidate.Anchor.EnclosingSymbolPath != called.Anchor.EnclosingSymbolPath ||
+			candidate.Anchor.FileHash != called.Anchor.FileHash || awaitRange[0] > callRange[0] || awaitRange[1] < callRange[1] ||
+			awaitRange[1] <= awaitRange[0] {
+			return false
+		}
+		for _, edge := range connections.outgoing[called.StepID] {
+			if edge.ToStepID == candidate.StepID && edge.ResolutionStatus == "resolved" && (edge.Kind == "control_flow" || edge.Kind == "sequence") {
+				return true
+			}
+		}
+		return false
 	}
 	return false
 }

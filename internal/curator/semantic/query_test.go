@@ -50,6 +50,9 @@ func TestVS02A2_QueryPreconditionsAndAmbiguity(t *testing.T) {
 	if !errors.As(err, &qErr) || len(qErr.CandidateTargets) != 1 || qErr.CandidateTargets[0] != "game/controller.go#Start" {
 		t.Fatalf("expected CandidateTargets to contain available candidates, got %+v", qErr)
 	}
+	if qErr.Code != ErrCodeUnresolvedTarget {
+		t.Fatalf("unmatched natural request must be unresolved, got %q", qErr.Code)
+	}
 
 	// 2. Ambiguous target when multiple candidates match equally
 	ambiguousQuery := TaskViewQuery{
@@ -89,6 +92,18 @@ func TestVS02A2_QueryPreconditionsAndAmbiguity(t *testing.T) {
 	}
 	if len(qErr.CandidateTargets) != 2 {
 		t.Errorf("expected 2 candidate targets listed in ambiguous error, got %d", len(qErr.CandidateTargets))
+	}
+
+	// A single literal match, or a higher score among several, cannot prove
+	// the user's intent without source-based selection.
+	singleMatch := TaskViewQuery{Mode: "feature", Feature: &FeatureQueryParams{Request: "quick checkout"}}
+	if target, err := ResolveFeatureQueryTarget(&singleMatch, mockCandidates); target != nil || !errors.As(err, &qErr) || qErr.Code != ErrCodeUnresolvedTarget {
+		t.Fatalf("single name match was promoted to a resolved flow: target=%v error=%v", target, err)
+	}
+	higherScore := append([]harvest.Candidate(nil), mockCandidates...)
+	higherScore[0].Score = 0.99
+	if target, err := ResolveFeatureQueryTarget(&ambiguousQuery, higherScore); target != nil || !errors.As(err, &qErr) || qErr.Code != ErrCodeAmbiguousTarget {
+		t.Fatalf("candidate score selected a natural-language flow: target=%v error=%v", target, err)
 	}
 
 	// 3. Unique match resolves successfully without guessing

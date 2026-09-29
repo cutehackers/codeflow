@@ -948,6 +948,7 @@ func runInstallRecord(args []string) {
 	fs.StringVar(&state.SourceRoot, "source-root", "", "installer source path")
 	fs.BoolVar(&state.OwnedSource, "owned-source", false, "whether the installer created source-root")
 	fs.StringVar(&state.AdapterSpec, "adapter-spec", "", "adapter configuration")
+	fs.StringVar(&state.GoAdapterSpec, "go-adapter-spec", "", "Go adapter binary path")
 	fs.StringVar(&state.SkillPath, "skill-path", "", "installed skill path")
 	fs.StringVar(&state.SkillSHA256, "skill-sha256", "", "installed SKILL.md sha256")
 	fs.StringVar(&state.MCPName, "mcp-name", "", "Codex MCP registration name")

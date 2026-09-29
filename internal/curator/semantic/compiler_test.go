@@ -298,6 +298,9 @@ func TestFeatureModeSettlementGate_ObligationsAndEvaluation(t *testing.T) {
 	if mapUnknown.Settlement != "pending" {
 		t.Errorf("expected settlement 'pending' when unknown edge exists, got %q", mapUnknown.Settlement)
 	}
+	if len(mapUnknown.Unknowns) == 0 || mapUnknown.Unknowns[0].Reason != "unresolved_dynamic_call" {
+		t.Errorf("unresolved call reason was not preserved for display: %+v", mapUnknown.Unknowns)
+	}
 	if mapUnknown.Quality.UnresolvedCriticalCount <= 0 {
 		t.Errorf("expected unresolvedCriticalCount > 0 when unknown exists, got %d", mapUnknown.Quality.UnresolvedCriticalCount)
 	}

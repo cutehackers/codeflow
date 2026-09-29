@@ -56,18 +56,19 @@ func TestAgentGateway_ToolsListAndUnknownRejection(t *testing.T) {
 	}
 
 	expectedTools := map[string]bool{
-		"publish_core_flow": true,
-		"harvest_flows":     true,
-		"get_flow_payload":  true,
-		"analyze_flow":      true,
-		"submit_flow_draft": true,
-		"approve_step":      true,
-		"report_unknowns":   true,
-		"open_review":       true,
+		"publish_core_flow":        true,
+		"harvest_flows":            true,
+		"get_flow_payload":         true,
+		"analyze_flow":             true,
+		"submit_flow_draft":        true,
+		"approve_step":             true,
+		"report_unknowns":          true,
+		"curate_code_reading_path": true,
+		"open_review":              true,
 	}
 
-	if len(listResp.Result.Tools) != 8 {
-		t.Fatalf("expected exactly 8 tools, got %d", len(listResp.Result.Tools))
+	if len(listResp.Result.Tools) != len(expectedTools) {
+		t.Fatalf("expected exactly %d tools, got %d", len(expectedTools), len(listResp.Result.Tools))
 	}
 	for _, tool := range listResp.Result.Tools {
 		if !expectedTools[tool.Name] {

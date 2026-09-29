@@ -1,70 +1,39 @@
 ---
 name: codeflow
-description: Use CodeFlow MCP for verified core-flow comprehension, FlowSequence Storyboard generation, and interactive FlowView review across polyglot codebases.
+description: Use CodeFlow MCP to select a requested execution flow, read verified source and relations, and open its FlowView.
 ---
 
 # CodeFlow MCP Operating Contract
 
-Operate the installed CodeFlow MCP using the official 8 core tools. Preserve CodeFlow's evidence, identity, freshness, and authority boundaries when translating tool results into an answer.
+Use CodeFlow's nine MCP tools to identify the user's Requested Flow and explain it from source evidence. An adapter extracts language syntax and direct relations. The shared Core validates evidence, retains detail, and presents CodeView. Neither a compact payload nor a generated title proves which processing steps are essential to the request.
 
-## Preconditions & Synergy
+## Start from the requested flow
 
-- **Target Root**: Always pass the project root as `target` (never a feature subdirectory). Project identity and language adapters depend on root files (e.g., `pubspec.yaml`, `package.json`, `go.mod`).
-- **CodeGraph Synergy**: When a `.codegraph/` directory exists at repository root, run `codegraph explore "<query or symbol>"` first to locate entry candidate symbols before invoking CodeFlow.
-- **Diagnostic Fallback**: If an adapter or toolchain is missing or analysis fails, guide the user to run CLI diagnosis: `codeflow doctor <target>`.
-- **Single Session Consistency**: Keep all flow operations on the same MCP server and exact target repository.
+- Pass the repository root as `target`. If `.codegraph/` exists, use `codegraph explore` to inspect likely entry symbols before selecting one.
+- `harvest_flows(target, query)` uses a literal substring filter. If it reports `no_literal_match`, inspect the returned candidates and their source evidence. Do not treat a literal match or a similar name as proof of execution.
+- Select one candidate supported by its entry source. For a natural-language request, call `analyze_flow(target, entrySymbolPath, request, candidateId)` with the original request and the candidate's exact ID. Resolve a genuine ambiguity with the user before analysis.
+- Call `get_flow_payload(target, flowId, compact: true)` for a first overview. Inspect `summaryLimitations` and unknowns. Its frame count is not guaranteed to be 4–7, and its frame order alone is not a single executed path.
 
-## 5 Golden Execution Paths
+## Deliver a source-backed reading path
 
-Select the most direct execution path based on the user's intent:
+When the user needs to understand the implementation or requests a visual result, create the current FlowView with `open_review(target, flowId)`. If the request identifies an implementation target, provide `focusSymbol` and `focusReason` only after checking its direct call in source. Use the returned `viewId` to read the exact stored analysis with `get_flow_payload(target, viewId, compact: true)`. This compact result retains step IDs, source locations, indexed edges, frame membership, and limitations. Read the full view only when those facts or targeted source reads cannot resolve a specific question.
 
-```
-[User Request]
-      │
-      ├─► 1. Flow Comprehension ──────► harvest_flows ──► analyze_flow ──► get_flow_payload(compact: true) ──► 4~7 Macro Gateways Briefing
-      ├─► 2. Visual Review ──────────► open_review(flowId) ──► Authenticated URL & 3-Column Workbench
-      ├─► 3. Explicit Re-analysis ───► analyze_flow(re-run) ──► open_review(flowId)
-      ├─► 4. Blast Radius/Boundaries ─► CompactRadarSummary ──► report_unknowns(flowId) ──► Direct Callers/Callees & Honest Boundaries
-      └─► 5. Core Flow Publication ──► publish_core_flow ──► 6-field Anchor Verification (1-time re-read retry on mismatch)
-```
+Inspect the compact result's `steps`, indexed `edges`, `frames`, `requestedFocus`, and limitations. Read the relevant source to decide which code explains the request's entry, necessary decisions, processing, effects, and outcomes or analysis boundaries. Include the verified direct call and callee entry when `requestedFocus` exists. Preserve important alternative outcomes and their join. A callback argument proves that code was passed, not that its body ran. Do not use an adjacent ordinal, matching name, or unverified edge as an execution relation.
 
-1. **Flow Comprehension (Default)**:
-   - Discover entry points with `harvest_flows(target, query)`.
-   - Select one harvested candidate with source evidence, then call `analyze_flow(target, entrySymbolPath, request, candidateId)` using the original request and that candidate's exact ID.
-   - Retrieve curated ~500-token payload via `get_flow_payload(target, flowId, compact: true)`.
-   - Detailed guide: [references/flow-comprehension.md](references/flow-comprehension.md).
+For each chosen step, provide its exact `stepId`, a valid role, an exact phrase from the original request as `requestPart`, and a concrete `inclusionReason`. Connect chosen steps with the exact indexes of resolved execution edges. A relation may summarize intermediate code only when its source and CodeView are verified; users can expand those steps beneath the relation. Inspect every alternative outcome at a selected decision and include the outcomes needed to explain the request. Relations may branch and join; every selected branch must end at an outcome or boundary. Call `curate_code_reading_path(target, viewId, selections, relations)`. CodeFlow verifies the selected source, relations, and CodeView before saving a new `viewId`. Open that returned `viewId` with `open_review` and use its URL for visual review. The full FlowSequence and source steps remain available as detail.
 
-2. **Visual Review**:
-   - Open interactive FlowView web UI via `open_review(target, flowId)`.
-   - **Critical**: Pass `flowId` (or saved `viewId`), NEVER `entrySymbolPath`.
-   - Present the authenticated URL (`http://127.0.0.1:<port>/?token=...`) to the user.
-   - Detailed guide: [references/flowview-workbench.md](references/flowview-workbench.md).
+If the evidence cannot support a complete short path, do not submit an invented selection. Show the verified analysis, identify the missing connection or request relevance, and use `report_unknowns` where helpful. The result is an analysis with an explicit limit, not a completed curated path.
 
-3. **Explicit Re-analysis**:
-   - CodeFlow does not watch files continuously. After code modifications, re-analyze on demand with the same original request and verified candidate identity, then update the view with `open_review(target, flowId)`.
-   - Detailed guide: [references/flowview-workbench.md](references/flowview-workbench.md).
+Detailed workflow: [flow comprehension](references/flow-comprehension.md). FlowView restoration and explicit reanalysis: [FlowView workbench](references/flowview-workbench.md).
 
-4. **Blast Radius & Boundary Inspection**:
-   - Inspect 1st-degree callers/callees in `CompactRadarSummary`.
-   - Query unresolvable dynamic dispatches or external cutoffs with `report_unknowns(target, flowId)`.
-   - Detailed guide: [references/advanced-operations.md](references/advanced-operations.md).
+## Evidence and state guards
 
-5. **Agent Core Flow Publication**:
-   - Publish verified architecture-layer flows using `publish_core_flow(target, artifact)`.
-   - Requires valid 6-field anchors. On `anchor_verification_failed`, reread target file, recompute offsets, and retry once.
-   - Detailed guide: [references/advanced-operations.md](references/advanced-operations.md).
+- Keep operations on one MCP server and exact target repository. Preserve the original request, selected candidate, snapshot, and `viewId`.
+- Use `viewId` to restore a saved analysis. Use `flowId` with `open_review` only when intentionally creating a current view from its flow resolution. Reanalysis is explicit; never imply that a saved view updated itself.
+- A confirmed source range does not prove that every branch ran. Describe static possibilities and unverified boundaries accurately.
+- Do not rewrite source anchors, file hashes, step IDs, or validation status. Do not expose internal compiler or benchmark telemetry in the primary explanation.
+- If an adapter or toolchain is missing, use `codeflow doctor <target>` for diagnosis.
 
-## Core Guards
+## Answer from the code
 
-- **Compact First Guard**: Always pass `compact: true` to `get_flow_payload`. Consume the ~500-token curated payload first (4–7 macro gateways). Only inspect full specs or individual source files when deep line-level debugging is required.
-- **Anti-Telemetry Guard**: NEVER leak internal compiler, benchmark, or engine telemetry (such as epochs, lag, internal settlement flags, locks) into user responses. Prioritize developer code comprehension by presenting only business flow traversals, architecture layers, and verifiable source code.
-- **Zero-Hallucination Guard**: Never invent unverified execution hops or assume dynamic dispatch targets. Report unverified transitions honestly as `boundary` gateways and ground them with `report_unknowns`.
-- **Preserve Verified Identity**: Treat AST facts, exact line numbers, and file hashes as immutable evidence. Never rewrite or fabricate flow identities or anchors.
-- **Requested Flow Selection Guard**: A natural-language request must retain the exact request text and a `candidateId` returned by the current `harvest_flows` result when calling `analyze_flow`. If harvest returns no usable candidate, do not analyze a guessed entry point. Use CodeGraph to locate source evidence, run harvest again, or ask the user to distinguish candidates.
-
-## Response Contract
-
-1. **Lead with Macro Business Intent**: Explain the sequence of 4–7 macro gateways (`entry`, `decision`, `process`, `effect`, `result`, `boundary`).
-2. **Drill Down to Source Anchors**: Reference exact repo-relative file paths and line numbers (`path/to/file:line`) for critical execution steps.
-3. **Report Boundaries Honestly**: Highlight any cutoff or unresolved interface discovered via `report_unknowns`.
-4. **Offer Visual Review**: When visual inspection is requested or helpful, provide the authenticated FlowView URL returned by `open_review`.
+Explain the chosen entry, the necessary processing decisions and effects, and the verified result or boundary in order. Cite the relevant source locations and distinguish alternative paths. State any missing call or CodeView evidence. Present the curated FlowView URL when visual inspection was requested or helps the user read the result.

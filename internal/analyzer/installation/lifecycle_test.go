@@ -57,7 +57,7 @@ func requireLifecycleTools(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("bash-based installer lifecycle test")
 	}
-	for _, tool := range []string{"go", "dart", "make", "shasum"} {
+	for _, tool := range []string{"go", "dart", "node", "make", "shasum", "cp", "tar"} {
 		if _, err := exec.LookPath(tool); err != nil {
 			t.Skipf("%s is required for the installer lifecycle test", tool)
 		}
@@ -210,6 +210,17 @@ func assertInstalled(t *testing.T, s *sandbox) {
 	if _, err := os.Stat(s.binary); err != nil {
 		t.Fatalf("installed binary missing: %v", err)
 	}
+	goAdapter := filepath.Join(s.installDir, "codeflow_go_adapter")
+	if _, err := os.Stat(goAdapter); err != nil {
+		t.Fatalf("installed Go adapter missing: %v", err)
+	}
+	if output, err := s.run(t, s.binary, "install-check-adapter", "--language", "go", "--adapter-spec", goAdapter); err != nil {
+		t.Fatalf("installed Go adapter protocol failed: %v\n%s", err, output)
+	}
+	typeScriptAdapter := filepath.Join(s.installDir, "codeflow_ts_adapter")
+	if output, err := s.run(t, s.binary, "install-check-adapter", "--language", "typescript", "--adapter-spec", typeScriptAdapter); err != nil {
+		t.Fatalf("installed TypeScript adapter protocol failed: %v\n%s", err, output)
+	}
 	versionOutput, err := s.run(t, s.binary, "version")
 	if err != nil {
 		t.Fatalf("installed binary version failed: %v\n%s", err, versionOutput)
@@ -234,6 +245,59 @@ func assertInstalled(t *testing.T, s *sandbox) {
 			t.Fatalf("ownership record does not reference %s:\n%s", want, b)
 		}
 	}
+	assertInstalledCodeReadingTools(t, s)
+}
+
+func assertInstalledCodeReadingTools(t *testing.T, s *sandbox) {
+	t.Helper()
+	toolDir := filepath.Join(s.home, ".gemini", "antigravity-cli", "mcp", "codeflow")
+	entries, err := os.ReadDir(toolDir)
+	if err != nil {
+		t.Fatalf("installed MCP tool schemas missing: %v", err)
+	}
+	var toolCount int
+	for _, entry := range entries {
+		if filepath.Ext(entry.Name()) == ".json" {
+			toolCount++
+		}
+	}
+	if toolCount != 9 {
+		t.Fatalf("installed MCP tool schema count = %d, want 9", toolCount)
+	}
+	for _, tc := range []struct {
+		name       string
+		properties []string
+	}{
+		{name: "analyze_flow", properties: []string{"request", "candidateId"}},
+		{name: "get_flow_payload", properties: []string{"viewId", "compact"}},
+		{name: "open_review", properties: []string{"viewId", "focusSymbol", "focusReason"}},
+		{name: "curate_code_reading_path", properties: []string{"viewId", "selections", "relations"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			path := filepath.Join(toolDir, tc.name+".json")
+			data, err := os.ReadFile(path)
+			if err != nil {
+				t.Fatalf("installed tool schema missing: %v", err)
+			}
+			var schema struct {
+				Name       string `json:"name"`
+				Parameters struct {
+					Properties map[string]json.RawMessage `json:"properties"`
+				} `json:"parameters"`
+			}
+			if err := json.Unmarshal(data, &schema); err != nil {
+				t.Fatalf("invalid installed tool schema: %v", err)
+			}
+			if schema.Name != tc.name {
+				t.Fatalf("installed tool name = %q, want %q", schema.Name, tc.name)
+			}
+			for _, property := range tc.properties {
+				if _, ok := schema.Parameters.Properties[property]; !ok {
+					t.Errorf("installed tool %s has no %s parameter", tc.name, property)
+				}
+			}
+		})
+	}
 }
 
 func TestInstallThenUninstallLifecycle(t *testing.T) {
@@ -247,6 +311,9 @@ func TestInstallThenUninstallLifecycle(t *testing.T) {
 	}
 	if _, serr := os.Stat(s.binary); !os.IsNotExist(serr) {
 		t.Fatalf("binary survived uninstall: %v", serr)
+	}
+	if _, serr := os.Stat(filepath.Join(s.installDir, "codeflow_go_adapter")); !os.IsNotExist(serr) {
+		t.Fatalf("Go adapter survived uninstall: %v", serr)
 	}
 	if _, serr := os.Stat(s.skillDest); !os.IsNotExist(serr) {
 		t.Fatalf("skill survived uninstall: %v", serr)
@@ -286,6 +353,136 @@ func TestInstallThenUninstallLifecycle(t *testing.T) {
 	if _, serr := os.Stat(filepath.Join(s.home, ".gemini", "antigravity-cli", "mcp", "codeflow")); !os.IsNotExist(serr) {
 		t.Fatalf("Antigravity MCP tool schemas survived uninstall: %v", serr)
 	}
+}
+
+func TestInstallRejectsTypeScriptAdapterProtocolFailure(t *testing.T) {
+	s := newSandbox(t)
+	nodeStub := filepath.Join(s.root, "stub", "node")
+	if err := os.WriteFile(nodeStub, []byte("#!/usr/bin/env bash\nexit 1\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	script, err := filepath.Abs(filepath.Join("..", "..", "..", "scripts", "install.sh"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	out, err := s.run(t, "bash", script)
+	if err == nil || !strings.Contains(out, "installed TypeScript adapter protocol") {
+		t.Fatalf("installer must reject a failing TypeScript adapter before registration: %v\n%s", err, out)
+	}
+	if line := s.mcpLine(); line != "" {
+		t.Fatalf("installer registered MCP after TypeScript adapter failure: %q", line)
+	}
+	if _, err := os.Stat(filepath.Join(s.home, ".codeflow", "install-state.json")); !os.IsNotExist(err) {
+		t.Fatalf("installer recorded success after TypeScript adapter failure: %v", err)
+	}
+}
+
+func TestInstallFromReleaseArchive(t *testing.T) {
+	s := newSandbox(t)
+	installerPath := prepareReleaseArchiveInstallation(t, s, true)
+	if out, err := s.run(t, "bash", installerPath); err != nil {
+		t.Fatalf("release archive installation failed: %v\n%s", err, out)
+	}
+	assertInstalled(t, s)
+}
+
+func TestInstallRejectsReleaseWithoutDartAdapter(t *testing.T) {
+	s := newSandbox(t)
+	installerPath := prepareReleaseArchiveInstallation(t, s, false)
+	out, err := s.run(t, "bash", installerPath)
+	if err == nil || !strings.Contains(out, "Release archive is missing the Dart adapter") {
+		t.Fatalf("installer must reject a release without its Dart adapter: %v\n%s", err, out)
+	}
+	if line := s.mcpLine(); line != "" {
+		t.Fatalf("installer registered MCP after missing Dart adapter: %q", line)
+	}
+	if _, err := os.Stat(filepath.Join(s.home, ".codeflow", "install-state.json")); !os.IsNotExist(err) {
+		t.Fatalf("installer recorded success without Dart adapter: %v", err)
+	}
+	for _, name := range []string{"codeflow", "codeflow_go_adapter"} {
+		if _, err := os.Stat(filepath.Join(s.installDir, name)); !os.IsNotExist(err) {
+			t.Fatalf("installer copied %s before validating the release archive: %v", name, err)
+		}
+	}
+}
+
+func TestInstallRejectsIncompatibleReleaseAdapterBeforeCopy(t *testing.T) {
+	s := newSandbox(t)
+	installerPath := prepareReleaseArchiveInstallation(t, s, true)
+	adapterPath := filepath.Join(s.root, "release", "bin", "dart-adapter")
+	if err := os.WriteFile(adapterPath, []byte("#!/bin/sh\nexit 1\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	archive := filepath.Join(s.root, "codeflow-release.tar.gz")
+	if out, err := exec.Command("tar", "-czf", archive, "-C", filepath.Join(s.root, "release"), "bin", "skills", "adapters").CombinedOutput(); err != nil {
+		t.Fatalf("package incompatible release archive: %v\n%s", err, out)
+	}
+	out, err := s.run(t, "bash", installerPath)
+	if err == nil || !strings.Contains(out, "Dart adapter") {
+		t.Fatalf("installer must reject an incompatible Dart adapter: %v\n%s", err, out)
+	}
+	if _, err := os.Stat(s.binary); !os.IsNotExist(err) {
+		t.Fatalf("installer copied CodeFlow before checking adapter compatibility: %v", err)
+	}
+	if line := s.mcpLine(); line != "" {
+		t.Fatalf("installer registered MCP after incompatible adapter: %q", line)
+	}
+}
+
+func prepareReleaseArchiveInstallation(t *testing.T, s *sandbox, includeDart bool) string {
+	t.Helper()
+	codeflowBin, dartBin := ensurePrebuiltTestBinaries(t)
+	repoRoot, err := filepath.Abs(filepath.Join("..", "..", ".."))
+	if err != nil {
+		t.Fatal(err)
+	}
+	archiveDir := filepath.Join(s.root, "release")
+	for _, dir := range []string{"bin", "skills", "adapters"} {
+		if err := os.MkdirAll(filepath.Join(archiveDir, dir), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	binaries := [][2]string{{codeflowBin, filepath.Join(archiveDir, "bin", "codeflow")}}
+	if includeDart {
+		binaries = append(binaries, [2]string{dartBin, filepath.Join(archiveDir, "bin", "dart-adapter")})
+	}
+	for _, item := range binaries {
+		if out, err := exec.Command("cp", item[0], item[1]).CombinedOutput(); err != nil {
+			t.Fatalf("copy release binary: %v\n%s", err, out)
+		}
+	}
+	goAdapter := filepath.Join(archiveDir, "bin", "codeflow_go_adapter")
+	build := exec.Command("go", "build", "-o", goAdapter, "./adapters/go")
+	build.Dir = repoRoot
+	if out, err := build.CombinedOutput(); err != nil {
+		t.Fatalf("build release Go adapter: %v\n%s", err, out)
+	}
+	for _, item := range [][2]string{
+		{filepath.Join(repoRoot, "skills", "codeflow"), filepath.Join(archiveDir, "skills", "codeflow")},
+		{filepath.Join(repoRoot, "adapters", "typescript"), filepath.Join(archiveDir, "adapters", "typescript")},
+	} {
+		if out, err := exec.Command("cp", "-R", item[0], item[1]).CombinedOutput(); err != nil {
+			t.Fatalf("copy release asset: %v\n%s", err, out)
+		}
+	}
+	archive := filepath.Join(s.root, "codeflow-release.tar.gz")
+	if out, err := exec.Command("tar", "-czf", archive, "-C", archiveDir, "bin", "skills", "adapters").CombinedOutput(); err != nil {
+		t.Fatalf("package release archive: %v\n%s", err, out)
+	}
+	installer, err := os.ReadFile(filepath.Join(repoRoot, "scripts", "install.sh"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	installerPath := filepath.Join(s.root, "install.sh")
+	if err := os.WriteFile(installerPath, installer, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	curlStub := filepath.Join(s.root, "stub", "curl")
+	if err := os.WriteFile(curlStub, []byte("#!/usr/bin/env bash\nwhile [ \"$#\" -gt 0 ]; do\n  if [ \"$1\" = \"-o\" ]; then cp \"$CODEFLOW_TEST_RELEASE_ARCHIVE\" \"$2\"; exit $?; fi\n  shift\ndone\nexit 2\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	s.env = append(s.env, "CODEFLOW_TEST_RELEASE_ARCHIVE="+archive)
+	return installerPath
 }
 
 func TestReinstallUpdatesPreviouslyOwnedSkill(t *testing.T) {

@@ -159,6 +159,10 @@ func buildFlowSequence(mapIR *SemanticMapIR, review *FlowCurationReview) *FlowSe
 			// that merely executes under an inherited condition.
 			// Untyped historical steps retain their condition-based classification.
 			role = "decision"
+		} else if step.Kind == "mutation" && step.ValueRole == "local_binding" {
+			// A local binding is a syntax fact, not a state-change gateway. Keep
+			// its source step and fold only along a proven direct execution edge.
+			isIntermediate = true
 		} else if step.Kind == "mutation" || step.StateDelta != nil {
 			// 3. Process / transaction boundary / state mutation
 			role = "process"
@@ -272,12 +276,12 @@ func buildFlowSequence(mapIR *SemanticMapIR, review *FlowCurationReview) *FlowSe
 
 		hasIncoming := false
 		for _, edge := range connections.incoming[step.StepID] {
-			if edge.ResolutionStatus == "resolved" {
+			if edge.ResolutionStatus == "resolved" && edge.Kind != "callback_argument" {
 				hasIncoming = true
 				break
 			}
 		}
-		if i > 0 && (!hasIncoming || (step.InvocationID != "" && isIntermediate)) {
+		if i > 0 && (!hasIncoming || (step.InvocationID != "" && isIntermediate && !connections.hasResolvedImplementationTransition(step.StepID) && !connections.hasResolvedImplementationEntry(step.StepID) && !connections.hasResolvedConditionalEntry(step.StepID) && !connections.hasResolvedControlTransfer(step))) {
 			limitedFrames = append(limitedFrames, frame.FrameID)
 		}
 		sequence.Frames = append(sequence.Frames, frame)
@@ -290,6 +294,11 @@ func buildFlowSequence(mapIR *SemanticMapIR, review *FlowCurationReview) *FlowSe
 	groupDecisionEvaluations(sequence, steps, connections, boundaryTargets, unknownSubjects)
 	groupAssignmentResults(sequence, steps, connections, boundaryTargets, unknownSubjects)
 	groupCoreFlowExecutionSegments(sequence, steps, connections)
+	groupVerifiedLeafCalls(sequence, mapIR, connections)
+	groupAlternativeDecisionPaths(sequence, mapIR, connections)
+	markUngroupedProcessRuns(sequence, mapIR, connections)
+	markUnprovenInvocationFrames(sequence, mapIR)
+	markRequestCurationLimitations(sequence, mapIR)
 	if review != nil {
 		completeCurationReview(review, sequence, connections, mapIR)
 	}

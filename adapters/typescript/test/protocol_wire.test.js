@@ -179,6 +179,35 @@ function run() {
   assert.strictEqual(v2Detect.result.causalObservationClosure.closureStatus, 'open');
   assert(v2Detect.result.causalObservationClosure.incompleteReasons.some((reason) => reason.includes('membership')));
 
+  const nestedProjectFiles = {
+    'go.mod': 'module example.com/mixed\n',
+    'web/flowview/package.json': '{"name":"flowview"}',
+    'web/flowview/src/main.ts': 'export function onOpenClick() { return true; }',
+  };
+  const nestedDetect = rpcAnalysis('nested-project-detect', 'detect', nestedProjectFiles);
+  assert.strictEqual(nestedDetect.error, undefined);
+  assert.strictEqual(nestedDetect.result.payload.confident, true);
+  assert(nestedDetect.result.analysisReadSet.documents.some((doc) => doc.path === 'web/flowview/package.json'));
+  assert.strictEqual(nestedDetect.result.analysisReadSet.membershipObservations.length, 1);
+  const nestedHarvest = rpcAnalysis('nested-project-harvest', 'harvest_candidates', nestedProjectFiles);
+  assert.strictEqual(nestedHarvest.error, undefined);
+  const nestedCandidate = nestedHarvest.result.payload.candidates.find((candidate) =>
+    candidate.entrySymbolPath === 'web/flowview/src/main.ts#onOpenClick');
+  assert(nestedCandidate);
+  const nestedSlice = rpcAnalysis('nested-project-slice', 'slice', nestedProjectFiles, {
+    candidateId: nestedCandidate.candidateId,
+    entrySymbolPath: nestedCandidate.entrySymbolPath,
+  }, ['negative_lookup', 'membership', 'dependency_frontier']);
+  assert.strictEqual(nestedSlice.error, undefined);
+  assert.strictEqual(nestedSlice.result.causalObservationClosure.closureStatus, 'closed');
+  assert(nestedSlice.result.analysisReadSet.dependencyFrontiers.some((item) =>
+    item.path === 'web/flowview/package.json'));
+  const unrelatedManifest = rpcAnalysis('unrelated-manifest-detect', 'detect', {
+    'web/flowview/package.json': '{"name":"flowview"}',
+    'src/main.ts': 'export function onOpenClick() { return true; }',
+  });
+  assert.strictEqual(unrelatedManifest.result.payload.confident, false);
+
   const harvestFiles = {
     'package.json': '{"name":"tracked-app"}',
     'src/app.ts': 'export function run() { return 1; }',

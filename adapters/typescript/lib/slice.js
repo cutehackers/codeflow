@@ -52,6 +52,7 @@ function sliceFlow(params) {
   const candidateId = params.candidateId;
   const entrySymbolPath = params.entrySymbolPath;
   const includeExecutionSemantics = params.opts?.includeExecutionSemantics === true;
+  const includeValueRoles = params.opts?.includeValueRoles === true;
   const maxDepth = (params.opts && params.opts.maxDepth) || 5;
   const tracker = params.__analysisTracker || createAnalysisTracker(params, 'slice');
   const overlay = tracker.overlay || overlayFor(params);
@@ -64,7 +65,7 @@ function sliceFlow(params) {
   }
   const fileCache = new Map();
   const scanCache = new Map();
-  const tsConfig = loadTsConfig(repoRoot, overlay, params.__analysisTracker || tracker);
+  const tsConfig = loadTsConfig(repoRoot, overlay, params.__analysisTracker || tracker, relPath);
 
   function readFile(p) {
     if (fileCache.has(p)) return fileCache.get(p);
@@ -261,6 +262,7 @@ function sliceFlow(params) {
             ...context,
             ordinal: stepOrdinal,
             kind: stmt.type,
+            ...(includeValueRoles && stmt.valueRole ? { valueRole: stmt.valueRole } : {}),
             description: descRedact.text,
             symbolPath: fullSym,
             anchor,
@@ -317,26 +319,35 @@ function sliceFlow(params) {
             });
 
             if (target) {
+              const targetPath = `${target.relPath}#${target.className ? target.className + '.' : ''}${target.methodName}`;
+              const depthLimited = depth + 1 >= maxDepth;
+              const cycleLimited = activeStack.has(targetPath);
               const edge = {
                 kind: 'resolved_cross_file',
-                toSymbolPath: `${target.relPath}#${target.className ? target.className + '.' : ''}${target.methodName}`,
+                toSymbolPath: targetPath,
                 resolutionStatus: 'resolved',
                 depth: depth + 1,
                 stepOrdinal,
               };
               edges.push(edge);
-
               const targetStepOrdinal = sliceSymbolBody({
                 currentRelPath: target.relPath,
                 className: target.className,
                 methodName: target.methodName,
                 depth: depth + 1,
-                invocationId: sha256Hex(JSON.stringify([invocationId, currentRelPath, stmt.startOffset, stmt.endOffset, edge.toSymbolPath])),
+                invocationId: sha256Hex(JSON.stringify([invocationId, currentRelPath, stmt.startOffset, stmt.endOffset, targetPath])),
                 callerStepOrdinal: stepOrdinal,
               });
-              if (includeExecutionSemantics) {
-                if (targetStepOrdinal) edge.targetStepOrdinal = targetStepOrdinal;
-                else edge.resolutionStatus = depth + 1 >= maxDepth ? 'truncated' : 'unresolved_type';
+              if (targetStepOrdinal || !includeExecutionSemantics) {
+                if (includeExecutionSemantics) edge.targetStepOrdinal = targetStepOrdinal;
+              } else {
+                edge.kind = 'unknown_edge';
+                edge.resolutionStatus = depthLimited || cycleLimited ? 'truncated' : 'unresolved_type';
+                edge.unresolvedReason = depthLimited
+                  ? 'Call target statements were not collected because the analysis depth limit was reached.'
+                  : cycleLimited
+                    ? 'Call target statements were not collected because the call is recursive.'
+                    : 'Call target statements were not found in the captured source.';
               }
             } else {
               const rawTarget = `${stmt.receiver ? stmt.receiver + '.' : ''}${stmt.methodName}`;
@@ -521,15 +532,27 @@ function isBoundaryTarget(receiver, methodName) {
   return false;
 }
 
-function loadTsConfig(repoRoot, overlay = null, tracker = null) {
-  const configFiles = ['tsconfig.json', 'jsconfig.json'];
-  for (const file of configFiles) {
+function loadTsConfig(repoRoot, overlay = null, tracker = null, entryRelPath = '') {
+  const directories = [];
+  let directory = entryRelPath ? path.posix.dirname(entryRelPath) : '.';
+  while (true) {
+    directories.push(directory);
+    if (directory === '.') break;
+    directory = path.posix.dirname(directory);
+  }
+  const read = (file) => {
+    if (tracker) return tracker.read(file);
+    if (overlay) return overlay.has(file) ? overlay.get(file) : null;
     const full = path.join(repoRoot, file);
-    const overlayContent = tracker ? tracker.read(file) : (overlay && overlay.has(file) ? overlay.get(file) : null);
-    if (overlayContent !== null || (!overlay && !tracker && fs.existsSync(full))) {
+    return fs.existsSync(full) ? fs.readFileSync(full, 'utf8') : null;
+  };
+  for (const scope of directories) {
+    for (const name of ['tsconfig.json', 'jsconfig.json']) {
+      const file = scope === '.' ? name : `${scope}/${name}`;
+      const source = read(file);
+      if (source === null) continue;
       try {
-        let content = tracker || overlay ? overlayContent : fs.readFileSync(full, 'utf8');
-        content = content
+        const content = source
           .replace(/\/\/[^\n]*/g, '')
           .replace(/\/\*[\s\S]*?\*\//g, '')
           .replace(/,(\s*[\]}])/g, '$1');
@@ -537,10 +560,20 @@ function loadTsConfig(repoRoot, overlay = null, tracker = null) {
         const compilerOptions = parsed.compilerOptions || {};
         if (tracker) tracker.recordDependency(file);
         return {
-          baseUrl: compilerOptions.baseUrl || '.',
+          baseUrl: path.posix.join(scope, compilerOptions.baseUrl || '.'),
           paths: compilerOptions.paths || {},
         };
       } catch (_) {}
+    }
+  }
+  // A package manifest is the captured module boundary when no tsconfig is
+  // available. Its content is a real dependency observation, not a synthetic
+  // claim that the unresolved external calls in this slice were followed.
+  for (const scope of directories) {
+    const file = scope === '.' ? 'package.json' : `${scope}/package.json`;
+    if (read(file) !== null) {
+      if (tracker) tracker.recordDependency(file);
+      break;
     }
   }
   return { baseUrl: '.', paths: {} };

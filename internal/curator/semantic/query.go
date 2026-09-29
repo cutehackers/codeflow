@@ -4,7 +4,6 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
-	"math"
 	"strings"
 
 	"codeflow/internal/collector/fusion"
@@ -14,6 +13,7 @@ import (
 const (
 	ErrCodeMissingPrecondition   = "missing_precondition"
 	ErrCodeAmbiguousTarget       = "ambiguous_target"
+	ErrCodeUnresolvedTarget      = "unresolved_target"
 	ErrCodeIncomparableBasis     = "incomparable_basis"
 	ErrCodeUnsupportedCapability = "unsupported_capability"
 	ErrCodeNoEntrypointsFound    = "no_entrypoints_found"
@@ -56,6 +56,8 @@ type FeatureQueryParams struct {
 	FlowID      string `json:"flowId,omitempty"`
 	EntrySymbol string `json:"entrySymbol,omitempty"`
 	Domain      string `json:"domain,omitempty"`
+	FocusSymbol string `json:"focusSymbol,omitempty"`
+	FocusReason string `json:"focusReason,omitempty"`
 }
 
 type ReviewQueryParams struct {
@@ -198,12 +200,7 @@ func ResolveFeatureQueryTarget(query *TaskViewQuery, candidates []harvest.Candid
 	}
 	searchLower := strings.ToLower(searchTerm)
 
-	type scoredMatch struct {
-		cand  harvest.Candidate
-		score float64
-	}
-
-	var matches []scoredMatch
+	var matches []harvest.Candidate
 	for _, c := range candidates {
 		// Excluded candidates are skipped
 		if c.ManifestOverride == "excluded" {
@@ -216,7 +213,7 @@ func ResolveFeatureQueryTarget(query *TaskViewQuery, candidates []harvest.Candid
 			match = true
 		}
 		if match {
-			matches = append(matches, scoredMatch{cand: c, score: c.Score})
+			matches = append(matches, c)
 		}
 	}
 
@@ -228,53 +225,29 @@ func ResolveFeatureQueryTarget(query *TaskViewQuery, candidates []harvest.Candid
 			}
 		}
 		return nil, &QueryError{
-			Code:             ErrCodeMissingPrecondition,
-			Message:          fmt.Sprintf("no matching flow candidates found for query %q", searchTerm),
+			Code:             ErrCodeUnresolvedTarget,
+			Message:          "요청과 이름이 일치하는 후보가 없습니다. 코드를 확인한 뒤 진입점을 선택해 주세요.",
 			CandidateTargets: availableTargets,
 		}
 	}
 
 	if len(matches) == 1 {
-		c := matches[0].cand
-		return &ResolvedTarget{
-			EntrySymbolPath: c.EntrySymbolPath,
-			CandidateID:     c.CandidateID,
-			FlowID:          fusion.ComputeFlowID(c.EntrySymbolPath),
-			Title:           deriveTitle(c),
-		}, nil
-	}
-
-	// Check if top candidates tie
-	topScore := matches[0].score
-	var topCandidates []harvest.Candidate
-	for _, m := range matches {
-		if math.Abs(m.score-topScore) < 0.0001 {
-			topCandidates = append(topCandidates, m.cand)
-		} else if m.score > topScore {
-			topScore = m.score
-			topCandidates = []harvest.Candidate{m.cand}
-		}
-	}
-
-	if len(topCandidates) > 1 {
-		var targets []string
-		for _, tc := range topCandidates {
-			targets = append(targets, tc.EntrySymbolPath)
-		}
 		return nil, &QueryError{
-			Code:             ErrCodeAmbiguousTarget,
-			Message:          fmt.Sprintf("multiple flow targets match %q with equal confidence; please narrow the query with entrySymbol or flowId", searchTerm),
-			CandidateTargets: targets,
+			Code:             ErrCodeUnresolvedTarget,
+			Message:          "이름이 일치해도 요청한 흐름인지는 확인되지 않았습니다. 코드를 확인한 뒤 선택해 주세요.",
+			CandidateTargets: []string{matches[0].EntrySymbolPath},
 		}
 	}
 
-	c := topCandidates[0]
-	return &ResolvedTarget{
-		EntrySymbolPath: c.EntrySymbolPath,
-		CandidateID:     c.CandidateID,
-		FlowID:          fusion.ComputeFlowID(c.EntrySymbolPath),
-		Title:           deriveTitle(c),
-	}, nil
+	var targets []string
+	for _, m := range matches {
+		targets = append(targets, m.EntrySymbolPath)
+	}
+	return nil, &QueryError{
+		Code:             ErrCodeAmbiguousTarget,
+		Message:          "이름이 일치하는 후보가 여러 개입니다. 각 후보의 코드를 확인한 뒤 선택해 주세요.",
+		CandidateTargets: targets,
+	}
 }
 
 func deriveTitle(c harvest.Candidate) string {

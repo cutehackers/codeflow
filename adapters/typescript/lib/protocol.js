@@ -321,13 +321,32 @@ function boundedDiagnostic(value) {
   return redactDiagnostic(value);
 }
 
+function nestedTypeScriptManifest(paths, sources) {
+  const markers = [...paths]
+    .filter((rel) => rel.includes('/') && (rel.endsWith('/package.json') || rel.endsWith('/tsconfig.json')))
+    .sort();
+  return markers.find((marker) => {
+    const directory = marker.slice(0, marker.lastIndexOf('/') + 1);
+    return sources.some((source) => source.startsWith(directory));
+  }) || null;
+}
+
 function detectRepo(repoRoot, params = {}, tracker = null) {
   const root = path.resolve(repoRoot);
   if (tracker) {
-    const packageJSON = tracker.read('package.json');
-    const tsConfig = tracker.read('tsconfig.json');
+    let packageJSON = tracker.read('package.json');
+    let tsConfig = tracker.read('tsconfig.json');
     if (packageJSON !== null) tracker.recordDependency('package.json');
     if (tsConfig !== null) tracker.recordDependency('tsconfig.json');
+    if (packageJSON === null && tsConfig === null) {
+      const marker = nestedTypeScriptManifest(tracker.overlay.keys(), tracker.enumerateSourceFiles());
+      if (marker) {
+        const content = tracker.read(marker);
+        if (content !== null) tracker.recordDependency(marker);
+        if (marker.endsWith('/package.json')) packageJSON = content;
+        else tsConfig = content;
+      }
+    }
     const hasPkg = packageJSON !== null;
     const hasTs = tsConfig !== null;
     if (!hasPkg && !hasTs) {
@@ -371,8 +390,18 @@ function detectRepo(repoRoot, params = {}, tracker = null) {
   const pkgPath = path.join(root, 'package.json');
   const tsconfigPath = path.join(root, 'tsconfig.json');
 
-  const hasPkg = overlay ? overlay.has('package.json') : fs.existsSync(pkgPath);
-  const hasTs = overlay ? overlay.has('tsconfig.json') : fs.existsSync(tsconfigPath);
+  let hasPkg = overlay ? overlay.has('package.json') : fs.existsSync(pkgPath);
+  let hasTs = overlay ? overlay.has('tsconfig.json') : fs.existsSync(tsconfigPath);
+  let nestedPackageJSON = null;
+  if (!hasPkg && !hasTs && overlay) {
+    const sources = [...overlay.keys()].filter((rel) => /\.(ts|tsx|js|jsx|mjs|cjs)$/.test(rel));
+    const marker = nestedTypeScriptManifest(overlay.keys(), sources);
+    if (marker) {
+      hasPkg = marker.endsWith('/package.json');
+      hasTs = !hasPkg;
+      if (hasPkg) nestedPackageJSON = overlay.get(marker);
+    }
+  }
 
   if (!hasPkg && !hasTs) {
     return {
@@ -390,7 +419,7 @@ function detectRepo(repoRoot, params = {}, tracker = null) {
 
   if (hasPkg) {
     try {
-      const pkg = JSON.parse(overlay ? overlay.get('package.json') : fs.readFileSync(pkgPath, 'utf8'));
+      const pkg = JSON.parse(nestedPackageJSON || (overlay ? overlay.get('package.json') : fs.readFileSync(pkgPath, 'utf8')));
       if (pkg.name) projectName = pkg.name;
       const deps = { ...(pkg.dependencies || {}), ...(pkg.devDependencies || {}) };
       if (deps['react']) frameworks.push('react');

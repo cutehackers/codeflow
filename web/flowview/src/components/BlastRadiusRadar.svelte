@@ -8,7 +8,7 @@
 
   const impactGraph = $derived.by((): ChangeImpactGraph | null => {
     if (!selectedStep) return null;
-    const relations = (data?.semanticMap.edges || []).filter(e => e.resolutionStatus === 'resolved' && (e.toStepId === selectedStep.stepId || e.fromStepId === selectedStep.stepId));
+    const relations = (data?.semanticMap.edges || []).filter(e => e.resolutionStatus === 'resolved' && e.kind !== 'callback_argument' && (e.toStepId === selectedStep.stepId || e.fromStepId === selectedStep.stepId));
     const connected = relations.map(e => flowStore.steps.find(s => s.stepId === (e.toStepId === selectedStep.stepId ? e.fromStepId : e.toStepId))).filter((s): s is Step => !!s);
     const unique = [...new Map(connected.map(s => [s.stepId, s])).values()];
     return { directImpact: { callers: unique.map(s => ({name:s.name, symbolPath:s.stepId})), tests:[] }, indirectImpact: {callers:[]} };

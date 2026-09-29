@@ -51,7 +51,9 @@
         "request": { "type": "string", "minLength": 1 },
         "flowId": { "type": "string", "minLength": 1 },
         "entrySymbol": { "type": "string", "minLength": 1 },
-        "domain": { "type": "string", "minLength": 1 }
+        "domain": { "type": "string", "minLength": 1 },
+        "focusSymbol": { "type": "string", "minLength": 1 },
+        "focusReason": { "type": "string", "minLength": 1 }
       },
       "anyOf": [
         { "required": ["request"] },

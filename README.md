@@ -2,7 +2,7 @@
 
 > **대규모 코드베이스에서 비즈니스 핵심 흐름(Core Flow)을 엔드투엔드로 추출하고 시각화하는 다중 언어 개발자 및 AI 에이전트 도구**
 
-CodeFlow는 진입 계층(UI 이벤트, API 요청 등)부터 데이터/외부 연동 계층까지의 **비즈니스 핵심 흐름(Core Flow)**을 검증된 코드 근거(Anchor)와 함께 추출하고, 엄선된 4~7개 비즈니스 관문과 1:N 실행 타임라인을 갖춘 인터랙티브한 **FlowView** 스토리보드 워크벤치로 시각화합니다.
+CodeFlow는 진입 계층(UI 이벤트, API 요청 등)부터 처리 완료까지의 **요청 흐름(Requested Flow)**을 코드 근거와 함께 추적하고, 실행 분기와 1:N 관계를 보존한 **FlowView**에서 소스를 직접 읽을 수 있게 합니다. 관문 수는 고정하지 않으며, 요청과의 관련성이 입증되지 않은 단계는 그 한계를 표시합니다.
 
 ---
 
@@ -10,7 +10,7 @@ CodeFlow는 진입 계층(UI 이벤트, API 요청 등)부터 데이터/외부 �
 
 > 💡 **AI 에이전트 / LLM 필독 지침**: AI 에이전트(Codex, Claude Desktop, Cursor, Antigravity 등)가 설치나 프로젝트 분석을 진행할 때는 반드시 **[`docs/guides/llm-usage.md`](docs/guides/llm-usage.md)**를 먼저 읽고 지침을 따르세요. 원샷 설치부터 아키텍처 자동 분석(`codeflow.layers.yaml` 생성) 및 핵심 흐름 추출까지의 상세 계약이 정의되어 있습니다.
 
-터미널에서 아래 명령을 실행하면 Go/Dart/Node 컴파일러 없이도 OS/아키텍처에 맞는 사전 빌드 바이너리, 다중 언어 어댑터(Dart & TypeScript), 4대 AI 에이전트(Codex, Claude Desktop, Cursor, Antigravity) MCP 및 스킬까지 한 번에 자동 설치됩니다.
+터미널에서 아래 명령을 실행하면 Go/Dart/Node 컴파일러 없이도 OS/아키텍처에 맞는 사전 빌드 바이너리, 분석 어댑터(Dart, TypeScript, Go), 4대 AI 에이전트(Codex, Claude Desktop, Cursor, Antigravity) MCP 및 스킬까지 한 번에 자동 설치됩니다.
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/cutehackers/codeflow/main/scripts/install.sh | bash
@@ -18,10 +18,10 @@ curl -fsSL https://raw.githubusercontent.com/cutehackers/codeflow/main/scripts/i
 
 > 로컬 저장소 체크아웃 내에서는 `bash scripts/install.sh`를 실행하여 직접 빌드/설치할 수도 있습니다.
 
-- **지원 언어**: Dart/Flutter, TypeScript/JavaScript (React, Node.js), Kotlin/Java, Swift, Python, Go, Rust
+- **분석 어댑터 구현 언어**: Dart/Flutter, TypeScript/JavaScript, Go. Kotlin/Java, Swift, Python, Rust는 프로젝트 언어 감지와 어댑터 프로토콜 대상이지만 분석 어댑터가 구현되지 않았습니다.
 - **지원 에이전트**: Codex, Claude Desktop, Cursor IDE, Antigravity / Gemini CLI
 - **설치 확인**: `$HOME/.local/bin/codeflow doctor <분석할-저장소-경로>`
-- **지원 환경**: macOS (Apple Silicon / Intel), Linux (x86_64 / arm64)
+- **사전 빌드 배포 환경**: macOS (Apple Silicon), Linux (x86_64)
 - **원클릭 제거**: `$HOME/.local/bin/codeflow uninstall` (셸 rc나 프로젝트 코드를 일체 오염시키지 않습니다)
 
 ---
@@ -50,8 +50,8 @@ AI 에이전트(Codex, Claude Desktop, Cursor, Antigravity 등)는 **[`docs/guid
    ```
 3. **프로젝트 아키텍처 분석 및 레이어 자동 구성**:
    - 대상 프로젝트 구조(Feature-first, Layer-first, Clean, Hexagonal, FSD, MVC 등)를 파악하여 [`codeflow.layers.yaml`](docs/guides/llm-usage.md#01-프로젝트-아키텍처-분석-및-codeflowlayersyaml-작성-가이드) 자동 생성
-4. **핵심 흐름(Core Flow) 추출 및 시각화**:
-   - MCP 도구로 핵심 흐름을 추출·검증(`publish_core_flow`)하고 FlowView 리뷰 URL 제공
+4. **요청 흐름 분석 및 시각화**:
+   - `harvest_flows`로 후보를 확인하고 `analyze_flow`로 요청과 연결된 코드를 분석합니다. `open_review`로 FlowView를 연 뒤, 필요하면 `get_flow_payload`의 코드 근거를 보고 `curate_code_reading_path`로 읽을 경로를 좁힙니다.
 
 ---
 

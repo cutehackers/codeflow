@@ -45,3 +45,23 @@ func TestFlowContextSelectionKinds(t *testing.T) {
 		})
 	}
 }
+
+func TestFlowContextShowsSourceBackedLoopHeader(t *testing.T) {
+	const source = "void scan() { for (final item in items) { visit(item); } }"
+	const header = "for (final item in items)"
+	const wholeLoop = "for (final item in items) { visit(item); }"
+	span := [2]int{strings.Index(source, header), strings.Index(source, header) + len(header)}
+	loopSpan := [2]int{strings.Index(source, wholeLoop), strings.Index(source, wholeLoop) + len(wholeLoop)}
+	hash := sha256Hex([]byte(source))
+	anchor := slicing.Anchor{RepoRelativePath: "entry.dart", ByteRange: span, FileHash: hash, SpanHash: sha256Hex([]byte(header))}
+	step := semantic.SemanticStep{StepID: "loop-header", Anchor: anchor, EvidenceRefs: []string{"loop-evidence"}}
+	m := &semantic.SemanticMapIR{GenerationID: "generation", ValidatedAgainstSnapshotID: "snapshot", Steps: []semantic.SemanticStep{step}, Evidence: []semantic.SemanticEvidence{{EvidenceID: "loop-evidence", SnapshotID: "snapshot", Anchor: anchor, ByteRange: span, ValidationStatus: "verified", SourceValidationStatus: "verified"}}}
+	meta := &slicing.FlowContextMetadata{CanonicalPath: "entry.dart", SnapshotID: "snapshot", SourceHash: hash, Statement: slicing.StatementNodeMetadata{NodeKind: "statement", ByteRange: span}, StructuralContext: slicing.StructuralContextMetadata{Status: "present", NodeKind: "loop", ByteRange: &loopSpan}, Callable: slicing.CallableMetadata{SignatureByteRange: [2]int{0, len("void scan()")}, ByteRange: [2]int{0, len(source)}}}
+	got := DeriveFlowContext(DeriveFlowContextParams{Step: step, SemanticMap: m, Metadata: meta, AdapterHasFlowContext: true, SourceSnapshotID: "snapshot", SnapshotFiles: map[string][]byte{"entry.dart": []byte(source)}})
+	if got.Precision != PrecisionExact || got.Statement == nil || got.Statement.ByteRange != span || got.StructuralContext.NodeKind != "loop" {
+		t.Fatalf("loop source context lost: %+v", got)
+	}
+	if len(got.DisplayedLines) != 1 || got.DisplayedLines[0].Selection == nil || got.DisplayedLines[0].Selection.Text != header {
+		t.Fatalf("loop header not highlighted: %+v", got.DisplayedLines)
+	}
+}

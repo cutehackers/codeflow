@@ -72,6 +72,41 @@ func TestVS02A1_TaskIntentCreation(t *testing.T) {
 	}
 }
 
+func TestNormalizeTaskIntentDoesNotConfuseAlternativeOutcomesWithFlowChoice(t *testing.T) {
+	tests := []struct {
+		name    string
+		request string
+		status  string
+	}{
+		{
+			name:    "two outcomes of one entry point",
+			request: "How does setURL set or remove the view ID?",
+			status:  "parsed",
+		},
+		{
+			name:    "explicit English flow choice",
+			request: "Trace either the login or signup flow",
+			status:  "needs_confirmation",
+		},
+		{
+			name:    "explicit Korean flow choice",
+			request: "회원가입인지 로그인인지 흐름을 보여줘",
+			status:  "needs_confirmation",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			intent, err := NormalizeTaskIntent(tt.request, IntentOptions{Mode: "feature"})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if intent.IntentStatus != tt.status {
+				t.Fatalf("intent status = %q, want %q", intent.IntentStatus, tt.status)
+			}
+		})
+	}
+}
+
 func TestVS04A11_TaskIntentPreservesRawAndRequiresExplicitConfirmation(t *testing.T) {
 	raw := "  회원가입인지 로그인인지 흐름을 보여줘\n"
 	intent, err := NormalizeTaskIntent(raw, IntentOptions{Mode: "feature"})

@@ -75,7 +75,7 @@ func TestAdapterRegistryRefreshPublishesAndCachesCapability(t *testing.T) {
 	registry.RegisterConfig("go", Config{BinPath: goAdapter, DefaultTimeout: 2 * time.Second})
 	snapshot, err := NewSnapshot(1, map[string]string{
 		"go.mod":  "module capability.probe\n\ngo 1.22\n",
-		"main.go": "package main\nfunc main() {}\n",
+		"main.go": "package main\nfunc main() { println(\"probe\") }\n",
 	}, "capability-registry-basis")
 	if err != nil {
 		t.Fatal(err)
@@ -159,7 +159,7 @@ func refreshMeasuredGoCapability(t *testing.T, ttl time.Duration) (*AdapterRegis
 	registry.RegisterConfig("go", Config{BinPath: goAdapter, DefaultTimeout: 2 * time.Second})
 	snapshot, err := NewSnapshot(1, map[string]string{
 		"go.mod":  "module capability.probe\n\ngo 1.22\n",
-		"main.go": "package main\nfunc main() {}\n",
+		"main.go": "package main\nfunc main() { println(\"probe\") }\n",
 	}, "capability-registry-basis")
 	if err != nil {
 		registry.Close()

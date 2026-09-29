@@ -94,26 +94,27 @@ func executeQuery(args []string, stdout, stderr io.Writer) int {
 		return 1
 	}
 
-	det := detect.DetectSnapshot(snapshot.Files)
-	lang := det.Language
-	if lang == "" || lang == "unknown" {
-		lang = "typescript"
-	}
-
-	adapterCfg, err := harvest.ResolveAdapter(lang, "")
-	if err != nil {
-		fmt.Fprintf(stderr, "resolve adapter: %v\n", err)
-		return 1
-	}
-
-	pool := protocol.NewPool(adapterCfg, 2)
-	defer pool.Close()
-
-	harvester := harvest.NewRunnerWithPool(pool)
-	candidates, err := harvester.RunWithSnapshot(ctx, absRoot, snapshot)
-	if err != nil {
-		fmt.Fprintf(stderr, "harvest candidates: %v\n", err)
-		return 1
+	pools := make(map[string]*protocol.Pool)
+	defer func() {
+		for _, pool := range pools {
+			pool.Close()
+		}
+	}()
+	var candidates []harvest.Candidate
+	for _, language := range detect.RequestedFlowCandidateLanguages(*entryFlag, snapshot.Files) {
+		adapterCfg, err := harvest.ResolveAdapterForRepo(absRoot, "", language, "")
+		if err != nil {
+			fmt.Fprintf(stderr, "resolve %s adapter: %v\n", language, err)
+			return 1
+		}
+		pool := protocol.NewPool(adapterCfg, 2)
+		pools[language] = pool
+		languageCandidates, err := harvest.NewRunnerWithPool(pool).RunWithSnapshot(ctx, absRoot, snapshot)
+		if err != nil {
+			fmt.Fprintf(stderr, "harvest %s candidates: %v\n", language, err)
+			return 1
+		}
+		candidates = append(candidates, languageCandidates...)
 	}
 
 	target, err := semantic.ResolveFeatureQueryTarget(query, candidates)
@@ -133,6 +134,11 @@ func executeQuery(args []string, stdout, stderr io.Writer) int {
 		return 1
 	}
 
+	pool := pools[detect.RequestedEntryLanguage(target.EntrySymbolPath, snapshot.Files)]
+	if pool == nil {
+		fmt.Fprintln(stderr, "selected source language was not analyzed")
+		return 1
+	}
 	slicer := slicing.NewRunner(pool)
 	slicePayload, err := slicer.SliceWithSnapshot(ctx, absRoot, target.CandidateID, target.EntrySymbolPath, nil, snapshot)
 	if err != nil {

@@ -1,0 +1,65 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://codeflow.local/schemas/code-reading-path.schema.json",
+  "title": "CodeFlow Code Reading Path",
+  "type": "object",
+  "required": ["schemaId", "schemaVersion", "request", "snapshotId", "computedBasisId", "nodes", "relations"],
+  "additionalProperties": false,
+  "properties": {
+    "schemaId": { "const": "https://codeflow.local/schemas/code-reading-path.schema.json" },
+    "schemaVersion": { "const": 2 },
+    "request": { "type": "string", "minLength": 1 },
+    "snapshotId": { "type": "string", "minLength": 1 },
+    "computedBasisId": { "type": "string", "minLength": 1 },
+    "nodes": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": ["nodeId", "stepId", "frameId", "symbol", "sourceAnchor", "role", "requestPart", "inclusionReason", "previousNodeIds", "nextNodeIds", "status", "evidenceRefs", "codeViewAvailable"],
+        "additionalProperties": false,
+        "properties": {
+          "nodeId": { "type": "string", "minLength": 1 },
+          "stepId": { "type": "string", "minLength": 1 },
+          "frameId": { "type": "string", "minLength": 1 },
+          "symbol": { "type": "string", "minLength": 1 },
+          "sourceAnchor": {
+            "type": "object",
+            "required": ["repoRelativePath", "byteRange", "fileHash", "spanHash", "enclosingSymbolPath"],
+            "properties": {
+              "repoRelativePath": { "type": "string", "minLength": 1 },
+              "byteRange": { "type": "array", "prefixItems": [{"type": "integer", "minimum": 0}, {"type": "integer", "minimum": 1}], "minItems": 2, "maxItems": 2 },
+              "fileHash": { "type": "string", "minLength": 1 },
+              "spanHash": { "type": "string", "minLength": 1 },
+              "enclosingSymbolPath": { "type": "string", "minLength": 1 }
+            }
+          },
+          "role": { "enum": ["entry", "decision", "transform", "state_change", "effect", "handoff", "outcome", "boundary"] },
+          "requestPart": { "type": "string", "minLength": 1 },
+          "inclusionReason": { "type": "string", "minLength": 1 },
+          "previousNodeIds": { "type": "array", "uniqueItems": true, "items": { "type": "string", "minLength": 1 } },
+          "nextNodeIds": { "type": "array", "uniqueItems": true, "items": { "type": "string", "minLength": 1 } },
+          "status": { "enum": ["verified", "partial", "unknown"] },
+          "evidenceRefs": { "type": "array", "minItems": 1, "uniqueItems": true, "items": { "type": "string", "minLength": 1 } },
+          "codeViewAvailable": { "type": "boolean" }
+        }
+      }
+    },
+    "relations": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {
+        "type": "object",
+        "required": ["fromNodeId", "toNodeId", "kind", "status", "edgeIndexes"],
+        "additionalProperties": false,
+        "properties": {
+          "fromNodeId": { "type": "string", "minLength": 1 },
+          "toNodeId": { "type": "string", "minLength": 1 },
+          "kind": { "enum": ["direct_call", "control_flow", "async_handoff", "conditional", "boundary"] },
+          "status": { "enum": ["verified", "partial", "unknown"] },
+          "edgeIndexes": { "type": "array", "minItems": 1, "uniqueItems": true, "items": { "type": "integer", "minimum": 0 } }
+        }
+      }
+    }
+  }
+}

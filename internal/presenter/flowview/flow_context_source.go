@@ -83,12 +83,7 @@ func BuildFlowContexts(m *semantic.SemanticMapIR, payload *slicing.SlicedPayload
 }
 
 func (s *Server) rememberFlowContexts(m *semantic.SemanticMapIR, payload *slicing.SlicedPayload, capability bool) flowContextGeneration {
-	steps := ExtractFlowContextMetadata(m, payload, capability)
-	result := flowContextGeneration{
-		SnapshotID: flowSourceSnapshotID(m),
-		Capability: capability,
-		Steps:      steps,
-	}
+	result := flowContextGenerationFor(m, payload, capability)
 	s.mu.Lock()
 	if s.flowContextMetadata == nil {
 		s.flowContextMetadata = map[string]flowContextGeneration{}
@@ -96,6 +91,15 @@ func (s *Server) rememberFlowContexts(m *semantic.SemanticMapIR, payload *slicin
 	s.flowContextMetadata[m.GenerationID] = result
 	s.mu.Unlock()
 	return result
+}
+
+func flowContextGenerationFor(m *semantic.SemanticMapIR, payload *slicing.SlicedPayload, capability bool) flowContextGeneration {
+	steps := ExtractFlowContextMetadata(m, payload, capability)
+	return flowContextGeneration{
+		SnapshotID: flowSourceSnapshotID(m),
+		Capability: capability,
+		Steps:      steps,
+	}
 }
 
 // BuildSourceFiles retains each referenced, redacted snapshot file once so

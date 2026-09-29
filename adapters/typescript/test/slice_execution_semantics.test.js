@@ -46,7 +46,17 @@ export function calculate(value: number) {
     assert(legacy.steps.every(step => !['return', 'throw'].includes(step.kind) && !('invocationId' in step)), 'unrequested extension leaked to legacy client');
     assert(legacy.edges.every(edge => !('targetStepOrdinal' in edge)), 'new edge field leaked to legacy client');
     const limited = sliceFlow({ ...params, opts: { includeExecutionSemantics: true, maxDepth: 1 } });
-    assert(limited.edges.filter(edge => edge.kind === 'resolved_cross_file' && edge.toSymbolPath === 'calculate.ts#calculate').every(edge => !edge.targetStepOrdinal && edge.resolutionStatus !== 'resolved'), 'depth cap fabricated an invocation entry');
+    const limitedCalls = limited.edges.filter(edge => edge.toSymbolPath === 'calculate.ts#calculate');
+    assert.strictEqual(limitedCalls.length, 3);
+    assert(limitedCalls.every(edge => edge.kind === 'unknown_edge' && edge.resolutionStatus === 'truncated' && !edge.targetStepOrdinal && edge.unresolvedReason), 'depth cap fabricated a confirmed call');
+    fs.writeFileSync(path.join(root, 'recursive.ts'), `
+export function recurse(value: number): number {
+  if (value <= 0) return 0;
+  return recurse(value - 1);
+}`);
+    const recursive = sliceFlow({ ...params, entrySymbolPath: 'recursive.ts#recurse', opts: { includeExecutionSemantics: true } });
+    const recursiveCall = recursive.edges.find(edge => edge.toSymbolPath === 'recursive.ts#recurse' && edge.kind === 'unknown_edge');
+    assert(recursiveCall && recursiveCall.resolutionStatus === 'truncated' && !recursiveCall.targetStepOrdinal && /recursive/.test(recursiveCall.unresolvedReason), 'recursive call fabricated an invocation entry');
     fs.writeFileSync(path.join(root, 'completion.ts'), `
 export function complete(flag: boolean) {
   const unused = () => { return 'nested'; };
@@ -108,6 +118,22 @@ function no() { return 0; }
     assert.deepStrictEqual(branches.steps.filter(step => step.symbolPath === 'choose' && step.kind === 'call').map(step => step.guardCondition), [null, 'ready()', '!(ready())']);
     assert(branches.steps.find(step => step.symbolPath === 'choose' && step.kind === 'call').ordinal < branches.steps.find(step => step.symbolPath === 'choose' && step.kind === 'branch').ordinal, 'branch preceded condition evaluation');
     assert.deepStrictEqual(conditional.steps.filter(step => step.symbolPath === 'conditional' && step.kind === 'call').map(step => step.guardCondition), ['flag', '!(flag)']);
+    fs.writeFileSync(path.join(root, 'local-value.ts'), `
+export function totalPrice(price: number, count: number) {
+  const total = price * count;
+  return total;
+}`);
+    const localValue = sliceFlow({ ...params, entrySymbolPath: 'local-value.ts#totalPrice', opts: { includeExecutionSemantics: true } });
+    const totalStep = localValue.steps.find(step => step.description === 'const total = price * count;');
+    const returnStep = localValue.steps.find(step => step.description === 'return total;');
+    assert(totalStep && returnStep, 'local result preparation was omitted');
+    assert.strictEqual(totalStep.kind, 'mutation');
+    assert.strictEqual(fs.readFileSync(path.join(root, 'local-value.ts'), 'utf8').slice(...totalStep.anchor.byteRange), 'const total = price * count;');
+    assert.strictEqual(localValue.steps.filter(step => step.symbolPath === 'totalPrice').length, 2);
+    assert(localValue.edges.some(edge => edge.kind === 'control_flow' && edge.stepOrdinal === totalStep.ordinal && edge.targetStepOrdinal === returnStep.ordinal && edge.resolutionStatus === 'resolved'), 'local result did not reach its return');
+    const scopedLocalValue = sliceFlow({ ...params, entrySymbolPath: 'local-value.ts#totalPrice', opts: { includeExecutionSemantics: true, includeValueRoles: true } });
+    assert.strictEqual(scopedLocalValue.steps.find(step => step.description === 'const total = price * count;').valueRole, 'local_binding');
+    assert(localValue.steps.every(step => !('valueRole' in step)), 'new value role leaked to older slice callers');
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
   }

@@ -37,6 +37,43 @@ jobs:
         with:
           sdk: 'stable'
 
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: |
+            web/flowview/package-lock.json
+            web/live-comprehension-workspace/package-lock.json
+
+      - name: Build FlowView from source
+        run: |
+          cd web/flowview
+          npm ci
+          cd ../..
+          make build-ui
+
+      - name: Verify analyzers and FlowView
+        run: |
+          make vet
+          make check-naming
+          go test -count=1 ./...
+          (cd adapters/dart && dart test)
+          (cd adapters/typescript && npm test)
+          make test-ui
+
+      - name: Verify FlowView in a browser
+        run: |
+          cd web/live-comprehension-workspace
+          npm ci
+          if [ "${{ matrix.os }}" = "linux" ]; then
+            npx playwright install --with-deps chromium
+          else
+            npx playwright install chromium
+          fi
+          cd ../..
+          make test-flowview
+
       - name: Extract Version
         id: get_version
         run: echo "VERSION=${GITHUB_REF_NAME}" >> $GITHUB_OUTPUT
@@ -45,6 +82,7 @@ jobs:
         run: |
           mkdir -p dist/bin dist/skills dist/adapters
           go build -trimpath -ldflags="-s -w" -o dist/bin/codeflow ./cmd/codeflow
+          go build -trimpath -ldflags="-s -w" -o dist/bin/codeflow_go_adapter ./adapters/go
           dart compile exe adapters/dart/bin/codeflow_dart_adapter.dart -o dist/bin/dart-adapter
           cp -R skills/codeflow dist/skills/
           cp -R adapters/typescript dist/adapters/
@@ -52,6 +90,17 @@ jobs:
           ASSET_NAME="codeflow-${{ steps.get_version.outputs.VERSION }}-${{ matrix.os }}-${{ matrix.arch }}.tar.gz"
           tar -czvf "$ASSET_NAME" -C dist bin skills adapters
           shasum -a 256 "$ASSET_NAME" > "${ASSET_NAME}.sha256"
+
+      - name: Verify release archive
+        run: |
+          ASSET_NAME="codeflow-${{ steps.get_version.outputs.VERSION }}-${{ matrix.os }}-${{ matrix.arch }}.tar.gz"
+          shasum -a 256 -c "${ASSET_NAME}.sha256"
+          release_dir="$(mktemp -d)"
+          tar -xzf "$ASSET_NAME" -C "$release_dir"
+          test -f "$release_dir/skills/codeflow/SKILL.md"
+          "$release_dir/bin/codeflow" install-check-adapter --language dart --adapter-spec "$release_dir/bin/dart-adapter"
+          "$release_dir/bin/codeflow" install-check-adapter --language go --adapter-spec "$release_dir/bin/codeflow_go_adapter"
+          "$release_dir/bin/codeflow" install-check-adapter --language typescript --adapter-spec "noderun:$release_dir/adapters/typescript"
 
       - name: Upload Artifact
         uses: actions/upload-artifact@v4

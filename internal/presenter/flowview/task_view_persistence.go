@@ -11,6 +11,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 
 	"codeflow/internal/collector/contractharness"
@@ -40,6 +41,9 @@ func (s *Server) SaveTaskView(ctx context.Context, result map[string]any) (map[s
 	if err := json.Unmarshal(raw, &mapIR); err != nil {
 		return nil, err
 	}
+	if err := validateRequestedFocus(result, &mapIR); err != nil {
+		return nil, fmt.Errorf("requestedFocus: %w", err)
+	}
 	flowSequence, supplied := result["flowSequence"]
 	if !supplied {
 		flowSequence = semantic.BuildFlowSequence(&mapIR)
@@ -58,6 +62,9 @@ func (s *Server) SaveTaskView(ctx context.Context, result map[string]any) (map[s
 	if err := semantic.ValidateFlowSequenceReferences(&mapIR, &sequence); err != nil {
 		return nil, fmt.Errorf("flowSequence: %w", err)
 	}
+	if err := validateCodeReadingPathForSave(result, &mapIR, &sequence); err != nil {
+		return nil, fmt.Errorf("codeReadingPath: %w", err)
+	}
 	// Preserve caller-owned data, including optional compatible fields, until
 	// validation and persistence have succeeded.
 	view := make(map[string]any, len(result)+1)
@@ -65,6 +72,8 @@ func (s *Server) SaveTaskView(ctx context.Context, result map[string]any) (map[s
 		view[key] = value
 	}
 	view["flowSequence"] = flowSequence
+	stripDeprecatedArchitecture(view)
+	applyCodeReadingPathLimitation(view, &mapIR)
 	raw, err = json.Marshal(view)
 	if err != nil {
 		return nil, err
@@ -79,6 +88,45 @@ func (s *Server) SaveTaskView(ctx context.Context, result map[string]any) (map[s
 	}
 	persistedView["viewId"] = id
 	return persistedView, nil
+}
+
+func validateRequestedFocus(result map[string]any, mapIR *semantic.SemanticMapIR) error {
+	requestRaw, err := json.Marshal(result["request"])
+	if err != nil {
+		return err
+	}
+	var request semantic.FeatureQueryParams
+	if err := json.Unmarshal(requestRaw, &request); err != nil {
+		return err
+	}
+	verified, err := semantic.ResolveRequestedFlowFocus(mapIR, request.FocusSymbol, request.FocusReason)
+	if err != nil {
+		return err
+	}
+	provided, exists := result["requestedFocus"]
+	if verified == nil {
+		if exists && provided != nil {
+			return fmt.Errorf("focus is present without a verified selection")
+		}
+		return nil
+	}
+	if !exists || provided == nil {
+		return fmt.Errorf("verified selection is missing")
+	}
+	raw, err := json.Marshal(provided)
+	if err != nil {
+		return err
+	}
+	var selected semantic.RequestedFlowFocus
+	if err := json.Unmarshal(raw, &selected); err != nil {
+		return err
+	}
+	if selected.SymbolPath != verified.SymbolPath || selected.Reason != verified.Reason ||
+		selected.CallStepID != verified.CallStepID || selected.EntryStepID != verified.EntryStepID ||
+		selected.SnapshotID != verified.SnapshotID || !slices.Equal(selected.EvidenceRefs, verified.EvidenceRefs) {
+		return fmt.Errorf("selection does not match analysis evidence")
+	}
+	return nil
 }
 
 // TaskViewURL returns the interactive web UI URL pointing to a persisted task view.
@@ -100,7 +148,7 @@ func (s *Server) serveTaskViewList(w http.ResponseWriter, r *http.Request) {
 	_ = json.NewEncoder(w).Encode(map[string]any{"views": views})
 }
 
-func (s *Server) checkAndMarkSourceContextMissing(result map[string]any) {
+func markTaskViewSourceContextMissing(result map[string]any, repoRoot string) {
 	if result == nil {
 		return
 	}
@@ -108,7 +156,7 @@ func (s *Server) checkAndMarkSourceContextMissing(result map[string]any) {
 	sources, _ := result["sourceFiles"].(map[string]any)
 
 	missingDisk := false
-	if s != nil && s.repoRoot != "" && (len(contexts) > 0 || len(sources) > 0) {
+	if repoRoot != "" && (len(contexts) > 0 || len(sources) > 0) {
 		anyFileFound := false
 		fileCheckedCount := 0
 		checkPath := func(p string) {
@@ -116,7 +164,7 @@ func (s *Server) checkAndMarkSourceContextMissing(result map[string]any) {
 				return
 			}
 			fileCheckedCount++
-			fullPath := filepath.Join(s.repoRoot, p)
+			fullPath := filepath.Join(repoRoot, p)
 			if _, err := os.Stat(fullPath); err == nil {
 				anyFileFound = true
 			}
@@ -176,8 +224,54 @@ func (s *Server) RestoreTaskView(ctx context.Context, id string) (map[string]any
 	}
 	result["viewId"] = id
 
-	s.checkAndMarkSourceContextMissing(result)
+	FormatTaskViewResponse(result, s.repoRoot)
 	return result, nil
+}
+
+func stripDeprecatedArchitecture(m map[string]any) {
+	if m == nil {
+		return
+	}
+	delete(m, "architecture")
+	if fs, ok := m["flowSequence"].(map[string]any); ok {
+		delete(fs, "architecture")
+		if frames, ok := fs["frames"].([]any); ok {
+			for _, f := range frames {
+				if fMap, ok := f.(map[string]any); ok {
+					delete(fMap, "architecture")
+				}
+			}
+		}
+	}
+	if sm, ok := m["semanticMap"].(map[string]any); ok {
+		delete(sm, "architecture")
+	}
+}
+
+// FormatTaskViewResponse applies current read semantics to one decoded saved
+// View. Callers own the map; the stored JSON is never rewritten.
+func FormatTaskViewResponse(view map[string]any, repoRoot string) {
+	stripDeprecatedArchitecture(view)
+	if view == nil {
+		return
+	}
+	if view["codeReadingPath"] != nil {
+		var model semantic.SemanticMapIR
+		var sequence semantic.FlowSequence
+		modelErr := decodeTaskViewPart(view["semanticMap"], &model)
+		sequenceErr := decodeTaskViewPart(view["flowSequence"], &sequence)
+		if modelErr != nil || sequenceErr != nil || validateCodeReadingPathForSave(view, &model, &sequence) != nil {
+			delete(view, "codeReadingPath")
+			view["codeReadingPathLimitation"] = "저장된 코드 읽기 경로가 현재 근거 검사를 통과하지 못했습니다. 전체 분석을 표시합니다."
+		} else {
+			applyCodeReadingPathLimitation(view, &model)
+		}
+	}
+	if resolution, hasResolution := view["flowResolution"]; !hasResolution || resolution == nil {
+		view["flowResolutionMissing"] = true
+		view["resolutionLimitation"] = "과거 분석으로 요청 확정 기록이 존재하지 않습니다."
+	}
+	markTaskViewSourceContextMissing(view, repoRoot)
 }
 
 func (s *Server) serveTaskViewDetail(w http.ResponseWriter, r *http.Request) {
@@ -275,7 +369,7 @@ func (s *Server) RestoreFlowView(ctx context.Context, flowID string) (map[string
 			if strings.HasPrefix(flowID, "flow-") && strings.HasPrefix(storedFlowID, "cand-") {
 				doc["flowId"] = flowID
 			}
-			s.checkAndMarkSourceContextMissing(doc)
+			FormatTaskViewResponse(doc, s.repoRoot)
 			return doc, nil
 		}
 
@@ -292,7 +386,7 @@ func (s *Server) RestoreFlowView(ctx context.Context, flowID string) (map[string
 								if strings.HasPrefix(flowID, "flow-") && strings.HasPrefix(storedFlowID, "cand-") {
 									doc["flowId"] = flowID
 								}
-								s.checkAndMarkSourceContextMissing(doc)
+								FormatTaskViewResponse(doc, s.repoRoot)
 								return doc, nil
 							}
 						}
@@ -356,6 +450,6 @@ func (s *Server) RestoreFlowView(ctx context.Context, flowID string) (map[string
 			"entrySymbol": resolution.EntrySymbolPath,
 		}
 	}
-	s.checkAndMarkSourceContextMissing(res)
+	FormatTaskViewResponse(res, s.repoRoot)
 	return res, nil
 }

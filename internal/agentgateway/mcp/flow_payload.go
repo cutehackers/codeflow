@@ -6,8 +6,10 @@ import (
 	"fmt"
 
 	"codeflow/internal/collector/contractharness"
+	"codeflow/internal/collector/fusion"
 	"codeflow/internal/curator"
 	"codeflow/internal/curator/semantic"
+	"codeflow/internal/presenter/flowview"
 )
 
 // flowViewPayload reads one immutable analysis without starting an analyzer or
@@ -18,7 +20,8 @@ func (s *Server) flowViewPayload(ctx context.Context, args map[string]any, viewI
 			return nil, fmt.Errorf("viewId cannot be combined with %s", field)
 		}
 	}
-	store, err := s.getStorage(s.resolveTarget(args["target"]))
+	target := s.resolveTarget(args["target"])
+	store, err := s.getStorage(target)
 	if err != nil {
 		return nil, err
 	}
@@ -37,6 +40,7 @@ func (s *Server) flowViewPayload(ctx context.Context, args map[string]any, viewI
 	if err := contractharness.ValidateFlowSequence(data); err != nil {
 		return nil, fmt.Errorf("FlowSequence: %w", err)
 	}
+	flowview.FormatTaskViewResponse(view, target)
 	if format, _ := args["format"].(string); format != "compact" && args["compact"] != true {
 		view["viewId"] = viewID
 		return view, nil
@@ -53,5 +57,54 @@ func (s *Server) flowViewPayload(ctx context.Context, args map[string]any, viewI
 	if err := json.Unmarshal(modelData, &model); err != nil {
 		return nil, fmt.Errorf("decode source analysis: %w", err)
 	}
-	return curator.BuildCompactAnalysisPayload(&model, &sequence)
+	compact, err := curator.BuildCompactAnalysisPayload(&model, &sequence)
+	if err != nil {
+		resolutionMissing, _ := view["flowResolutionMissing"].(bool)
+		sourceMissing, _ := view["sourceContextMissing"].(bool)
+		if !resolutionMissing || !sourceMissing {
+			return nil, err
+		}
+		// Historical views can retain a valid hierarchy without a complete
+		// semantic map. Keep only that hierarchy and its limitations.
+		compact = curator.BuildCompactPayload(&sequence, -1, -1)
+	}
+	if resolution := view["flowResolution"]; resolution != nil {
+		resolutionBytes, err := json.Marshal(resolution)
+		if err != nil {
+			return nil, fmt.Errorf("encode flow resolution: %w", err)
+		}
+		var proven fusion.FlowResolution
+		if err := json.Unmarshal(resolutionBytes, &proven); err != nil {
+			return nil, fmt.Errorf("decode flow resolution: %w", err)
+		}
+		compact.FlowResolution = &proven
+	}
+	if requestedFocus := view["requestedFocus"]; requestedFocus != nil {
+		focusBytes, err := json.Marshal(requestedFocus)
+		if err != nil {
+			return nil, fmt.Errorf("encode requested focus: %w", err)
+		}
+		var selected semantic.RequestedFlowFocus
+		if err := json.Unmarshal(focusBytes, &selected); err != nil {
+			return nil, fmt.Errorf("decode requested focus: %w", err)
+		}
+		compact.RequestedFocus = &selected
+	}
+	if readingPath := view["codeReadingPath"]; readingPath != nil {
+		pathBytes, err := json.Marshal(readingPath)
+		if err != nil {
+			return nil, fmt.Errorf("encode code reading path: %w", err)
+		}
+		var path semantic.CodeReadingPath
+		if err := json.Unmarshal(pathBytes, &path); err != nil {
+			return nil, fmt.Errorf("decode code reading path: %w", err)
+		}
+		compact.CodeReadingPath = &path
+	}
+	compact.FlowResolutionMissing, _ = view["flowResolutionMissing"].(bool)
+	compact.ResolutionLimitation, _ = view["resolutionLimitation"].(string)
+	compact.CodeReadingPathLimitation, _ = view["codeReadingPathLimitation"].(string)
+	compact.SourceContextMissing, _ = view["sourceContextMissing"].(bool)
+	compact.NeedsReanalysis, _ = view["needsReanalysis"].(bool)
+	return compact, nil
 }

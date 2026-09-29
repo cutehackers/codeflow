@@ -68,18 +68,28 @@ export function start() { return choose(true); }
 			parents[id] = frame.FrameID
 		}
 	}
-	roles := make(map[string]string)
+	frames := make(map[string]semantic.FlowSequenceFrame)
 	for _, frame := range seq.Frames {
-		roles[frame.FrameID] = frame.Role
+		frames[frame.FrameID] = frame
+	}
+	stepByID := make(map[string]semantic.SemanticStep)
+	for _, step := range model.Steps {
+		stepByID[step.StepID] = step
 	}
 	for _, step := range model.Steps {
 		if step.Anchor.EnclosingSymbolPath == "choose" {
-			expected := "process"
+			frame := frames[parents[step.StepID]]
 			if step.Kind == "branch" {
-				expected = "decision"
+				if frame.Role != "decision" || frame.PrimaryStepRef != step.StepID {
+					t.Fatalf("conditional decision lost: %s -> %+v", step.Name, frame)
+				}
+				continue
 			}
-			if roles[parents[step.StepID]] != expected {
-				t.Fatalf("conditional execution misclassified: %s -> %s", step.Name, roles[parents[step.StepID]])
+			if frame.Role == "decision" && stepByID[frame.PrimaryStepRef].Kind == "branch" {
+				continue // Proven alternatives remain distinct source steps within their decision gateway.
+			}
+			if frame.Role != "process" {
+				t.Fatalf("conditional execution misclassified: %s -> %s", step.Name, frame.Role)
 			}
 		}
 	}

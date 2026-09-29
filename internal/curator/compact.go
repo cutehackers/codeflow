@@ -35,6 +35,8 @@ type CompactStep struct {
 	AssignmentSourceOrdinal *int           `json:"assignmentSourceOrdinal,omitempty"`
 	StepID                  string         `json:"stepId"`
 	Kind                    string         `json:"kind,omitempty"`
+	ValueRole               string         `json:"valueRole,omitempty"`
+	SideEffect              *string        `json:"sideEffect,omitempty"`
 	Name                    string         `json:"name"`
 	InvocationID            string         `json:"invocationId,omitempty"`
 	Anchor                  slicing.Anchor `json:"anchor"`
@@ -42,14 +44,22 @@ type CompactStep struct {
 
 // CompactFlowPayload preserves the hierarchy and optional source relationships.
 type CompactFlowPayload struct {
-	Steps              []CompactStep                    `json:"steps,omitempty"`
-	Edges              []semantic.SemanticEdge          `json:"edges,omitempty"`
-	Unknowns           []fusion.Unknown                 `json:"unknowns,omitempty"`
-	SummaryLimitations []semantic.FlowSummaryLimitation `json:"summaryLimitations,omitempty"`
-	FlowID             string                           `json:"flowId"`
-	Summary            string                           `json:"summary"`
-	Frames             []CompactFrame                   `json:"frames"`
-	RadarSummary       *CompactRadarSummary             `json:"radarSummary,omitempty"`
+	RequestedFocus            *semantic.RequestedFlowFocus     `json:"requestedFocus,omitempty"`
+	CodeReadingPath           *semantic.CodeReadingPath        `json:"codeReadingPath,omitempty"`
+	CodeReadingPathLimitation string                           `json:"codeReadingPathLimitation,omitempty"`
+	FlowResolution            *fusion.FlowResolution           `json:"flowResolution,omitempty"`
+	FlowResolutionMissing     bool                             `json:"flowResolutionMissing,omitempty"`
+	ResolutionLimitation      string                           `json:"resolutionLimitation,omitempty"`
+	SourceContextMissing      bool                             `json:"sourceContextMissing,omitempty"`
+	NeedsReanalysis           bool                             `json:"needsReanalysis,omitempty"`
+	Steps                     []CompactStep                    `json:"steps,omitempty"`
+	Edges                     []semantic.SemanticEdge          `json:"edges,omitempty"`
+	Unknowns                  []fusion.Unknown                 `json:"unknowns,omitempty"`
+	SummaryLimitations        []semantic.FlowSummaryLimitation `json:"summaryLimitations,omitempty"`
+	FlowID                    string                           `json:"flowId"`
+	Summary                   string                           `json:"summary"`
+	Frames                    []CompactFrame                   `json:"frames"`
+	RadarSummary              *CompactRadarSummary             `json:"radarSummary,omitempty"`
 }
 
 // BuildCompactPayload projects a complete sequence without regrouping it.
@@ -133,7 +143,12 @@ func BuildCompactAnalysisPayload(model *semantic.SemanticMapIR, sequence *semant
 			value := *step.CallerStepOrdinal
 			caller = &value
 		}
-		payload.Steps = append(payload.Steps, CompactStep{CallerStepOrdinal: caller, Ordinal: step.Ordinal, AssignmentSourceOrdinal: assignmentSource, StepID: step.StepID, Kind: step.Kind, Name: step.Name, InvocationID: step.InvocationID, Anchor: anchor})
+		var sideEffect *string
+		if step.SideEffect != nil {
+			value := *step.SideEffect
+			sideEffect = &value
+		}
+		payload.Steps = append(payload.Steps, CompactStep{CallerStepOrdinal: caller, Ordinal: step.Ordinal, AssignmentSourceOrdinal: assignmentSource, StepID: step.StepID, Kind: step.Kind, ValueRole: step.ValueRole, SideEffect: sideEffect, Name: step.Name, InvocationID: step.InvocationID, Anchor: anchor})
 	}
 	payload.Edges = make([]semantic.SemanticEdge, len(model.Edges))
 	for i, edge := range model.Edges {

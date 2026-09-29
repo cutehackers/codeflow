@@ -30,7 +30,7 @@ func ProjectFlowSpec(spec *fusion.FlowSpec, generationID string) *SemanticMapIR 
 		if step.StepID != nil {
 			id = *step.StepID
 		}
-		m.Steps = append(m.Steps, SemanticStep{AssignmentSourceOrdinal: step.AssignmentSourceOrdinal, InvocationID: step.InvocationID, CallerStepOrdinal: step.CallerStepOrdinal, StepID: id, Ordinal: step.Ordinal, Name: step.Name, TechnicalName: step.Anchor.EnclosingSymbolPath, Anchor: step.Anchor, CodeLens: step.CodeLens, Branch: step.Branch, SideEffect: step.SideEffect, StateDelta: step.StateDelta, Kind: step.Kind, Layer: step.Layer, Rules: append([]string(nil), step.Rules...)})
+		m.Steps = append(m.Steps, SemanticStep{AssignmentSourceOrdinal: step.AssignmentSourceOrdinal, InvocationID: step.InvocationID, CallerStepOrdinal: step.CallerStepOrdinal, StepID: id, Ordinal: step.Ordinal, Name: step.Name, TechnicalName: step.Anchor.EnclosingSymbolPath, Anchor: step.Anchor, CodeLens: step.CodeLens, Branch: step.Branch, SideEffect: step.SideEffect, StateDelta: step.StateDelta, Kind: step.Kind, ValueRole: step.ValueRole, Layer: step.Layer, Rules: append([]string(nil), step.Rules...)})
 		ordinals[step.Ordinal] = append(ordinals[step.Ordinal], i)
 		symbol := step.Anchor.EnclosingSymbolPath
 		if symbol != "" {

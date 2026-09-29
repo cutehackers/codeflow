@@ -147,6 +147,7 @@
           "technicalName": { "type": "string" },
           "layer": { "type": "string" },
           "kind": { "type": "string" },
+          "valueRole": { "type": "string", "enum": ["local_binding"] },
           "anchor": { "$ref": "https://codeflow.local/schemas/identity.schema.json#/$defs/anchor" },
           "codeLens": {
             "type": "object",

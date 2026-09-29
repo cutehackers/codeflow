@@ -256,7 +256,7 @@ func analyzerResultV2(requestID, operation string, params, legacy map[string]any
 }
 
 func capabilities() map[string]any {
-	return map[string]any{"cancellation": true, "progress": true, "batchAck": true, "snapshotOverlay": true, "analysisMetadata": true, "maxMessageBytes": maxMessageBytes, "maxInFlight": 64}
+	return map[string]any{"cancellation": true, "progress": true, "batchAck": true, "snapshotOverlay": true, "analysisMetadata": true, "flowContext": true, "maxMessageBytes": maxMessageBytes, "maxInFlight": 64}
 }
 
 func analyze(operation string, params map[string]any) (map[string]any, error) {
@@ -287,7 +287,8 @@ func analyze(operation string, params map[string]any) (map[string]any, error) {
 		if candidateID == "" || entry == "" {
 			return nil, fmt.Errorf("params.candidateId and entrySymbolPath are required")
 		}
-		result, err := slice(root, overlay, candidateID, entry)
+		valueRoles := goValueRolesRequested(params)
+		result, err := slice(root, overlay, candidateID, entry, valueRoles)
 		if err != nil {
 			return nil, err
 		}
@@ -618,13 +619,22 @@ func analyzeV2(operation string, params map[string]any) (map[string]any, error) 
 			}
 			for _, decl := range file.Decls {
 				fn, ok := decl.(*ast.FuncDecl)
-				if !ok || fn.Recv != nil {
+				if !ok {
 					continue
 				}
+				recvName := receiverTypeName(fn.Recv)
 				trigger, marker := markerFor(fn.Name.Name)
-				if trigger != "" {
-					candidates = append(candidates, candidate(rel+"#"+fn.Name.Name, fn.Name.Name, trigger, marker))
+				if trigger == "" {
+					continue
 				}
+				var entry, symName string
+				if recvName != "" {
+					symName = recvName + "." + fn.Name.Name
+				} else {
+					symName = fn.Name.Name
+				}
+				entry = rel + "#" + symName
+				candidates = append(candidates, candidate(entry, symName, trigger, marker, recvName, fn.Name.Name))
 			}
 		}
 		sort.Slice(candidates, func(i, j int) bool {
@@ -634,6 +644,8 @@ func analyzeV2(operation string, params map[string]any) (map[string]any, error) 
 	case "slice":
 		entry, _ := params["entrySymbolPath"].(string)
 		candidateID, _ := params["candidateId"].(string)
+		snapshot, _ := params["snapshot"].(map[string]any)
+		snapshotID, _ := snapshot["snapshotId"].(string)
 		if _, ok := tracker.read("go.mod"); ok {
 			tracker.recordDependency("go.mod")
 		}
@@ -648,12 +660,12 @@ func analyzeV2(operation string, params map[string]any) (map[string]any, error) 
 		if !ok {
 			return nil, fmt.Errorf("entry source file not found: %s", parts[0])
 		}
-		hash := digest([]byte(content))
-		symbol := parts[1]
-		result = map[string]any{"candidateId": candidateID, "language": "go", "entrySymbolPath": entry,
-			"steps": []any{map[string]any{"ordinal": 1, "kind": "call", "description": symbol, "symbolPath": symbol,
-				"anchor": map[string]any{"repoRelativePath": parts[0], "byteRange": []int{0, len([]byte(content))}, "fileHash": hash, "spanHash": hash, "enclosingSymbolPath": symbol, "canonicalAstFingerprint": hash}}},
-			"edges": []any{}, "truncated": false, "visitedCycleDetected": false, "redactedCount": 0}
+		valueRoles := goValueRolesRequested(params)
+		res, err := sliceGoAST(candidateID, entry, parts[0], content, snapshotID, valueRoles)
+		if err != nil {
+			return nil, err
+		}
+		result = expandDirectGoCalls(res, parts[0], content, snapshotID, valueRoles)
 	default:
 		return nil, fmt.Errorf("unsupported operation")
 	}
@@ -909,6 +921,25 @@ func goFiles(root string, overlay map[string]string) []string {
 	return nil
 }
 
+func receiverTypeName(recv *ast.FieldList) string {
+	if recv == nil || len(recv.List) == 0 {
+		return ""
+	}
+	t := recv.List[0].Type
+	for {
+		switch pt := t.(type) {
+		case *ast.StarExpr:
+			t = pt.X
+		case *ast.Ident:
+			return pt.Name
+		case *ast.IndexExpr:
+			t = pt.X
+		default:
+			return ""
+		}
+	}
+}
+
 func harvest(root string, overlay map[string]string) []map[string]any {
 	result := []map[string]any{}
 	for _, rel := range goFiles(root, overlay) {
@@ -923,15 +954,22 @@ func harvest(root string, overlay map[string]string) []map[string]any {
 		}
 		for _, decl := range file.Decls {
 			fn, ok := decl.(*ast.FuncDecl)
-			if !ok || fn.Recv != nil {
+			if !ok {
 				continue
 			}
+			recvName := receiverTypeName(fn.Recv)
 			trigger, marker := markerFor(fn.Name.Name)
 			if trigger == "" {
 				continue
 			}
-			entry := rel + "#" + fn.Name.Name
-			result = append(result, candidate(entry, fn.Name.Name, trigger, marker))
+			var entry, symName string
+			if recvName != "" {
+				symName = recvName + "." + fn.Name.Name
+			} else {
+				symName = fn.Name.Name
+			}
+			entry = rel + "#" + symName
+			result = append(result, candidate(entry, symName, trigger, marker, recvName, fn.Name.Name))
 		}
 	}
 	sort.Slice(result, func(i, j int) bool {
@@ -942,23 +980,45 @@ func harvest(root string, overlay map[string]string) []map[string]any {
 
 func markerFor(name string) (string, string) {
 	switch {
-	case strings.HasPrefix(name, "Handle"):
+	case strings.HasPrefix(name, "Handle") || strings.HasPrefix(name, "On"):
 		return "user_action", "route_callback"
-	case name == "Run" || name == "Execute":
+	case name == "Run" || name == "Execute" || strings.HasPrefix(name, "Process"):
 		return "use_case_invocation", "usecase_call"
 	case strings.HasPrefix(name, "Serve") || strings.HasPrefix(name, "Consume"):
 		return "system_event", "lifecycle_callback"
-	case strings.HasPrefix(name, "Set") || strings.HasPrefix(name, "Update"):
+	case strings.HasPrefix(name, "Set") || strings.HasPrefix(name, "Update") || strings.HasPrefix(name, "Mutate"):
 		return "state_transition", "state_mutation"
 	}
 	return "", ""
 }
 
-func candidate(entry, name, trigger, marker string) map[string]any {
-	return map[string]any{"candidateId": "cand-" + digest([]byte(entry))[:16], "triggerClass": trigger, "markerKind": marker, "entrySymbolPath": entry, "intentSignals": map[string]any{"className": name, "derivedName": name, "docLine": nil, "packageName": "go"}, "score": 0.5, "fanIn": 1, "boundaryReachable": true, "rootEquivalenceKey": name, "tieBreakRank": 0, "manifestOverride": "none", "dedupedInto": nil}
+func candidate(entry, name, trigger, marker, className, derivedName string) map[string]any {
+	if className == "" {
+		path, _, _ := strings.Cut(entry, "#")
+		className = strings.TrimSuffix(filepath.Base(path), filepath.Ext(path))
+	}
+	return map[string]any{
+		"candidateId":     "cand-" + digest([]byte(entry))[:16],
+		"triggerClass":    trigger,
+		"markerKind":      marker,
+		"entrySymbolPath": entry,
+		"intentSignals": map[string]any{
+			"className":   className,
+			"derivedName": derivedName,
+			"docLine":     nil,
+			"packageName": "go",
+		},
+		"score":              0.5,
+		"fanIn":              1,
+		"boundaryReachable":  true,
+		"rootEquivalenceKey": name,
+		"tieBreakRank":       0,
+		"manifestOverride":   "none",
+		"dedupedInto":        nil,
+	}
 }
 
-func slice(root string, overlay map[string]string, candidateID, entry string) (map[string]any, error) {
+func slice(root string, overlay map[string]string, candidateID, entry string, valueRoles ...bool) (map[string]any, error) {
 	parts := strings.SplitN(entry, "#", 2)
 	if len(parts) != 2 {
 		return nil, fmt.Errorf("invalid entrySymbolPath")
@@ -967,10 +1027,581 @@ func slice(root string, overlay map[string]string, candidateID, entry string) (m
 	if !ok {
 		return nil, fmt.Errorf("entry source file not found: %s", parts[0])
 	}
-	hash := digest([]byte(content))
-	symbol := parts[1]
-	steps := []any{map[string]any{"ordinal": 1, "kind": "call", "description": symbol, "symbolPath": symbol, "anchor": map[string]any{"repoRelativePath": parts[0], "byteRange": []int{0, len([]byte(content))}, "fileHash": hash, "spanHash": hash, "enclosingSymbolPath": symbol, "canonicalAstFingerprint": hash}}}
-	return map[string]any{"candidateId": candidateID, "language": "go", "entrySymbolPath": entry, "steps": steps, "edges": []any{}, "truncated": false, "visitedCycleDetected": false, "redactedCount": 0}, nil
+	result, err := sliceGoAST(candidateID, entry, parts[0], content, "", valueRoles...)
+	if err != nil {
+		return nil, err
+	}
+	return expandDirectGoCalls(result, parts[0], content, "", valueRoles...), nil
+}
+
+func goValueRolesRequested(params map[string]any) bool {
+	opts, ok := params["opts"].(map[string]any)
+	return ok && opts["includeValueRoles"] == true
+}
+
+type goStepInfo struct {
+	ordinal        int
+	kind           string
+	valueRole      string
+	description    string
+	symbolPath     string
+	guardCondition *string
+	startOffset    int
+	endOffset      int
+	startLine      int
+	endLine        int
+	nodeKind       string
+	terminates     bool
+}
+
+func sliceGoAST(candidateID, entrySymbolPath, relPath, content, snapshotID string, valueRoles ...bool) (map[string]any, error) {
+	parts := strings.SplitN(entrySymbolPath, "#", 2)
+	if len(parts) != 2 {
+		return nil, fmt.Errorf("invalid entrySymbolPath: %s", entrySymbolPath)
+	}
+	targetSym := parts[1]
+
+	fset := token.NewFileSet()
+	file, err := parser.ParseFile(fset, relPath, content, parser.ParseComments)
+	if err != nil {
+		return nil, fmt.Errorf("parse Go source %s: %w", relPath, err)
+	}
+
+	var targetFn *ast.FuncDecl
+	for _, decl := range file.Decls {
+		fn, ok := decl.(*ast.FuncDecl)
+		if !ok {
+			continue
+		}
+		recvName := receiverTypeName(fn.Recv)
+		var symName string
+		if recvName != "" {
+			symName = recvName + "." + fn.Name.Name
+		} else {
+			symName = fn.Name.Name
+		}
+		if symName == targetSym || (recvName == "" && fn.Name.Name == targetSym) {
+			targetFn = fn
+			break
+		}
+	}
+
+	if targetFn == nil {
+		return nil, fmt.Errorf("entry_symbol_not_found: %s", entrySymbolPath)
+	}
+	if targetFn.Body == nil {
+		return nil, fmt.Errorf("entry_symbol_has_no_executable_steps: %s", entrySymbolPath)
+	}
+
+	fnStart := fset.Position(targetFn.Pos()).Offset
+	fnEnd := fset.Position(targetFn.End()).Offset
+	fnStartLine := fset.Position(targetFn.Pos()).Line
+	fnEndLine := fset.Position(targetFn.End()).Line
+
+	sigStart := fnStart
+	sigEnd := fset.Position(targetFn.Body.Lbrace).Offset
+	sigStartLine := fnStartLine
+	sigEndLine := fset.Position(targetFn.Body.Lbrace).Line
+	sigText := strings.TrimSpace(content[sigStart:sigEnd])
+
+	var steps []goStepInfo
+	edges := []map[string]any{}
+	switchBreakOrdinals := make(map[int]bool)
+	currentOrdinal := 1
+
+	addStep := func(kind, desc, nodeKind string, pos, end token.Pos, cond *string, terminates bool) int {
+		startOff := fset.Position(pos).Offset
+		endOff := fset.Position(end).Offset
+		stLine := fset.Position(pos).Line
+		eLine := fset.Position(end).Line
+		ord := currentOrdinal
+		currentOrdinal++
+		steps = append(steps, goStepInfo{
+			ordinal:        ord,
+			kind:           kind,
+			description:    desc,
+			symbolPath:     targetSym,
+			guardCondition: cond,
+			startOffset:    startOff,
+			endOffset:      endOff,
+			startLine:      stLine,
+			endLine:        eLine,
+			nodeKind:       nodeKind,
+			terminates:     terminates,
+		})
+		return ord
+	}
+
+	addEdge := func(fromOrd, toOrd int, conditionOutcome string) {
+		kind := "control_flow"
+		if toOrd <= fromOrd {
+			kind = "loop_back"
+		}
+		if fromOrd > 0 && fromOrd <= len(steps) {
+			switch steps[fromOrd-1].kind {
+			case "break":
+				kind = "loop_exit"
+				if switchBreakOrdinals[fromOrd] {
+					kind = "switch_exit"
+				}
+			case "continue":
+				kind = "loop_back"
+			}
+		}
+		edge := map[string]any{
+			"kind":              kind,
+			"toSymbolPath":      entrySymbolPath,
+			"resolutionStatus":  "resolved",
+			"depth":             0,
+			"stepOrdinal":       fromOrd,
+			"targetStepOrdinal": toOrd,
+		}
+		if conditionOutcome != "" {
+			edge["conditions"] = []map[string]any{
+				{"stepOrdinal": fromOrd, "outcome": conditionOutcome},
+			}
+		}
+		edges = append(edges, edge)
+	}
+	addUnresolvedCalls := func(ordinal int, expressions []ast.Expr) {
+		seen := make(map[string]bool)
+		for _, expression := range expressions {
+			ast.Inspect(expression, func(node ast.Node) bool {
+				if _, ok := node.(*ast.FuncLit); ok {
+					return false
+				}
+				call, ok := node.(*ast.CallExpr)
+				if !ok {
+					return true
+				}
+				start := fset.Position(call.Fun.Pos()).Offset
+				end := fset.Position(call.Fun.End()).Offset
+				if start < 0 || end > len(content) || start >= end {
+					return true
+				}
+				name := strings.Map(func(char rune) rune {
+					if char >= 'a' && char <= 'z' || char >= 'A' && char <= 'Z' || char >= '0' && char <= '9' || char == '_' || char == '.' || char == '$' || char == '-' {
+						return char
+					}
+					return '_'
+				}, content[start:end])
+				if name == "" || seen[name] {
+					return true
+				}
+				seen[name] = true
+				edges = append(edges, map[string]any{
+					"kind":             "unknown_edge",
+					"toSymbolPath":     relPath + "#" + name,
+					"resolutionStatus": "unresolved_type",
+					"unresolvedReason": "callee implementation was not verified by the Go adapter",
+					"depth":            1,
+					"stepOrdinal":      ordinal,
+				})
+				return true
+			})
+		}
+	}
+
+	type goControlExit struct {
+		ordinal  int
+		outcome  string
+		transfer string
+	}
+
+	var analysisErr error
+	var processStmtList func(stmtList []ast.Stmt, incomingExits []goControlExit) (int, []goControlExit)
+	processStmtList = func(stmtList []ast.Stmt, incomingExits []goControlExit) (int, []goControlExit) {
+		first := 0
+		currentExits := incomingExits
+
+		for _, stmt := range stmtList {
+			if analysisErr != nil {
+				break
+			}
+			if len(currentExits) == 0 && first != 0 {
+				break
+			}
+			active := make([]goControlExit, 0, len(currentExits))
+			carried := make([]goControlExit, 0)
+			for _, exit := range currentExits {
+				if exit.transfer == "" {
+					active = append(active, exit)
+				} else {
+					carried = append(carried, exit)
+				}
+			}
+			if len(active) == 0 && first != 0 {
+				break
+			}
+			currentExits = active
+			switch s := stmt.(type) {
+			case *ast.SwitchStmt:
+				if s.Init != nil {
+					initFirst, initExits := processStmtList([]ast.Stmt{s.Init}, currentExits)
+					if first == 0 {
+						first = initFirst
+					}
+					currentExits = initExits
+				}
+				switchText := "switch 분기를 확인한다"
+				if s.Tag != nil {
+					start := fset.Position(s.Tag.Pos()).Offset
+					end := fset.Position(s.Tag.End()).Offset
+					switchText = "switch 값을 확인한다: " + strings.TrimSpace(content[start:end])
+				}
+				switchOrd := addStep("branch", switchText, "control_header", s.Pos(), s.Body.Lbrace, nil, false)
+				if first == 0 {
+					first = switchOrd
+				}
+				for _, exit := range currentExits {
+					addEdge(exit.ordinal, switchOrd, exit.outcome)
+				}
+				if s.Tag != nil {
+					addUnresolvedCalls(switchOrd, []ast.Expr{s.Tag})
+				}
+				unmatched := []goControlExit{{ordinal: switchOrd}}
+				caseExits := make([]goControlExit, 0)
+				var defaultClause *ast.CaseClause
+				for _, clauseStmt := range s.Body.List {
+					clause := clauseStmt.(*ast.CaseClause)
+					if len(clause.List) == 0 {
+						defaultClause = clause
+						continue
+					}
+					start := fset.Position(clause.Pos()).Offset
+					end := fset.Position(clause.Colon + 1).Offset
+					condition := strings.TrimSpace(content[start:end])
+					caseOrd := addStep("guard", "경우를 확인한다: "+condition, "control_header", clause.Pos(), clause.Colon+1, &condition, false)
+					for _, exit := range unmatched {
+						addEdge(exit.ordinal, caseOrd, exit.outcome)
+					}
+					addUnresolvedCalls(caseOrd, clause.List)
+					_, bodyExits := processStmtList(clause.Body, []goControlExit{{ordinal: caseOrd, outcome: "truthy"}})
+					for _, exit := range bodyExits {
+						if exit.transfer == "break" {
+							switchBreakOrdinals[exit.ordinal] = true
+							exit.transfer = ""
+						}
+						caseExits = append(caseExits, exit)
+					}
+					unmatched = []goControlExit{{ordinal: caseOrd, outcome: "falsy"}}
+				}
+				if defaultClause != nil {
+					defaultOrd := addStep("branch", "기본 분기를 실행한다", "control_header", defaultClause.Pos(), defaultClause.Colon+1, nil, false)
+					for _, exit := range unmatched {
+						addEdge(exit.ordinal, defaultOrd, exit.outcome)
+					}
+					_, bodyExits := processStmtList(defaultClause.Body, []goControlExit{{ordinal: defaultOrd}})
+					for _, exit := range bodyExits {
+						if exit.transfer == "break" {
+							switchBreakOrdinals[exit.ordinal] = true
+							exit.transfer = ""
+						}
+						caseExits = append(caseExits, exit)
+					}
+				} else {
+					caseExits = append(caseExits, unmatched...)
+				}
+				currentExits = caseExits
+
+			case *ast.IfStmt:
+				guardIncoming := currentExits
+				if s.Init != nil {
+					initStart := fset.Position(s.Init.Pos()).Offset
+					initEnd := fset.Position(s.Init.End()).Offset
+					initText := strings.TrimSpace(content[initStart:initEnd])
+					initOrd := addStep("mutation", "변환 초기화: "+initText, "statement", s.Init.Pos(), s.Init.End(), nil, false)
+					if first == 0 {
+						first = initOrd
+					}
+					for _, exit := range currentExits {
+						addEdge(exit.ordinal, initOrd, exit.outcome)
+					}
+					guardIncoming = []goControlExit{{ordinal: initOrd, outcome: ""}}
+				}
+
+				condStart := fset.Position(s.Cond.Pos()).Offset
+				condEnd := fset.Position(s.Cond.End()).Offset
+				condText := strings.TrimSpace(content[condStart:condEnd])
+				condHdrStart := s.Pos()
+				condHdrEnd := s.Body.Lbrace
+				guardOrd := addStep("guard", "조건을 확인한다: "+condText, "control_header", condHdrStart, condHdrEnd, &condText, false)
+				if first == 0 {
+					first = guardOrd
+				}
+				for _, exit := range guardIncoming {
+					addEdge(exit.ordinal, guardOrd, exit.outcome)
+				}
+
+				_, thenExits := processStmtList(s.Body.List, []goControlExit{{ordinal: guardOrd, outcome: "truthy"}})
+
+				if s.Else != nil {
+					elseStmts := []ast.Stmt{}
+					switch els := s.Else.(type) {
+					case *ast.BlockStmt:
+						elseStmts = els.List
+					case *ast.IfStmt:
+						elseStmts = []ast.Stmt{els}
+					}
+					_, elseExits := processStmtList(elseStmts, []goControlExit{{ordinal: guardOrd, outcome: "falsy"}})
+					currentExits = append(thenExits, elseExits...)
+				} else {
+					currentExits = append(thenExits, goControlExit{ordinal: guardOrd, outcome: "falsy"})
+				}
+
+			case *ast.ForStmt:
+				condText := "조건 만족 시 반복"
+				if s.Cond != nil {
+					cStart := fset.Position(s.Cond.Pos()).Offset
+					cEnd := fset.Position(s.Cond.End()).Offset
+					condText = strings.TrimSpace(content[cStart:cEnd])
+				}
+				hdrStart := s.Pos()
+				hdrEnd := s.Body.Lbrace
+				loopOrd := addStep("branch", "반복을 수행한다: "+condText, "control_header", hdrStart, hdrEnd, &condText, false)
+				if first == 0 {
+					first = loopOrd
+				}
+				for _, exit := range currentExits {
+					addEdge(exit.ordinal, loopOrd, exit.outcome)
+				}
+				_, bodyExits := processStmtList(s.Body.List, []goControlExit{{ordinal: loopOrd, outcome: "truthy"}})
+				loopBack := make([]goControlExit, 0, len(bodyExits))
+				currentExits = nil
+				for _, exit := range bodyExits {
+					if exit.transfer == "break" {
+						exit.transfer = ""
+						currentExits = append(currentExits, exit)
+					} else {
+						exit.transfer = ""
+						loopBack = append(loopBack, exit)
+					}
+				}
+				if s.Post != nil && len(loopBack) > 0 {
+					_, loopBack = processStmtList([]ast.Stmt{s.Post}, loopBack)
+				}
+				for _, exit := range loopBack {
+					addEdge(exit.ordinal, loopOrd, exit.outcome)
+				}
+				if s.Cond != nil {
+					currentExits = append(currentExits, goControlExit{ordinal: loopOrd, outcome: "falsy"})
+				}
+
+			case *ast.RangeStmt:
+				keyVal := "항목 순회"
+				if s.Key != nil {
+					kStart := fset.Position(s.Key.Pos()).Offset
+					kEnd := fset.Position(s.Key.End()).Offset
+					keyVal = strings.TrimSpace(content[kStart:kEnd])
+				}
+				hdrStart := s.Pos()
+				hdrEnd := s.Body.Lbrace
+				loopOrd := addStep("branch", "범위 반복을 수행한다: "+keyVal, "control_header", hdrStart, hdrEnd, nil, false)
+				if first == 0 {
+					first = loopOrd
+				}
+				for _, exit := range currentExits {
+					addEdge(exit.ordinal, loopOrd, exit.outcome)
+				}
+				_, bodyExits := processStmtList(s.Body.List, []goControlExit{{ordinal: loopOrd, outcome: "truthy"}})
+				currentExits = []goControlExit{{ordinal: loopOrd, outcome: "falsy"}}
+				for _, exit := range bodyExits {
+					if exit.transfer == "break" {
+						exit.transfer = ""
+						currentExits = append(currentExits, exit)
+					} else {
+						addEdge(exit.ordinal, loopOrd, exit.outcome)
+					}
+				}
+
+			case *ast.BranchStmt:
+				if s.Label != nil || (s.Tok != token.BREAK && s.Tok != token.CONTINUE) {
+					analysisErr = fmt.Errorf("entry_symbol_unsupported_control_flow: %s", s.Tok)
+					break
+				}
+				kind := "break"
+				if s.Tok == token.CONTINUE {
+					kind = "continue"
+				}
+				ord := addStep(kind, "반복을 "+kind+"한다", "statement", s.Pos(), s.End(), nil, false)
+				if first == 0 {
+					first = ord
+				}
+				for _, exit := range currentExits {
+					addEdge(exit.ordinal, ord, exit.outcome)
+				}
+				currentExits = []goControlExit{{ordinal: ord, transfer: kind}}
+
+			case *ast.IncDecStmt:
+				ord := addStep("mutation", "값을 갱신한다", "statement", s.Pos(), s.End(), nil, false)
+				if first == 0 {
+					first = ord
+				}
+				for _, exit := range currentExits {
+					addEdge(exit.ordinal, ord, exit.outcome)
+				}
+				currentExits = []goControlExit{{ordinal: ord}}
+
+			case *ast.BlockStmt:
+				bFirst, bExits := processStmtList(s.List, currentExits)
+				if first == 0 {
+					first = bFirst
+				}
+				currentExits = bExits
+
+			case *ast.AssignStmt:
+				var lhsNames []string
+				for _, lhs := range s.Lhs {
+					if id, ok := lhs.(*ast.Ident); ok {
+						lhsNames = append(lhsNames, id.Name)
+					}
+				}
+				desc := "상태를 갱신한다"
+				if len(lhsNames) > 0 {
+					desc = "변환 결과를 " + strings.Join(lhsNames, ", ") + "에 할당한다"
+				}
+				ord := addStep("mutation", desc, "statement", s.Pos(), s.End(), nil, false)
+				if s.Tok == token.DEFINE {
+					steps[len(steps)-1].valueRole = "local_binding"
+				}
+				if first == 0 {
+					first = ord
+				}
+				for _, exit := range currentExits {
+					addEdge(exit.ordinal, ord, exit.outcome)
+				}
+				currentExits = []goControlExit{{ordinal: ord, outcome: ""}}
+				addUnresolvedCalls(ord, s.Rhs)
+
+			case *ast.ExprStmt:
+				rawStart := fset.Position(s.Pos()).Offset
+				rawEnd := fset.Position(s.End()).Offset
+				rawText := strings.TrimSpace(content[rawStart:rawEnd])
+				desc := rawText + " 호출"
+				ord := addStep("call", desc, "statement", s.Pos(), s.End(), nil, false)
+				if first == 0 {
+					first = ord
+				}
+				for _, exit := range currentExits {
+					addEdge(exit.ordinal, ord, exit.outcome)
+				}
+				currentExits = []goControlExit{{ordinal: ord, outcome: ""}}
+				addUnresolvedCalls(ord, []ast.Expr{s.X})
+
+			case *ast.ReturnStmt:
+				rawStart := fset.Position(s.Pos()).Offset
+				rawEnd := fset.Position(s.End()).Offset
+				rawText := strings.TrimSpace(content[rawStart:rawEnd])
+				desc := "결과를 반환하고 실행을 종료한다"
+				if strings.Contains(rawText, "err") || strings.Contains(rawText, "Error") {
+					desc = "오류를 반환하고 실행을 종료한다"
+				}
+				ord := addStep("return", desc, "statement", s.Pos(), s.End(), nil, true)
+				if first == 0 {
+					first = ord
+				}
+				for _, exit := range currentExits {
+					addEdge(exit.ordinal, ord, exit.outcome)
+				}
+				currentExits = nil
+				addUnresolvedCalls(ord, s.Results)
+
+			case *ast.DeclStmt:
+				ord := addStep("mutation", "변수를 선언한다", "statement", s.Pos(), s.End(), nil, false)
+				if declaration, ok := s.Decl.(*ast.GenDecl); ok && (declaration.Tok == token.VAR || declaration.Tok == token.CONST) {
+					steps[len(steps)-1].valueRole = "local_binding"
+				}
+				if first == 0 {
+					first = ord
+				}
+				for _, exit := range currentExits {
+					addEdge(exit.ordinal, ord, exit.outcome)
+				}
+				currentExits = []goControlExit{{ordinal: ord, outcome: ""}}
+				if declaration, ok := s.Decl.(*ast.GenDecl); ok {
+					for _, spec := range declaration.Specs {
+						if value, ok := spec.(*ast.ValueSpec); ok {
+							addUnresolvedCalls(ord, value.Values)
+						}
+					}
+				}
+
+			case *ast.TypeSwitchStmt, *ast.SelectStmt, *ast.DeferStmt, *ast.GoStmt, *ast.SendStmt, *ast.LabeledStmt:
+				analysisErr = fmt.Errorf("entry_symbol_unsupported_control_flow: %T", stmt)
+			}
+			currentExits = append(currentExits, carried...)
+		}
+		return first, currentExits
+	}
+
+	processStmtList(targetFn.Body.List, nil)
+	if analysisErr != nil {
+		return nil, analysisErr
+	}
+
+	if len(steps) == 0 {
+		return nil, fmt.Errorf("entry_symbol_has_no_executable_steps: %s", entrySymbolPath)
+	}
+
+	invID := digest([]byte(entrySymbolPath))
+	fileHash := digest([]byte(content))
+	outSteps := make([]map[string]any, len(steps))
+	for i, s := range steps {
+		stepSpan := content[s.startOffset:s.endOffset]
+		stepMap := map[string]any{
+			"invocationId": invID,
+			"ordinal":      s.ordinal,
+			"kind":         s.kind,
+			"description":  s.description,
+			"symbolPath":   targetSym,
+			"anchor": map[string]any{
+				"repoRelativePath":        relPath,
+				"byteRange":               []int{s.startOffset, s.endOffset},
+				"fileHash":                fileHash,
+				"spanHash":                digest([]byte(stepSpan)),
+				"enclosingSymbolPath":     targetSym,
+				"canonicalAstFingerprint": digest([]byte(stepSpan)),
+			},
+			"flowContext": map[string]any{
+				"statement": map[string]any{
+					"nodeKind":  s.nodeKind,
+					"byteRange": []int{s.startOffset, s.endOffset},
+					"lineRange": []int{s.startLine, s.endLine},
+				},
+				"structuralContext": map[string]any{
+					"status": "none",
+				},
+				"callable": map[string]any{
+					"signature":          sigText,
+					"signatureByteRange": []int{sigStart, sigEnd},
+					"signatureLineRange": []int{sigStartLine, sigEndLine},
+					"byteRange":          []int{fnStart, fnEnd},
+					"lineRange":          []int{fnStartLine, fnEndLine},
+				},
+				"canonicalPath": relPath,
+				"snapshotId":    snapshotID,
+				"sourceHash":    fileHash,
+			},
+		}
+		if s.guardCondition != nil {
+			stepMap["guardCondition"] = *s.guardCondition
+		}
+		if len(valueRoles) > 0 && valueRoles[0] && s.valueRole != "" {
+			stepMap["valueRole"] = s.valueRole
+		}
+		outSteps[i] = stepMap
+	}
+
+	return map[string]any{
+		"candidateId":          candidateID,
+		"language":             "go",
+		"entrySymbolPath":      entrySymbolPath,
+		"steps":                outSteps,
+		"edges":                edges,
+		"truncated":            false,
+		"visitedCycleDetected": false,
+		"redactedCount":        0,
+	}, nil
 }
 
 func readSource(root string, overlay map[string]string, rel string) (string, bool) {

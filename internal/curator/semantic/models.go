@@ -102,6 +102,7 @@ type SemanticStep struct {
 	TechnicalName           string             `json:"technicalName,omitempty"`
 	Layer                   string             `json:"layer,omitempty"`
 	Kind                    string             `json:"kind,omitempty"`
+	ValueRole               string             `json:"valueRole,omitempty"`
 	Anchor                  slicing.Anchor     `json:"anchor"`
 	CodeLens                *fusion.CodeLens   `json:"codeLens,omitempty"`
 	StateDelta              *fusion.StateDelta `json:"stateDelta,omitempty"`

@@ -28,6 +28,7 @@ export interface StepAnchor {
 export interface Step {
   rules?: string[];
   assignmentSourceOrdinal?: number;
+  callerStepOrdinal?: number;
   invocationId?: string;
   kind?: string;
   stepId: string;
@@ -97,6 +98,7 @@ export interface FlowContext {
   canonicalPath?: string;
   precision?: 'exact' | 'unavailable' | string;
   sourceLimitation?: string;
+  statement?: {byteRange: [number, number]};
   displayedLines: DisplayedLine[];
 }
 
@@ -106,6 +108,14 @@ export interface FlowEvidence {
   description: string;
   snapshotId: string;
   computedBasisId: string;
+  sourceAnchor?: {
+    repoRelativePath: string;
+    byteRange: [number, number];
+    fileHash: string;
+    spanHash: string;
+    enclosingSymbolPath: string;
+    canonicalAstFingerprint: string;
+  };
 }
 
 export interface FlowResolution {
@@ -123,6 +133,55 @@ export interface FlowResolution {
   };
 }
 
+export interface RequestedFlowFocus {
+  symbolPath: string;
+  reason: string;
+  callStepId: string;
+  entryStepId: string;
+  snapshotId: string;
+  evidenceRefs: string[];
+}
+
+export interface CodeReadingRelation {
+  fromNodeId: string;
+  toNodeId: string;
+  kind: 'direct_call' | 'control_flow' | 'async_handoff' | 'conditional' | 'boundary';
+  status: 'verified' | 'partial' | 'unknown';
+  edgeIndexes: number[];
+}
+
+export interface CodeReadingNode {
+  nodeId: string;
+  stepId: string;
+  frameId: string;
+  symbol: string;
+  sourceAnchor: {
+    repoRelativePath: string;
+    enclosingSymbolPath: string;
+    byteRange: [number, number];
+    fileHash: string;
+    spanHash: string;
+  };
+  role: 'entry' | 'decision' | 'transform' | 'state_change' | 'effect' | 'handoff' | 'outcome' | 'boundary';
+  requestPart: string;
+  inclusionReason: string;
+  previousNodeIds: string[];
+  nextNodeIds: string[];
+  status: 'verified' | 'partial' | 'unknown';
+  evidenceRefs: string[];
+  codeViewAvailable: boolean;
+}
+
+export interface CodeReadingPath {
+  schemaId: string;
+  schemaVersion: number;
+  request: string;
+  snapshotId: string;
+  computedBasisId: string;
+  nodes: CodeReadingNode[];
+  relations: CodeReadingRelation[];
+}
+
 import type { FlowSequence, FlowSequenceFrame } from './flow_sequence';
 export type { FlowSequence, FlowSequenceFrame };
 
@@ -131,6 +190,11 @@ export interface FlowTaskViewData {
   flowId?: string;
   request?: { request?: string; entrySymbol?: string; flowId?: string; domain?: string };
   flowResolution?: FlowResolution;
+  requestedFocus?: RequestedFlowFocus;
+  codeReadingPath?: CodeReadingPath;
+  codeReadingPathLimitation?: string;
+  flowResolutionMissing?: boolean;
+  resolutionLimitation?: string;
   sourceNotice?: string;
   sourceContextMissing?: boolean;
   needsReanalysis?: boolean;

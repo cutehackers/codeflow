@@ -100,6 +100,65 @@ func TestCompilerPreservesRepeatedInvocationTargets(t *testing.T) {
 	}
 }
 
+func TestProjectFlowSpecPreservesCallbackArgumentWithoutClaimingExecution(t *testing.T) {
+	from, to := 1, 2
+	steps := []fusion.FlowStep{
+		{Ordinal: 1, InvocationID: "outer", Kind: "mutation", Anchor: slicing.Anchor{RepoRelativePath: "lib/rules.dart", EnclosingSymbolPath: "Rules.run", ByteRange: [2]int{0, 80}}},
+		{Ordinal: 2, InvocationID: "callback", Kind: "guard", Anchor: slicing.Anchor{RepoRelativePath: "lib/rules.dart", EnclosingSymbolPath: "Rules.run", ByteRange: [2]int{30, 40}}},
+	}
+	spec := fusion.FlowSpec{FlowID: "flow-callback", Steps: steps, Edges: []fusion.FlowEdge{{Kind: "callback_argument", StepOrdinal: &from, TargetStepOrdinal: &to, ToSymbolPath: "lib/rules.dart#Rules.run", ResolutionStatus: "resolved"}}}
+	encoded, err := json.Marshal(spec)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var restored fusion.FlowSpec
+	if err := json.Unmarshal(encoded, &restored); err != nil {
+		t.Fatal(err)
+	}
+	model := ProjectFlowSpec(&restored, "generation")
+	if len(model.Edges) != 1 || model.Edges[0].Kind != "callback_argument" || model.Edges[0].ResolutionStatus != "resolved" || model.Edges[0].ToStepID != model.Steps[1].StepID {
+		t.Fatalf("callback source relation changed after restore: %+v", model.Edges)
+	}
+	sequence := BuildFlowSequence(model)
+	if sequence.Frames[1].Status == "verified" {
+		t.Fatal("a callback argument falsely proved callback execution")
+	}
+}
+
+func TestCompilerPreservesUnresolvedCallReasonWhenSymbolRepeats(t *testing.T) {
+	callerOrdinal := 1
+	caller := makeStep(1, "invoke target", "call")
+	caller.InvocationID, caller.SymbolPath, caller.Anchor.EnclosingSymbolPath = "root", "Service.run", "Service.run"
+	first, second := makeStep(2, "first target", "return"), makeStep(3, "second target", "return")
+	for _, step := range []*slicing.SliceStep{&first, &second} {
+		step.SymbolPath, step.Anchor.EnclosingSymbolPath = "Service.target", "Service.target"
+		step.CallerStepOrdinal = &callerOrdinal
+	}
+	first.InvocationID, second.InvocationID = "first", "second"
+	payload := &slicing.SlicedPayload{
+		CandidateID: "cand-unresolved-repeat", EntrySymbolPath: "lib/service.dart#Service.run",
+		Steps: []slicing.SliceStep{caller, first, second},
+		Edges: []slicing.SliceEdge{{Kind: "unknown_edge", StepOrdinal: &callerOrdinal, ToSymbolPath: "lib/service.dart#Service.target", ResolutionStatus: "truncated", UnresolvedReason: "재귀 호출의 다음 실행 문장을 펼치지 못했습니다."}},
+	}
+	target := &ResolvedTarget{FlowID: "flow-unresolved-repeat", CandidateID: payload.CandidateID, EntrySymbolPath: payload.EntrySymbolPath}
+	model, _, err := CompileDeterministicFeatureMap(target, nil, payload, strictCompileOptions(t, payload, "basis-unresolved-repeat", 1))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(model.Edges) != 0 || len(model.Unknowns) == 0 {
+		t.Fatalf("unresolved call was treated as a direct relation: edges=%+v unknowns=%+v", model.Edges, model.Unknowns)
+	}
+	found := false
+	for _, unknown := range model.Unknowns {
+		if unknown.Subject == "lib/service.dart#Service.target" && unknown.Reason == payload.Edges[0].UnresolvedReason {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("adapter boundary reason was replaced by symbol ambiguity: %+v", model.Unknowns)
+	}
+}
+
 func TestInvocationWithoutTargetDoesNotUseSymbolFallback(t *testing.T) {
 	callerOrdinal, wrongCaller := 1, 3
 	first, child, last := makeStep(1, "first", "call"), makeStep(2, "child", "return"), makeStep(3, "last", "call")

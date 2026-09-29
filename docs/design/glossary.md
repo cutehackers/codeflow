@@ -4,8 +4,8 @@
 
 | Term | Operational Definition | Korean Term |
 |---|---|---|
-| FlowView Storyboard | 개발자가 코드 동작을 직관적으로 이해할 수 있도록 비즈니스 실행 흐름을 4~7개 핵심 관문과 1:N 미시 타임라인으로 요약·시각화하는 CodeFlow의 정본 인터랙티브 워크벤치. | FlowView 스토리보드 |
-| FlowSequence | 사용자가 이해하려는 코드 동작을 시작, 판단, 처리, 외부 효과, 결과 또는 분석 경계 관문으로 묶어 보여 주는 FlowView의 기본 프로젝션 모델. | 플로우시퀀스 |
+| FlowView Storyboard | 개발자가 요청한 동작의 큰 흐름에서 실제 코드까지 내려가 읽는 CodeFlow의 인터랙티브 워크벤치. 목적별 처리 구간과 문장별 탐색을 구별하며 확인된 근거를 보여 준다. | FlowView 스토리보드 |
+| FlowSequence | 사용자가 이해하려는 코드 동작을 시작, 판단, 처리, 외부 효과, 결과 또는 분석 경계 관문으로 묶는 기존 프로젝션 모델. 새 개요가 도입되어도 문장별 탐색의 단계·관계를 보존한다. | 플로우시퀀스 |
 | FlowSequenceFrame | FlowSequence의 거시적 비즈니스 관문 단위 (`entry`, `decision`, `process`, `effect`, `result`, `boundary`). | 비즈니스 관문 프레임 |
 | Execution Timeline | 각 비즈니스 관문 내부에 1:N으로 보존되는 구체적 코드 라인 실행 단계 모음 (`SemanticStep`: `call`, `guard`, `mutation`, `result`). | 실행 타임라인 |
 | Anti-Telemetry Guard | 에포크, 지연 시간(lag), 내부 결재 락 등 엔진 내부 텔레메트리가 기본 화면이나 사용자 설명에 노출되지 않도록 차단하는 원칙. | 안티 텔레메트리 가드 |
@@ -13,14 +13,16 @@
 | Live Semantic Compiler | [Deprecated / Superseded] 과거 실시간 파일 감시 및 자동 컴파일러 모델. 현재는 사용자 명시적 1회성 재분석 및 기준선 비교 기반의 FlowView 코드 이해 체제로 전면 대체됨. | [레거시] 실시간 의미 컴파일러 |
 | Live Project Change Analysis | [Deprecated / Historical] 과거 실시간 프로젝트 변경 분석 모드. FlowView 코드 이해 체제로 대체됨. | [레거시] 실시간 프로젝트 변경 분석 |
 
-FlowSequence는 사용자가 이해하려는 코드 동작을 핵심 관문과 실행 단계의 관계로 표현하는 FlowView의 기본 화면 모델이다. architecture는 관문을 구성하는 기준이 아니라, 관측된 경우에만 보조 정보로 표시한다.
+FlowSequence는 현재 FlowView에서 관문과 실행 단계의 관계를 표현한다. 새 요청 흐름 개요가 도입되면 기존 단계·관계를 문장별 탐색에서 계속 제공한다. architecture는 새 흐름의 선정·정렬·병합·표시에 사용하지 않는다.
 
 ## Core Semantic Terms
 
 | Term | Operational Definition | Scope | Source | Status | Related Contract |
 |---|---|---|---|---|---|
+| Requested Flow Overview | 요청한 동작의 시작, 목적별 처리 구간, 확인된 분기·합류·결과 또는 미확인 경계를 먼저 읽는 FlowView 기능이다. 각 구간에서 실제 코드 블록과 문장별 탐색으로 이동한다. | 새 요청의 기본 읽기 화면 | 사용자 지시 2026-09-29 | Confirmed | `docs/design/specs/2026-09-29-requested-flow-overview-and-statement-exploration-ko.md` |
+| Statement Exploration | 현재 FlowSequence·SemanticStep·CodeView를 따라 개별 실행 문장, 코드 근거와 직접 관계를 확인하는 FlowView의 별도 상세 탐색 기능이다. | 요청 흐름의 상세 코드 읽기 | 사용자 지시 2026-09-29 | Confirmed | `docs/design/specs/2026-09-29-requested-flow-overview-and-statement-exploration-ko.md` |
 | Task Intent | 불변 `rawRequest`, 정규화된 목적·결과·수용 조건·scope hint와 `parsed`, `needs_confirmation`, `user_confirmed` lifecycle을 가진 versioned 사용자 의도다. 구현 완료 상태와 분리한다. | task-scoped query와 requirement alignment | Raw §3.1, §10.1, D29 | Confirmed | `docs/design/specs/2026-09-02-requested-flow-live-semantic-compiler-ko.md` |
-| FlowSequence | 사용자가 이해하려는 코드 동작을 시작, 판단, 처리, 외부 효과, 결과 또는 분석 경계 관문으로 묶어 보여 주는 FlowView 기본 projection이다. 관문은 함수·파일·architecture와 일대일 대응하지 않는다. | FlowView 기본 화면 | 사용자 지시 2026-09-16 | Confirmed | `docs/design/specs/2026-09-16-codeflow-architectural-reset-and-flow-sequence-spec-ko.md` |
+| FlowSequence | 사용자가 이해하려는 코드 동작을 시작, 판단, 처리, 외부 효과, 결과 또는 분석 경계 관문으로 묶는 기존 projection이다. 관문은 함수·파일과 일대일 대응하지 않는다. 새 개요가 도입되어도 문장별 탐색에서 단계·관계를 보존한다. | 현재 기본 화면, 이후 문장별 탐색 | 사용자 지시 2026-09-16·29 | Confirmed | `docs/design/specs/2026-09-16-codeflow-architectural-reset-and-flow-sequence-spec-ko.md`, `docs/design/specs/2026-09-29-requested-flow-overview-and-statement-exploration-ko.md` |
 | Semantic Labeler | 정적 FlowSequence frame에 검증 사실을 바꾸지 않는 의미 라벨 제안을 연결하는 선택적 port다. | FlowSequence 의미 제안 | 사용자 지시 2026-09-16 | Confirmed | `docs/design/specs/2026-09-16-codeflow-architectural-reset-and-flow-sequence-spec-ko.md` |
 | SLM Labeler | Semantic Labeler 계약을 로컬 SLM HTTP runtime으로 구현한 adapter다. | 선택적 의미 라벨 제안 | 사용자 지시 2026-09-16 | Confirmed | `docs/design/specs/2026-09-16-codeflow-architectural-reset-and-flow-sequence-spec-ko.md` |
 | Exact Step Evidence | 선택한 flow step을 실행하는 statement node임을 같은 snapshot에서 adapter가 검증한 byte range다. enclosing callback, condition, builder, function 또는 class 전체 범위는 이 Evidence가 아니다. 정확한 statement를 구별할 수 없으면 `unavailable` 또는 `unknown`이다. | Semantic Map code view | D37 | Confirmed | `docs/design/specs/2026-09-02-requested-flow-live-semantic-compiler-ko.md` |

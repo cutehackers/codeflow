@@ -38,7 +38,8 @@
 			  "entrySymbolPath": {"type": "string", "minLength": 1},
 			  "description": {"type": "string", "minLength": 1},
 			  "snapshotId": {"type": "string", "minLength": 1},
-			  "computedBasisId": {"type": "string", "minLength": 1}
+			  "computedBasisId": {"type": "string", "minLength": 1},
+			  "sourceAnchor": {"$ref": "https://codeflow.local/schemas/identity.schema.json#/$defs/anchor"}
 			}
 		  }
 		}
@@ -128,6 +129,7 @@
             "enum": ["guard", "mutation", "call", "branch", "return", "throw", "await", "break", "continue"],
             "description": "OPTIONAL structural kind carried over from the slice step so FlowView can label the step in natural language (조건 확인/상태 변경/기능 실행/흐름 분기). Presentation-only; never used for identity."
           },
+          "valueRole": { "type": "string", "enum": ["local_binding"] },
           "layer": {
             "type": "string",
             "enum": ["presentation","controller","usecase","domain","data","infra","external","unknown"],
@@ -191,7 +193,7 @@
     },
     "edges": {
       "type": "array",
-      "description": "OPTIONAL call/delegation edges between steps and their targets, carried over from the slice so FlowView can show where a step hands work off to. Presentation-only; identity never depends on it. Absent in older published specs — consumers must degrade gracefully.",
+      "description": "OPTIONAL source relations between steps and their targets, carried over from the slice so FlowView can show a call or a callback argument without confusing delivery with execution. Presentation-only; identity never depends on it. Absent in older published specs — consumers must degrade gracefully.",
       "items": {
         "type": "object",
         "additionalProperties": false,
@@ -200,7 +202,7 @@
           "conditions": {"type": "array", "minItems": 1, "maxItems": 1, "items": {"type": "object", "additionalProperties": false, "required": ["stepOrdinal", "outcome"], "properties": {"stepOrdinal": {"type": "integer", "minimum": 1}, "outcome": {"type": "string", "enum": ["truthy", "falsy", "nullish", "non_nullish"]}}}},
           "kind": {
             "type": "string",
-            "enum": ["resolved_cross_file", "boundary_call", "unknown_edge", "control_flow", "parallel_wait", "failure", "finally", "return", "await_resume", "await_loop_back", "loop_back", "loop_reentry", "loop_exit", "loop_exit_back", "switch_exit"]
+            "enum": ["resolved_cross_file", "callback_argument", "boundary_call", "unknown_edge", "control_flow", "parallel_wait", "failure", "finally", "return", "await_resume", "await_loop_back", "loop_back", "loop_reentry", "loop_exit", "loop_exit_back", "switch_exit"]
           },
           "toSymbolPath": {
             "type": "string",

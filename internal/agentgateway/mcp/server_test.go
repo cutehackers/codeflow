@@ -132,18 +132,19 @@ func TestMCPServerToolsAndExecution(t *testing.T) {
 	if err := json.Unmarshal([]byte(lines[1]), &respList); err != nil {
 		t.Fatalf("unmarshal tools/list response: %v", err)
 	}
-	if len(respList.Result.Tools) != 8 {
-		t.Errorf("expected exactly 8 MCP tools, got %d", len(respList.Result.Tools))
-	}
 	expectedTools := map[string]bool{
-		"publish_core_flow": true,
-		"harvest_flows":     true,
-		"get_flow_payload":  true,
-		"analyze_flow":      true,
-		"submit_flow_draft": true,
-		"approve_step":      true,
-		"report_unknowns":   true,
-		"open_review":       true,
+		"publish_core_flow":        true,
+		"harvest_flows":            true,
+		"get_flow_payload":         true,
+		"analyze_flow":             true,
+		"submit_flow_draft":        true,
+		"approve_step":             true,
+		"report_unknowns":          true,
+		"curate_code_reading_path": true,
+		"open_review":              true,
+	}
+	if len(respList.Result.Tools) != len(expectedTools) {
+		t.Errorf("expected exactly %d MCP tools, got %d", len(expectedTools), len(respList.Result.Tools))
 	}
 	for _, tool := range respList.Result.Tools {
 		if !expectedTools[tool.Name] {
@@ -425,6 +426,16 @@ func TestMCPAnalyzeFlowRequiresVerifiedRequestedCandidate(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
+	koreanSearch, isError := callMCPTool(t, srv, ctx, "harvest_flows", map[string]any{
+		"query": "사용자가 요청한 흐름",
+	})
+	if isError || koreanSearch["queryMatchStatus"] != "no_literal_match" {
+		t.Fatalf("literal-only search did not report its limit: %v", koreanSearch)
+	}
+	if list, ok := koreanSearch["candidates"].([]any); !ok || len(list) == 0 {
+		t.Fatalf("literal-only search hid candidates needed for source-based selection: %v", koreanSearch)
+	}
+
 	harvested, isError := callMCPTool(t, srv, ctx, "harvest_flows", map[string]any{})
 	if isError {
 		t.Fatalf("harvest failed: %v", harvested)
@@ -470,6 +481,24 @@ func TestMCPAnalyzeFlowRequiresVerifiedRequestedCandidate(t *testing.T) {
 	resolution, ok := analyzed["flowResolution"].(map[string]any)
 	if !ok || resolution["rawRequest"] != "사용자가 요청한 흐름" || resolution["entrySymbolPath"] != entry {
 		t.Fatalf("analysis did not persist the verified flow-resolution record: %v", analyzed["flowResolution"])
+	}
+	selectionEvidence, ok := resolution["evidence"].([]any)
+	if !ok || len(selectionEvidence) != 1 {
+		t.Fatalf("analysis omitted selection evidence: %v", resolution)
+	}
+	selectionAnchor, ok := selectionEvidence[0].(map[string]any)["sourceAnchor"].(map[string]any)
+	if !ok || selectionAnchor["repoRelativePath"] == "" || selectionAnchor["enclosingSymbolPath"] == "" {
+		t.Fatalf("analysis omitted the verified entry source anchor: %v", selectionEvidence)
+	}
+	compact, isError := callMCPTool(t, srv, ctx, "get_flow_payload", map[string]any{
+		"flowId": analyzed["flowId"], "format": "compact",
+	})
+	if isError {
+		t.Fatalf("compact flow retrieval failed: %v", compact)
+	}
+	compactResolution, ok := compact["flowResolution"].(map[string]any)
+	if !ok || compactResolution["rawRequest"] != resolution["rawRequest"] || compactResolution["entrySymbolPath"] != entry {
+		t.Fatalf("compact flow retrieval lost the selected request: %v", compact)
 	}
 }
 

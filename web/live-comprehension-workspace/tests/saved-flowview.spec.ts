@@ -1,10 +1,17 @@
-import { test, expect } from '@playwright/test';
+import { test, expect, type Page } from '@playwright/test';
 import AxeBuilder from '@axe-core/playwright';
-import {readFileSync, unlinkSync, writeFileSync} from 'node:fs';
+import {mkdirSync, readFileSync, unlinkSync, writeFileSync} from 'node:fs';
 import path from 'node:path';
 
 const entry = 'app/page.tsx#HomePage.onQuickCheckout';
 const headers = {'X-CodeFlow-Token':'testtoken'};
+
+async function expectSelectedSource(page: Page, context: {displayedLines: Array<{selection?: {text: string}}>}) {
+  const selectedText = context.displayedLines.flatMap(line => line.selection ? [line.selection.text] : []);
+  expect(selectedText.length).toBeGreaterThan(0);
+  expect(selectedText.every(text => text.length > 0)).toBe(true);
+  await expect(page.locator('#code-flow .source mark')).toHaveText(selectedText);
+}
 
 function largeFlowSource() {
   const adjustments = Array.from({length: 80}, (_, index) => index + 1);
@@ -58,6 +65,68 @@ test('empty home, analysis, scene navigation and immutable reopening', async ({p
   expect(analyses).toBe(0);
   await page.setViewportSize({width:390,height:844});
   expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);
+});
+
+test('study layout reads the same saved code with more horizontal space', async ({page, request}) => {
+  const response = await request.get(`/api/task/view?entrySymbol=${encodeURIComponent(entry)}`, {headers});
+  expect(response.ok()).toBe(true);
+  const saved = await response.json();
+  const frame = saved.flowSequence.frames[0];
+  const stepID = frame.primaryStepRef;
+  await page.setViewportSize({width: 1440, height: 900});
+
+  await page.goto(`/?token=testtoken&viewId=${saved.viewId}`);
+  await page.locator(`[data-frame="${frame.frameID}"]`).click();
+  await expectSelectedSource(page, saved.flowContexts[stepID]);
+  const normalWidth = (await page.locator('#selected-flow').boundingBox())!.width;
+
+  await page.goto(`/?token=testtoken&viewId=${saved.viewId}&studyLayout=code-focused`);
+  await page.locator(`[data-frame="${frame.frameID}"]`).click();
+  await expectSelectedSource(page, saved.flowContexts[stepID]);
+  const focusedWidth = (await page.locator('#selected-flow').boundingBox())!.width;
+  expect(focusedWidth).toBeGreaterThan(normalWidth);
+  const codeBottom = (await page.locator('#selected-flow').boundingBox())!.y + (await page.locator('#selected-flow').boundingBox())!.height;
+  const contextTop = (await page.locator('main.layout aside').boundingBox())!.y;
+  expect(contextTop).toBeGreaterThanOrEqual(codeBottom);
+
+  await page.reload();
+  await expect(page).toHaveURL(/studyLayout=code-focused/);
+  await page.locator(`[data-frame="${frame.frameID}"]`).click();
+  await expectSelectedSource(page, saved.flowContexts[stepID]);
+
+  const relationFrame = saved.flowSequence.frames.find((candidate: {frameID: string; primaryStepRef: string}) =>
+    saved.semanticMap.edges.some((edge: {fromStepId: string; resolutionStatus: string}) =>
+      edge.fromStepId === candidate.primaryStepRef && edge.resolutionStatus === 'resolved'
+    )
+  );
+  expect(relationFrame).toBeTruthy();
+  await page.locator(`[data-flow-frame="${relationFrame.frameID}"]`).click();
+  await page.locator('[data-navigation-focus^="outgoing:"]').first().click();
+  await page.getByRole('button', {name: '원래 장면 복귀', exact: true}).click();
+  await expect(page.locator(`[data-flow-frame="${relationFrame.frameID}"]`)).toHaveAttribute('aria-pressed', 'true');
+});
+
+test('a selected candidate keeps the original natural-language request', async ({page, request}) => {
+  const rawRequest = '사용자가 빠른 결제를 완료하면 무엇이 실행되나';
+  await page.goto('/?token=testtoken');
+  const before = await (await request.get('/api/views', {headers})).json();
+  await page.locator('#query-input').fill(rawRequest);
+  await page.locator('#request-submit').click();
+  const candidate = page.locator('.candidate-choice').filter({hasText: entry});
+  await expect(candidate).toBeVisible();
+  await expect(candidate.getByRole('button', {name: '이 진입점 선택'})).toBeDisabled();
+  const unresolved = await (await request.get('/api/views', {headers})).json();
+  expect(unresolved.views.length).toBe(before.views.length);
+  await candidate.getByRole('button', {name: '코드 미리 보기'}).click();
+  await expect(page.getByLabel('후보 진입 코드')).toContainText('onQuickCheckout');
+  await candidate.getByRole('button', {name: '이 진입점 선택'}).click();
+  await expect(page.getByRole('region', {name: '요청 흐름의 관문과 연결', exact: true})).toBeVisible();
+  const viewId = new URL(page.url()).searchParams.get('viewId');
+  expect(viewId).toBeTruthy();
+  const saved = await (await request.get(`/api/view?viewId=${viewId}`, {headers})).json();
+  expect(saved.flowResolution.rawRequest).toBe(rawRequest);
+  expect(saved.flowResolution.entrySymbolPath).toBe(entry);
+  await expect(page.locator('#code-flow .source mark').first()).toBeVisible();
 });
 
 test('listing failure and invalid saved view never substitute samples', async ({page}) => {
@@ -147,11 +216,273 @@ test('requested handler keeps preparation, awaited operation, and decision as 1:
 
   await page.goto(`/?token=testtoken&viewId=${saved.viewId}`);
   const preparation = page.locator(`[data-frame="${frames[0].frameID}"]`);
+  await expect(preparation.locator('strong')).toHaveText(frames[0].title);
   await preparation.click();
   const timeline = preparation.locator('xpath=following-sibling::button[1]');
   await timeline.click();
   await expect(timeline).toHaveAttribute('aria-expanded', 'true');
   await expect(timeline.locator('xpath=following-sibling::ol[1]').locator('[data-step]')).toHaveCount(6);
+});
+
+test('standalone TypeScript order flow opens every saved source step', async ({page, request}) => {
+  const functionEntry = 'services/orderService.ts#processOrder';
+  const response = await request.get(`/api/task/view?entrySymbol=${encodeURIComponent(functionEntry)}`, {headers});
+  expect(response.ok(), await response.text()).toBe(true);
+  const saved = await response.json();
+  expect(saved.semanticMap.steps.length).toBeGreaterThan(1);
+  expect(saved.flowSequence.frames.length).toBeGreaterThan(0);
+  await page.goto(`/?token=testtoken&viewId=${saved.viewId}`);
+  for (const frame of saved.flowSequence.frames as Array<{frameID: string; stepRefs: string[]}>) {
+    await page.locator(`[data-frame="${frame.frameID}"]`).click();
+    await expect(page.locator('#code-flow .source mark').first()).toBeVisible();
+    const disclosure = page.locator(`[aria-controls="timeline-${frame.frameID}"]`);
+    await disclosure.click();
+    for (const stepID of frame.stepRefs) {
+      await page.locator(`[data-flow-step="${stepID}"]`).click();
+      await expectSelectedSource(page, saved.flowContexts[stepID]);
+      expect(saved.flowContexts[stepID].precision).toBe('exact');
+      const sourceStep = saved.semanticMap.steps.find((step: {stepId: string}) => step.stepId === stepID);
+      expect(saved.flowContexts[stepID].canonicalPath).toBe(sourceStep.anchor.repoRelativePath);
+    }
+  }
+});
+
+test('TypeScript local result calculation remains readable in CodeView', async ({page, request}) => {
+  const sourcePath = path.join(process.env.CODEFLOW_BROWSER_FIXTURE!, 'local-result.ts');
+  writeFileSync(sourcePath, 'export function totalPrice(price: number, count: number) {\n  const units = count;\n  const total = price * units;\n  return total;\n}\n');
+  try {
+    const response = await request.get(`/api/task/view?entrySymbol=${encodeURIComponent('local-result.ts#totalPrice')}`, {headers});
+    expect(response.ok(), await response.text()).toBe(true);
+    const saved = await response.json();
+    const preparation = saved.semanticMap.steps.find((step: {name: string}) => step.name === 'const units = count;');
+    const calculation = saved.semanticMap.steps.find((step: {name: string}) => step.name === 'const total = price * units;');
+    expect(preparation).toBeTruthy();
+    expect(calculation).toBeTruthy();
+    expect(preparation.valueRole).toBe('local_binding');
+    expect(calculation.valueRole).toBe('local_binding');
+    expect(saved.flowContexts[calculation.stepId].precision).toBe('exact');
+    const frame = saved.flowSequence.frames.find((item: {stepRefs: string[]}) => item.stepRefs.includes(calculation.stepId));
+    expect(frame).toBeTruthy();
+    expect(frame.stepRefs).toEqual([preparation.stepId, calculation.stepId]);
+    await page.goto(`/?token=testtoken&viewId=${saved.viewId}`);
+    await page.locator(`[data-frame="${frame.frameID}"]`).click();
+    await page.locator(`[aria-controls="timeline-${frame.frameID}"]`).click();
+    await page.locator(`[data-flow-step="${calculation.stepId}"]`).click();
+    await expectSelectedSource(page, saved.flowContexts[calculation.stepId]);
+  } finally {
+    unlinkSync(sourcePath);
+  }
+});
+
+test('TSX event flow opens the selected source for every saved step', async ({page, request}) => {
+  const response = await request.get(`/api/task/view?entrySymbol=${encodeURIComponent(entry)}`, {headers});
+  expect(response.ok(), await response.text()).toBe(true);
+  const saved = await response.json();
+  await page.goto(`/?token=testtoken&viewId=${saved.viewId}`);
+  for (const frame of saved.flowSequence.frames as Array<{frameID: string; stepRefs: string[]}>) {
+    await page.locator(`[data-frame="${frame.frameID}"]`).click();
+    await page.locator(`[aria-controls="timeline-${frame.frameID}"]`).click();
+    for (const stepID of frame.stepRefs) {
+      await page.locator(`[data-flow-step="${stepID}"]`).click();
+      expect(saved.flowContexts[stepID].precision).toBe('exact');
+      await expectSelectedSource(page, saved.flowContexts[stepID]);
+    }
+  }
+});
+
+test('long source path stays inside a narrow viewport while code scrolls locally', async ({page, request}) => {
+  const relativePath = 'app/checkout_flow_with_a_descriptive_repository_relative_path_for_mobile_source_navigation.ts';
+  const sourcePath = path.join(process.env.CODEFLOW_BROWSER_FIXTURE!, relativePath);
+  writeFileSync(sourcePath, 'export function processMobileCheckout(amount: number) { const total = calculateMobileCheckout(amount); unresolvedDynamicTarget.process(total); return total; }\nfunction calculateMobileCheckout(amount: number) { return amount + 1; }\n');
+  try {
+    const sourceEntry = `${relativePath}#processMobileCheckout`;
+    const response = await request.get(`/api/task/view?entrySymbol=${encodeURIComponent(sourceEntry)}`, {headers});
+    expect(response.ok(), await response.text()).toBe(true);
+    const saved = await response.json();
+    expect(saved.semanticMap.edges.some((edge: {kind: string}) => edge.kind === 'resolved_cross_file')).toBe(true);
+    expect(saved.semanticMap.unknowns.length).toBeGreaterThan(0);
+    await page.setViewportSize({width:390, height:844});
+    await page.goto(`/?token=testtoken&viewId=${saved.viewId}`);
+    await expect(page.locator('#code-flow .source mark').first()).toBeVisible();
+    expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(390);
+    await page.locator('[data-flow-frame]').last().click();
+    await expect(page.locator('#code-flow .source mark').first()).toBeVisible();
+    await page.getByRole('button', {name:'코드 더 보기', exact:true}).click();
+    expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(390);
+    expect(await page.locator('#code-flow .source').evaluate(element => element.scrollWidth > element.clientWidth)).toBe(true);
+    await page.locator('#boundaries summary').click();
+    expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(390);
+  } finally {
+    unlinkSync(sourcePath);
+  }
+});
+
+test('Go call result opens the callee and every saved source step in a mixed repository', async ({page, request}) => {
+  const goEntry = 'checkout.go#Service.Checkout';
+  const response = await request.get(`/api/task/view?entrySymbol=${encodeURIComponent(goEntry)}`, {headers});
+  expect(response.ok(), await response.text()).toBe(true);
+  const saved = await response.json();
+  expect(saved.flowResolution.entrySymbolPath).toBe(goEntry);
+  const callee = saved.semanticMap.steps.find((step: {anchor: {enclosingSymbolPath: string}}) =>
+    step.anchor.enclosingSymbolPath === 'calculateFee');
+  expect(callee).toBeTruthy();
+  await page.goto(`/?token=testtoken&viewId=${saved.viewId}`);
+  for (const frame of saved.flowSequence.frames as Array<{frameID: string; stepRefs: string[]}>) {
+    await page.locator(`[data-frame="${frame.frameID}"]`).click();
+    await expect(page.locator('#code-flow .source mark').first()).toBeVisible();
+    const disclosure = page.locator(`[aria-controls="timeline-${frame.frameID}"]`);
+    await disclosure.click();
+    for (const stepID of frame.stepRefs) {
+      await page.locator(`[data-flow-step="${stepID}"]`).click();
+      await expectSelectedSource(page, saved.flowContexts[stepID]);
+      expect(saved.flowContexts[stepID].precision).toBe('exact');
+    }
+  }
+  await page.locator(`[data-flow-step="${callee.stepId}"]`).click();
+  await expect(page.locator('#code-flow .source mark').first()).toContainText('return amount * 2');
+});
+
+test('natural Go request in a mixed repository requires source preview and preserves the choice', async ({page, request}) => {
+  const rawRequest = 'ProcessCheckout';
+  const goEntry = 'checkout.go#Service.ProcessCheckout';
+  await page.goto('/?token=testtoken');
+  await page.locator('#query-input').fill(rawRequest);
+  await page.locator('#request-submit').click();
+  const candidate = page.locator('.candidate-choice').filter({hasText: goEntry});
+  await expect(candidate).toBeVisible();
+  await expect(candidate.getByRole('button', {name: '이 진입점 선택'})).toBeDisabled();
+  await candidate.getByRole('button', {name: '코드 미리 보기'}).click();
+  await expect(page.getByLabel('후보 진입 코드')).toContainText('ProcessCheckout');
+  await candidate.getByRole('button', {name: '이 진입점 선택'}).click();
+  await expect(page.getByRole('region', {name: '요청 흐름의 관문과 연결', exact: true})).toBeVisible();
+  const viewId = new URL(page.url()).searchParams.get('viewId');
+  const saved = await (await request.get(`/api/view?viewId=${viewId}`, {headers})).json();
+  expect(saved.flowResolution.rawRequest).toBe(rawRequest);
+  expect(saved.flowResolution.entrySymbolPath).toBe(goEntry);
+  await expect(page.locator('#code-flow .source mark').first()).toBeVisible();
+});
+
+test('explicit Go implementation outside harvest candidates opens its exact code', async ({page, request}) => {
+  const rawRequest = 'How is the checkout fee calculated?';
+  const goEntry = 'checkout.go#calculateFee';
+  const response = await request.get(`/api/task/view?query=${encodeURIComponent(rawRequest)}&entrySymbol=${encodeURIComponent(goEntry)}`, {headers});
+  expect(response.ok(), await response.text()).toBe(true);
+  const saved = await response.json();
+  expect(saved.flowResolution.rawRequest).toBe(rawRequest);
+  expect(saved.flowResolution.entrySymbolPath).toBe(goEntry);
+  expect(saved.flowContexts).toBeTruthy();
+  await page.goto(`/?token=testtoken&viewId=${saved.viewId}`);
+  await expect(page.locator('#code-flow .source mark').first()).toBeVisible();
+  for (const frame of saved.flowSequence.frames as Array<{frameID: string; stepRefs: string[]}>) {
+    await page.locator(`[data-frame="${frame.frameID}"]`).click();
+    await page.locator(`[aria-controls="timeline-${frame.frameID}"]`).click();
+    for (const stepID of frame.stepRefs) {
+      await page.locator(`[data-flow-step="${stepID}"]`).click();
+      await expectSelectedSource(page, saved.flowContexts[stepID]);
+    }
+  }
+});
+
+test('curated Go reading path retains its intermediate source step', async ({page, request}) => {
+  const sourcePath = path.join(process.env.CODEFLOW_BROWSER_FIXTURE!, 'summary.go');
+  writeFileSync(sourcePath, 'package checkout\nfunc readSummary(value int) int {\n  result := value\n  if result < 0 {\n    result = -result\n  }\n  return result\n}\n');
+  try {
+    const rawRequest = 'How is the summary normalized?';
+    const entrySymbol = 'summary.go#readSummary';
+    const analysisResponse = await request.get(`/api/task/view?query=${encodeURIComponent(rawRequest)}&entrySymbol=${encodeURIComponent(entrySymbol)}`, {headers});
+    expect(analysisResponse.ok(), await analysisResponse.text()).toBe(true);
+    const analysis = await analysisResponse.json();
+    const steps = analysis.semanticMap.steps as Array<{stepId: string; kind: string}>;
+    expect(steps.map(step => step.kind)).toEqual(['mutation', 'guard', 'mutation', 'return']);
+    const edges = analysis.semanticMap.edges as Array<{fromStepId: string; toStepId: string; conditions?: Array<{outcome: string}>}>;
+    const edgeIndex = (from: string, to: string) => edges.findIndex(edge => edge.fromStepId === from && edge.toStepId === to);
+    const [entry, decision, detail, outcome] = steps;
+    const entryEdge = edgeIndex(entry.stepId, decision.stepId);
+    const detailEdge = edgeIndex(decision.stepId, detail.stepId);
+    const outcomeEdge = edgeIndex(detail.stepId, outcome.stepId);
+    expect([entryEdge, detailEdge, outcomeEdge].every(index => index >= 0)).toBe(true);
+    expect(edges[detailEdge].conditions?.[0]?.outcome).toBe('truthy');
+
+    const curatedResponse = await request.post('/api/view/reading-path', {
+      headers,
+      data: {
+        viewId: analysis.viewId,
+        selections: [
+          {stepId: entry.stepId, role: 'entry', requestPart: 'summary', inclusionReason: '함수의 입력을 읽는다'},
+          {stepId: decision.stepId, role: 'decision', requestPart: 'normalized', inclusionReason: '값을 바꿀 조건을 확인한다'},
+          {stepId: outcome.stepId, role: 'outcome', requestPart: 'summary', inclusionReason: '계산 결과를 반환한다'},
+        ],
+        relations: [
+          {fromStepId: entry.stepId, toStepId: decision.stepId, edgeIndexes: [entryEdge]},
+          {fromStepId: decision.stepId, toStepId: outcome.stepId, edgeIndexes: [detailEdge, outcomeEdge]},
+        ],
+      },
+    });
+    expect(curatedResponse.ok(), await curatedResponse.text()).toBe(true);
+    const curated = await curatedResponse.json();
+    expect(curated.codeReadingPath.nodes).toHaveLength(3);
+    await page.goto(`/?token=testtoken&viewId=${curated.viewId}`);
+    for (const node of curated.codeReadingPath.nodes as Array<{stepId: string}>) {
+      await page.locator(`.reading-node[data-flow-step="${node.stepId}"]`).click();
+      await expectSelectedSource(page, curated.flowContexts[node.stepId]);
+    }
+    const relationPanel = page.locator(`[data-reading-relation="${decision.stepId}:${outcome.stepId}"]`);
+    await relationPanel.locator('button.disclosure').click();
+    await relationPanel.locator(`[data-relation-step="${detail.stepId}"]`).click();
+    await expectSelectedSource(page, curated.flowContexts[detail.stepId]);
+  } finally {
+    unlinkSync(sourcePath);
+  }
+});
+
+test('unreadable detail shows its source boundary without a false code highlight', async ({page, request}) => {
+  const sourcePath = path.join(process.env.CODEFLOW_BROWSER_FIXTURE!, 'hooks/useCart.ts');
+  const original = readFileSync(sourcePath, 'utf8');
+  try {
+    writeFileSync(sourcePath, original.replace(
+      'sum + item.price * item.quantity, 0',
+      '({ apiKey: sum + item.price * item.quantity }).apiKey, 0'
+    ));
+    const response = await request.get(`/api/task/view?query=quick+checkout&entrySymbol=${encodeURIComponent(entry)}`, {headers});
+    expect(response.ok()).toBe(true);
+    const saved = await response.json();
+    const detail = saved.semanticMap.steps.find((step: {name: string}) => step.name.startsWith('cart.reduce('));
+    expect(detail).toBeTruthy();
+    const frame = saved.flowSequence.frames.find((item: {stepRefs: string[]}) => item.stepRefs.includes(detail.stepId));
+    expect(frame).toBeTruthy();
+    expect(saved.flowSequence.summaryLimitations.some((item: {code: string; frameRefs: string[]}) =>
+      item.code === 'source_code_unavailable' && item.frameRefs.includes(frame.frameID))).toBe(true);
+
+    await page.goto(`/?token=testtoken&viewId=${saved.viewId}`);
+    await expect(page.locator(`[data-frame="${frame.frameID}"]`)).toBeVisible();
+    await page.locator(`[aria-controls="timeline-${frame.frameID}"]`).click();
+    await page.locator(`[data-flow-step="${detail.stepId}"]`).click();
+    await expect(page.locator('#code-flow .source mark')).toHaveCount(0);
+    await expect(page.getByText('주변 코드 · 정확한 코드 범위 미표시')).toBeVisible();
+    await expect(page.getByText('상세 코드 미표시 · 읽기 경계').first()).toBeVisible();
+  } finally {
+    writeFileSync(sourcePath, original);
+  }
+});
+
+test('unreadable gateway failure keeps the prior view and explains the target', async ({page, request}) => {
+  const baselineResponse = await request.get(`/api/task/view?query=quick+checkout&entrySymbol=${encodeURIComponent(entry)}`, {headers});
+  expect(baselineResponse.ok()).toBe(true);
+  const baseline = await baselineResponse.json();
+  const sourcePath = path.join(process.env.CODEFLOW_BROWSER_FIXTURE!, 'app/page.tsx');
+  const original = readFileSync(sourcePath, 'utf8');
+  try {
+    await page.goto(`/?token=testtoken&viewId=${baseline.viewId}`);
+    await expect(page.locator('#code-flow .source mark').first()).toBeVisible();
+    writeFileSync(sourcePath, original.replace("setStatus('processing');", "setStatus({ apiKey: 'sk-1234567890abcdef' });"));
+    await page.locator('#reanalyze').click();
+    await expect(page.getByRole('status').filter({hasText:'대상 app/page.tsx#HomePage.onQuickCheckout'})).toBeVisible();
+    await expect(page.getByRole('status').filter({hasText:'다시 분석하세요'})).toBeVisible();
+    await expect(page).toHaveURL(new RegExp(`viewId=${baseline.viewId}`));
+    await expect(page.locator('#code-flow .source mark').first()).toBeVisible();
+  } finally {
+    writeFileSync(sourcePath, original);
+  }
 });
 
 test('saved FlowView core reading surface has no serious accessibility violations', async ({page, request}) => {
@@ -248,6 +579,72 @@ test('cross-file timeline child keeps its gateway and opens its own source evide
   } finally {
     unlinkSync(entrySource);
     unlinkSync(helperSource);
+  }
+});
+
+test('Dart callback delivery opens callback code without claiming it ran', async ({page, request}) => {
+  const fixtureRoot = process.env.CODEFLOW_BROWSER_FIXTURE!;
+  const sourcePath = path.join(fixtureRoot, 'lib', 'callback.dart');
+  mkdirSync(path.dirname(sourcePath), {recursive:true});
+  const source = [
+    'class Service {',
+    '  void run() {',
+    '    final timer = Timer(const Duration(milliseconds: 10), () {',
+    '      if (done) return;',
+    '    });',
+    '    final selected = <int>[1, 2].where((item) => item > 1).firstOrNull;',
+    '    final finished = true;',
+    '  }',
+    '}',
+    ''
+  ].join('\n');
+  writeFileSync(sourcePath, source);
+  try {
+    const response = await request.get('/api/task/view?entrySymbol=lib%2Fcallback.dart%23Service.run', {headers});
+    expect(response.ok()).toBe(true);
+    const saved = await response.json();
+    const relation = saved.semanticMap.edges.find((edge: {kind: string}) => edge.kind === 'callback_argument');
+    expect(relation).toBeTruthy();
+    const callbackStep = saved.semanticMap.steps.find((step: {stepId: string}) => step.stepId === relation.toStepId);
+    expect(callbackStep).toBeTruthy();
+    expect(saved.flowContexts[callbackStep.stepId].precision).toBe('exact');
+    const callbackFrame = saved.flowSequence.frames.find((frame: {stepRefs: string[]}) => frame.stepRefs.includes(callbackStep.stepId));
+    expect(callbackFrame.status).toBe('partial');
+    const arrowStep = saved.semanticMap.steps.find((step: {stepId: string; anchor: {byteRange: [number, number]}}) =>
+      source.slice(...step.anchor.byteRange) === 'item > 1'
+    );
+    expect(arrowStep).toBeTruthy();
+    expect(saved.flowContexts[arrowStep.stepId].precision).toBe('exact');
+    const arrowFrame = saved.flowSequence.frames.find((frame: {stepRefs: string[]}) => frame.stepRefs.includes(arrowStep.stepId));
+    expect(arrowFrame.status).toBe('partial');
+
+    await page.goto(`/?token=testtoken&viewId=${saved.viewId}`);
+    const unprovenCount = saved.flowSequence.summaryLimitations
+      .find((item: {code: string}) => item.code === 'invocation_unproven').frameRefs.length;
+    const unprovenToggle = page.getByRole('button', {name: `실행 연결 미확인 코드 ${unprovenCount}관문 보기`});
+    await expect(unprovenToggle).toHaveCount(2);
+    await expect(unprovenToggle.first()).toHaveAttribute('aria-expanded', 'false');
+    await expect(page.locator(`[data-frame="${callbackFrame.frameID}"]`)).toHaveCount(0);
+    await expect(page.locator(`[data-flow-frame="${callbackFrame.frameID}"]`)).toHaveCount(0);
+    const sourceFrame = saved.flowSequence.frames.find((frame: {stepRefs: string[]}) => frame.stepRefs.includes(relation.fromStepId));
+    await page.locator(`[data-flow-frame="${sourceFrame.frameID}"]`).click();
+    await page.locator('[data-navigation-focus^="outgoing:"]').filter({hasText: callbackStep.name}).first().click();
+    await expect(page.locator(`[data-frame="${callbackFrame.frameID}"]`)).toHaveAttribute('aria-pressed', 'true');
+    await expect(page.locator(`[data-flow-frame="${callbackFrame.frameID}"]`)).toHaveAttribute('aria-pressed', 'true');
+    await expectSelectedSource(page, saved.flowContexts[callbackStep.stepId]);
+    await expect(page.locator('#code-flow .source mark').first()).toBeVisible();
+    await expect(page.locator('#code-flow .source')).toContainText('if (done) return;');
+    await page.reload();
+    await page.getByRole('region', {name: '요청 흐름의 관문과 연결', exact: true})
+      .getByRole('button', {name: `실행 연결 미확인 코드 ${unprovenCount}관문 보기`}).click();
+    await page.locator(`[data-flow-frame="${callbackFrame.frameID}"]`).click();
+    await expect(page.locator('#code-flow .source mark').first()).toBeVisible();
+    await expect(page.getByText('콜백 전달 · 실행 여부 미확인').first()).toBeVisible();
+    await page.locator(`[data-flow-frame="${arrowFrame.frameID}"]`).click();
+    await expect(page.locator('#code-flow .source mark').first()).toBeVisible();
+    await expect(page.locator('#code-flow .source')).toContainText('item > 1');
+  } finally {
+    unlinkSync(sourcePath);
   }
 });
 
@@ -866,18 +1263,55 @@ test('large analyzed flow keeps its distant gateway reachable at narrow width', 
     expect(lastFrame).toBeTruthy();
 
     await page.setViewportSize({width:390, height:844});
+    const openStarted = Date.now();
     await page.goto(`/?token=testtoken&viewId=${saved.viewId}`);
     await expect(page.getByRole('region', {name:'요청 흐름의 관문과 연결', exact:true})).toBeVisible();
+    const openMs = Date.now() - openStarted;
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
 
+    const selectStarted = Date.now();
     const lastGateway = page.locator('[data-flow-frame]').last();
     await lastGateway.scrollIntoViewIfNeeded();
     await lastGateway.click();
     await expect(lastGateway).toHaveAttribute('aria-pressed', 'true');
     await expect(page.locator('#code-flow .code-card')).toHaveAttribute('data-step-card', lastFrame.primaryStepRef);
+    const selectMs = Date.now() - selectStarted;
     const sourcePanel = page.locator('#code-flow .source');
     await expect(sourcePanel).toBeVisible();
     expect(await sourcePanel.evaluate(element => element.getBoundingClientRect().right <= window.innerWidth)).toBe(true);
+
+    const expandStarted = Date.now();
+    await page.locator(`[aria-controls="timeline-${lastFrame.frameID}"]`).click();
+    const lastStepID = lastFrame.stepRefs.at(-1);
+    expect(lastStepID).toBeTruthy();
+    await page.locator(`[data-flow-step="${lastStepID}"]`).click();
+    await expectSelectedSource(page, saved.flowContexts[lastStepID]);
+    const expandAndReadMs = Date.now() - expandStarted;
+
+    const frames = saved.flowSequence.frames as Array<{frameID: string; stepRefs: string[]}>;
+    const offscreenRelation = saved.semanticMap.edges.find((edge: {fromStepId: string; toStepId: string; resolutionStatus: string}) => {
+      if (edge.resolutionStatus !== 'resolved') return false;
+      const fromIndex = frames.findIndex(frame => frame.stepRefs.includes(edge.fromStepId));
+      const toIndex = frames.findIndex(frame => frame.stepRefs.includes(edge.toStepId));
+      return fromIndex >= 0 && toIndex > fromIndex && toIndex < frames.length - 7;
+    });
+    expect(offscreenRelation).toBeTruthy();
+    const relationSource = frames.find(frame => frame.stepRefs.includes(offscreenRelation.fromStepId))!;
+    const relationTarget = frames.find(frame => frame.stepRefs.includes(offscreenRelation.toStepId))!;
+    const relationStarted = Date.now();
+    await page.locator(`[data-flow-frame="${relationSource.frameID}"]`).click();
+    await lastGateway.scrollIntoViewIfNeeded();
+    const targetOutsideViewport = await page.locator(`[data-flow-frame="${relationTarget.frameID}"]`).evaluate(element => {
+      const rect = element.getBoundingClientRect();
+      return rect.top >= window.innerHeight || rect.bottom <= 0;
+    });
+    expect(targetOutsideViewport).toBe(true);
+    await page.locator('[data-navigation-focus^="outgoing:"]').first().click();
+    await expect(page.getByRole('button', {name: '원래 장면 복귀', exact: true})).toBeVisible();
+    await page.getByRole('button', {name: '원래 장면 복귀', exact: true}).click();
+    await expect(page.locator(`[data-flow-frame="${relationSource.frameID}"]`)).toHaveAttribute('aria-pressed', 'true');
+    const relationAndReturnMs = Date.now() - relationStarted;
+    console.log('large-flow navigation ' + JSON.stringify({stepCount: saved.semanticMap.steps.length, gatewayCount: frames.length, openMs, selectMs, expandAndReadMs, relationAndReturnMs}));
   } finally {
     unlinkSync(source);
   }
@@ -1040,6 +1474,7 @@ test('resolved flow displays request region with entry point evidence and limita
   expect(viewData.flowResolution).toBeTruthy();
   expect(viewData.flowResolution.status).toBe('resolved');
   expect(viewData.flowResolution.rawRequest).toBe(query);
+  expect(viewData.flowResolution.evidence[0].sourceAnchor).toEqual(viewData.semanticMap.steps[0].anchor);
 
   await page.goto(`/?token=testtoken&viewId=${viewData.viewId}`);
   const requestRegion = page.getByRole('region', {name: '요청 영역', exact: true});
@@ -1048,6 +1483,8 @@ test('resolved flow displays request region with entry point evidence and limita
   await expect(requestRegion).toContainText(query);
   await expect(requestRegion).toContainText(entry);
   await expect(requestRegion).toContainText('진입점:');
-  await expect(requestRegion).toContainText('선택 근거:');
+  await expect(requestRegion).toContainText('후보 정보:');
+  await expect(requestRegion.locator('.request-detail').filter({hasText: '후보 정보:'})).toContainText('app/page.tsx#HomePage.onQuickCheckout');
+  await expect(requestRegion).toContainText('요청과 코드의 의미 연결은 선택자의 판단');
   await expect(requestRegion).toContainText('분석 한계:');
 });

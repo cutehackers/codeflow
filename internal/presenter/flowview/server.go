@@ -137,9 +137,11 @@ func NewServer(cfg Config) (*Server, error) {
 	mux.HandleFunc("/api/flows", s.serveListFlows)
 	mux.HandleFunc("/api/views", s.serveTaskViewList)
 	mux.HandleFunc("/api/view", s.serveTaskViewDetail)
+	mux.HandleFunc("/api/view/reading-path", s.serveCodeReadingPath)
 	mux.HandleFunc("/api/view/compare", s.serveTaskViewComparison)
 	mux.HandleFunc("/api/flow", s.serveGetFlow)
 	mux.HandleFunc("/api/flow/context", s.serveFlowContext)
+	mux.HandleFunc("/api/candidate/preview", s.serveCandidatePreview)
 	mux.HandleFunc("/api/source", s.serveGetSource)
 	mux.HandleFunc("/api/approve", s.serveApprove)
 	mux.HandleFunc("/api/task/view", s.serveTaskView)
@@ -727,7 +729,7 @@ func writeTaskViewError(w http.ResponseWriter, err error, status int) {
 		} else if errors.Is(err, errUnsupportedFlowSequenceSchema) {
 			code = errUnsupportedFlowSequenceSchema.Error()
 		} else {
-			for _, candidate := range []string{"no_entrypoints_found", "missing_precondition", "invalid_precondition", "ambiguous_target", "incomparable_basis", "analysis_failed", "unavailable", "unknown", "conflict"} {
+			for _, candidate := range []string{"no_entrypoints_found", "missing_precondition", "invalid_precondition", "invalid_evidence", "unresolved_target", "ambiguous_target", "incomparable_basis", "analysis_failed", "unavailable", "unknown", "conflict"} {
 				if strings.HasPrefix(message, candidate+":") || message == candidate {
 					code = candidate
 					if candidate == "no_entrypoints_found" {
@@ -750,6 +752,72 @@ func writeTaskViewError(w http.ResponseWriter, err error, status int) {
 	_ = json.NewEncoder(w).Encode(resp)
 }
 
+func writeTaskAnalysisFailure(w http.ResponseWriter, rawRequest string, target *semantic.ResolvedTarget, cause error) {
+	targetPath := ""
+	if target != nil {
+		targetPath = target.EntrySymbolPath
+	}
+	requestText := strings.TrimSpace(rawRequest)
+	if requestText == "" {
+		requestText = targetPath
+	}
+	reason := "선택한 코드의 분석 근거를 확인할 수 없습니다."
+	reasonCode := "source_proof_unavailable"
+	nextAction := "진입점과 해당 코드 범위를 확인한 뒤 명시적으로 다시 분석하세요."
+	message := ""
+	if cause != nil {
+		message = cause.Error()
+	}
+	switch {
+	case strings.Contains(message, "entry_symbol_not_found:"):
+		reasonCode = "entry_symbol_not_found"
+		reason = "현재 코드에서 선택한 진입 메서드를 찾지 못했습니다."
+		nextAction = "현재 코드에서 진입점을 다시 선택한 뒤 분석하세요."
+	case strings.Contains(message, "entry_symbol_has_no_executable_steps:"):
+		reasonCode = "entry_symbol_has_no_executable_steps"
+		reason = "선택한 진입 메서드에서 실행 단계를 찾지 못했습니다."
+	case strings.Contains(message, "entry_symbol_unsupported_control_flow:"):
+		reasonCode = "entry_symbol_unsupported_control_flow"
+		reason = "선택한 진입 메서드에 분석기가 지원하지 않는 제어 흐름이 있습니다."
+		nextAction = "지원되지 않은 제어 흐름을 확인하고 다른 진입점을 선택하거나 분석 지원을 보완한 뒤 다시 분석하세요."
+	case strings.Contains(message, "selected source is not highlighted"), strings.Contains(message, "exact CodeView source context is unavailable"):
+		reasonCode = "codeview_source_unavailable"
+		reason = "관문 대표 코드를 CodeView에서 정확히 표시할 수 없습니다."
+	case strings.Contains(message, "whole-file fallback range"):
+		reasonCode = "whole_file_fallback"
+		reason = "선택한 코드 근거가 문장 대신 파일 전체를 가리킵니다."
+	case strings.Contains(message, "source range or hash does not match"), strings.Contains(message, "source file"):
+		reasonCode = "snapshot_source_mismatch"
+		reason = "분석한 코드 위치가 현재 스냅샷의 소스와 일치하지 않습니다."
+	case strings.Contains(message, "no entry step"), strings.Contains(message, "no executable steps"):
+		reasonCode = "no_executable_steps"
+		reason = "요청 흐름의 실행 단계를 확인하지 못했습니다."
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusUnprocessableEntity)
+	_ = json.NewEncoder(w).Encode(map[string]any{
+		"code":       "analysis_failed",
+		"error":      "analysis_failed",
+		"message":    "선택한 요청 흐름을 분석하지 못했습니다: " + reason,
+		"target":     targetPath,
+		"reasonCode": reasonCode,
+		"reason":     reason,
+		"nextAction": nextAction,
+		"flowResolution": map[string]any{
+			"schemaVersion":   1,
+			"status":          "analysis_failed",
+			"rawRequest":      secret.Redact(requestText).Text,
+			"entrySymbolPath": targetPath,
+			"failure": map[string]any{
+				"target":     targetPath,
+				"reasonCode": reasonCode,
+				"reason":     reason,
+				"nextAction": nextAction,
+			},
+		},
+	})
+}
+
 type taskViewRecord struct {
 	inputHash    string
 	basisID      string
@@ -757,8 +825,8 @@ type taskViewRecord struct {
 	payload      []byte
 }
 
-func taskViewInputHash(mode, query, flowID, entrySymbol, domain string) string {
-	raw := strings.Join([]string{mode, query, flowID, entrySymbol, domain}, "\x00")
+func taskViewInputHash(mode, query, flowID, entrySymbol, domain, focusSymbol, focusReason string) string {
+	raw := strings.Join([]string{mode, query, flowID, entrySymbol, domain, focusSymbol, focusReason}, "\x00")
 	sum := sha256.Sum256([]byte(raw))
 	return hex.EncodeToString(sum[:])
 }
@@ -825,12 +893,13 @@ func flowRequestCandidateDescription(candidate harvest.Candidate) string {
 	return candidate.EntrySymbolPath
 }
 
-func resolveFlowRecord(rawRequest string, resolved *semantic.ResolvedTarget, candidates []harvest.Candidate, snapshot protocol.Snapshot) (*fusion.FlowResolution, error) {
-	if strings.TrimSpace(rawRequest) == "" {
-		return nil, nil
-	}
+func resolveFlowRecord(rawRequest, explicitEntrySymbol string, resolved *semantic.ResolvedTarget, candidates []harvest.Candidate, snapshot protocol.Snapshot) (*fusion.FlowResolution, error) {
 	if resolved == nil {
 		return nil, errors.New("flow target is missing")
+	}
+	requestText := strings.TrimSpace(rawRequest)
+	if requestText == "" {
+		requestText = resolved.EntrySymbolPath
 	}
 	for _, candidate := range candidates {
 		if candidate.CandidateID != resolved.CandidateID || candidate.EntrySymbolPath != resolved.EntrySymbolPath {
@@ -839,7 +908,7 @@ func resolveFlowRecord(rawRequest string, resolved *semantic.ResolvedTarget, can
 		return &fusion.FlowResolution{
 			SchemaVersion:   1,
 			Status:          "resolved",
-			RawRequest:      secret.Redact(strings.TrimSpace(rawRequest)).Text,
+			RawRequest:      secret.Redact(requestText).Text,
 			CandidateID:     candidate.CandidateID,
 			EntrySymbolPath: candidate.EntrySymbolPath,
 			FlowID:          fusion.ComputeFlowID(candidate.EntrySymbolPath),
@@ -847,6 +916,23 @@ func resolveFlowRecord(rawRequest string, resolved *semantic.ResolvedTarget, can
 				CandidateID:     candidate.CandidateID,
 				EntrySymbolPath: candidate.EntrySymbolPath,
 				Description:     flowRequestCandidateDescription(candidate),
+				SnapshotID:      snapshot.SnapshotID,
+				ComputedBasisID: snapshot.ComputedBasisID,
+			}},
+		}, nil
+	}
+	if strings.TrimSpace(explicitEntrySymbol) != "" && strings.TrimSpace(explicitEntrySymbol) == resolved.EntrySymbolPath {
+		return &fusion.FlowResolution{
+			SchemaVersion:   1,
+			Status:          "resolved",
+			RawRequest:      secret.Redact(requestText).Text,
+			CandidateID:     resolved.CandidateID,
+			EntrySymbolPath: resolved.EntrySymbolPath,
+			FlowID:          fusion.ComputeFlowID(resolved.EntrySymbolPath),
+			Evidence: []fusion.FlowEvidence{{
+				CandidateID:     resolved.CandidateID,
+				EntrySymbolPath: resolved.EntrySymbolPath,
+				Description:     "분석 요청에 명시된 진입 심볼",
 				SnapshotID:      snapshot.SnapshotID,
 				ComputedBasisID: snapshot.ComputedBasisID,
 			}},
@@ -872,6 +958,8 @@ func (s *Server) serveTaskView(w http.ResponseWriter, r *http.Request) {
 	flowID := r.URL.Query().Get("flowId")
 	entrySymbol := r.URL.Query().Get("entrySymbol")
 	domain := r.URL.Query().Get("domain")
+	focusSymbol := r.URL.Query().Get("focusSymbol")
+	focusReason := r.URL.Query().Get("focusReason")
 	requestID := strings.TrimSpace(r.URL.Query().Get("requestId"))
 
 	if r.Method == http.MethodPost {
@@ -896,6 +984,12 @@ func (s *Server) serveTaskView(w http.ResponseWriter, r *http.Request) {
 				if dom, ok := f["domain"].(string); ok && dom != "" {
 					domain = dom
 				}
+				if symbol, ok := f["focusSymbol"].(string); ok && symbol != "" {
+					focusSymbol = symbol
+				}
+				if reason, ok := f["focusReason"].(string); ok && reason != "" {
+					focusReason = reason
+				}
 			}
 		}
 	}
@@ -909,6 +1003,8 @@ func (s *Server) serveTaskView(w http.ResponseWriter, r *http.Request) {
 			FlowID:      flowID,
 			EntrySymbol: entrySymbol,
 			Domain:      domain,
+			FocusSymbol: focusSymbol,
+			FocusReason: focusReason,
 		},
 	}
 
@@ -930,11 +1026,20 @@ func (s *Server) serveTaskView(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer releaseSnapshot()
+	if expected := strings.TrimSpace(r.URL.Query().Get("expectedSnapshotId")); expected != "" && expected != snapshot.SnapshotID {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusConflict)
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"code": "source_changed", "message": "미리 본 코드가 변경됐습니다. 현재 코드를 다시 확인한 뒤 선택해 주세요.",
+			"candidateTargets": []string{entrySymbol},
+		})
+		return
+	}
 
 	if strings.TrimSpace(requestID) == "" {
 		requestID = newTaskViewRequestID()
 	}
-	inputHash := taskViewInputHash(mode, reqQuery, flowID, entrySymbol, domain)
+	inputHash := taskViewInputHash(mode, reqQuery, flowID, entrySymbol, domain, focusSymbol, focusReason)
 	if cached, err := s.lookupTaskViewRecord(requestID, inputHash, snapshot.ComputedBasisID); err != nil {
 		writeTaskViewError(w, err, http.StatusConflict)
 		return
@@ -944,25 +1049,28 @@ func (s *Server) serveTaskView(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	det := detect.DetectSnapshot(snapshot.Files)
-	lang := det.Language
-	if lang == "" || lang == "unknown" {
-		lang = "typescript"
-	}
 	cwd, _ := filepath.Abs(".")
-	adapterCfg, err := harvest.ResolveAdapterForRepo(s.repoRoot, cwd, lang, "")
-	if err != nil {
-		writeTaskViewError(w, fmt.Errorf("unavailable: resolve adapter: %w", err), http.StatusInternalServerError)
-		return
-	}
-	pool := protocol.NewPool(adapterCfg, 2)
-	defer pool.Close()
-
-	harvester := harvest.NewRunnerWithPool(pool)
-	candidates, err := harvester.RunWithSnapshot(ctx, s.repoRoot, snapshot)
-	if err != nil {
-		writeTaskViewError(w, fmt.Errorf("unavailable: harvest candidates: %w", err), http.StatusInternalServerError)
-		return
+	pools := make(map[string]*protocol.Pool)
+	defer func() {
+		for _, pool := range pools {
+			pool.Close()
+		}
+	}()
+	var candidates []harvest.Candidate
+	for _, language := range detect.RequestedFlowCandidateLanguages(entrySymbol, snapshot.Files) {
+		adapterCfg, resolveErr := harvest.ResolveAdapterForRepo(s.repoRoot, cwd, language, "")
+		if resolveErr != nil {
+			writeTaskViewError(w, fmt.Errorf("unavailable: resolve %s adapter: %w", language, resolveErr), http.StatusInternalServerError)
+			return
+		}
+		pool := protocol.NewPool(adapterCfg, 2)
+		pools[language] = pool
+		languageCandidates, harvestErr := harvest.NewRunnerWithPool(pool).RunWithSnapshot(ctx, s.repoRoot, snapshot)
+		if harvestErr != nil {
+			writeTaskViewError(w, fmt.Errorf("unavailable: harvest %s candidates: %w", language, harvestErr), http.StatusInternalServerError)
+			return
+		}
+		candidates = append(candidates, languageCandidates...)
 	}
 
 	resolved, err := semantic.ResolveFeatureQueryTarget(query, candidates)
@@ -982,17 +1090,22 @@ func (s *Server) serveTaskView(w http.ResponseWriter, r *http.Request) {
 		writeTaskViewError(w, err, http.StatusBadRequest)
 		return
 	}
-	flowResolution, err := resolveFlowRecord(reqQuery, resolved, candidates, snapshot)
+	flowResolution, err := resolveFlowRecord(reqQuery, entrySymbol, resolved, candidates, snapshot)
 	if err != nil {
 		writeTaskViewError(w, err, http.StatusBadRequest)
 		return
 	}
 
+	pool := pools[detect.RequestedEntryLanguage(resolved.EntrySymbolPath, snapshot.Files)]
+	if pool == nil {
+		writeTaskViewError(w, errors.New("unavailable: selected source language was not analyzed"), http.StatusInternalServerError)
+		return
+	}
 	slicer := slicing.NewRunner(pool)
 	slicePayload, err := slicer.SliceWithSnapshot(ctx, s.repoRoot, resolved.CandidateID, resolved.EntrySymbolPath, nil, snapshot)
 	if err != nil {
 		if isEntryAnalysisFailure(err) {
-			writeTaskViewError(w, fmt.Errorf("analysis_failed: %w", err), http.StatusUnprocessableEntity)
+			writeTaskAnalysisFailure(w, reqQuery, resolved, err)
 			return
 		}
 		writeTaskViewError(w, fmt.Errorf("unavailable: slice error: %w", err), http.StatusInternalServerError)
@@ -1001,7 +1114,11 @@ func (s *Server) serveTaskView(w http.ResponseWriter, r *http.Request) {
 
 	reqText := reqQuery
 	if reqText == "" {
-		reqText = resolved.Title
+		if flowResolution != nil {
+			reqText = flowResolution.RawRequest
+		} else {
+			reqText = resolved.Title
+		}
 	}
 
 	intent, err := semantic.NormalizeTaskIntent(reqText, semantic.IntentOptions{Mode: mode})
@@ -1027,6 +1144,11 @@ func (s *Server) serveTaskView(w http.ResponseWriter, r *http.Request) {
 		writeTaskViewError(w, fmt.Errorf("unavailable: compile map: %w", err), http.StatusInternalServerError)
 		return
 	}
+	requestedFocus, err := semantic.ResolveRequestedFlowFocus(mapIR, focusSymbol, focusReason)
+	if err != nil {
+		writeTaskViewError(w, err, http.StatusBadRequest)
+		return
+	}
 	mapBytes, err := json.Marshal(mapIR)
 	if err != nil {
 		writeTaskViewError(w, err, http.StatusInternalServerError)
@@ -1045,14 +1167,16 @@ func (s *Server) serveTaskView(w http.ResponseWriter, r *http.Request) {
 		writeTaskViewError(w, err, http.StatusInternalServerError)
 		return
 	}
-
-	s.mu.Lock()
-	if s.mapCache == nil {
-		s.mapCache = make(map[string]*semantic.SemanticMapIR)
+	if flowResolution != nil {
+		if len(mapIR.Steps) == 0 {
+			writeTaskAnalysisFailure(w, reqQuery, resolved, errors.New("requested flow has no entry step"))
+			return
+		}
+		if err := fusion.AttachFlowResolutionSourceAnchor(flowResolution, mapIR.Steps[0].Anchor, snapshot.Files); err != nil {
+			writeTaskAnalysisFailure(w, reqQuery, resolved, err)
+			return
+		}
 	}
-	s.mapCache[mapIR.GenerationID] = mapIR
-	s.mapCache[mapIR.ComputedBasisID] = mapIR
-	s.mu.Unlock()
 
 	evidenceRecords, _ := semantic.ExtractAndRedactEvidenceFromProtocolSnapshot(resolved, slicePayload, snapshot)
 
@@ -1061,7 +1185,7 @@ func (s *Server) serveTaskView(w http.ResponseWriter, r *http.Request) {
 		adapterHasFlowContext = conn.Version().Capabilities.FlowContext
 		pool.Put(conn)
 	}
-	metadata := s.rememberFlowContexts(mapIR, slicePayload, adapterHasFlowContext)
+	metadata := flowContextGenerationFor(mapIR, slicePayload, adapterHasFlowContext)
 	flowContexts := make(map[string]*FlowContextProjection, len(mapIR.Steps))
 	sourceBytes := snapshotSourceBytes(snapshot)
 	for _, step := range mapIR.Steps {
@@ -1075,6 +1199,31 @@ func (s *Server) serveTaskView(w http.ResponseWriter, r *http.Request) {
 			Expansion:             ExpansionFlowContext,
 		})
 	}
+	if requestedFocus != nil {
+		for _, stepID := range []string{requestedFocus.CallStepID, requestedFocus.EntryStepID} {
+			var focusedStep *semantic.SemanticStep
+			for index := range mapIR.Steps {
+				if mapIR.Steps[index].StepID == stepID {
+					focusedStep = &mapIR.Steps[index]
+					break
+				}
+			}
+			if focusedStep == nil {
+				writeTaskAnalysisFailure(w, reqQuery, resolved, fmt.Errorf("requested focus step %q is missing", stepID))
+				return
+			}
+			if err := validateRepresentativeStep(*focusedStep, nil, flowContexts, snapshot, mapIR); err != nil {
+				writeTaskAnalysisFailure(w, reqQuery, resolved, fmt.Errorf("requested focus step %q: %w", stepID, err))
+				return
+			}
+		}
+	}
+	flowSequence := semantic.BuildFlowSequence(mapIR)
+	if err := validateRepresentativeCode(resolved, mapIR, flowSequence, flowContexts, snapshot); err != nil {
+		writeTaskAnalysisFailure(w, reqQuery, resolved, err)
+		return
+	}
+	markDetailSourceBoundaries(mapIR, flowSequence, flowContexts, snapshot)
 
 	w.Header().Set("Content-Type", "application/json")
 	payload, err := json.Marshal(map[string]any{
@@ -1109,9 +1258,20 @@ func (s *Server) serveTaskView(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	result["sourceFiles"] = BuildSourceFiles(mapIR, snapshot)
-	result["request"] = &semantic.FeatureQueryParams{Request: reqText, EntrySymbol: resolved.EntrySymbolPath, FlowID: resolved.FlowID, Domain: domain}
+	result["flowSequence"] = flowSequence
+	redactedFocusReason := ""
+	if requestedFocus != nil {
+		redactedFocusReason = requestedFocus.Reason
+	}
+	result["request"] = &semantic.FeatureQueryParams{Request: reqText, EntrySymbol: resolved.EntrySymbolPath, FlowID: resolved.FlowID, Domain: domain, FocusSymbol: focusSymbol, FocusReason: redactedFocusReason}
+	if requestedFocus != nil {
+		result["requestedFocus"] = requestedFocus
+	}
 	if flowResolution != nil {
 		result["flowResolution"] = flowResolution
+	} else {
+		result["flowResolutionMissing"] = true
+		result["resolutionLimitation"] = "과거 분석으로 요청 확정 기록이 존재하지 않습니다."
 	}
 	saved, err := s.SaveTaskView(ctx, result)
 	if err != nil {
@@ -1123,6 +1283,17 @@ func (s *Server) serveTaskView(w http.ResponseWriter, r *http.Request) {
 		writeTaskViewError(w, err, http.StatusInternalServerError)
 		return
 	}
+	s.mu.Lock()
+	if s.mapCache == nil {
+		s.mapCache = make(map[string]*semantic.SemanticMapIR)
+	}
+	if s.flowContextMetadata == nil {
+		s.flowContextMetadata = make(map[string]flowContextGeneration)
+	}
+	s.mapCache[mapIR.GenerationID] = mapIR
+	s.mapCache[mapIR.ComputedBasisID] = mapIR
+	s.flowContextMetadata[mapIR.GenerationID] = metadata
+	s.mu.Unlock()
 	s.storeTaskViewRecord(requestID, inputHash, snapshot.ComputedBasisID, mapIR.GenerationID, payload)
 	_, _ = w.Write(payload)
 }
@@ -1133,7 +1304,109 @@ func isEntryAnalysisFailure(err error) bool {
 	}
 	message := err.Error()
 	return strings.Contains(message, "entry_symbol_not_found:") ||
-		strings.Contains(message, "entry_symbol_has_no_executable_steps:")
+		strings.Contains(message, "entry_symbol_has_no_executable_steps:") ||
+		strings.Contains(message, "entry_symbol_unsupported_control_flow:") ||
+		strings.Contains(message, "representative_code_invalid:")
+}
+
+func validateRepresentativeCode(resolved *semantic.ResolvedTarget, mapIR *semantic.SemanticMapIR, sequence *semantic.FlowSequence, flowContexts map[string]*FlowContextProjection, snapshot protocol.Snapshot) error {
+	if mapIR == nil || len(mapIR.Steps) == 0 {
+		return fmt.Errorf("representative_code_invalid: no executable steps in feature map")
+	}
+	if sequence == nil || len(sequence.Frames) == 0 {
+		return fmt.Errorf("representative_code_invalid: no FlowSequence gateways")
+	}
+	stepsByID := make(map[string]semantic.SemanticStep, len(mapIR.Steps))
+	for _, step := range mapIR.Steps {
+		stepsByID[step.StepID] = step
+	}
+	checked := make(map[string]bool, len(sequence.Frames)+1)
+	entry := mapIR.Steps[0]
+	if err := validateRepresentativeStep(entry, resolved, flowContexts, snapshot, mapIR); err != nil {
+		return err
+	}
+	checked[entry.StepID] = true
+	for _, frame := range sequence.Frames {
+		step, ok := stepsByID[frame.PrimaryStepRef]
+		if !ok {
+			return fmt.Errorf("representative_code_invalid: gateway %q references missing step %q", frame.FrameID, frame.PrimaryStepRef)
+		}
+		if checked[step.StepID] {
+			continue
+		}
+		if err := validateRepresentativeStep(step, nil, flowContexts, snapshot, mapIR); err != nil {
+			return fmt.Errorf("gateway %q representative %q: %w", frame.FrameID, step.StepID, err)
+		}
+		checked[step.StepID] = true
+	}
+	return nil
+}
+
+func validateRepresentativeStep(repStep semantic.SemanticStep, resolved *semantic.ResolvedTarget, flowContexts map[string]*FlowContextProjection, snapshot protocol.Snapshot, mapIR *semantic.SemanticMapIR) error {
+	if repStep.Anchor.RepoRelativePath == "" {
+		return fmt.Errorf("representative_code_invalid: missing source file anchor")
+	}
+	fileBytes, ok := snapshot.Files[repStep.Anchor.RepoRelativePath]
+	if !ok {
+		return fmt.Errorf("representative_code_invalid: representative source file %q not in snapshot", repStep.Anchor.RepoRelativePath)
+	}
+
+	br := repStep.Anchor.ByteRange
+	if br[0] <= 0 && br[1] >= len(fileBytes) && (len(fileBytes) > 50 || strings.Contains(string(fileBytes), "\n")) {
+		return fmt.Errorf("representative_code_invalid: whole-file fallback range is not a valid representative statement")
+	}
+	if br[0] < 0 || br[0] >= br[1] || br[1] > len(fileBytes) ||
+		repStep.Anchor.FileHash != sha256Hex([]byte(fileBytes)) ||
+		repStep.Anchor.SpanHash != sha256Hex([]byte(fileBytes[br[0]:br[1]])) {
+		return fmt.Errorf("representative_code_invalid: source range or hash does not match the snapshot")
+	}
+	if mapIR.ComputedBasisID != snapshot.ComputedBasisID || flowSourceSnapshotID(mapIR) != snapshot.SnapshotID {
+		return fmt.Errorf("representative_code_invalid: analysis basis or snapshot mismatch")
+	}
+
+	if resolved != nil && resolved.EntrySymbolPath != "" {
+		parts := strings.Split(resolved.EntrySymbolPath, "#")
+		expectedFile := parts[0]
+		expectedSymbol := ""
+		if len(parts) > 1 {
+			expectedSymbol = parts[1]
+		}
+		if repStep.Anchor.RepoRelativePath != expectedFile {
+			return fmt.Errorf("representative_code_invalid: source file mismatch (expected %s, got %s)", expectedFile, repStep.Anchor.RepoRelativePath)
+		}
+		if expectedSymbol != "" && repStep.Anchor.EnclosingSymbolPath != "" {
+			if !isSymbolMatch(repStep.Anchor.EnclosingSymbolPath, expectedSymbol) {
+				return fmt.Errorf("representative_code_invalid: symbol mismatch (expected %s, got %s)", expectedSymbol, repStep.Anchor.EnclosingSymbolPath)
+			}
+		}
+	}
+
+	fc := flowContexts[repStep.StepID]
+	if fc == nil || fc.StepID != repStep.StepID || fc.SnapshotID != snapshot.SnapshotID ||
+		fc.CanonicalPath != repStep.Anchor.RepoRelativePath || fc.Precision != PrecisionExact ||
+		fc.SourceValidationStatus != "verified" || fc.Statement == nil || fc.Statement.ByteRange != br || fc.SourceLimitation != "" {
+		return fmt.Errorf("representative_code_invalid: exact CodeView source context is unavailable")
+	}
+	for _, line := range fc.DisplayedLines {
+		if line.IsHit && line.Selection != nil && line.Selection.Text != "" &&
+			line.Selection.Before+line.Selection.Text+line.Selection.After == line.Text {
+			return nil
+		}
+	}
+	return fmt.Errorf("representative_code_invalid: selected source is not highlighted in CodeView")
+}
+
+func isSymbolMatch(actual, expected string) bool {
+	if actual == expected {
+		return true
+	}
+	if strings.HasSuffix(expected, "."+actual) || strings.HasSuffix(actual, "."+expected) {
+		return true
+	}
+	if strings.HasSuffix(expected, "#"+actual) || strings.HasSuffix(actual, "#"+expected) {
+		return true
+	}
+	return false
 }
 
 func (s *Server) captureAnalysisSnapshot(ctx context.Context) (protocol.Snapshot, *workspace.WorkspaceSnapshot, func(), error) {

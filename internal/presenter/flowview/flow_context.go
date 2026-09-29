@@ -294,7 +294,7 @@ func DeriveFlowContext(params DeriveFlowContextParams) *FlowContextProjection {
 	if st.Status == "present" {
 		if st.ByteRange == nil || !validRange(*st.ByteRange) || !contains(*st.ByteRange, stmt) ||
 			*st.ByteRange == stmt || !contains(call, *st.ByteRange) ||
-			(st.NodeKind != "condition" && st.NodeKind != "callback" && st.NodeKind != "builder") {
+			(st.NodeKind != "condition" && st.NodeKind != "loop" && st.NodeKind != "callback" && st.NodeKind != "builder") {
 			return fallback(PrecisionUnknown, "문장을 감싸는 구조의 범위를 검증할 수 없습니다")
 		}
 	} else if st.ByteRange != nil || st.LineRange != nil || st.NodeKind != "" {

@@ -1,5 +1,5 @@
 // Package mcp implements the Model Context Protocol (MCP) server over stdio JSON-RPC
-// exposing the 8 CodeFlow tools for agent collaboration.
+// exposing CodeFlow tools for agent collaboration.
 package mcp
 
 import (
@@ -524,7 +524,7 @@ func (s *Server) listTools() []map[string]any {
 		},
 		{
 			"name":        "harvest_flows",
-			"description": "Find candidate entry points for a natural-language flow request. To show a new FlowView, select an unambiguous matching candidate and call analyze_flow with its entrySymbolPath; this call alone does not create a flowId.",
+			"description": "Find candidate entry points for a natural-language flow request. The optional query is a literal filter, not semantic matching; if it matches none, all candidates are returned with queryMatchStatus=no_literal_match for source-based selection. To show a new FlowView, select an unambiguous candidate after inspecting source evidence and call analyze_flow with its entrySymbolPath; this call alone does not create a flowId.",
 			"inputSchema": map[string]any{
 				"type": "object",
 				"properties": map[string]any{
@@ -603,14 +603,44 @@ func (s *Server) listTools() []map[string]any {
 			},
 		},
 		{
+			"name":        "curate_code_reading_path",
+			"description": "Select source-backed code points that explain the exact request in an existing FlowView. Read its semanticMap steps and indexed edges first. Each selection names a step, quotes a phrase from the request, and explains its relevance. Relations list exact resolved edge indexes between selected steps. Verified intermediate code remains expandable beneath a short relation. Inspect other confirmed outcomes at selected decisions and include those needed for the request. Branches and joins are allowed; each selected branch must end at an outcome or analysis boundary. CodeFlow verifies source, relationships, and CodeView, then saves a new viewId. Open that viewId with open_review.",
+			"inputSchema": map[string]any{
+				"type": "object", "required": []string{"viewId", "selections", "relations"},
+				"properties": map[string]any{
+					"viewId": map[string]any{"type": "string"},
+					"selections": map[string]any{"type": "array", "minItems": 1, "items": map[string]any{
+						"type": "object", "required": []string{"stepId", "role", "requestPart", "inclusionReason"},
+						"properties": map[string]any{
+							"stepId":          map[string]any{"type": "string"},
+							"role":            map[string]any{"type": "string", "enum": []string{"entry", "decision", "transform", "state_change", "effect", "handoff", "outcome", "boundary"}},
+							"requestPart":     map[string]any{"type": "string"},
+							"inclusionReason": map[string]any{"type": "string"},
+						},
+					}},
+					"relations": map[string]any{"type": "array", "items": map[string]any{
+						"type": "object", "required": []string{"fromStepId", "toStepId", "edgeIndexes"},
+						"properties": map[string]any{
+							"fromStepId":  map[string]any{"type": "string"},
+							"toStepId":    map[string]any{"type": "string"},
+							"edgeIndexes": map[string]any{"type": "array", "minItems": 1, "items": map[string]any{"type": "integer", "minimum": 0}},
+						},
+					}},
+					"target": targetProp,
+				},
+			},
+		},
+		{
 			"name":        "open_review",
-			"description": "Return the URL for a saved viewId or a persisted flowId. Open the returned URL immediately in the browser to show the result. A saved view is restored without analysis.",
+			"description": "Return a current FlowView for a persisted flowId or restore an exact saved viewId. A new flowId view may contain many uncurated gateways: inspect get_flow_payload with its returned viewId and compact=true, then use curate_code_reading_path when evidence supports a short requested path. Open the resulting viewId in the browser. A saved viewId is restored without analysis. focusSymbol and focusReason select one verified direct implementation call for a flowId view.",
 			"inputSchema": map[string]any{
 				"type": "object",
 				"properties": map[string]any{
-					"viewId": map[string]any{"type": "string", "description": "Saved FlowView result ID. Open the returned URL immediately to show that exact result without analysis."},
-					"flowId": map[string]any{"type": "string"},
-					"target": targetProp,
+					"viewId":      map[string]any{"type": "string", "description": "Saved FlowView result ID. Open the returned URL immediately to show that exact result without analysis."},
+					"flowId":      map[string]any{"type": "string"},
+					"focusSymbol": map[string]any{"type": "string", "description": "Optional exact path#symbol of the request's implementation target. Requires focusReason and flowId."},
+					"focusReason": map[string]any{"type": "string", "description": "Why this implementation explains the request. Requires focusSymbol and flowId."},
+					"target":      targetProp,
 				},
 			},
 		},
@@ -650,6 +680,7 @@ func (s *Server) executeTool(ctx context.Context, name string, args map[string]a
 		if err != nil {
 			return nil, err
 		}
+		queryMatchStatus := "not_requested"
 		if qRaw, ok := args["query"].(string); ok && strings.TrimSpace(qRaw) != "" {
 			q := strings.TrimSpace(qRaw)
 			terms := strings.Fields(strings.ToLower(q))
@@ -683,11 +714,17 @@ func (s *Server) executeTool(ctx context.Context, name string, args map[string]a
 					filtered = append(filtered, c)
 				}
 			}
-			candidates = filtered
+			if len(filtered) > 0 {
+				candidates = filtered
+				queryMatchStatus = "literal_match"
+			} else {
+				queryMatchStatus = "no_literal_match"
+			}
 		}
 		return map[string]any{
-			"count":      len(candidates),
-			"candidates": candidates,
+			"count":            len(candidates),
+			"candidates":       candidates,
+			"queryMatchStatus": queryMatchStatus,
 		}, nil
 
 	case "get_flow_payload":
@@ -720,7 +757,12 @@ func (s *Server) executeTool(ctx context.Context, name string, args map[string]a
 		}
 		if format, _ := args["format"].(string); format == "compact" || args["compact"] == true {
 			model := semantic.ProjectFlowSpec(&spec, "")
-			return curator.BuildCompactAnalysisPayload(model, semantic.BuildFlowSequence(model))
+			compact, err := curator.BuildCompactAnalysisPayload(model, semantic.BuildFlowSequence(model))
+			if err != nil {
+				return nil, err
+			}
+			compact.FlowResolution = spec.FlowResolution
+			return compact, nil
 		}
 		return spec, nil
 
@@ -797,6 +839,14 @@ func (s *Server) executeTool(ctx context.Context, name string, args map[string]a
 		})
 		if err != nil {
 			return nil, fmt.Errorf("fuse error: %w", err)
+		}
+		if resolution != nil {
+			if len(spec.Steps) == 0 {
+				return nil, fmt.Errorf("requested flow has no entry step")
+			}
+			if err := fusion.AttachFlowResolutionSourceAnchor(resolution, spec.Steps[0].Anchor, snapshot.Files); err != nil {
+				return nil, fmt.Errorf("verify requested flow entry source: %w", err)
+			}
 		}
 		spec.FlowResolution = resolution
 
@@ -991,6 +1041,14 @@ func (s *Server) executeTool(ctx context.Context, name string, args map[string]a
 	case "open_review":
 		target := s.resolveTarget(args["target"])
 		flowID, _ := args["flowId"].(string)
+		focusSymbol, _ := args["focusSymbol"].(string)
+		focusReason, _ := args["focusReason"].(string)
+		if (strings.TrimSpace(focusSymbol) == "") != (strings.TrimSpace(focusReason) == "") {
+			return nil, fmt.Errorf("focusSymbol and focusReason must be provided together")
+		}
+		if (focusSymbol != "" || focusReason != "") && flowID == "" {
+			return nil, fmt.Errorf("requested focus requires flowId reanalysis")
+		}
 		fv, err := s.getLiveCoordinator(target)
 		if err != nil {
 			return nil, err
@@ -998,6 +1056,9 @@ func (s *Server) executeTool(ctx context.Context, name string, args map[string]a
 		viewURL := fv.URL() + "&flow=" + url.QueryEscape(flowID)
 		viewID, _ := args["viewId"].(string)
 		if viewID != "" {
+			if focusSymbol != "" {
+				return nil, fmt.Errorf("requested focus cannot change a saved view")
+			}
 			if _, err := fv.RestoreTaskView(ctx, viewID); err != nil {
 				return nil, err
 			}
@@ -1009,6 +1070,9 @@ func (s *Server) executeTool(ctx context.Context, name string, args map[string]a
 			}
 			if existingViewID, ok := restored["viewId"].(string); ok && existingViewID != "" {
 				if _, hasResolution := restored["flowResolution"]; !hasResolution {
+					if focusSymbol != "" {
+						return nil, fmt.Errorf("requested focus requires a resolved current flow")
+					}
 					return map[string]any{
 						"status":  "ready",
 						"flowId":  flowID,
@@ -1028,7 +1092,7 @@ func (s *Server) executeTool(ctx context.Context, name string, args map[string]a
 			if err != nil {
 				return nil, err
 			}
-			saved, err := createCurrentTaskView(ctx, fv, entrySymbol, flowID, resolution)
+			saved, err := createCurrentTaskView(ctx, fv, entrySymbol, flowID, resolution, focusSymbol, focusReason)
 			if err != nil {
 				return nil, err
 			}
@@ -1045,6 +1109,9 @@ func (s *Server) executeTool(ctx context.Context, name string, args map[string]a
 			"viewId":  viewID,
 			"token":   fv.AuthToken(),
 		}, nil
+
+	case "curate_code_reading_path":
+		return s.processCodeReadingPath(ctx, args)
 
 	default:
 		return nil, fmt.Errorf("%w: %s", errMethodNotFound, name)
@@ -1073,7 +1140,60 @@ func restoredFlowResolution(restored map[string]any) (*fusion.FlowResolution, er
 	return &resolution, nil
 }
 
-func createCurrentTaskView(ctx context.Context, fv *flowview.Server, entrySymbol, flowID string, resolution *fusion.FlowResolution) (map[string]any, error) {
+func (s *Server) processCodeReadingPath(ctx context.Context, args map[string]any) (any, error) {
+	viewID, _ := args["viewId"].(string)
+	selections, _ := args["selections"].([]any)
+	relations, _ := args["relations"].([]any)
+	if strings.TrimSpace(viewID) == "" || len(selections) == 0 || (len(selections) > 1 && len(relations) == 0) {
+		return nil, fmt.Errorf("viewId and selected code points are required")
+	}
+	fv, err := s.getLiveCoordinator(s.resolveTarget(args["target"]))
+	if err != nil {
+		return nil, err
+	}
+	body, err := json.Marshal(map[string]any{"viewId": viewID, "selections": selections, "relations": relations})
+	if err != nil {
+		return nil, fmt.Errorf("encode code reading selections: %w", err)
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, "http://"+fv.Addr()+"/api/view/reading-path", strings.NewReader(string(body)))
+	if err != nil {
+		return nil, fmt.Errorf("create code reading path request: %w", err)
+	}
+	req.Header.Set("X-CodeFlow-Token", fv.AuthToken())
+	req.Header.Set("Content-Type", "application/json")
+	response, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("create code reading path: %w", err)
+	}
+	defer response.Body.Close()
+	responseBody, err := io.ReadAll(io.LimitReader(response.Body, 8<<20))
+	if err != nil {
+		return nil, fmt.Errorf("read code reading path: %w", err)
+	}
+	if response.StatusCode < http.StatusOK || response.StatusCode >= http.StatusMultipleChoices {
+		var failure struct {
+			Message string `json:"message"`
+		}
+		_ = json.Unmarshal(responseBody, &failure)
+		if failure.Message != "" {
+			return nil, fmt.Errorf("create code reading path: %s", failure.Message)
+		}
+		return nil, fmt.Errorf("create code reading path: HTTP %d", response.StatusCode)
+	}
+	var view struct {
+		ViewID          string                    `json:"viewId"`
+		CodeReadingPath *semantic.CodeReadingPath `json:"codeReadingPath"`
+	}
+	if err := json.Unmarshal(responseBody, &view); err != nil {
+		return nil, fmt.Errorf("decode code reading path: %w", err)
+	}
+	if view.ViewID == "" || view.CodeReadingPath == nil {
+		return nil, fmt.Errorf("create code reading path: persisted view is incomplete")
+	}
+	return map[string]any{"status": "ready", "viewId": view.ViewID, "url": fv.TaskViewURL(view.ViewID), "codeReadingPath": view.CodeReadingPath}, nil
+}
+
+func createCurrentTaskView(ctx context.Context, fv *flowview.Server, entrySymbol, flowID string, resolution *fusion.FlowResolution, focusSymbol, focusReason string) (map[string]any, error) {
 	if resolution == nil || resolution.EntrySymbolPath != entrySymbol || resolution.FlowID != flowID {
 		return nil, fmt.Errorf("flow resolution does not match the selected flow")
 	}
@@ -1083,6 +1203,8 @@ func createCurrentTaskView(ctx context.Context, fv *flowview.Server, entrySymbol
 			"request":     resolution.RawRequest,
 			"entrySymbol": entrySymbol,
 			"flowId":      flowID,
+			"focusSymbol": focusSymbol,
+			"focusReason": focusReason,
 		},
 	})
 	if err != nil {

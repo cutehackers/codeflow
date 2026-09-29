@@ -49,8 +49,19 @@ func TestLargeSourceHierarchySurvivesStorageHTTPAndMCP(t *testing.T) {
 	}, &payload); err != nil {
 		t.Fatal(err)
 	}
-	if payload.Truncated || len(payload.Steps) != 257 {
+	if payload.Truncated || len(payload.Steps) != 258 {
 		t.Fatalf("source execution steps lost: count=%d, truncated=%v", len(payload.Steps), payload.Truncated)
+	}
+	localValueFound := false
+	for _, step := range payload.Steps {
+		start, end := step.Anchor.ByteRange[0], step.Anchor.ByteRange[1]
+		if step.Kind == "mutation" && string([]byte(source.String())[start:end]) == "let total = request.amount;" {
+			localValueFound = true
+			break
+		}
+	}
+	if !localValueFound {
+		t.Fatal("local value preparation did not retain its exact source")
 	}
 	assertLargeOrderConnections(t, payload, checks)
 	if err := slicing.ValidateExecutionReferences(payload.Steps, payload.Edges); err != nil {
@@ -74,8 +85,8 @@ func TestLargeSourceHierarchySurvivesStorageHTTPAndMCP(t *testing.T) {
 			parents[id] = frame.FrameID
 		}
 	}
-	if len(parents) != 257 {
-		t.Fatalf("hierarchy contains %d steps, want 257", len(parents))
+	if len(parents) != 258 {
+		t.Fatalf("hierarchy contains %d steps, want 258", len(parents))
 	}
 	assignmentCount := 0
 	ordinalParents := make(map[int]string)
@@ -93,11 +104,8 @@ func TestLargeSourceHierarchySurvivesStorageHTTPAndMCP(t *testing.T) {
 		}
 	}
 	for _, step := range model.Steps {
-		if step.Kind != "mutation" {
+		if step.Kind != "mutation" || step.AssignmentSourceOrdinal == nil {
 			continue
-		}
-		if step.AssignmentSourceOrdinal == nil {
-			t.Fatal("adapter assignment value source lost")
 		}
 		if ordinalParents[*step.AssignmentSourceOrdinal] != parents[step.StepID] {
 			t.Fatal("direct call result and assignment separated")
@@ -109,7 +117,7 @@ func TestLargeSourceHierarchySurvivesStorageHTTPAndMCP(t *testing.T) {
 		}
 		assignmentCount++
 	}
-	if assignmentCount != 80 || len(sequence.Frames) != 97 {
+	if assignmentCount != 80 || len(sequence.Frames) != 98 {
 		t.Fatalf("value grouping count=%d frames=%d", assignmentCount, len(sequence.Frames))
 	}
 	guardParents := make(map[string]bool)
@@ -120,7 +128,7 @@ func TestLargeSourceHierarchySurvivesStorageHTTPAndMCP(t *testing.T) {
 			guardParents[parents[step.StepID]] = true
 		}
 	}
-	if len(guardParents) != 8 || kinds["call"] != 80 || kinds["mutation"] != 80 || kinds["return"] != 89 {
+	if len(guardParents) != 8 || kinds["call"] != 80 || kinds["mutation"] != 81 || kinds["return"] != 89 {
 		t.Fatalf("source decisions/calculations lost: guards=%d, kinds=%v", len(guardParents), kinds)
 	}
 	viewServer, err := flowview.NewServer(flowview.Config{RepoRoot: root, Port: 0})
@@ -194,7 +202,7 @@ func TestLargeSourceHierarchySurvivesStorageHTTPAndMCP(t *testing.T) {
 				if err := json.Unmarshal([]byte(response.Result.Content[0].Text), &actual); err != nil {
 					t.Fatal(err)
 				}
-				if len(actual.Steps) != 257 || len(actual.Frames) != len(sequence.Frames) {
+				if len(actual.Steps) != 258 || len(actual.Frames) != len(sequence.Frames) {
 					t.Fatal("MCP compact truncated source references or frames")
 				}
 				for i, step := range actual.Steps {
@@ -280,10 +288,13 @@ func assertLargeOrderConnections(t *testing.T, payload slicing.SlicedPayload, ch
 		next := "applyAdjustment01(total)"
 		if i+1 < len(checks) {
 			next = "if (!request." + checks[i+1] + ") return"
+		} else {
+			next = "let total = request.amount;"
 		}
 		expected[key("control_flow", from, rejected, "truthy")] = true
 		expected[key("control_flow", from, ordinal("processOrder", next), "falsy")] = true
 	}
+	expected[key("control_flow", ordinal("processOrder", "let total = request.amount;"), ordinal("processOrder", "applyAdjustment01(total)"), "")] = true
 	for i := 1; i <= 80; i++ {
 		symbol := fmt.Sprintf("applyAdjustment%02d", i)
 		call := ordinal("processOrder", symbol+"(total)")

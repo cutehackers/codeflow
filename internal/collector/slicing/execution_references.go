@@ -12,6 +12,9 @@ func ValidateExecutionReferences(steps []SliceStep, edges []SliceEdge) error {
 		if _, exists := ordinals[step.Ordinal]; exists || step.Ordinal < 1 {
 			return fmt.Errorf("invalid step ordinal %d", step.Ordinal)
 		}
+		if step.ValueRole != "" && (step.ValueRole != "local_binding" || step.Kind != "mutation") {
+			return fmt.Errorf("invalid value role for step %d", step.Ordinal)
+		}
 		ordinals[step.Ordinal] = step
 		if step.InvocationID == "" {
 			if step.CallerStepOrdinal != nil {
@@ -48,6 +51,17 @@ func ValidateExecutionReferences(steps []SliceStep, edges []SliceEdge) error {
 		}
 	}
 	for _, edge := range edges {
+		if edge.Kind == "callback_argument" {
+			if edge.StepOrdinal == nil || edge.TargetStepOrdinal == nil || edge.ResolutionStatus != "resolved" || len(edge.Conditions) != 0 || edge.UnresolvedReason != "" {
+				return fmt.Errorf("callback argument requires a resolved source and callback entry")
+			}
+			source, sourceOK := ordinals[*edge.StepOrdinal]
+			target, targetOK := ordinals[*edge.TargetStepOrdinal]
+			if !sourceOK || !targetOK || source.InvocationID == "" || target.InvocationID == "" || source.InvocationID == target.InvocationID || target.CallerStepOrdinal != nil || entries[target.InvocationID].Ordinal != target.Ordinal || source.Anchor.RepoRelativePath != target.Anchor.RepoRelativePath || executionSymbol(source) != executionSymbol(target) || edge.ToSymbolPath != target.Anchor.RepoRelativePath+"#"+executionSymbol(target) || source.Anchor.ByteRange[0] > target.Anchor.ByteRange[0] || source.Anchor.ByteRange[1] < target.Anchor.ByteRange[1] {
+				return fmt.Errorf("invalid callback argument reference")
+			}
+			continue
+		}
 		if len(edge.Conditions) > 0 {
 			if (edge.Kind != "control_flow" && edge.Kind != "loop_back" && edge.Kind != "loop_reentry") || edge.StepOrdinal == nil || len(edge.Conditions) != 1 {
 				return fmt.Errorf("invalid branch condition relation")
@@ -116,7 +130,15 @@ func ValidateExecutionReferences(steps []SliceStep, edges []SliceEdge) error {
 				return fmt.Errorf("inner loop exit cannot resume at its own break")
 			}
 			if (edge.Kind == "loop_back" || edge.Kind == "await_loop_back" || edge.Kind == "loop_exit_back") && target.Ordinal > source.Ordinal {
-				return fmt.Errorf("loop back must return to an earlier condition evaluation")
+				// A Go for post statement is written before a continue in the body,
+				// but receives a later execution ordinal. The continue must visit
+				// that statement before the next condition evaluation.
+				forPost := edge.Kind == "loop_back" && source.Kind == "continue" && target.Kind == "mutation" &&
+					target.Anchor.ByteRange[1] > target.Anchor.ByteRange[0] &&
+					target.Anchor.ByteRange[1] <= source.Anchor.ByteRange[0]
+				if !forPost {
+					return fmt.Errorf("loop back must return to an earlier condition evaluation")
+				}
 			}
 			if edge.Kind == "loop_reentry" && (source.Kind != "branch" || target.Ordinal >= source.Ordinal || len(edge.Conditions) != 1 || edge.Conditions[0].Outcome != "truthy") {
 				return fmt.Errorf("loop reentry requires a true branch condition and an earlier body target")
@@ -153,6 +175,21 @@ func ValidateExecutionReferences(steps []SliceStep, edges []SliceEdge) error {
 		}
 		if edge.StepOrdinal == nil || target.CallerStepOrdinal == nil || *edge.StepOrdinal != *target.CallerStepOrdinal || edge.ResolutionStatus != "resolved" {
 			return fmt.Errorf("explicit target caller mismatch for %q", edge.ToSymbolPath)
+		}
+	}
+	return nil
+}
+
+// ValidateCollectedExecutionReferences applies the current slice contract to
+// newly collected results. Historical payloads can still use
+// ValidateExecutionReferences, which accepts call edges without invocation facts.
+func ValidateCollectedExecutionReferences(steps []SliceStep, edges []SliceEdge) error {
+	if err := ValidateExecutionReferences(steps, edges); err != nil {
+		return err
+	}
+	for _, edge := range edges {
+		if edge.Kind == "resolved_cross_file" && (edge.StepOrdinal == nil || edge.TargetStepOrdinal == nil || edge.ResolutionStatus != "resolved") {
+			return fmt.Errorf("confirmed call %q requires a resolved caller and target step", edge.ToSymbolPath)
 		}
 	}
 	return nil

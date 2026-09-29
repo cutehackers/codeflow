@@ -709,6 +709,8 @@ func verifiedImpactEdge(status string) bool {
 func impactEdgeRelationKind(kind string) string {
 	normalized := strings.ToLower(strings.TrimSpace(kind))
 	switch {
+	case normalized == "callback_argument":
+		return "callback_argument"
 	case normalized == "resolved_cross_file", strings.Contains(normalized, "call"):
 		return "calls"
 	case strings.Contains(normalized, "override"):

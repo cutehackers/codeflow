@@ -86,25 +86,7 @@ func completeCurationReview(review *FlowCurationReview, sequence *FlowSequence, 
 			stepByID[s.StepID] = s
 		}
 	}
-	alignmentByStep := make(map[string]RequirementAlignment)
-	if mapIR != nil {
-		for _, req := range mapIR.RequirementAlignment {
-			if req.Status == "confirmed" || req.Status == "partial" {
-				for _, stepRef := range req.CoveredStepRefs {
-					alignmentByStep[stepRef] = req
-				}
-			}
-		}
-	}
-	obligationByStep := make(map[string]CriticalObligation)
-	if mapIR != nil {
-		for _, obl := range mapIR.Quality.CriticalObligations {
-			if obl.Required && obl.TargetRef != "" {
-				obligationByStep[obl.TargetRef] = obl
-			}
-		}
-	}
-
+	alignmentByStep := confirmedSpecificAlignmentByStep(mapIR)
 	for i := range review.Candidates {
 		candidate := &review.Candidates[i]
 		frame := frames[candidate.StepRef]
@@ -116,9 +98,6 @@ func completeCurationReview(review *FlowCurationReview, sequence *FlowSequence, 
 		if req, ok := alignmentByStep[candidate.StepRef]; ok {
 			candidate.RequestSpecific = true
 			candidate.RequestRelation = fmt.Sprintf("요청 기준(%s: %s)을 만족하는 핵심 판단·처리다. 생략 시 요청 검증이 성립하지 않는다.", req.CriterionID, req.Description)
-		} else if obl, ok := obligationByStep[candidate.StepRef]; ok {
-			candidate.RequestSpecific = true
-			candidate.RequestRelation = fmt.Sprintf("요청의 필수 책무(%s: %s)에 해당하는 핵심 지점이다. 생략 시 실행 결과 파악이 불가능하다.", obl.ObligationID, obl.Kind)
 		} else {
 			hasTargetRule := false
 			for _, r := range step.Rules {

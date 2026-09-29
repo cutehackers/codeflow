@@ -11,6 +11,234 @@ void main() {
 
   group('Ticket 07 - Same-file Slicing', () {
     test(
+      'keeps counter updates and skips an outer else-if after nested branches',
+      () {
+        final tempDir = Directory.systemTemp.createTempSync(
+          'nested_else_slice',
+        );
+        try {
+          final libDir = Directory('${tempDir.path}/lib')
+            ..createSync(recursive: true);
+          File(
+            '${tempDir.path}/pubspec.yaml',
+          ).writeAsStringSync('name: nested_else_slice\n');
+          const source = '''
+class Counter {
+  int count = 0;
+  bool mode = false;
+  void process(bool enable, bool ready) {
+    // 한글 설명은 소스 바이트 범위에 영향을 준다.
+    if (enable) {
+      count++;
+      if (ready) count--;
+    } else if (mode) {
+      count = 5;
+    }
+    count = 10;
+  }
+}
+''';
+          File('${libDir.path}/counter.dart').writeAsStringSync(source);
+          final result = sliceCandidate(
+            repoRoot: tempDir.path.replaceAll('\\', '/'),
+            candidateId: 'cand-nested-else',
+            entrySymbolPath: 'lib/counter.dart#Counter.process',
+          );
+          final steps = (result['steps'] as List).cast<Map<String, Object?>>();
+          final edges = (result['edges'] as List).cast<Map<String, Object?>>();
+          final sourceBytes = utf8.encode(source);
+          String textOf(Map<String, Object?> step) {
+            final range = ((step['anchor'] as Map)['byteRange'] as List)
+                .cast<int>();
+            return utf8.decode(sourceBytes.sublist(range[0], range[1])).trim();
+          }
+
+          int ordinal(String sourceText) =>
+              steps.singleWhere((step) => textOf(step) == sourceText)['ordinal']
+                  as int;
+          final increment = ordinal('count++;');
+          final decrement = ordinal('count--;');
+          final innerGuard = ordinal('if (ready)');
+          final alternative = ordinal('if (mode)');
+          final after = ordinal('count = 10;');
+          bool connects(int from, int to) => edges.any(
+            (edge) =>
+                edge['stepOrdinal'] == from &&
+                edge['targetStepOrdinal'] == to &&
+                edge['kind'] == 'control_flow',
+          );
+          expect(connects(increment, innerGuard), isTrue);
+          expect(connects(innerGuard, decrement), isTrue);
+          expect(connects(innerGuard, after), isTrue);
+          expect(connects(decrement, after), isTrue);
+          expect(connects(innerGuard, alternative), isFalse);
+          expect(connects(decrement, alternative), isFalse);
+        } finally {
+          tempDir.deleteSync(recursive: true);
+        }
+      },
+    );
+
+    test(
+      'marks local declarations without treating a field write as local',
+      () {
+        final tempDir = Directory.systemTemp.createTempSync(
+          'local_value_slice',
+        );
+        try {
+          final libDir = Directory('${tempDir.path}/lib')
+            ..createSync(recursive: true);
+          File(
+            '${tempDir.path}/pubspec.yaml',
+          ).writeAsStringSync('name: local_value_slice\n');
+          final source = '''
+class State {
+  int currentTurn = 1;
+  void applyMove() {
+    final player = currentTurn;
+    final opponent = player + 1;
+    currentTurn = opponent;
+  }
+}
+''';
+          File('${libDir.path}/state.dart').writeAsStringSync(source);
+          final params = (
+            repoRoot: tempDir.path.replaceAll('\\', '/'),
+            candidateId: 'cand-local-value',
+            entrySymbolPath: 'lib/state.dart#State.applyMove',
+          );
+          final result = sliceCandidate(
+            repoRoot: params.repoRoot,
+            candidateId: params.candidateId,
+            entrySymbolPath: params.entrySymbolPath,
+            opts: {'includeValueRoles': true},
+          );
+          final steps = (result['steps'] as List).cast<Map<String, Object?>>();
+          final values = steps
+              .where((step) => step['kind'] == 'mutation')
+              .toList();
+          expect(values.map((step) => step['valueRole']).toList(), [
+            'local_binding',
+            'local_binding',
+            null,
+          ]);
+          expect(
+            values.map((step) {
+              final range = ((step['anchor'] as Map)['byteRange'] as List)
+                  .cast<int>();
+              return source.substring(range[0], range[1]);
+            }).toList(),
+            [
+              'final player = currentTurn;',
+              'final opponent = player + 1;',
+              'currentTurn = opponent;',
+            ],
+          );
+          final legacy = sliceCandidate(
+            repoRoot: params.repoRoot,
+            candidateId: params.candidateId,
+            entrySymbolPath: params.entrySymbolPath,
+          );
+          expect(
+            (legacy['steps'] as List).every(
+              (step) => !(step as Map).containsKey('valueRole'),
+            ),
+            isTrue,
+          );
+        } finally {
+          tempDir.deleteSync(recursive: true);
+        }
+      },
+    );
+
+    test('connects each simple switch case to its own return', () {
+      final tempDir = Directory.systemTemp.createTempSync(
+        'switch_return_slice',
+      );
+      try {
+        final libDir = Directory('${tempDir.path}/lib')
+          ..createSync(recursive: true);
+        File(
+          '${tempDir.path}/pubspec.yaml',
+        ).writeAsStringSync('name: switch_return_slice\n');
+        final source = '''
+enum Owner { first, second, none }
+class State {
+  int firstCharges = 1;
+  int secondCharges = 2;
+  int chargesOf(Owner owner) {
+    switch (owner) {
+      case Owner.first:
+        return firstCharges;
+      case Owner.second:
+        return secondCharges;
+      case Owner.none:
+        return 0;
+    }
+  }
+}
+''';
+        File('${libDir.path}/state.dart').writeAsStringSync(source);
+        final result = sliceCandidate(
+          repoRoot: tempDir.path.replaceAll('\\', '/'),
+          candidateId: 'cand-switch-return',
+          entrySymbolPath: 'lib/state.dart#State.chargesOf',
+        );
+        final steps = (result['steps'] as List).cast<Map<String, Object?>>();
+        final edges = (result['edges'] as List).cast<Map<String, Object?>>();
+        final cases = steps.where((step) {
+          final range = ((step['anchor'] as Map)['byteRange'] as List)
+              .cast<int>();
+          return step['kind'] == 'guard' &&
+              source
+                  .substring(range[0], range[1])
+                  .trimLeft()
+                  .startsWith('case ');
+        }).toList();
+        final returns = steps
+            .where((step) => step['kind'] == 'return')
+            .toList();
+        expect(cases, hasLength(3));
+        expect(returns, hasLength(3));
+        for (var index = 0; index < cases.length; index++) {
+          final from = cases[index]['ordinal'];
+          final to = returns[index]['ordinal'];
+          expect(
+            edges.any(
+              (edge) =>
+                  edge['stepOrdinal'] == from &&
+                  edge['targetStepOrdinal'] == to &&
+                  edge['kind'] == 'control_flow' &&
+                  (edge['conditions'] as List).single['outcome'] == 'truthy',
+            ),
+            isTrue,
+          );
+          if (index + 1 < cases.length) {
+            expect(
+              edges.any(
+                (edge) =>
+                    edge['stepOrdinal'] == from &&
+                    edge['targetStepOrdinal'] == cases[index + 1]['ordinal'] &&
+                    edge['kind'] == 'control_flow' &&
+                    (edge['conditions'] as List).single['outcome'] == 'falsy',
+              ),
+              isTrue,
+            );
+          }
+          expect(
+            edges.any(
+              (edge) =>
+                  edge['stepOrdinal'] == to && edge['kind'] == 'control_flow',
+            ),
+            isFalse,
+          );
+        }
+      } finally {
+        tempDir.deleteSync(recursive: true);
+      }
+    });
+
+    test(
       'slices a primary-constructor controller method without using the file range',
       () {
         final tempDir = Directory.systemTemp.createTempSync(
@@ -406,6 +634,25 @@ class ClassB {
         );
 
         expect(res['visitedCycleDetected'], isTrue);
+        final edges = (res['edges'] as List).cast<Map<String, Object?>>();
+        expect(
+          edges.any(
+            (edge) =>
+                edge['kind'] == 'unknown_edge' &&
+                edge['resolutionStatus'] == 'truncated' &&
+                edge['toSymbolPath'] == 'lib/a.dart#ClassA.ping' &&
+                (edge['unresolvedReason'] as String).contains('재귀'),
+          ),
+          isTrue,
+        );
+        expect(
+          edges.any(
+            (edge) =>
+                edge['kind'] == 'resolved_cross_file' &&
+                edge['targetStepOrdinal'] == null,
+          ),
+          isFalse,
+        );
       } finally {
         tempDir.deleteSync(recursive: true);
       }
@@ -589,5 +836,202 @@ class Controller {
         tempDir.deleteSync(recursive: true);
       }
     });
+
+    test(
+      'VS-01 & VS-02: extracts intermediate declarations, transforms, returns, and proven conditions',
+      () {
+        final tempDir = Directory.systemTemp.createTempSync('vs01_vs02_test');
+        try {
+          final libDir = Directory('${tempDir.path}/lib')
+            ..createSync(recursive: true);
+          File(
+            '${tempDir.path}/pubspec.yaml',
+          ).writeAsStringSync('name: vs01_vs02_test\n');
+          const source = '''
+class BattleRepository {
+  Future<void> endTurn(String turn) async {}
+}
+
+class BattleController({required this.repository}) {
+  final BattleRepository repository;
+
+  Future<void> _onEndTurn(String turn) async {
+    if (turn.isEmpty) throw ArgumentError('turn');
+    final nextTurn = turn.trim();
+    await repository.endTurn(nextTurn);
+    return;
+  }
+}
+''';
+          File(
+            '${libDir.path}/battle_controller.dart',
+          ).writeAsStringSync(source);
+
+          final result = sliceCandidate(
+            repoRoot: tempDir.path.replaceAll('\\', '/'),
+            candidateId: 'cand-vs01-vs02-001',
+            entrySymbolPath:
+                'lib/battle_controller.dart#BattleController._onEndTurn',
+          );
+          final steps = (result['steps'] as List).cast<Map<String, Object?>>();
+          expect(steps, hasLength(5));
+
+          // Step 1: if (turn.isEmpty)
+          expect(steps[0]['kind'], 'guard');
+          expect(steps[0]['guardCondition'], 'turn.isEmpty');
+
+          // Step 2: throw ArgumentError('turn');
+          expect(steps[1]['kind'], 'guard');
+          expect(steps[1]['description'], contains('예외 발생'));
+
+          // Step 3: final nextTurn = turn.trim();
+          expect(steps[2]['kind'], 'mutation');
+          expect(steps[2]['description'], contains('nextTurn'));
+          final step3Range =
+              ((steps[2]['anchor'] as Map<String, Object?>)['byteRange']
+                      as List)
+                  .cast<int>();
+          final step3Source = utf8.decode(
+            utf8.encode(source).sublist(step3Range[0], step3Range[1]),
+          );
+          expect(step3Source, contains('final nextTurn = turn.trim();'));
+
+          // An initializer call stays within the declaration's code evidence.
+          // Step 4: await repository.endTurn(nextTurn);
+          expect(steps[3]['kind'], 'await');
+
+          // Step 5: return;
+          expect(steps[4]['kind'], 'return');
+          expect(steps[4]['description'], '실행을 종료하고 반환한다');
+
+          // Check Edges
+          final edges = (result['edges'] as List).cast<Map<String, Object?>>();
+
+          // Condition truthy from guard to throw
+          final truthyEdge = edges.firstWhere(
+            (e) =>
+                e['kind'] == 'control_flow' &&
+                e['stepOrdinal'] == 1 &&
+                e['targetStepOrdinal'] == 2,
+          );
+          expect(truthyEdge['conditions'], isNotNull);
+          final truthyConds = (truthyEdge['conditions'] as List)
+              .cast<Map<String, Object?>>();
+          expect(truthyConds[0]['outcome'], 'truthy');
+
+          // Condition falsy from guard to nextTurn (skipping throw on normal flow)
+          final falsyEdge = edges.firstWhere(
+            (e) =>
+                e['kind'] == 'control_flow' &&
+                e['stepOrdinal'] == 1 &&
+                e['targetStepOrdinal'] == 3,
+          );
+          expect(falsyEdge['conditions'], isNotNull);
+          final falsyConds = (falsyEdge['conditions'] as List)
+              .cast<Map<String, Object?>>();
+          expect(falsyConds[0]['outcome'], 'falsy');
+
+          // Normal sequential edge from nextTurn (mutation) to await
+          final seqEdge = edges.firstWhere(
+            (e) =>
+                e['kind'] == 'control_flow' &&
+                e['stepOrdinal'] == 3 &&
+                e['targetStepOrdinal'] == 4,
+          );
+          expect(seqEdge['conditions'], isNull);
+
+          // No control_flow edge leaving throw (step 2)
+          expect(
+            edges.where(
+              (e) => e['kind'] == 'control_flow' && e['stepOrdinal'] == 2,
+            ),
+            isEmpty,
+          );
+
+          // No control_flow edge leaving await / return
+          expect(
+            edges.where(
+              (e) =>
+                  e['kind'] == 'control_flow' &&
+                  (e['stepOrdinal'] == 4 || e['stepOrdinal'] == 5),
+            ),
+            isEmpty,
+          );
+        } finally {
+          tempDir.deleteSync(recursive: true);
+        }
+      },
+    );
+
+    test(
+      'VS-01 & VS-02: multi-statement if-block and mutation connecting to guard',
+      () {
+        final tempDir = Directory.systemTemp.createTempSync('dart_branch_test');
+        try {
+          final libDir = Directory('${tempDir.path}/lib')
+            ..createSync(recursive: true);
+          File(
+            '${tempDir.path}/pubspec.yaml',
+          ).writeAsStringSync('name: dart_branch_test\n');
+          const source = '''
+class OrderProcessor {
+  int processOrder(int amount) {
+    var fee = amount * 10;
+    if (amount <= 0) {
+      final msg = 'invalid';
+      throw ArgumentError(msg);
+    }
+    var total = amount + fee;
+    return total;
+  }
+}
+''';
+          File('${libDir.path}/order_processor.dart').writeAsStringSync(source);
+
+          final result = sliceCandidate(
+            repoRoot: tempDir.path.replaceAll('\\', '/'),
+            candidateId: 'cand-branch-001',
+            entrySymbolPath:
+                'lib/order_processor.dart#OrderProcessor.processOrder',
+          );
+          final steps = (result['steps'] as List).cast<Map<String, Object?>>();
+          final edges = (result['edges'] as List).cast<Map<String, Object?>>();
+
+          // fee (step 1) MUST connect to guard (step 2)
+          final feeToGuard = edges.firstWhere(
+            (e) =>
+                e['kind'] == 'control_flow' &&
+                e['stepOrdinal'] == 1 &&
+                e['targetStepOrdinal'] == 2,
+          );
+          expect(feeToGuard['conditions'], isNull);
+
+          // guard (step 2) truthy connects into if body
+          final truthyEdge = edges.firstWhere(
+            (e) =>
+                e['kind'] == 'control_flow' &&
+                e['stepOrdinal'] == 2 &&
+                (e['conditions'] as List).any((c) => c['outcome'] == 'truthy'),
+          );
+          expect(truthyEdge, isNotNull);
+
+          // guard (step 2) falsy connects to statement AFTER if body (var total = amount + fee)
+          // It MUST NOT connect to throw statement!
+          final falsyEdge = edges.firstWhere(
+            (e) =>
+                e['kind'] == 'control_flow' &&
+                e['stepOrdinal'] == 2 &&
+                (e['conditions'] as List).any((c) => c['outcome'] == 'falsy'),
+          );
+          final falsyTargetOrdinal = falsyEdge['targetStepOrdinal'] as int;
+          final falsyTargetStep = steps.firstWhere(
+            (s) => s['ordinal'] == falsyTargetOrdinal,
+          );
+          expect(falsyTargetStep['description'], contains('total'));
+        } finally {
+          tempDir.deleteSync(recursive: true);
+        }
+      },
+    );
   });
 }

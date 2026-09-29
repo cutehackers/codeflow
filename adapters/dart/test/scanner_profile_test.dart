@@ -121,4 +121,43 @@ class BattleController({
       );
     },
   );
+
+  test('scanner locates methods in a const primary-constructor class', () {
+    const source = '''
+class const BacteriaMove({required final int value}) {
+  bool get isClone => value == 1;
+
+  int score() => value + 1;
+}
+''';
+    final scanned = scanSource(source);
+    expect(scanned.classes.map((declaration) => declaration.name), [
+      'BacteriaMove',
+    ]);
+    expect(scanned.classes.single.methods.map((method) => method.name), [
+      'score',
+    ]);
+  });
+
+  test(
+    'interpolation braces do not end a method before its final statement',
+    () {
+      const src = '''
+class Controller {
+  void deploy(int lane) {
+    if (lane < 0) {
+      value = 'LANE \${lane + 1} OCCUPIED';
+    }
+    value = 'deployed';
+  }
+}
+''';
+      final method = scanSource(src).classes.single.methods.single;
+      expect(
+        src.substring(method.bodyStart, method.bodyEnd),
+        contains("value = 'deployed';"),
+      );
+      expect(method.bodyEnd, greaterThan(src.indexOf("value = 'deployed';")));
+    },
+  );
 }

@@ -62,6 +62,7 @@ type FlowStep struct {
 	SideEffect              *string        `json:"sideEffect,omitempty"`
 	Branch                  *string        `json:"branch,omitempty"`
 	Kind                    string         `json:"kind,omitempty"` // guard | mutation | call | branch (presentation-only)
+	ValueRole               string         `json:"valueRole,omitempty"`
 	Layer                   string         `json:"layer,omitempty"`
 	CodeLens                *CodeLens      `json:"codeLens,omitempty"`
 }
@@ -90,11 +91,12 @@ type Unknown struct {
 // for a natural-language request. It contains only current snapshot facts, not
 // an inferred execution relationship.
 type FlowEvidence struct {
-	CandidateID     string `json:"candidateId"`
-	EntrySymbolPath string `json:"entrySymbolPath"`
-	Description     string `json:"description"`
-	SnapshotID      string `json:"snapshotId"`
-	ComputedBasisID string `json:"computedBasisId"`
+	CandidateID     string          `json:"candidateId"`
+	EntrySymbolPath string          `json:"entrySymbolPath"`
+	Description     string          `json:"description"`
+	SnapshotID      string          `json:"snapshotId"`
+	ComputedBasisID string          `json:"computedBasisId"`
+	SourceAnchor    *slicing.Anchor `json:"sourceAnchor,omitempty"`
 }
 
 // FlowResolution keeps the redacted user request and the verified
@@ -108,6 +110,30 @@ type FlowResolution struct {
 	EntrySymbolPath string         `json:"entrySymbolPath"`
 	FlowID          string         `json:"flowId"`
 	Evidence        []FlowEvidence `json:"evidence"`
+}
+
+// AttachFlowResolutionSourceAnchor records the proven entry statement only
+// after slicing and source validation have succeeded for the same snapshot.
+func AttachFlowResolutionSourceAnchor(resolution *FlowResolution, anchor slicing.Anchor, snapshotFiles map[string]string) error {
+	if resolution == nil || len(resolution.Evidence) != 1 {
+		return fmt.Errorf("flow resolution requires one entry evidence record")
+	}
+	parts := strings.SplitN(resolution.EntrySymbolPath, "#", 2)
+	if len(parts) != 2 || anchor.RepoRelativePath != parts[0] || anchor.EnclosingSymbolPath != parts[1] {
+		return fmt.Errorf("flow resolution entry source does not match the selected symbol")
+	}
+	content, ok := snapshotFiles[anchor.RepoRelativePath]
+	if !ok || anchor.ByteRange[0] < 0 || anchor.ByteRange[1] <= anchor.ByteRange[0] || anchor.ByteRange[1] > len(content) {
+		return fmt.Errorf("flow resolution entry source is missing from the snapshot")
+	}
+	fileHash := sha256.Sum256([]byte(content))
+	spanHash := sha256.Sum256([]byte(content[anchor.ByteRange[0]:anchor.ByteRange[1]]))
+	if anchor.FileHash != hex.EncodeToString(fileHash[:]) || anchor.SpanHash != hex.EncodeToString(spanHash[:]) {
+		return fmt.Errorf("flow resolution entry source hash differs from the snapshot")
+	}
+	copyAnchor := anchor
+	resolution.Evidence[0].SourceAnchor = &copyAnchor
+	return nil
 }
 
 // FlowSpec is the primary document published to FlowView.
@@ -306,7 +332,7 @@ func Fuse(sliced *slicing.SlicedPayload, opts FuseOptions) (*FlowSpec, error) {
 		}
 
 		var stateDelta *StateDelta
-		if s.StateBefore != nil || s.StateAfter != nil {
+		if s.ValueRole != "local_binding" && (s.StateBefore != nil || s.StateAfter != nil) {
 			stateDelta = &StateDelta{
 				Before: derefOr(s.StateBefore, "idle"),
 				After:  derefOr(s.StateAfter, "updated"),
@@ -339,6 +365,7 @@ func Fuse(sliced *slicing.SlicedPayload, opts FuseOptions) (*FlowSpec, error) {
 			SideEffect: s.EffectTarget,
 			Branch:     branch,
 			Kind:       stepKind,
+			ValueRole:  s.ValueRole,
 			Layer:      s.Layer,
 			CodeLens:   lens,
 		}
