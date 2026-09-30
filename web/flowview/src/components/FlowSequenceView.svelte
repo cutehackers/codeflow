@@ -6,25 +6,21 @@
   const relations = $derived(flowStore.relations);
   const crossRelations = $derived(relations.filter(r => r.fromFrame && (!r.resolved || r.fromFrame.frameID !== r.toFrame?.frameID)));
   const navigationTitles = $derived(buildNavigationTitles(flowStore.steps, flowStore.data?.semanticMap.edges || []));
-  const navigation = $derived(partitionCodeReadingNavigation(flowStore.flowSequence, flowStore.data?.codeReadingPath));
+  const navigation = $derived(partitionCodeReadingNavigation(flowStore.flowSequence, null));
   const executionStepCount = $derived(navigation.reading.reduce((count, frame) => count + frame.stepRefs.length, 0));
   let otherOpen = $state(false);
   const otherVisible = $derived(otherOpen || navigation.other.some(frame => frame.frameID === flowStore.selectedFrameId));
 </script>
 {#snippet renderFrame(frame: FlowSequenceFrame)}
-  {@const pathNodes = flowStore.data?.codeReadingPath?.nodes.filter(node => node.frameId === frame.frameID) || []}
   {@const outgoing = crossRelations.filter(r=>r.fromFrame?.frameID === frame.frameID)}
   {@const incoming = crossRelations.filter(r=>r.resolved && r.toFrame?.frameID === frame.frameID)}
   {@const incomingSummary = incomingRelationSummary(incoming)}
   <article class:path-match={!!flowStore.matchingStepIds && frame.stepRefs.some(id => flowStore.matchingStepIds!.has(id))} class:active={flowStore.selectedFrameId === frame.frameID}>
-    <button class="frame" data-flow-frame={frame.frameID} aria-pressed={flowStore.selectedFrameId === frame.frameID} onclick={() => flowStore.select(pathNodes[0]?.stepId || frame.frameID)}>
+    <button class="frame" data-flow-frame={frame.frameID} aria-pressed={flowStore.selectedFrameId === frame.frameID} onclick={() => flowStore.select(frame.frameID)}>
       <span class="number">{String(frame.ordinal).padStart(2,'0')} <span>{GATEWAY_ROLES[frame.role] || frame.role}</span></span>
       <strong>{frame.title}</strong>
       <span class="caption">실행 타임라인 {frame.stepRefs.length}단계</span>
     </button>
-    {#each pathNodes as node (node.nodeId)}
-      <p class="path-reason">{node.inclusionReason}{#if node.nextNodeIds.length > 1} · 확인된 분기 {node.nextNodeIds.length}개{/if}{#if node.previousNodeIds.length > 1} · 확인된 합류 {node.previousNodeIds.length}개{/if}</p>
-    {/each}
     {#if incomingSummary}<p class="incoming">↳ {incomingSummary}</p>{/if}
     <ul aria-label={`${frame.title}의 후속 연결`}>
       {#each outgoing as relation (relation.id)}
@@ -42,7 +38,7 @@
 {/snippet}
 <section class="overview" aria-label="요청 흐름의 관문과 연결">
   <header>
-    <div><p class="eyebrow">FLOWSEQUENCE</p><h1>{flowStore.flowTitle}</h1><p class="caption">{flowStore.data?.codeReadingPath ? `${flowStore.data.codeReadingPath.nodes.length}개 코드 지점 · ${navigation.reading.length}개 관문` : `${navigation.reading.length}개 관문 · ${executionStepCount}개 실행 단계`} · {flowStore.data?.sourceContextMissing ? '입력된 연결 · 소스 근거 미확인' : '소스에서 확인한 연결'}</p></div>
+    <div><p class="eyebrow">FLOWSEQUENCE</p><h1>{flowStore.flowTitle}</h1><p class="caption">{navigation.reading.length}개 관문 · {executionStepCount}개 실행 단계 · {flowStore.data?.sourceContextMissing ? '입력된 연결 · 소스 근거 미확인' : '소스에서 확인한 연결'}</p></div>
     <button aria-expanded={flowStore.overviewOpen} aria-controls="flow-overview" onclick={() => flowStore.overviewOpen = !flowStore.overviewOpen}>{flowStore.overviewOpen ? '개요 접기' : '전체 흐름 보기'}</button>
   </header>
   {#if !flowStore.overviewOpen}<p class="selection">현재 관문 · {flowStore.selectedFrame?.title}</p>{/if}
@@ -106,7 +102,6 @@
   article{border:1px solid #ddd;border-radius:6px;min-width:0;align-self:start}.active{border-color:#171717;box-shadow:0 0 0 1px #171717}.frame{width:100%;border:0;border-radius:5px 5px 0 0;text-align:left;padding:14px;background:#fafafa}.frame strong{display:block;font-size:13px;line-height:1.55;margin:8px 0;overflow-wrap:anywhere}.frame[aria-pressed=true]{background:#171717;color:white}.frame[aria-pressed=true] .caption{color:#ddd}.number{display:flex;justify-content:space-between;font:11px ui-monospace,monospace}
   ul{list-style:none;margin:0;padding:0 10px}.relation{font-size:11px;text-align:left;width:100%;border:0;border-top:1px solid #ddd;border-radius:0;padding:10px 4px;background:transparent}.relation span{display:block;font-size:10px;margin-bottom:3px}.relation strong{font-weight:500;overflow-wrap:anywhere}.relation[aria-pressed=true]{background:#eee;color:#111;outline:1px solid #111}.unknown{border-bottom:1px dashed #999}.incoming{font-size:10px;padding:8px 12px;background:#f5f5f5}.terminal{padding:10px 14px}.legend{padding:12px 24px;border-top:1px solid #eee;color:#666;font-size:11px}.selection{padding:0 24px 18px;font-size:12px}
   .path-match{border-left:4px solid #111}
-  .path-reason{font-size:11px;line-height:1.5;padding:5px 12px;color:#444}
   .unproven-group{grid-column:1/-1;border-top:1px solid #aaa;padding-top:12px}.unproven-group>button{font-size:11px;text-align:left;width:100%;padding:10px}.unproven-group .caption{padding:8px 0}.unproven-track{display:grid;grid-template-columns:repeat(auto-fit,minmax(205px,1fr));gap:12px}
   .relation-focus{display:flex;align-items:center;gap:8px;flex-wrap:wrap;border-top:1px solid #aaa;padding:16px 24px;background:#f5f5f5;font-size:12px}.relation-focus div{flex:1;min-width:180px}.relation-focus small{color:#666}.relation-focus button{font-size:11px}
   @media(max-width:800px){.overview{margin:12px 15px}header{padding:16px;gap:10px}h1{font-size:17px}.track{grid-template-columns:repeat(auto-fit,minmax(180px,1fr));padding:0 16px 16px;max-height:300px}}

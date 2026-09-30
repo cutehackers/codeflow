@@ -1,5 +1,7 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { flowStore } from '../stores/flowStore.svelte';
+import { validateFlowReferences } from '../stores/flowNavigation';
+import type { CodeReadingNode } from '../types/flow';
 import { samplePayload } from '../stores/sampleData';
 
 describe('FlowStore (Svelte 5 Runes)', () => {
@@ -305,4 +307,121 @@ it('returns to the first origin after multiple relation hops and restores the vi
   expect(flowStore.selectedStepId).toBe('checkout_click');
   expect(flowStore.viewMode).toBe('process');
   expect(flowStore.overviewOpen).toBe(false);
+});
+
+function overviewPayload() {
+  const data = samplePayload(1);
+  data.viewId = 'overview-view';
+  data.flowResolution = {schemaVersion:1, status:'resolved', rawRequest:'checkout'};
+  const steps = data.semanticMap.steps;
+  data.semanticMap.edges = steps.slice(0,-1).map((step,index) => ({fromStepId:step.stepId,toStepId:steps[index+1].stepId,kind:'control_flow',resolutionStatus:'resolved'}));
+  const nodes: CodeReadingNode[] = steps.map((step,index) => {
+    const sourceAnchor = {...step.anchor!, repoRelativePath:step.anchor!.repoRelativePath!, enclosingSymbolPath:step.anchor!.enclosingSymbolPath!, byteRange:[index*10,index*10+5] as [number,number], fileHash:'file', spanHash:'span'};
+    data.flowContexts![step.stepId] = {...data.flowContexts![step.stepId], precision:'exact', sourceValidationStatus:'verified', statement:{byteRange:sourceAnchor.byteRange}};
+    return {nodeId:step.stepId,stepId:step.stepId,frameId:data.flowSequence!.frames[index].frameID,symbol:`${sourceAnchor.repoRelativePath}#${sourceAnchor.enclosingSymbolPath}`,sourceAnchor,role:index===0?'entry':index===steps.length-1?'outcome':'transform',requestPart:'checkout',inclusionReason:'검증한 결제 코드',previousNodeIds:index?[steps[index-1].stepId]:[],nextNodeIds:index<steps.length-1?[steps[index+1].stepId]:[],status:'verified',evidenceRefs:['proof'],codeViewAvailable:true};
+  });
+  data.codeReadingPath = {schemaId:'https://codeflow.local/schemas/code-reading-path.schema.json',schemaVersion:2,request:'checkout',snapshotId:data.flowSequence!.snapshotID,computedBasisId:data.flowSequence!.computedBasisId,nodes,relations:nodes.slice(0,-1).map((node,index)=>({fromNodeId:node.nodeId,toNodeId:nodes[index+1].nodeId,kind:'control_flow',status:'verified',edgeIndexes:[index]}))};
+  expect(validateFlowReferences(data)).toBeNull();
+  return data;
+}
+
+describe('overview and statement exploration', () => {
+  it('starts at overview and selects different statements within the same frame exactly', () => {
+    const data = overviewPayload();
+    const first = data.flowSequence!.frames[0];
+    first.stepRefs.push(data.semanticMap.steps[1].stepId);
+    data.flowSequence!.frames.splice(1,1);
+    data.codeReadingPath!.nodes[1].frameId = first.frameID;
+    expect(flowStore.adopt(data,true)).toBe(true);
+    expect(flowStore.explorationMode).toBe('overview');
+    flowStore.select(data.codeReadingPath!.nodes[1].stepId);
+    expect(flowStore.selectedStepId).toBe(data.codeReadingPath!.nodes[1].stepId);
+    expect(flowStore.selectedFrameId).toBe(first.frameID);
+    flowStore.select(data.codeReadingPath!.nodes[0].stepId);
+    expect(flowStore.selectedStepId).toBe(data.codeReadingPath!.nodes[0].stepId);
+  });
+
+  it('restores independent origins, detail positions, expansion and relation returns', () => {
+    flowStore.adopt(overviewPayload(),true);
+    flowStore.select('validate_cart');
+    flowStore.toggleReadingRelation('entry-result');
+    flowStore.setExplorationMode('statements');
+    expect(flowStore.selectedStepId).toBe('validate_cart');
+    flowStore.toggleExpand('check_stock');
+    flowStore.select('check_stock');
+    flowStore.saveNavigationState();
+    flowStore.select('request_pg');
+    const lastDetail = flowStore.selectedStepId;
+    flowStore.setExplorationMode('overview');
+    expect(flowStore.selectedStepId).toBe('validate_cart');
+    expect(flowStore.expandedReadingRelations.has('entry-result')).toBe(true);
+    expect(flowStore.savedNavigationState).toBeNull();
+    flowStore.setExplorationMode('statements');
+    expect(flowStore.selectedStepId).toBe(lastDetail);
+    expect(flowStore.expanded.has('check_stock')).toBe(true);
+    flowStore.restoreNavigationState();
+    expect(flowStore.selectedStepId).toBe('check_stock');
+    flowStore.setExplorationMode('overview');
+    flowStore.select('checkout_click');
+    flowStore.setExplorationMode('statements');
+    expect(flowStore.selectedStepId).toBe('checkout_click');
+  });
+
+  it('keeps the current comparison and display mode during switches', () => {
+    flowStore.adopt(overviewPayload(),true);
+    const baseline = samplePayload(2);
+    flowStore.setBaseline(baseline);
+    flowStore.compare = true;
+    flowStore.setViewMode('code');
+    flowStore.setExplorationMode('statements');
+    flowStore.setViewMode('process');
+    flowStore.setExplorationMode('overview');
+    expect(flowStore.baseline).toEqual(baseline);
+    expect(flowStore.compare).toBe(true);
+    expect(flowStore.viewMode).toBe('process');
+    flowStore.setViewMode('code');
+    flowStore.setExplorationMode('statements');
+    expect(flowStore.viewMode).toBe('code');
+  });
+
+  it('rejects missing, different-view and different-snapshot positions without changing selection', () => {
+    flowStore.adopt(overviewPayload(),true);
+    const saved = flowStore.captureNavigationState();
+    flowStore.select('validate_cart');
+    for (const change of [{stepId:'missing'},{viewId:'other-view'},{snapshotId:'other-snapshot'},{relationId:'missing'}]) {
+      expect(flowStore.applyNavigationState({...saved,...change})).toBe(false);
+      expect(flowStore.selectedStepId).toBe('validate_cart');
+      expect(flowStore.notice).toContain('복원할 수 없습니다');
+    }
+  });
+
+  it('rejects invalid destination state before changing the mode or relation return', () => {
+    flowStore.adopt(overviewPayload(),true);
+    flowStore.setExplorationMode('statements');
+    flowStore.select('check_stock');
+    flowStore.setExplorationMode('overview');
+    flowStore.explorationNavigation.positions.statements!.stepId = 'missing';
+    flowStore.saveNavigationState();
+    const returnState = flowStore.savedNavigationState;
+    flowStore.setExplorationMode('statements');
+    expect(flowStore.explorationMode).toBe('overview');
+    expect(flowStore.savedNavigationState).toBe(returnState);
+    expect(flowStore.notice).toContain('복원할 수 없습니다');
+  });
+
+  it('keeps the prior view and both positions when incoming data fails validation', () => {
+    const data = overviewPayload();
+    flowStore.adopt(data,true);
+    flowStore.setExplorationMode('statements');
+    flowStore.select('check_stock');
+    flowStore.setExplorationMode('overview');
+    const positions = flowStore.explorationNavigation;
+    const bad = overviewPayload();
+    bad.codeReadingPath!.snapshotId = 'wrong';
+    expect(flowStore.adopt(bad)).toBe(false);
+    expect(flowStore.data?.viewId).toBe(data.viewId);
+    expect(flowStore.explorationNavigation).toBe(positions);
+    flowStore.setExplorationMode('statements');
+    expect(flowStore.selectedStepId).toBe('check_stock');
+  });
 });

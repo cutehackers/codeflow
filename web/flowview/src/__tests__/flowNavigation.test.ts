@@ -1,3 +1,4 @@
+import { requestedFlowOverview } from '../stores/flowNavigation';
 import { describe, it, expect } from 'vitest';
 import { buildFlowRelations, incomingRelationSummary, validateFlowReferences, sourceWindow, navigationRole, navigationTitle, buildNavigationTitles, executionNavigationLabel, selectedCodeLimitations, summarizeUnknownBoundaries, partitionExecutionNavigation, partitionCodeReadingNavigation, codeReadingRelationDetailSteps, codeReadingRelationDetailOwners, omittedCodeReadingBranches, requestedFocusFrame, type FlowRelation } from '../stores/flowNavigation';
 import { samplePayload } from '../stores/sampleData';
@@ -286,4 +287,25 @@ it('uses implementation context for mutation syntax while preserving purpose nam
 it('uses the known owner as an execution rail mutation title without restoring source code', () => {
   const step = {stepId:'mutation',kind:'mutation',name:'order.status = "paid"',layer:'service',anchor:{enclosingSymbolPath:'CheckoutService.complete'}};
   expect(executionNavigationLabel(step, buildNavigationTitles([step], []).get(step.stepId)!)).toEqual({title:'CheckoutService.complete', detail:'상태 변경'});
+});
+
+it('overview preserves same-frame points and explicit branch, loop and unknown boundaries', () => {
+  const data = samplePayload(1);
+  const [entry, detail, result, failure] = data.semanticMap.steps;
+  data.semanticMap.edges = [
+    {fromStepId: entry.stepId, toStepId: detail.stepId, kind: 'control_flow', resolutionStatus: 'resolved'},
+    {fromStepId: detail.stepId, toStepId: result.stepId, kind: 'control_flow', resolutionStatus: 'resolved'},
+    {fromStepId: detail.stepId, toStepId: failure.stepId, kind: 'failure', resolutionStatus: 'resolved'},
+    {fromStepId: detail.stepId, toStepId: entry.stepId, kind: 'loop_back', resolutionStatus: 'resolved'},
+    {fromStepId: detail.stepId, toStepId: 'unknown', kind: 'call', resolutionStatus: 'unresolved', toSymbolPath:'service#unknown'},
+  ];
+  data.codeReadingPath = {nodes: [entry, result].map(step => ({nodeId:step.stepId, stepId:step.stepId, frameId:'same-frame'})), relations:[{fromNodeId:entry.stepId, toNodeId:result.stepId, edgeIndexes:[0,1]}]} as any;
+  const points = requestedFlowOverview(data);
+  expect(points.map(point => point.node.stepId)).toEqual([entry.stepId, result.stepId]);
+  expect(points[0].outgoing[0].details.map(step => step.stepId)).toEqual([detail.stepId]);
+  expect(points[0].boundaries.map(relation => [relation.edge.kind, relation.resolved])).toEqual([['failure',true],['loop_back',true],['call',false]]);
+  data.codeReadingPath!.relations = [];
+  expect(requestedFlowOverview(data).every(point => !point.outgoing.length)).toBe(true);
+  data.codeReadingPath = undefined;
+  expect(requestedFlowOverview(data)).toEqual([]);
 });

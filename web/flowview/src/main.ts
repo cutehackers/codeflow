@@ -1,7 +1,7 @@
 import './app.css';
 import { mount } from 'svelte';
 import App from './App.svelte';
-import { flowStore, type SavedNavigationState } from './stores/flowStore.svelte';
+import { flowStore, type SavedNavigationState, type ExplorationNavigationState } from './stores/flowStore.svelte';
 import type { FlowTaskViewData } from './types/flow';
 
 const target = document.getElementById('app');
@@ -25,10 +25,10 @@ const studyLayout = params.get('studyLayout') === 'code-focused' ? 'code-focused
 (window as any).__codeflowToken = token;
 let sequence = 0;
 let controller: AbortController | null = null;
-const viewNavigation = new Map<string, { navigation: SavedNavigationState; baseline: FlowTaskViewData | null; delta: FlowTaskViewData['semanticDelta']; returnTo: SavedNavigationState | null }>();
+const viewNavigation = new Map<string, { navigation: SavedNavigationState; baseline: FlowTaskViewData | null; delta: FlowTaskViewData['semanticDelta']; returnTo: SavedNavigationState | null; exploration: ExplorationNavigationState }>();
 function rememberView() {
   if (!flowStore.home && flowStore.data?.viewId) {
-    viewNavigation.set(flowStore.data.viewId, { navigation: flowStore.captureNavigationState(), baseline: flowStore.baseline, delta: flowStore.data.semanticDelta, returnTo: flowStore.savedNavigationState });
+    viewNavigation.set(flowStore.data.viewId, { navigation: flowStore.captureNavigationState(), baseline: flowStore.baseline, delta: flowStore.data.semanticDelta, returnTo: flowStore.savedNavigationState, exploration: flowStore.explorationNavigation });
   }
 }
 
@@ -77,10 +77,11 @@ async function load(path: string, preserve: boolean, restore = false): Promise<b
       flowStore.pendingRequest = '';
       flowStore.home = false;
       const previous = restore && data.viewId ? viewNavigation.get(data.viewId) : undefined;
-      if (previous) {
+      if (previous && flowStore.validateNavigationState(previous.navigation)) {
         flowStore.baseline = previous.baseline;
         flowStore.data = { ...data, semanticDelta: previous.delta };
         flowStore.savedNavigationState = previous.returnTo;
+        flowStore.explorationNavigation = previous.exploration;
         flowStore.applyNavigationState(previous.navigation);
       }
       setURL(data.viewId);

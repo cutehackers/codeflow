@@ -48,7 +48,18 @@ export const DELTA_LABELS: Record<string, string> = {
   ambiguous_move: '이동 판단 보류'
 };
 
+export type ExplorationMode = 'overview' | 'statements';
+
+export interface ExplorationNavigationState {
+  positions: Partial<Record<ExplorationMode, SavedNavigationState>>;
+  returns: Partial<Record<ExplorationMode, SavedNavigationState | null>>;
+  overviewSelectionPending: boolean;
+}
+
 export interface SavedNavigationState {
+  explorationMode: ExplorationMode;
+  viewId?: string;
+  snapshotId?: string;
   frameId: string | null;
   stepId: string | null;
   compare: boolean;
@@ -92,6 +103,9 @@ class FlowStore {
   selectedStepId = $state<string | null>(null);
   selectedFrameId = $state<string | null>(null);
   viewMode = $state<'code' | 'process'>('code');
+  explorationMode = $state<ExplorationMode>('statements');
+  explorationNavigation: ExplorationNavigationState = {positions: {}, returns: {}, overviewSelectionPending: true};
+  private navigationSequence = 0;
   conditionFilter = $state<string | null>(null);
   conditionSelections = $state<ConditionSelection[]>([]);
   get conditionChoices() { return conditionChoices(this.data); }
@@ -235,7 +249,9 @@ class FlowStore {
     this.conditionSelections = retainReachableConditions(this.data, this.conditionSelections.filter(selection => selection.stepId !== stepId));
   }
 
-  select(stepOrFrameId: string) {
+  select(stepOrFrameId: string, restore = false) {
+    const navigationSequence = ++this.navigationSequence;
+    if (this.explorationMode === 'overview' && !restore) this.explorationNavigation.overviewSelectionPending = true;
     this.abortLabeling();
     const frame = this.frames.find(f => f.frameID === stepOrFrameId || f.primaryStepRef === stepOrFrameId || f.stepRefs.includes(stepOrFrameId));
     if (frame) {
@@ -244,7 +260,7 @@ class FlowStore {
       if (partitionExecutionNavigation(this.flowSequence).unproven.some(item => item.frameID === frame.frameID)) this.unprovenOpen = true;
       const selected = this.selectedStepId;
       void tick().then(() => {
-        if (selected !== this.selectedStepId || typeof document === 'undefined') return;
+        if (navigationSequence !== this.navigationSequence || selected !== this.selectedStepId || typeof document === 'undefined') return;
         const code = document.querySelector<HTMLElement>('[data-code-focus] .compare-grid > div:last-child .line.hit, [data-code-focus] > article > pre .line.hit') || document.querySelector<HTMLElement>('[data-code-focus] .line.hit, [data-code-focus] .source-empty');
         if (code) {
           const rect = code.getBoundingClientRect();
@@ -252,6 +268,41 @@ class FlowStore {
         }
       });
     }
+  }
+
+  setExplorationMode(mode: ExplorationMode, origin?: SavedNavigationState) {
+    if (mode === this.explorationMode || (mode === 'overview' && !this.data?.codeReadingPath)) return;
+    const saved = this.explorationNavigation.positions[mode];
+    const startFromOverview = mode === 'statements' && this.explorationNavigation.overviewSelectionPending;
+    if (saved && !startFromOverview && !this.validateNavigationState(saved)) return;
+    const previous = this.explorationMode;
+    this.explorationNavigation.positions[previous] = origin || this.captureNavigationState();
+    this.explorationNavigation.returns[previous] = this.savedNavigationState;
+    this.savedNavigationState = this.explorationNavigation.returns[mode] || null;
+    this.explorationMode = mode;
+    if (saved && !startFromOverview) {
+      const compare = this.compare;
+      const viewMode = this.viewMode;
+      this.applyNavigationState({...saved, compare, viewMode});
+    } else {
+      this.selectedRelationId = null;
+      this.conditionFilter = null;
+      this.conditionSelections = [];
+      this.savedNavigationState = null;
+      if (this.selectedStepId) {
+        this.select(this.selectedStepId, true);
+        if (this.selectedFrameId) this.expandedFrames = new Set([...this.expandedFrames, this.selectedFrameId]);
+      }
+      const sequence = this.navigationSequence;
+      void tick().then(() => {
+        if (sequence !== this.navigationSequence || typeof document === 'undefined') return;
+        const rail = document.getElementById('execution-navigation');
+        const control = Array.from(rail?.querySelectorAll<HTMLElement>('[data-flow-step]') || []).find(el => el.dataset.flowStep === this.selectedStepId);
+        control?.focus({preventScroll: true});
+        control?.scrollIntoView({block: 'nearest'});
+      });
+    }
+    if (mode === 'statements') this.explorationNavigation.overviewSelectionPending = false;
   }
 
   setViewMode(mode: 'code' | 'process') {
@@ -280,6 +331,9 @@ class FlowStore {
 
   captureNavigationState(): SavedNavigationState {
     return {
+      explorationMode: this.explorationMode,
+      viewId: this.data?.viewId,
+      snapshotId: this.flowSequence?.snapshotID,
       frameId: this.selectedFrameId,
       stepId: this.selectedStepId,
       compare: this.compare,
@@ -303,8 +357,23 @@ class FlowStore {
     if (!this.savedNavigationState) this.savedNavigationState = this.captureNavigationState();
   }
 
-  applyNavigationState(saved: SavedNavigationState) {
-    if (saved.stepId) this.select(saved.stepId);
+  validateNavigationState(saved: SavedNavigationState): boolean {
+    if (saved.viewId !== this.data?.viewId || saved.snapshotId !== this.flowSequence?.snapshotID ||
+      (saved.stepId && !this.steps.some(step => step.stepId === saved.stepId)) ||
+      (saved.frameId && !this.frames.some(frame => frame.frameID === saved.frameId && (!saved.stepId || frame.stepRefs.includes(saved.stepId)))) ||
+      (saved.relationId && !this.relations.some(relation => relation.id === saved.relationId)) ||
+      (saved.explorationMode === 'overview' && !this.data?.codeReadingPath)) {
+      this.notice = '읽던 문장 또는 연결을 복원할 수 없습니다. 현재 화면을 유지합니다.';
+      return false;
+    }
+    return true;
+  }
+
+  applyNavigationState(saved: SavedNavigationState): boolean {
+    if (!this.validateNavigationState(saved)) return false;
+    this.explorationMode = saved.explorationMode;
+    if (saved.stepId) this.select(saved.stepId, true);
+    const navigationSequence = this.navigationSequence;
     this.compare = saved.compare;
     this.viewMode = saved.viewMode;
     this.overviewOpen = saved.overviewOpen;
@@ -316,7 +385,7 @@ class FlowStore {
     this.conditionSelections = retainReachableConditions(this.data, saved.conditionSelections || []);
     this.selectedRelationId = saved.relationId;
     void tick().then(() => {
-      if (typeof document === 'undefined') return;
+      if (navigationSequence !== this.navigationSequence || typeof document === 'undefined') return;
       for (const position of saved.panelPositions) document.getElementById(position.id)?.scrollTo({top: position.top, left: position.left});
       const focusControl = Array.from(document.querySelectorAll<HTMLElement>('[data-navigation-focus]')).find(el => saved.focusKey && el.dataset.navigationFocus === saved.focusKey);
       const navControls = Array.from(document.querySelectorAll<HTMLElement>('[data-flow-step], [data-frame]'));
@@ -325,11 +394,12 @@ class FlowStore {
       focus?.focus({preventScroll:true});
       window.scrollTo({top:saved.scrollY});
     });
+    return true;
   }
 
   restoreNavigationState() {
     if (!this.savedNavigationState) return;
-    this.applyNavigationState(this.savedNavigationState);
+    if (!this.applyNavigationState(this.savedNavigationState)) return;
     this.savedNavigationState = null;
     this.notice = '원래 읽던 장면 위치로 복귀했습니다.';
   }
@@ -372,7 +442,11 @@ class FlowStore {
     const retainedConditions = this.conditionSelections.length && remapStep(this.conditionSelections[0].stepId)
       ? retainReachableConditions(newData, this.conditionSelections.flatMap(selection => { const stepId = remapStep(selection.stepId); return stepId ? [{ ...selection, stepId }] : []; })) : [];
     this.abortLabeling();
+    ++this.navigationSequence;
     this.data = newData;
+    this.explorationNavigation = {positions: {}, returns: {}, overviewSelectionPending: true};
+    if (force || !current) this.explorationMode = newData.codeReadingPath?.nodes.length ? 'overview' : 'statements';
+    if (!newData.codeReadingPath) this.explorationMode = 'statements';
     this.pending = null;
     this.impactCache = new Map();
     if (force) { this.compare = false; this.baseline = null; }

@@ -125,17 +125,17 @@
             <div>
               <div class="compare-title">이전 · 선택한 분석</div>
               <!-- svelte-ignore a11y_no_noninteractive_tabindex -->
-              <pre class="source" tabindex="0" aria-label="이전 코드"><code>{#each baseLines as line (line.lineNumber)}<span class="line" class:hit={line.isHit}><span class="ln">{line.lineNumber}</span><span class="txt">{#if line.selection}{line.selection.before}<mark>{line.selection.text}</mark>{line.selection.after}{:else}{line.text}{/if}</span></span>{/each}</code></pre>
+              <pre id="source-baseline" data-navigation-panel data-navigation-focus="source:baseline" class="source" tabindex="0" aria-label="이전 코드"><code>{#each baseLines as line (line.lineNumber)}<span class="line" class:hit={line.isHit}><span class="ln">{line.lineNumber}</span><span class="txt">{#if line.selection}{line.selection.before}<mark>{line.selection.text}</mark>{line.selection.after}{:else}{line.text}{/if}</span></span>{/each}</code></pre>
             </div>
             <div>
               <div class="compare-title">현재 코드</div>
               <!-- svelte-ignore a11y_no_noninteractive_tabindex -->
-              <pre class="source" tabindex="0" aria-label="현재 코드"><code>{#each currLines as line (line.lineNumber)}<span class="line" class:hit={line.isHit}><span class="ln">{line.lineNumber}</span><span class="txt">{#if line.selection}{line.selection.before}<mark>{line.selection.text}</mark>{line.selection.after}{:else}{line.text}{/if}</span></span>{/each}</code></pre>
+              <pre id="source-current" data-navigation-panel data-navigation-focus="source:current" class="source" tabindex="0" aria-label="현재 코드"><code>{#each currLines as line (line.lineNumber)}<span class="line" class:hit={line.isHit}><span class="ln">{line.lineNumber}</span><span class="txt">{#if line.selection}{line.selection.before}<mark>{line.selection.text}</mark>{line.selection.after}{:else}{line.text}{/if}</span></span>{/each}</code></pre>
             </div>
           </div>
         {:else if currContext && currLines.length}
           <!-- svelte-ignore a11y_no_noninteractive_tabindex -->
-          <pre class="source" tabindex="0" aria-label="소스 코드"><code>{#each currLines as line (line.lineNumber)}<span class="line" class:hit={line.isHit} class:struct={line.isStruct}><span class="ln">{line.lineNumber}</span><span class="txt">{#if line.selection}{line.selection.before}<mark>{line.selection.text}</mark>{line.selection.after}{:else}{line.text}{/if}</span></span>{/each}</code></pre>
+          <pre id="source-current" data-navigation-panel data-navigation-focus="source:current" class="source" tabindex="0" aria-label="소스 코드"><code>{#each currLines as line (line.lineNumber)}<span class="line" class:hit={line.isHit} class:struct={line.isStruct}><span class="ln">{line.lineNumber}</span><span class="txt">{#if line.selection}{line.selection.before}<mark>{line.selection.text}</mark>{line.selection.after}{:else}{line.text}{/if}</span></span>{/each}</code></pre>
           {#if !isExpanded && (currContext.displayedLines?.length || 0) > currLines.length}
             <p class="code-note">관련 코드 {currLines.length}줄 표시 · 코드 더 보기로 전체 문맥 확인</p>
           {/if}

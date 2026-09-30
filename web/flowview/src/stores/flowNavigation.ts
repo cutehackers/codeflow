@@ -381,3 +381,42 @@ export function summarizeUnknownBoundaries(
   }
   return [...counts].map(([description, count]) => ({description, count}));
 }
+
+// Preserve curated points, including multiple statements in one frame. Relations
+// and their surrounding boundaries come only from the stored source graph.
+export function requestedFlowOverview(data: FlowTaskViewData | null) {
+  const path = data?.codeReadingPath;
+  if (!data || !path) return [];
+  const relations = buildFlowRelations(data);
+  return path.nodes.map(node => {
+    const outgoing = path.relations.filter(relation => relation.fromNodeId === node.nodeId);
+    const stepIds = new Set([node.stepId]);
+    const edgeIndexes = new Set<number>();
+    for (const relation of outgoing) {
+      for (const index of relation.edgeIndexes) {
+        edgeIndexes.add(index);
+        const edge = data.semanticMap.edges[index];
+        if (edge) stepIds.add(edge.fromStepId);
+      }
+    }
+    return {
+      node,
+      outgoing: outgoing.map(relation => ({
+        relation,
+        target: path.nodes.find(item => item.nodeId === relation.toNodeId),
+        details: codeReadingRelationDetailSteps(relation, path, data.semanticMap.edges, data.semanticMap.steps),
+        edges: relation.edgeIndexes.map(index => data.semanticMap.edges[index]),
+        contextEdges: relation.edgeIndexes.map(index => data.semanticMap.edges[index]).filter(edge =>
+          edge.conditions?.length || !['control_flow', 'successor', 'call', 'calls', 'resolved_cross_file', 'return'].includes(edge.kind)),
+      })),
+      joins: [...stepIds].flatMap(stepId => {
+        const incoming = relations.filter(relation => relation.resolved && relation.edge.toStepId === stepId);
+        const step = data.semanticMap.steps.find(item => item.stepId === stepId);
+        return step && incoming.length > 1 ? [{step, incoming}] : [];
+      }),
+      boundaries: relations.filter(relation => stepIds.has(relation.edge.fromStepId) &&
+        !edgeIndexes.has(Number(relation.id.split(':')[0]))),
+      limitations: [...new Set([...stepIds].flatMap(id => selectedCodeLimitations(data, data.semanticMap.steps.find(step => step.stepId === id) || null)))],
+    };
+  });
+}

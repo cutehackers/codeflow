@@ -5,11 +5,12 @@
   import FlowSequenceView from './components/FlowSequenceView.svelte';
   import ViewToolbar from './components/ViewToolbar.svelte';
   import NavRail from './components/NavRail.svelte';
+  import RequestedFlowOverview from './components/RequestedFlowOverview.svelte';
   import CodeFlowPanel from './components/CodeFlowPanel.svelte';
   import ProcessFlowPanel from './components/ProcessFlowPanel.svelte';
   import ContextAside from './components/ContextAside.svelte';
   import CandidateChoices from './components/CandidateChoices.svelte';
-  import { flowStore } from './stores/flowStore.svelte';
+  import { flowStore, type SavedNavigationState, type ExplorationMode } from './stores/flowStore.svelte';
   import { summarizeUnknownBoundaries } from './stores/flowNavigation';
 
   const codeFocusedStudyLayout = new URLSearchParams(window.location.search).get('studyLayout') === 'code-focused';
@@ -24,6 +25,11 @@
     unknowns.length > 0 ? `미확인 연결 ${unknowns.length}건` : '',
     flowStore.data?.flowSequence?.summaryLimitations?.length ? `요약 한계 ${flowStore.data.flowSequence.summaryLimitations.length}건` : '',
   ].filter((item): item is string => !!item));
+  let explorationOrigin: SavedNavigationState | undefined;
+  function onExplorationSwitch(mode: ExplorationMode) {
+    flowStore.setExplorationMode(mode, explorationOrigin);
+    explorationOrigin = undefined;
+  }
   let olderViewsOpen = $state(false);
 
   function mostRecentViews() {
@@ -174,8 +180,15 @@
   <!-- Live Notice & Status Controls -->
   <NoticeBar />
 
+  {#if flowStore.data?.codeReadingPath}
+    <nav class="exploration-switch" aria-label="탐색 기능">
+      <button data-navigation-focus="mode:overview" aria-pressed={flowStore.explorationMode === 'overview'} onpointerdown={() => explorationOrigin = flowStore.captureNavigationState()} onclick={() => onExplorationSwitch('overview')}>요청 흐름 개요</button>
+      <button data-navigation-focus="mode:statements" aria-pressed={flowStore.explorationMode === 'statements'} onpointerdown={() => explorationOrigin = flowStore.captureNavigationState()} onclick={() => onExplorationSwitch('statements')}>문장별 탐색</button>
+    </nav>
+  {/if}
+
   <!-- 2. MACRO CONTEXT FLOWSEQUENCE -->
-  <FlowSequenceView />
+  {#if flowStore.explorationMode === 'statements'}<FlowSequenceView />{/if}
 
   <!-- View Switch Toolbar -->
   <ViewToolbar />
@@ -183,7 +196,7 @@
   <!-- Main 3-Column Workbench -->
   <main class="layout" class:code-focused-study={codeFocusedStudyLayout}>
     <!-- Left Navigation Rail -->
-    <NavRail />
+    {#if flowStore.explorationMode === 'overview'}<RequestedFlowOverview />{:else}<NavRail />{/if}
 
     <!-- Center Viewport -->
     <section class="center" id="selected-flow" tabindex="-1" aria-label="선택한 흐름">
@@ -193,8 +206,8 @@
       </div>
 
       <button type="button" class="navigation-return" onclick={() => {
-        const rail = document.getElementById('execution-navigation');
-        const selected = rail?.querySelector<HTMLButtonElement>('button.detail[aria-pressed="true"]') || rail?.querySelector<HTMLButtonElement>('button.gateway[aria-pressed="true"]');
+        const rail = document.getElementById(flowStore.explorationMode === 'overview' ? 'requested-flow-overview' : 'execution-navigation');
+        const selected = rail?.querySelector<HTMLButtonElement>('button.reading-node[aria-pressed="true"]') || rail?.querySelector<HTMLButtonElement>('button.detail[aria-pressed="true"]') || rail?.querySelector<HTMLButtonElement>('button.gateway[aria-pressed="true"]');
         selected?.focus();
         selected?.scrollIntoView({block:'nearest'});
       }}>실행 탐색으로 이동</button>
@@ -234,6 +247,7 @@
 </div>
 
 <style>
+  .exploration-switch{display:flex;gap:8px;margin:16px 30px}.exploration-switch button[aria-pressed=true]{background:#171717;color:white}
   .navigation-return {font-size:11px;margin:0 0 12px;}
   .entry-header { display:flex; align-items:center; gap:24px; padding:20px 30px; border-bottom:1px solid #e8e8e8; }
   .entry-header > strong { font-size:12px; overflow-wrap:anywhere; }

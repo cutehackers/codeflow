@@ -1,3 +1,4 @@
+import { spawnSync } from 'node:child_process';
 import { test, expect, type Page } from '@playwright/test';
 import AxeBuilder from '@axe-core/playwright';
 import {mkdirSync, readFileSync, unlinkSync, writeFileSync} from 'node:fs';
@@ -10,7 +11,7 @@ async function expectSelectedSource(page: Page, context: {displayedLines: Array<
   const selectedText = context.displayedLines.flatMap(line => line.selection ? [line.selection.text] : []);
   expect(selectedText.length).toBeGreaterThan(0);
   expect(selectedText.every(text => text.length > 0)).toBe(true);
-  await expect(page.locator('#code-flow .source mark')).toHaveText(selectedText);
+  await expect(page.locator('#code-flow > article > pre mark, #code-flow .compare-grid > div:last-child mark')).toHaveText(selectedText);
 }
 
 function largeFlowSource() {
@@ -421,17 +422,252 @@ test('curated Go reading path retains its intermediate source step', async ({pag
     expect(curatedResponse.ok(), await curatedResponse.text()).toBe(true);
     const curated = await curatedResponse.json();
     expect(curated.codeReadingPath.nodes).toHaveLength(3);
+    const restored = await (await request.get(`/api/view?viewId=${curated.viewId}`, {headers})).json();
+    expect(restored.codeReadingPath).toEqual(curated.codeReadingPath);
+    for (const format of ['full','compact']) {
+      const rpc = {jsonrpc:'2.0',id:1,method:'tools/call',params:{name:'get_flow_payload',arguments:{target:process.env.CODEFLOW_BROWSER_FIXTURE,viewId:curated.viewId,format}}};
+      const result = spawnSync('go',['run','./cmd/codeflow','mcp',process.env.CODEFLOW_BROWSER_FIXTURE!],{
+        cwd:path.resolve(__dirname,'../../..'),input:JSON.stringify(rpc)+'\n',encoding:'utf8',timeout:30000,maxBuffer:5*1024*1024,
+      });
+      expect(result.status,result.stderr).toBe(0);
+      const response = JSON.parse(result.stdout);
+      expect(response.result.isError).not.toBe(true);
+      const payload = JSON.parse(response.result.content[0].text);
+      expect(payload.codeReadingPath).toEqual(curated.codeReadingPath);
+      expect(payload.codeReadingPathLimitation).toBe(restored.codeReadingPathLimitation);
+    }
+
+
     await page.goto(`/?token=testtoken&viewId=${curated.viewId}`);
+    await expect(page.getByRole('navigation', {name:'요청 흐름 개요', exact:true})).toBeVisible();
+    await expect(page.locator('[data-flow-frame]')).toHaveCount(0);
+    await expect(page.locator('#execution-navigation')).toHaveCount(0);
+    await expect(page.locator('#requested-flow-overview')).toContainText('조건 참');
+    await expect(page.locator('#requested-flow-overview')).toContainText('조건 거짓');
+    expect(curated.codeReadingPath.nodes.find((node: any) => node.stepId === outcome.stepId).previousNodeIds).toHaveLength(1);
+    const join = page.locator(`[data-overview-join="${outcome.stepId}"]`);
+    await expect(join).toContainText('2개 확인된 선행 연결');
+    await expect(join.locator('[data-join-source]')).toHaveCount(2);
+    await join.locator(`[data-join-source="${detail.stepId}"]`).click();
+    await expectSelectedSource(page, curated.flowContexts[detail.stepId]);
     for (const node of curated.codeReadingPath.nodes as Array<{stepId: string}>) {
       await page.locator(`.reading-node[data-flow-step="${node.stepId}"]`).click();
       await expectSelectedSource(page, curated.flowContexts[node.stepId]);
     }
+    const evidencePath = test.info().outputPath('overview-analysis-evidence.json');
+    writeFileSync(evidencePath, JSON.stringify({request:rawRequest,analysisViewId:analysis.viewId,curatedViewId:curated.viewId,selectedStepIds:curated.codeReadingPath.nodes.map((node: any)=>node.stepId),httpAndMcpFormats:['full','compact']},null,2));
+    await test.info().attach('overview-analysis-evidence', {path:evidencePath,contentType:'application/json'});
     const relationPanel = page.locator(`[data-reading-relation="${decision.stepId}:${outcome.stepId}"]`);
     await relationPanel.locator('button.disclosure').click();
     await relationPanel.locator(`[data-relation-step="${detail.stepId}"]`).click();
     await expectSelectedSource(page, curated.flowContexts[detail.stepId]);
   } finally {
     unlinkSync(sourcePath);
+  }
+});
+
+
+test('overview and statements restore exact code, panel positions, focus and per-view comparison', async ({page, request}) => {
+  const fixture = process.env.CODEFLOW_BROWSER_FIXTURE!;
+  const sourcePath = path.join(fixture, 'overview-flow.ts');
+  const helperPath = path.join(fixture, 'overview-effects.ts');
+  const indexes = Array.from({length:18}, (_, index) => index + 1);
+  writeFileSync(helperPath, indexes.map(index => `export function applyChange${index}(value: number) { return value + ${index}${' + 0'.repeat(80)}; }`).join('\n'));
+  writeFileSync(sourcePath, [
+    `import {${indexes.map(index => `applyChange${index}`).join(',')}} from './overview-effects';`,
+    'export function processOverview(amount: number) {',
+    '  const input = amount;',
+    '  let total = input;',
+    ...indexes.map(index => `  total = applyChange${index}(total);`),
+    '  return total;',
+    '}',
+  ].join('\n'));
+  try {
+    const response = await request.get('/api/task/view?query=How+does+the+amount+change%3F&entrySymbol=overview-flow.ts%23processOverview', {headers});
+    expect(response.ok(), await response.text()).toBe(true);
+    const analysis = await response.json();
+    const steps = analysis.semanticMap.steps;
+    const edges = analysis.semanticMap.edges;
+    const start = steps[0].stepId;
+    const outcome = steps.find((step: any) => step.kind === 'return' && step.anchor.repoRelativePath === 'overview-flow.ts').stepId;
+    const findPath = (from: string, seen = new Set<string>()): number[] | null => {
+      if (from === outcome) return [];
+      if (seen.has(from)) return null;
+      const visited = new Set([...seen, from]);
+      for (const [index, edge] of edges.entries()) {
+        if (edge.fromStepId !== from || edge.resolutionStatus !== 'resolved' || edge.kind === 'callback_argument') continue;
+        const rest = findPath(edge.toStepId, visited);
+        if (rest) return [index, ...rest];
+      }
+      return null;
+    };
+    const route = findPath(start);
+    expect(route).toBeTruthy();
+    const routeSteps = [start, ...route!.map(index => edges[index].toStepId)];
+    const points = routeSteps.filter(id => steps.find((step: any) => step.stepId === id).anchor.repoRelativePath === 'overview-flow.ts');
+    expect(points.length).toBeGreaterThan(15);
+    const compactResponse = await request.post('/api/view/reading-path', {headers, data:{
+      viewId:analysis.viewId,
+      selections:[
+        {stepId:start,role:'entry',requestPart:'amount',inclusionReason:'입력 값을 읽는다'},
+        {stepId:outcome,role:'outcome',requestPart:'amount',inclusionReason:'누적한 값을 반환한다'},
+      ],
+      relations:[{fromStepId:start,toStepId:outcome,edgeIndexes:route}],
+    }});
+    expect(compactResponse.ok(), await compactResponse.text()).toBe(true);
+    const compact = await compactResponse.json();
+    await page.goto(`/?token=testtoken&viewId=${compact.viewId}`);
+    const compactOverview = page.locator('#requested-flow-overview');
+    await expect(compactOverview.locator('.reading-node')).toHaveCount(2);
+    await expect(compactOverview.locator('.detail-connection')).toHaveCount(0);
+    await expect(compactOverview.locator('[data-relation-step]')).toHaveCount(0);
+    await compactOverview.locator('button.disclosure').click();
+    await expect(compactOverview.locator('.detail-connection')).toHaveCount(route!.length);
+    await expect(compactOverview.locator('[data-relation-step]')).toHaveCount(routeSteps.length-2);
+    await compactOverview.locator(`[data-relation-step="${routeSteps[1]}"]`).click();
+    await expectSelectedSource(page, compact.flowContexts[routeSteps[1]]);
+    const relations = points.slice(0,-1).map((fromStepId, index) => ({
+      fromStepId, toStepId:points[index+1], edgeIndexes:route!.slice(routeSteps.indexOf(fromStepId), routeSteps.indexOf(points[index+1]))
+    }));
+    const curatedResponse = await request.post('/api/view/reading-path', {headers, data:{
+      viewId:analysis.viewId,
+      selections:points.map((stepId,index) => ({stepId,role:index===0?'entry':index===points.length-1?'outcome':steps.find((step: any)=>step.stepId===stepId).kind==='call'?'handoff':'transform',requestPart:'amount',inclusionReason:index===points.length-1?'누적한 값을 반환한다':`입력 값에 확인된 변경을 적용한다 ${index+1}`})),
+      relations,
+    }});
+    expect(curatedResponse.ok(), await curatedResponse.text()).toBe(true);
+    const curated = await curatedResponse.json();
+    expect(curated.codeReadingPath.nodes[0].frameId).toBe(curated.codeReadingPath.nodes[1].frameId);
+    await page.setViewportSize({width:1200,height:800});
+    await page.goto(`/?token=testtoken&viewId=${curated.viewId}`);
+    const overview = page.locator('#requested-flow-overview');
+    await expect(overview).toBeVisible();
+    for (const stepId of points.slice(0,2)) {
+      await overview.locator(`[data-flow-step="${stepId}"]`).click();
+      await expectSelectedSource(page, curated.flowContexts[stepId]);
+    }
+    await page.locator('#baseline').selectOption(analysis.viewId);
+    await page.locator('#compare').click();
+    await expect(page.getByRole('button', {name:'비교 닫기',exact:true})).toBeVisible();
+    const requests: string[] = [];
+    await page.getByRole('button', {name:'문장별 탐색',exact:true}).click();
+    await page.locator('#view-process').click();
+    await page.getByRole('button', {name:'요청 흐름 개요',exact:true}).click();
+    await expect(page.locator('#view-process')).toHaveAttribute('aria-pressed','true');
+    await page.locator('#view-code').click();
+    await page.getByRole('button', {name:'문장별 탐색',exact:true}).click();
+    await expect(page.locator('#view-code')).toHaveAttribute('aria-pressed','true');
+    await expect(page.getByRole('button', {name:'비교 닫기',exact:true})).toBeVisible();
+    await page.getByRole('button', {name:'요청 흐름 개요',exact:true}).click();
+    page.on('request', req => {requests.push(new URL(req.url()).pathname);});
+    const origin = points.at(-3)!;
+    await overview.locator(`[data-flow-step="${origin}"]`).click();
+    const disclosure = overview.locator('[data-reading-relation] button.disclosure').last();
+    await disclosure.click();
+    await overview.locator(`[data-flow-step="${origin}"]`).focus();
+    const originPositions = await page.evaluate(() => {
+      const rail = document.getElementById('requested-flow-overview')!;
+      rail.scrollTop = 160;
+      window.scrollTo(0,80);
+      return {top:rail.scrollTop, window:window.scrollY};
+    });
+    expect(originPositions.top).toBeGreaterThan(0);
+    const overviewImagePath = test.info().outputPath('requested-flow-overview.png');
+    await page.screenshot({path:overviewImagePath,fullPage:true});
+    await test.info().attach('overview-source', {path:overviewImagePath,contentType:'image/png'});
+
+    await page.getByRole('button', {name:'문장별 탐색',exact:true}).click();
+    await expect(page.locator('#execution-navigation')).toBeVisible();
+    await expectSelectedSource(page, curated.flowContexts[origin]);
+    const otherFile = steps.find((step: any) => step.anchor.repoRelativePath === 'overview-effects.ts');
+    const otherFrame = curated.flowSequence.frames.find((frame: any) => frame.stepRefs.includes(otherFile.stepId));
+    await page.locator(`[data-frame="${otherFrame.frameID}"]`).click();
+    const detailToggle = page.locator(`[aria-controls="timeline-${otherFrame.frameID}"]`);
+    if (await detailToggle.getAttribute('aria-expanded') !== 'true') await detailToggle.click();
+    await page.locator(`[data-step="${otherFile.stepId}"]`).click();
+    await expectSelectedSource(page, curated.flowContexts[otherFile.stepId]);
+    await page.locator(`[data-step="${otherFile.stepId}"]`).focus();
+    const detailPositions = await page.evaluate(() => {
+      const rail = document.getElementById('execution-navigation')!;
+      rail.scrollTop = 220;
+      const track = document.getElementById('flow-overview')!;
+      track.scrollTop = 150;
+      const source = document.getElementById('source-current')!;
+      source.scrollLeft = 170;
+      return {rail:rail.scrollTop, track:track.scrollTop, source:source.scrollLeft};
+    });
+    expect(detailPositions.rail).toBeGreaterThan(0);
+    expect(detailPositions.source).toBeGreaterThan(0);
+    await page.getByRole('button', {name:'요청 흐름 개요',exact:true}).click();
+    await expect(overview.locator(`[data-flow-step="${origin}"]`)).toHaveAttribute('aria-pressed','true');
+    await expect(overview.locator(`[data-flow-step="${origin}"]`)).toBeFocused();
+    await expect(disclosure).toHaveAttribute('aria-expanded','true');
+    await expect.poll(() => overview.evaluate(el=>el.scrollTop)).toBe(originPositions.top);
+    await expect.poll(() => page.evaluate(()=>window.scrollY)).toBe(originPositions.window);
+    await page.getByRole('button', {name:'문장별 탐색',exact:true}).click();
+    await expectSelectedSource(page, curated.flowContexts[otherFile.stepId]);
+    await expect(page.locator(`[data-step="${otherFile.stepId}"]`)).toBeFocused();
+    await expect.poll(() => page.locator('#execution-navigation').evaluate(el=>el.scrollTop)).toBe(detailPositions.rail);
+    await expect.poll(() => page.locator('#flow-overview').evaluate(el=>el.scrollTop)).toBe(detailPositions.track);
+    await expect.poll(() => page.locator('#source-current').evaluate(el=>el.scrollLeft)).toBe(detailPositions.source);
+    expect(requests.filter(url => ['/api/task/view','/api/view/reading-path','/api/view/compare'].includes(url))).toEqual([]);
+    await page.evaluate((id) => window.openFlowView(id), analysis.viewId);
+    await expect(page.locator('#requested-flow-overview')).toHaveCount(0);
+    await page.evaluate((id) => window.openFlowView(id), curated.viewId);
+    await expectSelectedSource(page, curated.flowContexts[otherFile.stepId]);
+    await expect(page.getByRole('button',{name:'문장별 탐색',exact:true})).toHaveAttribute('aria-pressed','true');
+    await expect(page.getByRole('button',{name:'비교 닫기',exact:true})).toBeVisible();
+    expect(await page.evaluate(()=>window.flowStore.baseline?.viewId)).toBe(analysis.viewId);
+    await page.getByRole('button', {name:'요청 흐름 개요',exact:true}).click();
+    await overview.locator(`[data-flow-step="${points[0]}"]`).click();
+    await page.getByRole('button', {name:'문장별 탐색',exact:true}).click();
+    await expectSelectedSource(page, curated.flowContexts[points[0]]);
+    await expect(page.locator(`[data-step="${points[0]}"]`)).toBeFocused();
+    const preserved = await page.evaluate(() => ({
+      viewId:window.flowStore.data?.viewId, mode:window.flowStore.explorationMode,
+      step:window.flowStore.selectedStepId, baseline:window.flowStore.baseline?.viewId,
+      compare:window.flowStore.compare, overviewStep:window.flowStore.explorationNavigation.positions.overview?.stepId,
+    }));
+    const currentState = () => page.evaluate(() => ({
+      viewId:window.flowStore.data?.viewId, mode:window.flowStore.explorationMode,
+      step:window.flowStore.selectedStepId, baseline:window.flowStore.baseline?.viewId,
+      compare:window.flowStore.compare, overviewStep:window.flowStore.explorationNavigation.positions.overview?.stepId,
+    }));
+    await page.route('**/api/task/view?*',route=>route.fulfill({status:500,json:{message:'overview analysis unavailable'}}));
+    await page.locator('#reanalyze').click();
+    await expect(page.getByRole('status')).toContainText('overview analysis unavailable');
+    expect(await currentState()).toEqual(preserved);
+    await page.unroute('**/api/task/view?*');
+    let release: () => void = () => {};
+    const responseGate = new Promise<void>(resolve => {release = resolve;});
+    let arrived: () => void = () => {};
+    const requestGate = new Promise<void>(resolve => {arrived = resolve;});
+    let finished: () => void = () => {};
+    const responseFinished = new Promise<void>(resolve => {finished = resolve;});
+    await page.route('**/api/task/view?*',async route=>{
+      arrived(); await responseGate;
+      await route.fulfill({json:analysis}).catch(()=>{}); finished();
+    });
+    await page.locator('#reanalyze').click();
+    await requestGate;
+    await page.getByRole('button',{name:'취소',exact:true}).click();
+    release(); await responseFinished;
+    await expect(page.getByRole('status')).toContainText('취소');
+    expect(await currentState()).toEqual(preserved);
+    await page.unroute('**/api/task/view?*');
+    await page.getByRole('button',{name:'요청 흐름 개요',exact:true}).click();
+    await expect(overview.locator(`[data-flow-step="${points[0]}"]`)).toHaveAttribute('aria-pressed','true');
+    await page.setViewportSize({width:390,height:844});
+    expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);
+    // Reading and switching never rewrites the immutable source View.
+    expect(await (await request.get(`/api/view?viewId=${curated.viewId}`,{headers})).json()).toEqual(curated);
+    const evidencePath = test.info().outputPath('overview-statement-roundtrip-evidence.json');
+    writeFileSync(evidencePath, JSON.stringify({request:curated.codeReadingPath.request,analysisViewId:analysis.viewId,curatedViewId:curated.viewId,originStepId:origin,detailStepId:otherFile.stepId,originPositions,detailPositions,baselineViewId:analysis.viewId,failuresAndLateResponsesPreserved:true,immutableView:true},null,2));
+    await test.info().attach('overview-statement-roundtrip-evidence', {path:evidencePath,contentType:'application/json'});
+
+
+  } finally {
+    unlinkSync(sourcePath);
+    unlinkSync(helperPath);
   }
 });
 
