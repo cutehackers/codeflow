@@ -297,12 +297,17 @@
     border: 1px dashed #dddddd;
     border-radius: 5px;
   }
+  .source > code {
+    display: inline-grid;
+    min-width: 100%;
+  }
   .line {
     display: flex;
     gap: 12px;
   }
   .ln {
     width: 28px;
+    flex-shrink: 0;
     text-align: right;
     color: #595959;
     user-select: none;
@@ -313,10 +318,10 @@
     color: #222222;
   }
   .line.hit {
-    background: #f7f7f7;
+    background: #fff1a8;
     font-weight: 700;
   }
-  .line.struct {
+  .line.struct:not(.hit) {
     background: #f6f6f6;
   }
   .code-note {

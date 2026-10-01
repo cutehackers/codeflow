@@ -6,8 +6,8 @@
   const titles = $derived(buildNavigationTitles(flowStore.steps, flowStore.data?.semanticMap.edges || []));
   const roles: Record<string, string> = {entry:'시작', decision:'판단', transform:'값 처리', state_change:'상태 변경', effect:'외부 효과', handoff:'처리 인계', outcome:'결과', boundary:'분석 경계'};
 </script>
-<nav id="requested-flow-overview" class="rail" data-navigation-panel aria-label="요청 흐름 개요">
-  <header><h2>요청 흐름 개요</h2><span>{points.length}개 코드 지점</span></header>
+<nav id="requested-flow-overview" class="rail" data-navigation-panel aria-label="선별 지점 읽기">
+  <header><h2>선별 지점 읽기</h2><span>{points.length}개 코드 지점</span></header>
   <p>요청에 맞춰 선별한 코드입니다. 연결은 소스에서 확인한 관계이며 실제 실행 기록이 아닙니다.</p>
   {#each points as point (point.node.nodeId)}
     <section>

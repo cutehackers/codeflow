@@ -177,6 +177,68 @@ export function validateFlowReferences(data: FlowTaskViewData): string | null {
   for (const limitation of data.flowSequence.summaryLimitations || []) {
     if (!limitation.message || !Array.isArray(limitation.frameRefs) || !limitation.frameRefs.length || limitation.frameRefs.some(ref => !frames.has(ref))) return '요약 한계의 대상 관문을 찾을 수 없습니다.';
   }
+  const overview = data.requestedFlowOverview;
+  if (overview) {
+    if (overview.schemaId !== 'https://codeflow.local/schemas/requested-flow-overview.schema.json' || ![1,2].includes(overview.schemaVersion) ||
+      overview.snapshotId !== data.flowSequence.snapshotID || overview.computedBasisId !== data.flowSequence.computedBasisId ||
+      overview.request !== data.flowResolution?.rawRequest || !Array.isArray(overview.segments) || !overview.segments.length ||
+      !Array.isArray(overview.relations) || !Array.isArray(overview.boundaries)) return '처리 구간 개요의 분석 기준이 맞지 않습니다.';
+    const segments = new Set<string>();
+    const blocks = new Set<string>();
+    for (const segment of overview.segments) {
+      if (!segment.segmentId || segments.has(segment.segmentId) || !segment.purpose || !segment.inclusionReason ||
+        !Array.isArray(segment.stepIds) || !segment.stepIds.length || segment.stepIds.some(id => !steps.has(id)) || !segment.stepIds.includes(segment.entryStepId) ||
+        !Array.isArray(segment.blocks) || !segment.blocks.length) return '처리 구간의 코드 근거를 확인할 수 없습니다.';
+      segments.add(segment.segmentId);
+      const represented = new Set<string>();
+      for (const block of segment.blocks) {
+        const lines = data.sourceFiles?.[block.repoRelativePath];
+        if (!block.blockId || blocks.has(block.blockId) || !Array.isArray(block.stepIds) || !block.stepIds.length || !Array.isArray(block.highlights) || !block.highlights.length ||
+          !Array.isArray(block.lineRange) || block.lineRange.length !== 2 || !block.lineRange.every(Number.isInteger) || block.lineRange[0] < 1 || block.lineRange[0] > block.lineRange[1] || !lines || block.lineRange[1] - block.lineRange[0] + 1 > lines.length ||
+          block.stepIds.some(id => !segment.stepIds.includes(id) || !data.semanticMap.steps.some(step => step.stepId === id && step.anchor?.repoRelativePath === block.repoRelativePath))) return '코드 블록의 소스 근거를 확인할 수 없습니다.';
+        blocks.add(block.blockId);
+        for (let line = block.lineRange[0]; line <= block.lineRange[1]; line++) if (!lines.some(item => item.lineNumber === line)) return '이 분석 시점의 코드 블록 소스가 없습니다.';
+        for (const highlight of block.highlights) {
+          if (!block.stepIds.includes(highlight.stepId) || highlight.lineRange[0] < block.lineRange[0] || highlight.lineRange[1] > block.lineRange[1] ||
+            !Array.isArray(highlight.lineSelections) || !highlight.lineSelections.length || highlight.lineSelections.some(selection => {
+              const line = lines.find(item => item.lineNumber === selection.lineNumber);
+              return !line || ![selection.lineNumber, selection.startColumn, selection.endColumn].every(Number.isInteger) || selection.lineNumber < highlight.lineRange[0] || selection.lineNumber > highlight.lineRange[1] || selection.startColumn < 0 || selection.endColumn < selection.startColumn || (selection.endColumn === selection.startColumn && line.text.length !== 0) || selection.endColumn > line.text.length;
+            })) return '코드 블록의 문장 강조 근거를 확인할 수 없습니다.';
+          represented.add(highlight.stepId);
+        }
+        if (block.stepIds.some(id => !represented.has(id))) return '코드 블록에 포함된 문장의 강조 근거가 없습니다.';
+      }
+      if (segment.stepIds.some(id => !represented.has(id))) return '처리 구간에 포함된 문장의 코드 블록이 없습니다.';
+    }
+    if (overview.schemaVersion === 2) {
+      if (!Array.isArray(overview.categories) || !overview.categories.length) return '상위 범주의 처리 구간 소속을 확인할 수 없습니다.';
+      const categoryIds = new Set<string>();
+      const categoryTitles = new Set<string>();
+      const membership = new Set<string>();
+      for (const category of overview.categories) {
+        if (!category.categoryId?.trim() || categoryIds.has(category.categoryId.trim()) || !category.title?.trim() || categoryTitles.has(category.title.trim()) || !Array.isArray(category.segmentIds) || !category.segmentIds.length) return '상위 범주의 처리 구간 소속을 확인할 수 없습니다.';
+        categoryIds.add(category.categoryId.trim());
+        categoryTitles.add(category.title.trim());
+        for (const id of category.segmentIds) {
+          if (!segments.has(id) || membership.has(id)) return '처리 구간이 없거나 여러 상위 범주에 중복되어 있습니다.';
+          membership.add(id);
+        }
+      }
+      if (membership.size !== segments.size) return '상위 범주에 포함되지 않은 처리 구간이 있습니다.';
+    } else if (overview.categories !== undefined) return '처리 구간 개요 버전과 상위 범주가 맞지 않습니다.';
+    for (const relation of overview.relations) {
+      if ((relation.fromSegmentId && !segments.has(relation.fromSegmentId)) || (relation.toSegmentId && !segments.has(relation.toSegmentId)) ||
+        !steps.has(relation.fromStepId) || (relation.status === 'verified' && !steps.has(relation.toStepId)) || !relation.edgeIndexes?.length || relation.edgeIndexes.length !== relation.edges?.length) return '처리 구간의 연결 근거를 확인할 수 없습니다.';
+      let cursor = relation.fromStepId;
+      for (const [position, index] of relation.edgeIndexes.entries()) {
+        const edge = data.semanticMap.edges[index];
+        if (!edge || edge.fromStepId !== cursor || edge.toStepId !== relation.edges[position]?.toStepId || edge.kind !== relation.edges[position]?.kind || edge.resolutionStatus !== relation.edges[position]?.resolutionStatus || JSON.stringify(edge.conditions || []) !== JSON.stringify(relation.edges[position]?.conditions || [])) return '처리 구간의 연결 근거를 확인할 수 없습니다.';
+        cursor = edge.toStepId;
+      }
+      if (cursor !== relation.toStepId) return '처리 구간의 연결 근거를 확인할 수 없습니다.';
+    }
+    if (overview.boundaries.some(boundary => !steps.has(boundary.fromStepId) || !boundary.reason)) return '처리 구간의 분석 경계를 확인할 수 없습니다.';
+  }
   const path = data.codeReadingPath;
   if (path) {
     if (path.schemaId !== 'https://codeflow.local/schemas/code-reading-path.schema.json' || path.schemaVersion !== 2 ||

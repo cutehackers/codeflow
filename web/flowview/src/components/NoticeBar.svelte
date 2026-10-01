@@ -2,9 +2,20 @@
   import { flowStore, DELTA_LABELS } from '../stores/flowStore.svelte';
   import { implementationSymbol, navigationTitle } from '../stores/flowNavigation';
   let baselineId = $state('');
+  const limitations = $derived(flowStore.data?.flowSequence?.summaryLimitations || []);
+  function onLimitationSelect(ref: string) {
+    const frame = flowStore.frames.find(item => item.frameID === ref);
+    if (!frame) return;
+    if (flowStore.explorationMode === 'overview' && flowStore.data?.requestedFlowOverview) {
+      const segment = flowStore.data.requestedFlowOverview.segments.find(item => item.stepIds.includes(frame.primaryStepRef));
+      if (segment) flowStore.selectSegment(segment.segmentId);
+      flowStore.openSegmentDetail(frame.primaryStepRef);
+    } else flowStore.select(ref);
+    if (!flowStore.expandedFrames.has(ref)) flowStore.toggleFrame(ref);
+  }
   $effect(() => { baselineId = flowStore.baseline?.viewId || ''; });
 </script>
-<section class="notice" aria-label="분석 안내">
+<section class="notice" class:overview={flowStore.explorationMode === 'overview' && !!flowStore.data?.requestedFlowOverview} aria-label="분석 안내">
   <span role="status">{flowStore.notice}</span>
   <div class="controls">
     {#if flowStore.savedNavigationState}<button onclick={() => flowStore.restoreNavigationState()}>원래 장면 복귀</button>{/if}
@@ -22,18 +33,21 @@
     </select>
     <button id="compare" disabled={!baselineId || !flowStore.data?.viewId || flowStore.busy} onclick={() => window.compareFlowViews(baselineId)}>변경 전후 비교</button>
     {#if flowStore.compare}<button onclick={() => { flowStore.compare = false; }}>비교 닫기</button>{/if}
+    {#if flowStore.overviewDetailPending}<button onclick={() => window.openFlowDetail()}>문장별 탐색 열기</button>{/if}
     {#if flowStore.pending?.viewId}<button onclick={() => window.openFlowView(flowStore.pending!.viewId!)}>새 분석 열기</button>{/if}
   </div>
-  {#each flowStore.data?.flowSequence?.summaryLimitations || [] as limitation}
+  {#if limitations.length}
     <details class="summary-limitation">
-      <summary>요약 한계 · {limitation.frameRefs.length}개 관문</summary>
+      <summary>분석 한계와 관련 코드</summary>
+      {#each limitations as limitation}
       <p>{limitation.message} 코드를 펼쳐 처리 내용을 확인할 수 있습니다.</p>
-      {#each limitation.frameRefs as ref}
+      <details><summary>관련 코드 보기</summary>{#each limitation.frameRefs as ref}
         {@const frame = flowStore.frames.find(item => item.frameID === ref)}
-        {#if frame}<button onclick={() => { flowStore.select(ref); if (!flowStore.expandedFrames.has(ref)) flowStore.toggleFrame(ref); }}>{frame.ordinal}. {navigationTitle(frame.title, implementationSymbol(flowStore.steps.find(step => step.stepId === frame.primaryStepRef)))}</button>{/if}
+        {#if frame}<button onclick={() => onLimitationSelect(ref)}>{frame.ordinal}. {navigationTitle(frame.title, implementationSymbol(flowStore.steps.find(step => step.stepId === frame.primaryStepRef)))}</button>{/if}
+      {/each}</details>
       {/each}
     </details>
-  {/each}
+  {/if}
   {#if flowStore.compare}
     <details><summary>변경 {flowStore.activeDeltaChanges.length}건</summary>
       {#each flowStore.activeDeltaChanges as change}
@@ -44,6 +58,7 @@
 </section>
 <style>
   .summary-limitation{flex-basis:100%;border-top:1px dashed #999;padding-top:9px;overflow-wrap:anywhere}.summary-limitation summary{cursor:pointer}.summary-limitation button{margin:3px;max-width:100%;overflow-wrap:anywhere;text-align:left}
+  .notice.overview .summary-limitation{flex-basis:auto;border-top:0;padding-top:0}
   .notice {
     margin: 16px 30px 14px;
     border: 1px solid var(--line, #dddddd);

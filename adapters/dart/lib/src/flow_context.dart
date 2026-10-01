@@ -44,6 +44,9 @@ class SnapshotSyntax {
               n.labels.isEmpty &&
               n.keyword.offset == start &&
               n.colon.end == end) ||
+          (n is CatchClause &&
+              n.offset == start &&
+              n.body.leftBracket.end == end) ||
           (n is ForStatement &&
               n.forKeyword.offset == start &&
               n.rightParenthesis.end == end &&
@@ -67,10 +70,13 @@ class SnapshotSyntax {
     );
     if (matches.length != 1) return null;
     final statement = matches.single;
-    AstNode? structure = statement is IfStatement || statement is ForStatement
+    AstNode? structure =
+        statement is IfStatement ||
+            statement is ForStatement ||
+            statement is CatchClause
         ? statement
         : null;
-    String? kind = statement is IfStatement
+    String? kind = statement is IfStatement || statement is CatchClause
         ? 'condition'
         : statement is ForStatement
         ? 'loop'
@@ -141,7 +147,7 @@ class SnapshotSyntax {
       'sourceHash': sourceHash,
       'canonicalPath': path,
       'statement': {
-        'nodeKind': statement is SwitchMember
+        'nodeKind': statement is SwitchMember || statement is CatchClause
             ? 'control_header'
             : _isDirectAssignedCall(statement) ||
                   _isDirectArgumentCall(statement) ||
@@ -243,7 +249,9 @@ bool _isExpressionBodyReturn(AstNode node) =>
     identical((node.parent as ExpressionFunctionBody).expression, node);
 
 bool _isConditionCall(AstNode node) {
-  if (node is! MethodInvocation && node is! FunctionExpressionInvocation) {
+  if (node is! MethodInvocation &&
+      node is! FunctionExpressionInvocation &&
+      node is! AwaitExpression) {
     return false;
   }
   for (AstNode? parent = node.parent; parent != null; parent = parent.parent) {

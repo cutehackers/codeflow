@@ -30,6 +30,8 @@ func (s *Server) getLiveCoordinator(absTarget string) (*flowview.Server, error) 
 		return nil, fmt.Errorf("resolve live coordinator workspace: %w", err)
 	}
 	absTarget = filepath.Clean(canonicalTarget)
+	s.liveServerCreationMu.Lock()
+	defer s.liveServerCreationMu.Unlock()
 
 	if val, ok := s.liveServers.Load(absTarget); ok {
 		server, ok := val.(*flowview.Server)
@@ -53,6 +55,8 @@ func (s *Server) getLiveCoordinator(absTarget string) (*flowview.Server, error) 
 }
 
 func (s *Server) closeLiveServers() {
+	s.liveServerCreationMu.Lock()
+	defer s.liveServerCreationMu.Unlock()
 	s.liveServers.Range(func(key, val any) bool {
 		if server, ok := val.(*flowview.Server); ok && server != nil {
 			ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)

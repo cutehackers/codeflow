@@ -101,6 +101,18 @@ func (s *Server) flowViewPayload(ctx context.Context, args map[string]any, viewI
 		}
 		compact.CodeReadingPath = &path
 	}
+	if view["requestedFlowOverview"] != nil {
+		var overview semantic.RequestedFlowOverview
+		data, err := json.Marshal(view["requestedFlowOverview"])
+		if err != nil {
+			return nil, fmt.Errorf("encode requested flow overview: %w", err)
+		}
+		if err := json.Unmarshal(data, &overview); err != nil {
+			return nil, fmt.Errorf("decode requested flow overview: %w", err)
+		}
+		compact.RequestedFlowOverview = &overview
+	}
+	compact.RequestedFlowOverviewLimitation, _ = view["requestedFlowOverviewLimitation"].(string)
 	compact.FlowResolutionMissing, _ = view["flowResolutionMissing"].(bool)
 	compact.ResolutionLimitation, _ = view["resolutionLimitation"].(string)
 	compact.CodeReadingPathLimitation, _ = view["codeReadingPathLimitation"].(string)

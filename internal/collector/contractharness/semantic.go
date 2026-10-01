@@ -6,23 +6,31 @@ import (
 )
 
 const (
-	TaskIntentSchemaID         = BaseURL + "task-intent.schema.json"
-	TaskViewQuerySchemaID      = BaseURL + "task-view-query.schema.json"
-	SemanticMapIRSchemaID      = BaseURL + "semantic-map-ir.schema.json"
-	FlowViewProjectionSchemaID = BaseURL + "flow-view-projection.schema.json"
-	TaskIntentV2SchemaID       = BaseURL + "rflsc.task-intent.v2.schema.json"
-	FeatureQueryV2SchemaID     = BaseURL + "rflsc.feature-query.v2.schema.json"
-	ReviewQueryV2SchemaID      = BaseURL + "rflsc.review-query.v2.schema.json"
-	SemanticMapV2SchemaID      = BaseURL + "rflsc.semantic-map-ir.v2.schema.json"
-	FlowProjectionV2SchemaID   = BaseURL + "rflsc.flowview-projection.v2.schema.json"
-	FlowSequenceSchemaID       = BaseURL + "flow_sequence.schema.json"
-	CodeReadingPathSchemaID    = BaseURL + "code-reading-path.schema.json"
+	TaskIntentSchemaID            = BaseURL + "task-intent.schema.json"
+	TaskViewQuerySchemaID         = BaseURL + "task-view-query.schema.json"
+	SemanticMapIRSchemaID         = BaseURL + "semantic-map-ir.schema.json"
+	FlowViewProjectionSchemaID    = BaseURL + "flow-view-projection.schema.json"
+	TaskIntentV2SchemaID          = BaseURL + "rflsc.task-intent.v2.schema.json"
+	FeatureQueryV2SchemaID        = BaseURL + "rflsc.feature-query.v2.schema.json"
+	ReviewQueryV2SchemaID         = BaseURL + "rflsc.review-query.v2.schema.json"
+	SemanticMapV2SchemaID         = BaseURL + "rflsc.semantic-map-ir.v2.schema.json"
+	FlowProjectionV2SchemaID      = BaseURL + "rflsc.flowview-projection.v2.schema.json"
+	FlowSequenceSchemaID          = BaseURL + "flow_sequence.schema.json"
+	RequestedFlowOverviewSchemaID = BaseURL + "requested-flow-overview.schema.json"
+	CodeReadingPathSchemaID       = BaseURL + "code-reading-path.schema.json"
 )
 
 // ValidateFlowSequence verifies schema compliance for FlowSequence.
 func ValidateFlowSequence(data []byte) error {
 	if err := Validate(FlowSequenceSchemaID, data); err != nil {
 		return fmt.Errorf("flow_sequence schema: %w", err)
+	}
+	return nil
+}
+
+func ValidateRequestedFlowOverview(data []byte) error {
+	if err := Validate(RequestedFlowOverviewSchemaID, data); err != nil {
+		return fmt.Errorf("requested flow overview schema: %w", err)
 	}
 	return nil
 }

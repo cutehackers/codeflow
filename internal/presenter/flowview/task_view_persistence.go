@@ -65,6 +65,9 @@ func (s *Server) SaveTaskView(ctx context.Context, result map[string]any) (map[s
 	if err := validateCodeReadingPathForSave(result, &mapIR, &sequence); err != nil {
 		return nil, fmt.Errorf("codeReadingPath: %w", err)
 	}
+	if err := validateRequestedFlowOverviewForSave(result, &mapIR, &sequence); err != nil {
+		return nil, fmt.Errorf("requestedFlowOverview: %w", err)
+	}
 	// Preserve caller-owned data, including optional compatible fields, until
 	// validation and persistence have succeeded.
 	view := make(map[string]any, len(result)+1)
@@ -254,6 +257,16 @@ func FormatTaskViewResponse(view map[string]any, repoRoot string) {
 	stripDeprecatedArchitecture(view)
 	if view == nil {
 		return
+	}
+	if view["requestedFlowOverview"] != nil {
+		var model semantic.SemanticMapIR
+		var sequence semantic.FlowSequence
+		modelErr := decodeTaskViewPart(view["semanticMap"], &model)
+		sequenceErr := decodeTaskViewPart(view["flowSequence"], &sequence)
+		if modelErr != nil || sequenceErr != nil || validateRequestedFlowOverviewForSave(view, &model, &sequence) != nil {
+			delete(view, "requestedFlowOverview")
+			view["requestedFlowOverviewLimitation"] = "저장된 처리 구간 개요가 근거 검사를 통과하지 못했습니다. 문장별 탐색에서 원본 분석을 확인하세요."
+		}
 	}
 	if view["codeReadingPath"] != nil {
 		var model semantic.SemanticMapIR

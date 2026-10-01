@@ -34,6 +34,7 @@ test('empty home, analysis, scene navigation and immutable reopening', async ({p
   await expect(page.getByRole('region', {name:'요청 흐름의 관문과 연결',exact:true})).toHaveCount(0);
   await page.locator('#query-input').fill(entry);
   await page.locator('#request-submit').click();
+  await page.getByRole('button', {name:'문장별 탐색 열기',exact:true}).click();
   // Explicit entry input must also work through the ordinary request form.
   await expect(page.getByRole('region', {name:'요청 흐름의 관문과 연결',exact:true})).toBeVisible();
   await expect(page).toHaveURL(/viewId=/);
@@ -121,6 +122,7 @@ test('a selected candidate keeps the original natural-language request', async (
   await candidate.getByRole('button', {name: '코드 미리 보기'}).click();
   await expect(page.getByLabel('후보 진입 코드')).toContainText('onQuickCheckout');
   await candidate.getByRole('button', {name: '이 진입점 선택'}).click();
+  await page.getByRole('button', {name:'문장별 탐색 열기',exact:true}).click();
   await expect(page.getByRole('region', {name: '요청 흐름의 관문과 연결', exact: true})).toBeVisible();
   const viewId = new URL(page.url()).searchParams.get('viewId');
   expect(viewId).toBeTruthy();
@@ -355,6 +357,7 @@ test('natural Go request in a mixed repository requires source preview and prese
   await candidate.getByRole('button', {name: '코드 미리 보기'}).click();
   await expect(page.getByLabel('후보 진입 코드')).toContainText('ProcessCheckout');
   await candidate.getByRole('button', {name: '이 진입점 선택'}).click();
+  await page.getByRole('button', {name:'문장별 탐색 열기',exact:true}).click();
   await expect(page.getByRole('region', {name: '요청 흐름의 관문과 연결', exact: true})).toBeVisible();
   const viewId = new URL(page.url()).searchParams.get('viewId');
   const saved = await (await request.get(`/api/view?viewId=${viewId}`, {headers})).json();
@@ -439,7 +442,7 @@ test('curated Go reading path retains its intermediate source step', async ({pag
 
 
     await page.goto(`/?token=testtoken&viewId=${curated.viewId}`);
-    await expect(page.getByRole('navigation', {name:'요청 흐름 개요', exact:true})).toBeVisible();
+    await expect(page.getByRole('navigation', {name:'선별 지점 읽기', exact:true})).toBeVisible();
     await expect(page.locator('[data-flow-frame]')).toHaveCount(0);
     await expect(page.locator('#execution-navigation')).toHaveCount(0);
     await expect(page.locator('#requested-flow-overview')).toContainText('조건 참');
@@ -551,13 +554,13 @@ test('overview and statements restore exact code, panel positions, focus and per
     const requests: string[] = [];
     await page.getByRole('button', {name:'문장별 탐색',exact:true}).click();
     await page.locator('#view-process').click();
-    await page.getByRole('button', {name:'요청 흐름 개요',exact:true}).click();
+    await page.getByRole('button', {name:'선별 지점 읽기',exact:true}).click();
     await expect(page.locator('#view-process')).toHaveAttribute('aria-pressed','true');
     await page.locator('#view-code').click();
     await page.getByRole('button', {name:'문장별 탐색',exact:true}).click();
     await expect(page.locator('#view-code')).toHaveAttribute('aria-pressed','true');
     await expect(page.getByRole('button', {name:'비교 닫기',exact:true})).toBeVisible();
-    await page.getByRole('button', {name:'요청 흐름 개요',exact:true}).click();
+    await page.getByRole('button', {name:'선별 지점 읽기',exact:true}).click();
     page.on('request', req => {requests.push(new URL(req.url()).pathname);});
     const origin = points.at(-3)!;
     await overview.locator(`[data-flow-step="${origin}"]`).click();
@@ -597,7 +600,7 @@ test('overview and statements restore exact code, panel positions, focus and per
     });
     expect(detailPositions.rail).toBeGreaterThan(0);
     expect(detailPositions.source).toBeGreaterThan(0);
-    await page.getByRole('button', {name:'요청 흐름 개요',exact:true}).click();
+    await page.getByRole('button', {name:'선별 지점 읽기',exact:true}).click();
     await expect(overview.locator(`[data-flow-step="${origin}"]`)).toHaveAttribute('aria-pressed','true');
     await expect(overview.locator(`[data-flow-step="${origin}"]`)).toBeFocused();
     await expect(disclosure).toHaveAttribute('aria-expanded','true');
@@ -617,7 +620,7 @@ test('overview and statements restore exact code, panel positions, focus and per
     await expect(page.getByRole('button',{name:'문장별 탐색',exact:true})).toHaveAttribute('aria-pressed','true');
     await expect(page.getByRole('button',{name:'비교 닫기',exact:true})).toBeVisible();
     expect(await page.evaluate(()=>window.flowStore.baseline?.viewId)).toBe(analysis.viewId);
-    await page.getByRole('button', {name:'요청 흐름 개요',exact:true}).click();
+    await page.getByRole('button', {name:'선별 지점 읽기',exact:true}).click();
     await overview.locator(`[data-flow-step="${points[0]}"]`).click();
     await page.getByRole('button', {name:'문장별 탐색',exact:true}).click();
     await expectSelectedSource(page, curated.flowContexts[points[0]]);
@@ -654,7 +657,7 @@ test('overview and statements restore exact code, panel positions, focus and per
     await expect(page.getByRole('status')).toContainText('취소');
     expect(await currentState()).toEqual(preserved);
     await page.unroute('**/api/task/view?*');
-    await page.getByRole('button',{name:'요청 흐름 개요',exact:true}).click();
+    await page.getByRole('button',{name:'선별 지점 읽기',exact:true}).click();
     await expect(overview.locator(`[data-flow-step="${points[0]}"]`)).toHaveAttribute('aria-pressed','true');
     await page.setViewportSize({width:390,height:844});
     expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);
@@ -1609,8 +1612,16 @@ test('explicit comparison, successful reanalysis and direct relation context', a
   await page.keyboard.press('Enter');
   const selected=await page.locator('[data-flow-frame][aria-pressed=true]').getAttribute('data-flow-frame');
   await page.locator('#reanalyze').click();
+  await expect(page.getByRole('status')).toContainText('처리 구간 개요가 생성되지 않았습니다');
+  // Comparing the retained View must not make its pending analysis unopenable.
+  await page.locator('#baseline').selectOption(baseline.viewId);
+  await page.locator('#compare').click();
+  await expect(page.getByRole('button',{name:'비교 닫기',exact:true})).toBeVisible();
+  await page.getByRole('button',{name:'문장별 탐색 열기',exact:true}).click();
   await expect(page.getByRole('status')).toContainText(/저장된 분석|선택한 장면이 새 분석에서 대응되지 않아 이전 화면을 유지합니다/);
   await expect(page.locator('[data-flow-frame][aria-pressed=true]')).toHaveAttribute('data-flow-frame',selected!);
+  expect(await page.evaluate(()=>window.flowStore.baseline?.viewId)).toBe(baseline.viewId);
+  await expect(page.locator('.compare-grid')).toHaveCount(1);
   await page.locator('[data-flow-frame]').first().click();
   const connections = page.getByRole('region',{name:'요청 흐름 안의 전후 연결'});
   await expect(connections).toBeVisible();
@@ -1629,6 +1640,8 @@ test('compares an actual source edit against the selected saved analysis', async
     await page.goto(`/?token=testtoken&viewId=${baseline.viewId}`);
     await expect(page.getByRole('region', {name:'요청 흐름의 관문과 연결',exact:true})).toBeVisible();
     await page.locator('#reanalyze').click();
+    await expect(page).toHaveURL(new RegExp(`viewId=${baseline.viewId}`));
+    await page.getByRole('button',{name:'문장별 탐색 열기',exact:true}).click();
     await expect(page).not.toHaveURL(new RegExp(`viewId=${baseline.viewId}`));
     await page.locator('#baseline').selectOption(baseline.viewId);
     await page.locator('#compare').click();
@@ -1715,7 +1728,8 @@ test('resolved flow displays request region with entry point evidence and limita
   await page.goto(`/?token=testtoken&viewId=${viewData.viewId}`);
   const requestRegion = page.getByRole('region', {name: '요청 영역', exact: true});
   await expect(requestRegion).toBeVisible();
-  await expect(requestRegion).toContainText('흐름 확정');
+  await expect(requestRegion).toContainText('요청 흐름');
+  await expect(requestRegion).toContainText('진입점 확인');
   await expect(requestRegion).toContainText(query);
   await expect(requestRegion).toContainText(entry);
   await expect(requestRegion).toContainText('진입점:');
@@ -1723,4 +1737,171 @@ test('resolved flow displays request region with entry point evidence and limita
   await expect(requestRegion.locator('.request-detail').filter({hasText: '후보 정보:'})).toContainText('app/page.tsx#HomePage.onQuickCheckout');
   await expect(requestRegion).toContainText('요청과 코드의 의미 연결은 선택자의 판단');
   await expect(requestRegion).toContainText('분석 한계:');
+});
+
+test('purpose blocks from MCP preserve real branch loop handoff and reading restoration', async ({page, request}) => {
+  const fixture = process.env.CODEFLOW_BROWSER_FIXTURE!;
+  const mainSource = [
+    "import {adjustAmount} from './purpose-adjustment';",
+    'export function processPurposeCheckout(amount: number) {',
+    '  const input = amount;',
+    '  if (input < 0) return -1;',
+    '  let total = input;',
+    ...Array.from({length:36}, (_,i)=>`  // keep snapshot context ${i}`),
+    '  for (let index = 0; index < 3; index++) {',
+    '    total = adjustAmount(total);',
+    '  }',
+    '  return total;',
+    '}',
+  ].join('\n');
+  const helperSource = ['export function adjustAmount(value: number) {','  const next = value + 2;','  return next;','}'].join('\n');
+  const sourcePath = path.join(fixture, 'purpose-checkout.ts');
+  const helperPath = path.join(fixture, 'purpose-adjustment.ts');
+  writeFileSync(sourcePath, mainSource); writeFileSync(helperPath, helperSource);
+  const executable = process.env.CODEFLOW_BROWSER_EXECUTABLE || path.resolve(__dirname,'../../../bin/codeflow');
+  function mcp(name: string, args: any) {
+    const rpc = {jsonrpc:'2.0',id:1,method:'tools/call',params:{name,arguments:{target:fixture,...args}}};
+    const result = spawnSync(executable,['mcp',fixture],{input:JSON.stringify(rpc)+'\n',encoding:'utf8',timeout:60000,maxBuffer:16*1024*1024});
+    expect(result.status,result.stderr).toBe(0);
+    const response = JSON.parse(result.stdout);
+    expect(response.result?.isError,JSON.stringify(response)).not.toBe(true);
+    return JSON.parse(response.result.content[0].text);
+  }
+  try {
+    const rawRequest = '음수 결제를 거부하고 세 번 금액을 조정한 뒤 최종 금액을 반환하는 흐름';
+    const response = await request.get(`/api/task/view?query=${encodeURIComponent(rawRequest)}&entrySymbol=purpose-checkout.ts%23processPurposeCheckout`,{headers});
+    expect(response.ok(),await response.text()).toBe(true);
+    const analysis = await response.json();
+    const steps = analysis.semanticMap.steps;
+    const sourceOf = (step: any) => Buffer.from(step.anchor.repoRelativePath === 'purpose-checkout.ts' ? mainSource : helperSource).subarray(...step.anchor.byteRange).toString();
+    const validation = steps.filter((step: any)=> step.anchor.repoRelativePath==='purpose-checkout.ts' && (sourceOf(step).includes('const input') || sourceOf(step).includes('input < 0') || sourceOf(step).includes('return -1')));
+    const outcome = steps.filter((step: any)=> step.anchor.repoRelativePath==='purpose-checkout.ts' && sourceOf(step).trim()==='return total;');
+    const adjustment = steps.filter((step: any)=>!validation.includes(step)&&!outcome.includes(step));
+    expect(validation.length).toBeGreaterThan(1);expect(outcome).toHaveLength(1);
+    const segment = (segmentId: string,purpose: string,selected: any[]) => {
+      const groups = new Map<string,string[]>();
+      for (const step of selected) {const key=step.anchor.repoRelativePath+'#'+step.anchor.enclosingSymbolPath;groups.set(key,[...(groups.get(key)||[]),step.stepId]);}
+      return {segmentId,purpose,inclusionReason:purpose+'을 구현하는 검증된 코드',stepIds:selected.map(step=>step.stepId),blocks:[...groups.values()].map(stepIds=>({stepIds}))};
+    };
+    const proposal = {viewId:analysis.viewId,categories:[{categoryId:'checkout-preparation',title:'결제 준비와 금액 처리',segmentIds:['input-validation','amount-adjustment']},{categoryId:'checkout-response',title:'결제 결과 전달',segmentIds:['amount-result']}],segments:[segment('input-validation','음수 입력 거부',validation),segment('amount-adjustment','세 번 금액 조정',adjustment),segment('amount-result','최종 금액 반환',outcome)],relations:[]};
+    const result = mcp('curate_requested_flow_overview',proposal);
+    const viewId = result.viewId;
+    expect(viewId).not.toBe(analysis.viewId);
+    const view = await (await request.get(`/api/view?viewId=${viewId}`,{headers})).json();
+    expect(view.requestedFlowOverview).toEqual(result.requestedFlowOverview);
+    expect(view.requestedFlowOverview.schemaVersion).toBe(2);
+    expect(view.requestedFlowOverview.categories).toEqual(proposal.categories);
+    for (const format of ['full','compact']) expect(mcp('get_flow_payload',{viewId,format}).requestedFlowOverview).toEqual(result.requestedFlowOverview);
+    await page.setViewportSize({width:1200,height:800});
+    const opened = mcp('open_review',{viewId});
+    expect(opened.viewId).toBe(viewId);
+    await page.goto(opened.url);
+    await expect(page.locator('#requested-flow-blocks')).toContainText('음수 입력 거부');
+    await expect(page.locator('#code-flow')).toHaveCount(0);
+    await expect(page.locator('[data-category]')).toHaveCount(2);
+    await expect(page.locator('#requested-flow-overview [data-segment]')).toHaveCount(3);
+    await expect(page.locator('.detail-actions')).toHaveCount(0);
+    await expect(page.locator('#requested-flow-blocks .source-statement').first()).toBeInViewport();
+    const overviewAccessibility=await new AxeBuilder({page}).withTags(['wcag2a','wcag2aa']).analyze();
+    expect(overviewAccessibility.violations.filter(violation=>['critical','serious'].includes(violation.impact || ''))).toEqual([]);
+    await expect(page.locator('[data-block-step]')).toHaveCount(validation.length);
+    await expect(page.locator('#requested-flow-overview')).toContainText('조건 참');
+    await expect(page.locator('#requested-flow-overview')).toContainText('조건 거짓');
+    const validationSegment=page.locator('[data-segment="input-validation"]');
+    const adjustmentSegment=page.locator('[data-segment="amount-adjustment"]');
+    const resultSegment=page.locator('[data-segment="amount-result"]');
+    await validationSegment.click();
+    await validationSegment.press('ArrowUp');
+    await expect(validationSegment).toBeFocused();
+    await expect(validationSegment).toHaveAttribute('aria-pressed','true');
+    await validationSegment.press('ArrowDown');
+    await expect(adjustmentSegment).toBeFocused();
+    await expect(adjustmentSegment).toHaveAttribute('aria-pressed','true');
+    await adjustmentSegment.press('ArrowRight');
+    await expect(resultSegment).toBeFocused();
+    await expect(page.locator('[data-category="checkout-response"]')).toHaveAttribute('aria-pressed','true');
+    await expect(page.locator('#requested-flow-blocks')).toContainText('return total;');
+    await resultSegment.press('ArrowDown');
+    await expect(resultSegment).toBeFocused();
+    await expect(resultSegment).toHaveAttribute('aria-pressed','true');
+    await resultSegment.press('ArrowLeft');
+    await expect(adjustmentSegment).toBeFocused();
+    await adjustmentSegment.press('ArrowUp');
+    await expect(validationSegment).toBeFocused();
+    await validationSegment.press('ArrowRight');
+    await expect(adjustmentSegment).toBeFocused();
+    await expect(page.locator('[data-category="checkout-preparation"]')).toHaveAttribute('aria-pressed','true');
+    await expect(page.locator('[data-code-block]')).toHaveCount(2);
+    await expect(page.locator('#requested-flow-blocks')).toContainText('purpose-adjustment.ts');
+    await expect(page.locator('#requested-flow-blocks')).toContainText('const next = value + 2;');
+    await expect(page.locator('#requested-flow-overview .reading-node[aria-pressed="true"]')).toContainText('반복');
+    await page.locator('[data-segment-context="amount-adjustment"] > summary').click();
+    await expect(page.locator('#requested-flow-overview')).toContainText('다음 반복');
+    await page.locator('[data-segment="amount-result"]').click();
+    await expect(page.locator('[data-category="checkout-response"]')).toHaveAttribute('aria-pressed','true');
+    await expect(page.locator('#requested-flow-overview [data-segment]')).toHaveCount(3);
+    await expect(page.locator('[data-segment="amount-result"]')).toHaveAttribute('aria-pressed','true');
+    await expect(page.locator('#requested-flow-blocks')).toContainText('return total;');
+    await page.locator('[data-category="checkout-preparation"]').click();
+    await expect(page.locator('[data-segment="amount-adjustment"]')).toHaveAttribute('aria-pressed','true');
+    const relationContext=page.locator('[data-segment-context="amount-adjustment"]');
+    await expect(relationContext).toHaveAttribute('open','');
+    const relationDetails=relationContext.locator('.relation details').first();
+    await relationDetails.locator('summary').click();
+    const relationSource=relationDetails.locator('[data-navigation-focus]').first();
+    await relationSource.click();
+    await page.getByRole('button',{name:'요청 흐름 개요',exact:true}).click();
+    await expect(relationContext).toHaveAttribute('open','');
+    await expect(relationDetails).toHaveAttribute('open','');
+    await expect(relationSource).toBeFocused();
+    const block = view.requestedFlowOverview.segments[1].blocks[0];
+    await page.locator(`[data-navigation-focus="block-expand:${block.blockId}"]`).click();
+    const detailStep = adjustment.find((step: any)=>step.anchor.repoRelativePath==='purpose-adjustment.ts' && sourceOf(step).includes('return next'));
+    const detailButton = page.locator(`[data-block-detail="${detailStep.stepId}"]`).first();
+    await detailButton.focus();
+    const position = await page.evaluate(()=>window.scrollY);
+    await detailButton.click();
+    await expectSelectedSource(page,view.flowContexts[detailStep.stepId]);
+    await page.getByRole('button',{name:'요청 흐름 개요',exact:true}).click();
+    await expect(page.locator('[data-segment="amount-adjustment"]')).toHaveAttribute('aria-pressed','true');
+    await expect(page.locator('[data-category="checkout-preparation"]')).toHaveAttribute('aria-pressed','true');
+    await expect(page.locator(`[data-navigation-focus="block-expand:${block.blockId}"]`)).toHaveAttribute('aria-expanded','true');
+    await expect(detailButton).toBeFocused();
+    await expect.poll(()=>page.evaluate(()=>window.scrollY)).toBe(position);
+    // Reopening another saved analysis does not mix segment/detail state.
+    await page.evaluate(async id=>await (window as any).openFlowView(id),analysis.viewId);
+    await page.evaluate(async id=>await (window as any).openFlowView(id),viewId);
+    await expect(page.locator('[data-segment="amount-adjustment"]')).toHaveAttribute('aria-pressed','true');
+    await detailButton.click();
+    await page.evaluate(async id=>await (window as any).openFlowView(id),analysis.viewId);
+    await page.evaluate(async id=>await (window as any).openFlowView(id),viewId);
+    await expectSelectedSource(page,view.flowContexts[detailStep.stepId]);
+    await page.getByRole('button',{name:'요청 흐름 개요',exact:true}).click();
+    await page.setViewportSize({width:390,height:844});
+    expect(await page.evaluate(()=>document.documentElement.scrollWidth<=window.innerWidth)).toBe(true);
+    await adjustmentSegment.click();
+    await adjustmentSegment.press('ArrowDown');
+    await expect(resultSegment).toBeFocused();
+    await expect(resultSegment).toBeInViewport();
+    await expect(resultSegment).toHaveAttribute('aria-pressed','true');
+    const segmentBounds=await resultSegment.evaluate(button=>{const item=button.getBoundingClientRect();const rail=button.closest('nav')!.getBoundingClientRect();return {left:item.left-rail.left,top:item.top-rail.top,right:rail.right-item.right,bottom:rail.bottom-item.bottom};});
+    expect(Math.min(segmentBounds.left,segmentBounds.top,segmentBounds.right,segmentBounds.bottom)).toBeGreaterThanOrEqual(4);
+    await page.setViewportSize({width:1200,height:800});
+    await page.locator('[data-category="checkout-preparation"]').click();
+    // Direct browser analysis stays staged until the explicit detail action.
+    await page.evaluate(async()=>await (window as any).fetchTaskView('purpose-checkout.ts#processPurposeCheckout'));
+    await expect(page).toHaveURL(new RegExp(viewId));
+    await expect(page.getByRole('button',{name:'문장별 탐색 열기',exact:true})).toBeVisible();
+    await expect(page.locator('#requested-flow-blocks')).toBeVisible();
+    await page.getByRole('button',{name:'문장별 탐색 열기',exact:true}).click();
+    await expect(page.locator('#code-flow')).toBeVisible();
+    await expect(page.locator('#requested-flow-blocks')).toHaveCount(0);
+    await page.evaluate(async id=>await (window as any).openFlowView(id),viewId);
+    const screenshot = test.info().outputPath('purpose-blocks.png');await page.screenshot({path:screenshot,fullPage:true});
+    const evidence = test.info().outputPath('purpose-block-evidence.json');
+    const {createHash} = await import('node:crypto');
+    writeFileSync(evidence,JSON.stringify({request:rawRequest,entry:'purpose-checkout.ts#processPurposeCheckout',snapshotId:analysis.flowSequence.snapshotID,analysisViewId:analysis.viewId,overviewViewId:viewId,executable,executableHash:createHash('sha256').update(readFileSync(executable)).digest('hex'),overview:view.requestedFlowOverview,expected:{start:'const input = amount',decision:'input < 0',handoff:'adjustAmount(total)',loop:'index < 3',failure:'return -1',result:'return total'},participantObservation:'pending'},null,2));
+    await test.info().attach('purpose-block-evidence',{path:evidence,contentType:'application/json'});
+    await test.info().attach('purpose-blocks',{path:screenshot,contentType:'image/png'});
+  } finally {unlinkSync(sourcePath);unlinkSync(helperPath);}
 });

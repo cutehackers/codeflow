@@ -44,22 +44,24 @@ type CompactStep struct {
 
 // CompactFlowPayload preserves the hierarchy and optional source relationships.
 type CompactFlowPayload struct {
-	RequestedFocus            *semantic.RequestedFlowFocus     `json:"requestedFocus,omitempty"`
-	CodeReadingPath           *semantic.CodeReadingPath        `json:"codeReadingPath,omitempty"`
-	CodeReadingPathLimitation string                           `json:"codeReadingPathLimitation,omitempty"`
-	FlowResolution            *fusion.FlowResolution           `json:"flowResolution,omitempty"`
-	FlowResolutionMissing     bool                             `json:"flowResolutionMissing,omitempty"`
-	ResolutionLimitation      string                           `json:"resolutionLimitation,omitempty"`
-	SourceContextMissing      bool                             `json:"sourceContextMissing,omitempty"`
-	NeedsReanalysis           bool                             `json:"needsReanalysis,omitempty"`
-	Steps                     []CompactStep                    `json:"steps,omitempty"`
-	Edges                     []semantic.SemanticEdge          `json:"edges,omitempty"`
-	Unknowns                  []fusion.Unknown                 `json:"unknowns,omitempty"`
-	SummaryLimitations        []semantic.FlowSummaryLimitation `json:"summaryLimitations,omitempty"`
-	FlowID                    string                           `json:"flowId"`
-	Summary                   string                           `json:"summary"`
-	Frames                    []CompactFrame                   `json:"frames"`
-	RadarSummary              *CompactRadarSummary             `json:"radarSummary,omitempty"`
+	RequestedFocus                  *semantic.RequestedFlowFocus     `json:"requestedFocus,omitempty"`
+	RequestedFlowOverview           *semantic.RequestedFlowOverview  `json:"requestedFlowOverview,omitempty"`
+	RequestedFlowOverviewLimitation string                           `json:"requestedFlowOverviewLimitation,omitempty"`
+	CodeReadingPath                 *semantic.CodeReadingPath        `json:"codeReadingPath,omitempty"`
+	CodeReadingPathLimitation       string                           `json:"codeReadingPathLimitation,omitempty"`
+	FlowResolution                  *fusion.FlowResolution           `json:"flowResolution,omitempty"`
+	FlowResolutionMissing           bool                             `json:"flowResolutionMissing,omitempty"`
+	ResolutionLimitation            string                           `json:"resolutionLimitation,omitempty"`
+	SourceContextMissing            bool                             `json:"sourceContextMissing,omitempty"`
+	NeedsReanalysis                 bool                             `json:"needsReanalysis,omitempty"`
+	Steps                           []CompactStep                    `json:"steps,omitempty"`
+	Edges                           []semantic.SemanticEdge          `json:"edges,omitempty"`
+	Unknowns                        []fusion.Unknown                 `json:"unknowns,omitempty"`
+	SummaryLimitations              []semantic.FlowSummaryLimitation `json:"summaryLimitations,omitempty"`
+	FlowID                          string                           `json:"flowId"`
+	Summary                         string                           `json:"summary"`
+	Frames                          []CompactFrame                   `json:"frames"`
+	RadarSummary                    *CompactRadarSummary             `json:"radarSummary,omitempty"`
 }
 
 // BuildCompactPayload projects a complete sequence without regrouping it.

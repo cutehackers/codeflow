@@ -6,6 +6,9 @@
   import ViewToolbar from './components/ViewToolbar.svelte';
   import NavRail from './components/NavRail.svelte';
   import RequestedFlowOverview from './components/RequestedFlowOverview.svelte';
+  import RequestedFlowBlockPanel from './components/RequestedFlowBlockPanel.svelte';
+  import RequestedFlowSegmentRail from './components/RequestedFlowSegmentRail.svelte';
+  import RequestedFlowCategorySequence from './components/RequestedFlowCategorySequence.svelte';
   import CodeFlowPanel from './components/CodeFlowPanel.svelte';
   import ProcessFlowPanel from './components/ProcessFlowPanel.svelte';
   import ContextAside from './components/ContextAside.svelte';
@@ -14,6 +17,7 @@
   import { summarizeUnknownBoundaries } from './stores/flowNavigation';
 
   const codeFocusedStudyLayout = new URLSearchParams(window.location.search).get('studyLayout') === 'code-focused';
+  const purposeOverview = $derived(flowStore.explorationMode === 'overview' && !!flowStore.data?.requestedFlowOverview);
   const viewMode = $derived(flowStore.viewMode);
   const steps = $derived(flowStore.steps);
   const unknowns = $derived(flowStore.data?.semanticMap?.unknowns || []);
@@ -21,6 +25,7 @@
   const analysisLimitations = $derived([
     flowStore.data?.resolutionLimitation,
     flowStore.data?.codeReadingPathLimitation,
+    flowStore.data?.requestedFlowOverviewLimitation,
     flowStore.data?.sourceContextMissing ? '소스 근거 미확인 · 재분석 필요' : '',
     unknowns.length > 0 ? `미확인 연결 ${unknowns.length}건` : '',
     flowStore.data?.flowSequence?.summaryLimitations?.length ? `요약 한계 ${flowStore.data.flowSequence.summaryLimitations.length}건` : '',
@@ -91,6 +96,7 @@
         </form>
         <div class="request-status" class:visible={!!flowStore.notice || flowStore.busy}>
           <p role="status">{flowStore.notice}</p>
+          {#if flowStore.overviewDetailPending}<button onclick={() => window.openFlowDetail()}>문장별 탐색 열기</button>{/if}
           {#if flowStore.busy}<button onclick={() => window.cancelFlowRequest()}>취소</button>{/if}
         </div>
       </div>
@@ -144,18 +150,28 @@
     </section>
   {:else}
   <!-- 1. FLOW RESOLUTION AREA -->
-  <section class="request-panel" aria-label="요청 영역">
+  <section class="request-panel" class:compact={purposeOverview} aria-label="요청 영역">
     <div class="request-summary">
       <div class="request-title-row">
-        <span class="request-tag">흐름 확정</span>
+        <span class="request-tag">요청 흐름</span>
         <strong class="request-raw">{flowStore.flowResolution?.rawRequest || flowStore.data?.request?.request || flowStore.flowTitle}</strong>
         {#if flowStore.flowResolution?.status}
           <span class="status-badge" class:resolved={flowStore.flowResolution.status === 'resolved'}>
-            {flowStore.flowResolution.status === 'resolved' ? '확정' : flowStore.flowResolution.status}
+            {flowStore.flowResolution.status === 'resolved' ? '진입점 확인' : flowStore.flowResolution.status}
           </span>
         {/if}
       </div>
-      <div class="request-details">
+      {#if purposeOverview}
+        <div class="overview-request-context">
+          {#if analysisLimitations.length}<span>분석 한계: {analysisLimitations.join(' · ')}</span>{/if}
+          <details><summary>진입점과 분석 근거</summary>
+            <p>진입점: <code>{flowStore.flowResolution?.entrySymbolPath || flowStore.data?.request?.entrySymbol || ''}</code></p>
+            {#if flowStore.data?.requestedFocus}<p>선택한 구현: <code>{flowStore.data.requestedFocus.symbolPath}</code> · {flowStore.data.requestedFocus.reason}</p>{/if}
+            {#each flowStore.flowResolution?.evidence || [] as evidence}<p>{evidence.description}{#if evidence.sourceAnchor} · <code>{evidence.sourceAnchor.repoRelativePath}#{evidence.sourceAnchor.enclosingSymbolPath}</code>{/if}</p>{/each}
+            <p>요청과 코드의 의미 연결은 선택자의 판단입니다. 표시된 심볼과 코드 범위는 검증했습니다.</p>
+          </details>
+        </div>
+      {:else}<div class="request-details">
         <span class="request-detail"><strong>진입점:</strong> <code>{flowStore.flowResolution?.entrySymbolPath || flowStore.data?.request?.entrySymbol || ''}</code></span>
         {#if flowStore.data?.requestedFocus}
           <span class="request-detail"><strong>선택한 구현:</strong> <code>{flowStore.data.requestedFocus.symbolPath}</code> · {flowStore.data.requestedFocus.reason}</span>
@@ -174,35 +190,39 @@
           <span class="request-detail"><strong>분석 한계:</strong> 코드 근거 확인 완료</span>
         {/if}
       </div>
+      {/if}
     </div>
   </section>
 
   <!-- Live Notice & Status Controls -->
   <NoticeBar />
 
-  {#if flowStore.data?.codeReadingPath}
+  {#if flowStore.data?.codeReadingPath || flowStore.data?.requestedFlowOverview}
     <nav class="exploration-switch" aria-label="탐색 기능">
-      <button data-navigation-focus="mode:overview" aria-pressed={flowStore.explorationMode === 'overview'} onpointerdown={() => explorationOrigin = flowStore.captureNavigationState()} onclick={() => onExplorationSwitch('overview')}>요청 흐름 개요</button>
+      <button data-navigation-focus="mode:overview" aria-pressed={flowStore.explorationMode === 'overview'} onpointerdown={() => explorationOrigin = flowStore.captureNavigationState()} onclick={() => onExplorationSwitch('overview')}>{flowStore.data?.requestedFlowOverview ? '요청 흐름 개요' : '선별 지점 읽기'}</button>
       <button data-navigation-focus="mode:statements" aria-pressed={flowStore.explorationMode === 'statements'} onpointerdown={() => explorationOrigin = flowStore.captureNavigationState()} onclick={() => onExplorationSwitch('statements')}>문장별 탐색</button>
     </nav>
   {/if}
 
   <!-- 2. MACRO CONTEXT FLOWSEQUENCE -->
-  {#if flowStore.explorationMode === 'statements'}<FlowSequenceView />{/if}
+  {#if purposeOverview && flowStore.data?.requestedFlowOverview?.categories?.length}
+    <RequestedFlowCategorySequence />
+  {:else if flowStore.explorationMode === 'statements'}<FlowSequenceView />{/if}
 
   <!-- View Switch Toolbar -->
-  <ViewToolbar />
+  {#if !purposeOverview}<ViewToolbar />{/if}
 
   <!-- Main 3-Column Workbench -->
   <main class="layout" class:code-focused-study={codeFocusedStudyLayout}>
     <!-- Left Navigation Rail -->
-    {#if flowStore.explorationMode === 'overview'}<RequestedFlowOverview />{:else}<NavRail />{/if}
+    {#if purposeOverview}<RequestedFlowSegmentRail />{:else if flowStore.explorationMode === 'overview'}<RequestedFlowOverview />{:else}<NavRail />{/if}
 
     <!-- Center Viewport -->
-    <section class="center" id="selected-flow" tabindex="-1" aria-label="선택한 흐름">
+    <section class="center" class:purpose-reading={purposeOverview} id="selected-flow" tabindex="-1" aria-label="선택한 흐름">
+      {#if !purposeOverview}
       <div class="center-head">
-        <h2>{viewMode === 'code' ? '코드 흐름' : '처리 흐름'}</h2>
-        <span>{viewMode === 'code' ? '선택 문장 · 조건 · 호출 연결' : '판단 조건 · 상태 변화 · 부수 효과'}</span>
+        <h2>{purposeOverview ? '처리 구간 코드' : viewMode === 'code' ? '코드 흐름' : '처리 흐름'}</h2>
+        <span>{purposeOverview ? '목적별 구현 · 포함 문장과 주변 코드' : viewMode === 'code' ? '선택 문장 · 조건 · 호출 연결' : '판단 조건 · 상태 변화 · 부수 효과'}</span>
       </div>
 
       <button type="button" class="navigation-return" onclick={() => {
@@ -211,12 +231,11 @@
         selected?.focus();
         selected?.scrollIntoView({block:'nearest'});
       }}>실행 탐색으로 이동</button>
+      {/if}
 
-      <ConditionPathControls />
-
-      <StepConnections />
-      <div class="view-stage" id="source-panel" data-navigation-panel>
-        {#if viewMode === 'code'}
+      {#if !purposeOverview}<ConditionPathControls /><StepConnections />{/if}
+      <div class="view-stage" class:purpose-reading={purposeOverview} id="source-panel" data-navigation-panel>
+        {#if purposeOverview}<RequestedFlowBlockPanel />{:else if viewMode === 'code'}
           <CodeFlowPanel />
         {:else}
           <ProcessFlowPanel />
@@ -250,6 +269,9 @@
   .exploration-switch{display:flex;gap:8px;margin:16px 30px}.exploration-switch button[aria-pressed=true]{background:#171717;color:white}
   .navigation-return {font-size:11px;margin:0 0 12px;}
   .entry-header { display:flex; align-items:center; gap:24px; padding:20px 30px; border-bottom:1px solid #e8e8e8; }
+  .view-stage.purpose-reading{padding:0;border:0;background:transparent}
+  .center.purpose-reading{padding-top:0}
+  .request-panel.compact{padding-top:12px;padding-bottom:12px}.overview-request-context{display:flex;flex-wrap:wrap;gap:8px 18px;margin-top:8px;font-size:11px;color:#555}.overview-request-context details{min-width:0;overflow-wrap:anywhere}.overview-request-context summary{cursor:pointer}.overview-request-context code{font-size:10px}
   .entry-header > strong { font-size:12px; overflow-wrap:anywhere; }
   .brand { display:flex; align-items:center; gap:12px; font-size:17px; font-weight:750; letter-spacing:-.5px; padding:4px 0; border:0; background:transparent; }
   .brand:hover { background:transparent; }

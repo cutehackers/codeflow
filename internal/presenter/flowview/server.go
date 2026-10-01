@@ -138,6 +138,7 @@ func NewServer(cfg Config) (*Server, error) {
 	mux.HandleFunc("/api/views", s.serveTaskViewList)
 	mux.HandleFunc("/api/view", s.serveTaskViewDetail)
 	mux.HandleFunc("/api/view/reading-path", s.serveCodeReadingPath)
+	mux.HandleFunc("/api/view/overview", s.serveRequestedFlowOverview)
 	mux.HandleFunc("/api/view/compare", s.serveTaskViewComparison)
 	mux.HandleFunc("/api/flow", s.serveGetFlow)
 	mux.HandleFunc("/api/flow/context", s.serveFlowContext)
@@ -236,6 +237,7 @@ func (s *Server) SubmitVersionedChanges(ctx context.Context, request workspace.V
 func (s *Server) Start() {
 	s.startOnce.Do(func() {
 		go func() { _ = s.httpServer.Serve(s.listener) }()
+		_, _, _ = ClaimLiveCoordinator(s.repoRoot, LiveCoordinatorRecord{URL: s.URL(), Token: s.AuthToken(), PID: os.Getpid(), StartedAt: time.Now(), RepoRoot: s.repoRoot})
 	})
 }
 
@@ -269,6 +271,9 @@ func (s *Server) Shutdown(ctx context.Context) error {
 		s.shutdownMu.Unlock()
 
 		var initErrors []error
+		if err := RemoveLiveCoordinatorIfOwned(s.repoRoot, s.URL(), os.Getpid()); err != nil {
+			initErrors = append(initErrors, err)
+		}
 		if s.httpServer != nil {
 			if shutdownErr := s.httpServer.Shutdown(ctx); shutdownErr != nil {
 				_ = s.httpServer.Close()
@@ -942,6 +947,14 @@ func resolveFlowRecord(rawRequest, explicitEntrySymbol string, resolved *semanti
 }
 
 func (s *Server) serveTaskView(w http.ResponseWriter, r *http.Request) {
+	deadline := time.Now().Add(2 * time.Minute)
+	if err := http.NewResponseController(w).SetWriteDeadline(deadline); err != nil && !errors.Is(err, http.ErrNotSupported) {
+		writeTaskViewError(w, fmt.Errorf("set analysis response deadline: %w", err), http.StatusInternalServerError)
+		return
+	}
+	ctx, cancel := context.WithDeadline(r.Context(), deadline)
+	defer cancel()
+	r = r.WithContext(ctx)
 	if r.Method != http.MethodGet && r.Method != http.MethodPost {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
@@ -1019,7 +1032,6 @@ func (s *Server) serveTaskView(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	ctx := r.Context()
 	snapshot, _, releaseSnapshot, err := s.captureAnalysisSnapshot(ctx)
 	if err != nil {
 		writeTaskViewError(w, err, http.StatusInternalServerError)
@@ -1257,7 +1269,9 @@ func (s *Server) serveTaskView(w http.ResponseWriter, r *http.Request) {
 		writeTaskViewError(w, err, http.StatusInternalServerError)
 		return
 	}
-	result["sourceFiles"] = BuildSourceFiles(mapIR, snapshot)
+	sourceFiles := BuildSourceFiles(mapIR, snapshot)
+	result["sourceFiles"] = sourceFiles
+	result["sourceFileDigests"] = buildSourceFileDigests(sourceFiles)
 	result["flowSequence"] = flowSequence
 	redactedFocusReason := ""
 	if requestedFocus != nil {

@@ -21,7 +21,7 @@ import (
 
 // sliceSemanticsVersion separates reusable facts when execution relations change.
 // Stored FlowViews retain their original immutable results.
-const sliceSemanticsVersion = "v70-dart-branch-and-update-evidence"
+const sliceSemanticsVersion = "v71-dart-permission-source-proof"
 
 // Anchor represents an exact byte-range anchor within a source file.
 type Anchor struct {

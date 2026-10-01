@@ -133,15 +133,16 @@ func TestMCPServerToolsAndExecution(t *testing.T) {
 		t.Fatalf("unmarshal tools/list response: %v", err)
 	}
 	expectedTools := map[string]bool{
-		"publish_core_flow":        true,
-		"harvest_flows":            true,
-		"get_flow_payload":         true,
-		"analyze_flow":             true,
-		"submit_flow_draft":        true,
-		"approve_step":             true,
-		"report_unknowns":          true,
-		"curate_code_reading_path": true,
-		"open_review":              true,
+		"publish_core_flow":              true,
+		"harvest_flows":                  true,
+		"get_flow_payload":               true,
+		"analyze_flow":                   true,
+		"submit_flow_draft":              true,
+		"approve_step":                   true,
+		"report_unknowns":                true,
+		"curate_code_reading_path":       true,
+		"curate_requested_flow_overview": true,
+		"open_review":                    true,
 	}
 	if len(respList.Result.Tools) != len(expectedTools) {
 		t.Errorf("expected exactly %d MCP tools, got %d", len(expectedTools), len(respList.Result.Tools))

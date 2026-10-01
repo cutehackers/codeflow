@@ -13,6 +13,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"codeflow/internal/analyzer/protocol"
 	"codeflow/internal/collector/fusion"
@@ -1124,5 +1125,63 @@ func TestCodeReadingPathDisclosesUnselectedVerifiedBranches(t *testing.T) {
 	path.Relations = append(path.Relations, semantic.CodeReadingRelation{FromNodeID: "success", ToNodeID: "result", EdgeIndexes: []int{3, 4}})
 	if got := codeReadingPathBranchLimitation(model, path); !strings.Contains(got, "1개") {
 		t.Fatalf("unselected outcome of a summarized decision was hidden: %q", got)
+	}
+}
+
+type taskViewDeadlineRecorder struct {
+	*httptest.ResponseRecorder
+	deadline time.Time
+}
+
+func (w *taskViewDeadlineRecorder) SetWriteDeadline(deadline time.Time) error {
+	w.deadline = deadline
+	return nil
+}
+
+func TestTaskViewAnalysisResponseDeadline(t *testing.T) {
+	writer := &taskViewDeadlineRecorder{ResponseRecorder: httptest.NewRecorder()}
+	request := httptest.NewRequest(http.MethodDelete, "/api/task/view", nil)
+	started := time.Now()
+	(&Server{}).serveTaskView(writer, request)
+	if writer.Code != http.StatusMethodNotAllowed {
+		t.Fatalf("status = %d, want %d", writer.Code, http.StatusMethodNotAllowed)
+	}
+	remaining := writer.deadline.Sub(started)
+	if remaining < 119*time.Second || remaining > 121*time.Second {
+		t.Fatalf("analysis response deadline = %s, want two minutes", remaining)
+	}
+}
+
+type taskViewResponseDelayWriter struct {
+	http.ResponseWriter
+}
+
+func (w taskViewResponseDelayWriter) Unwrap() http.ResponseWriter {
+	return w.ResponseWriter
+}
+
+func (w taskViewResponseDelayWriter) WriteHeader(status int) {
+	time.Sleep(20 * time.Millisecond)
+	w.ResponseWriter.WriteHeader(status)
+}
+
+func TestTaskViewRespondsAfterServerWriteTimeout(t *testing.T) {
+	server := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		(&Server{}).serveTaskView(taskViewResponseDelayWriter{ResponseWriter: w}, r)
+	}))
+	server.Config.WriteTimeout = 5 * time.Millisecond
+	server.Start()
+	defer server.Close()
+	request, err := http.NewRequest(http.MethodDelete, server.URL+"/api/task/view", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	response, err := server.Client().Do(request)
+	if err != nil {
+		t.Fatalf("analysis response exceeded original deadline: %v", err)
+	}
+	defer response.Body.Close()
+	if response.StatusCode != http.StatusMethodNotAllowed {
+		t.Fatalf("status = %d, want %d", response.StatusCode, http.StatusMethodNotAllowed)
 	}
 }

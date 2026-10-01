@@ -142,15 +142,16 @@ func (r *AdapterRegistry) closeAll() {
 
 // Server handles MCP JSON-RPC requests over stdio.
 type Server struct {
-	cfg         Config
-	registry    *AdapterRegistry
-	storageMap  sync.Map // key: absRepoRoot -> *storage.Storage
-	eventLogs   sync.Map // key: absRepoRoot -> *fusion.EventLog
-	liveServers sync.Map // key: absRepoRoot -> *flowview.Server
-	fv          *flowview.Server
-	fvMu        sync.Mutex
-	closeOnce   sync.Once
-	closeErr    error
+	cfg                  Config
+	registry             *AdapterRegistry
+	storageMap           sync.Map // key: absRepoRoot -> *storage.Storage
+	eventLogs            sync.Map // key: absRepoRoot -> *fusion.EventLog
+	liveServers          sync.Map // key: absRepoRoot -> *flowview.Server
+	liveServerCreationMu sync.Mutex
+	fv                   *flowview.Server
+	fvMu                 sync.Mutex
+	closeOnce            sync.Once
+	closeErr             error
 }
 
 // NewServer creates a configured MCP Server ready for immediate stdio handshake.
@@ -603,6 +604,12 @@ func (s *Server) listTools() []map[string]any {
 			},
 		},
 		{
+			"name":        "curate_requested_flow_overview",
+			"description": "Group verified execution steps into request-specific processing purposes and continuous code blocks in an existing View. Read the original request, source, steps and indexed edges first. Each segment supplies segmentId, purpose, inclusionReason, stepIds and blocks containing stepIds from one file and callable. Relations name fromSegmentId, toSegmentId, fromStepId, toStepId and ordered edgeIndexes. Preserve decisions, failures, effects, loops and unverified boundaries. CodeFlow derives source ranges and graph facts, verifies one snapshot, and saves a new immutable viewId. Open that returned viewId with open_review and open its URL. Never stop at the intermediate analysis View.",
+			"inputSchema": requestedFlowOverviewInputSchema(targetProp),
+		},
+
+		{
 			"name":        "curate_code_reading_path",
 			"description": "Select source-backed code points that explain the exact request in an existing FlowView. Read its semanticMap steps and indexed edges first. Each selection names a step, quotes a phrase from the request, and explains its relevance. Relations list exact resolved edge indexes between selected steps. Verified intermediate code remains expandable beneath a short relation. Inspect other confirmed outcomes at selected decisions and include those needed for the request. Branches and joins are allowed; each selected branch must end at an outcome or analysis boundary. CodeFlow verifies source, relationships, and CodeView, then saves a new viewId. Open that viewId with open_review.",
 			"inputSchema": map[string]any{
@@ -1049,6 +1056,16 @@ func (s *Server) executeTool(ctx context.Context, name string, args map[string]a
 		if (focusSymbol != "" || focusReason != "") && flowID == "" {
 			return nil, fmt.Errorf("requested focus requires flowId reanalysis")
 		}
+		if viewID, _ := args["viewId"].(string); viewID != "" {
+			if focusSymbol != "" {
+				return nil, fmt.Errorf("requested focus cannot change a saved view")
+			}
+			result, err := s.openRequestedFlowView(ctx, target, viewID)
+			if response, ok := result.(map[string]any); ok {
+				response["flowId"] = flowID
+			}
+			return result, err
+		}
 		fv, err := s.getLiveCoordinator(target)
 		if err != nil {
 			return nil, err
@@ -1109,6 +1126,9 @@ func (s *Server) executeTool(ctx context.Context, name string, args map[string]a
 			"viewId":  viewID,
 			"token":   fv.AuthToken(),
 		}, nil
+
+	case "curate_requested_flow_overview":
+		return s.processRequestedFlowOverview(ctx, args)
 
 	case "curate_code_reading_path":
 		return s.processCodeReadingPath(ctx, args)

@@ -185,12 +185,50 @@ export interface CodeReadingPath {
 import type { FlowSequence, FlowSequenceFrame } from './flow_sequence';
 export type { FlowSequence, FlowSequenceFrame };
 
+export interface RequestedFlowBlock {
+  blockId: string;
+  repoRelativePath: string;
+  symbolPath: string;
+  lineRange: [number, number];
+  stepIds: string[];
+  highlights: Array<{stepId: string; lineRange: [number, number]; byteRange: [number, number]; lineSelections: Array<{lineNumber: number; startColumn: number; endColumn: number}>}>;
+}
+
+export interface RequestedFlowSegment {
+  segmentId: string;
+  purpose: string;
+  inclusionReason: string;
+  stepIds: string[];
+  entryStepId: string;
+  blocks: RequestedFlowBlock[];
+}
+
+export interface RequestedFlowCategory {
+  categoryId: string;
+  title: string;
+  segmentIds: string[];
+}
+
+export interface RequestedFlowOverview {
+  schemaId: string;
+  schemaVersion: number;
+  request: string;
+  snapshotId: string;
+  computedBasisId: string;
+  categories?: RequestedFlowCategory[];
+  segments: RequestedFlowSegment[];
+  relations: Array<{derived?: boolean; fromSegmentId?: string; toSegmentId?: string; fromStepId: string; toStepId: string; kind: string; status: string; edgeIndexes: number[]; edges: Edge[]}>;
+  boundaries: Array<{fromStepId: string; toStepId?: string; target?: string; reason: string}>;
+}
+
 export interface FlowTaskViewData {
   viewId?: string;
   flowId?: string;
   request?: { request?: string; entrySymbol?: string; flowId?: string; domain?: string };
   flowResolution?: FlowResolution;
   requestedFocus?: RequestedFlowFocus;
+  requestedFlowOverview?: RequestedFlowOverview;
+  requestedFlowOverviewLimitation?: string;
   codeReadingPath?: CodeReadingPath;
   codeReadingPathLimitation?: string;
   flowResolutionMissing?: boolean;

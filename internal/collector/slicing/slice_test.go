@@ -3,6 +3,7 @@ package slicing_test
 import (
 	"context"
 	"crypto/sha256"
+	"encoding/json"
 	"fmt"
 	"os"
 	"os/exec"
@@ -208,7 +209,7 @@ func TestSliceCacheHitIsSnapshotAndBasisBound(t *testing.T) {
 	}
 }
 
-func TestSliceCacheRejectsPriorExecutionRelationSemantics(t *testing.T) {
+func TestSliceCacheRejectsPriorSourceProof(t *testing.T) {
 	root := t.TempDir()
 	const source = "class Mock { void run() {} }\n"
 	snapshot, err := protocol.NewSnapshot(4, map[string]string{"mock.dart": source}, "binding-basis")
@@ -229,14 +230,17 @@ func TestSliceCacheRejectsPriorExecutionRelationSemantics(t *testing.T) {
 	if err != nil || len(entries) != 1 {
 		t.Fatalf("cache entries = %v, error = %v", entries, err)
 	}
-	// Preserve a valid result under the immediately previous execution-relation
-	// cache identity. A finalizer throw recovery cannot be inferred from that payload.
-	legacyKey := storage.SliceCacheKey(fmt.Sprintf("%x", sha256.Sum256([]byte(source))), candidateID, "v34-prevailing-finally-return|binding-basis", "")
+	// Preserve facts with the prior source-proof metadata under their original cache identity.
+	options, err := json.Marshal(map[string]any{"includeExecutionSemantics": true, "includeCallbackRelations": true, "includeValueRoles": true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	legacyKey := storage.SliceCacheKey(fmt.Sprintf("%x", sha256.Sum256([]byte(source))), candidateID, "v70-dart-branch-and-update-evidence|binding-basis", fmt.Sprintf("%x", sha256.Sum256(options)))
 	if err := os.Rename(filepath.Join(dir, entries[0].Name()), filepath.Join(dir, legacyKey+".json")); err != nil {
 		t.Fatal(err)
 	}
 	pool.Close()
 	if _, err := runner.SliceWithSnapshot(ctx, root, candidateID, "mock.dart#Mock.run", nil, snapshot); err == nil {
-		t.Fatal("analysis reused a result produced by the previous execution-relation implementation")
+		t.Fatal("analysis reused a result produced by the previous source-proof implementation")
 	}
 }

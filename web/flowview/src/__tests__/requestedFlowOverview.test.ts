@@ -20,6 +20,8 @@ describe('Requested Flow Overview rendering', () => {
     flowStore.data = data;
     flowStore.expandedReadingRelations = new Set();
     const {body} = render(RequestedFlowOverview);
+    expect(body).toContain('aria-label="선별 지점 읽기"');
+    expect(body).not.toContain('aria-label="요청 흐름 개요"');
     expect(body).toContain('조건 참');
     expect(body).toContain('조건 거짓');
     expect(body).toContain('실패');

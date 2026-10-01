@@ -13,6 +13,7 @@ declare global {
     flowStore: typeof flowStore;
     fetchTaskView: (query?: string, entry?: string, flow?: string, reanalyze?: boolean, expectedSnapshotId?: string) => Promise<boolean>;
     openFlowView: (id: string) => Promise<boolean>;
+    openFlowDetail: () => Promise<boolean>;
     showFlowHome: () => Promise<void>;
     compareFlowViews: (baselineId: string) => Promise<void>;
     cancelFlowRequest: () => void;
@@ -25,6 +26,7 @@ const studyLayout = params.get('studyLayout') === 'code-focused' ? 'code-focused
 (window as any).__codeflowToken = token;
 let sequence = 0;
 let controller: AbortController | null = null;
+let detailPendingRequest: {preserve: boolean; originViewId?: string} | null = null;
 const viewNavigation = new Map<string, { navigation: SavedNavigationState; baseline: FlowTaskViewData | null; delta: FlowTaskViewData['semanticDelta']; returnTo: SavedNavigationState | null; exploration: ExplorationNavigationState }>();
 function rememberView() {
   if (!flowStore.home && flowStore.data?.viewId) {
@@ -59,6 +61,8 @@ async function load(path: string, preserve: boolean, restore = false): Promise<b
   controller?.abort();
   controller = new AbortController();
   const ticket = ++sequence;
+  flowStore.overviewDetailPending = null;
+  detailPendingRequest = null;
   flowStore.busy = true;
   flowStore.candidates = [];
   flowStore.errorCode = '';
@@ -66,6 +70,12 @@ async function load(path: string, preserve: boolean, restore = false): Promise<b
   try {
     let data: FlowTaskViewData = await api(path, controller.signal);
     if (ticket !== sequence) return false;
+    if (path.startsWith('/api/task/view?') && !data.requestedFlowOverview) {
+      detailPendingRequest = {preserve, originViewId: flowStore.data?.viewId};
+      flowStore.overviewDetailPending = data;
+      flowStore.notice = '처리 구간 개요가 생성되지 않았습니다. 브라우저 직접 분석에는 구간을 제안하는 에이전트가 없습니다. 문장별 탐색을 명시적으로 열 수 있습니다.';
+      return false;
+    }
     // Do not replace the comparison until its fixed baseline has a matching delta.
     if (preserve && flowStore.compare && flowStore.baseline?.viewId && data.viewId) {
       const delta = await api(`/api/view/compare?viewId=${encodeURIComponent(data.viewId)}&baselineId=${encodeURIComponent(flowStore.baseline.viewId)}`, controller.signal);
@@ -106,7 +116,46 @@ window.cancelFlowRequest = () => {
   controller?.abort();
   flowStore.abortReanalysis();
   flowStore.busy = false;
+  flowStore.overviewDetailPending = null;
+  detailPendingRequest = null;
   flowStore.notice = '요청을 취소했습니다. 기존 화면을 유지합니다.';
+};
+
+window.openFlowDetail = async () => {
+  const candidate = flowStore.overviewDetailPending;
+  const request = detailPendingRequest;
+  if (!candidate || !request || request.originViewId !== flowStore.data?.viewId) return false;
+  const baseline = flowStore.baseline;
+  const compare = flowStore.compare;
+  const ticket = ++sequence;
+  controller?.abort();
+  controller = new AbortController();
+  flowStore.busy = true;
+  try {
+    let data = candidate;
+    if (compare && baseline?.viewId && data.viewId) {
+      const delta = await api(`/api/view/compare?viewId=${encodeURIComponent(data.viewId)}&baselineId=${encodeURIComponent(baseline.viewId)}`, controller.signal);
+      data = {...data, semanticDelta: delta};
+    }
+    if (ticket !== sequence || candidate !== flowStore.overviewDetailPending || request.originViewId !== flowStore.data?.viewId || baseline !== flowStore.baseline || compare !== flowStore.compare) return false;
+    rememberView();
+    if (!flowStore.adopt(data, !request.preserve)) return false;
+    // Explicit detail opening retains the selected comparison basis.
+    flowStore.baseline = baseline;
+    flowStore.compare = compare;
+    flowStore.overviewDetailPending = null;
+    detailPendingRequest = null;
+    flowStore.explorationMode = 'statements';
+    flowStore.home = false;
+    setURL(data.viewId);
+    try { const saved = await api('/api/views'); if (ticket === sequence) flowStore.views = saved.views || []; } catch { /* Detail remains readable when listing fails. */ }
+    return true;
+  } catch (error) {
+    if (ticket === sequence) flowStore.notice = `문장별 탐색을 열지 못했습니다: ${(error as Error).message}`;
+    return false;
+  } finally {
+    if (ticket === sequence) flowStore.busy = false;
+  }
 };
 
 window.openFlowView = (id) => load(`/api/view?viewId=${encodeURIComponent(id)}`, false, true);

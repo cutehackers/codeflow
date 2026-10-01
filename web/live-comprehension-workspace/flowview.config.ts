@@ -29,7 +29,7 @@ export default defineConfig({
   workers: 1,
   use: { baseURL:'http://127.0.0.1:4593', headless:true },
   webServer: {
-    command: `go run ./cmd/codeflow view ${fixture} --port 4593 --token testtoken`,
+    command: `${process.env.CODEFLOW_BROWSER_EXECUTABLE || path.join(repoRoot, 'bin/codeflow')} view ${fixture} --port 4593 --token testtoken`,
     cwd: repoRoot,
     url:'http://127.0.0.1:4593/?token=testtoken',
     env: {

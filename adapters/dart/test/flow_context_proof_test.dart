@@ -17,6 +17,62 @@ Map<String, Object?> slice(
 );
 
 void main() {
+  test(
+    'awaited permission guard and catch headers retain exact source proof',
+    () {
+      const source = '''
+class Service {
+  Future<void> run() async {
+    try {
+      if (!await checkPermission()) return;
+    } on Object {
+      return;
+    } catch (error) {
+      return;
+    }
+  }
+  Future<bool> checkPermission() async => true;
+}
+''';
+      final steps = (slice(source)['steps'] as List).cast<Map>();
+      String selectedText(Map step) {
+        final range = (step['anchor']['byteRange'] as List).cast<int>();
+        return utf8.decode(utf8.encode(source).sublist(range[0], range[1]));
+      }
+
+      final selected = steps
+          .where(
+            (step) => const {
+              'await checkPermission()',
+              'on Object {',
+              'catch (error) {',
+            }.contains(selectedText(step)),
+          )
+          .toList();
+      expect(selected, hasLength(3));
+      for (final step in selected) {
+        final context = step['flowContext'] as Map;
+        final statement = context['statement'] as Map;
+        expect(statement['byteRange'], step['anchor']['byteRange']);
+        expect(
+          statement['nodeKind'],
+          selectedText(step).startsWith('await')
+              ? 'expression'
+              : 'control_header',
+        );
+        final structure = context['structuralContext'] as Map;
+        expect(structure['status'], 'present');
+        expect(structure['nodeKind'], 'condition');
+        final range = (structure['byteRange'] as List).cast<int>();
+        final span = (statement['byteRange'] as List).cast<int>();
+        expect(range[0], lessThanOrEqualTo(span[0]));
+        expect(range[1], greaterThan(span[1]));
+        expect(context['sourceHash'], step['anchor']['fileHash']);
+        expect(context['snapshotId'], 'snapshot-test');
+      }
+    },
+  );
+
   test('callable completion distinguishes direct and deferred bodies', () {
     const source = '''
 class Service {
