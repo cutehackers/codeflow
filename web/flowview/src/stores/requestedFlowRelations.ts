@@ -2,6 +2,32 @@ import type {FlowTaskViewData, RequestedFlowOverview} from '../types/flow';
 export type RequestedFlowRelation = RequestedFlowOverview['relations'][number];
 export interface RequestedFlowJoin {stepId: string; predecessors: string[]; parallel: boolean}
 
+// Include verified intermediate execution only until another purpose segment.
+// These IDs associate limitations with a process without changing membership.
+export function requestedFlowSegmentContextStepIds(overview: RequestedFlowOverview, segmentId: string): string[] {
+  const segment = overview.segments.find(item => item.segmentId === segmentId);
+  if (!segment) return [];
+  const otherMembers = new Set(overview.segments.filter(item => item.segmentId !== segmentId).flatMap(item => item.stepIds));
+  const outgoing = new Map<string, string[]>();
+  for (const relation of overview.relations) {
+    if (!relation.derived || relation.status !== 'verified') continue;
+    for (const edge of relation.edges) {
+      if (edge.resolutionStatus !== 'resolved') continue;
+      outgoing.set(edge.fromStepId, [...(outgoing.get(edge.fromStepId) || []), edge.toStepId]);
+    }
+  }
+  const seen = new Set(segment.stepIds);
+  const queue = [...seen];
+  for (let index = 0; index < queue.length; index++) {
+    for (const next of outgoing.get(queue[index]) || []) {
+      if (seen.has(next) || otherMembers.has(next)) continue;
+      seen.add(next);
+      queue.push(next);
+    }
+  }
+  return [...seen];
+}
+
 // Disclosure groups existing graph facts. It does not create execution order.
 export function partitionRequestedFlowRelations(data: FlowTaskViewData, relations: RequestedFlowRelation[]): {primary: RequestedFlowRelation[]; routine: RequestedFlowRelation[]} {
   const sources = new Map(data.semanticMap.steps.map(step => [step.stepId, step.anchor?.repoRelativePath]));

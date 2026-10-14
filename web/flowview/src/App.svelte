@@ -2,24 +2,17 @@
   import ConditionPathControls from './components/ConditionPathControls.svelte';
   import StepConnections from './components/StepConnections.svelte';
   import NoticeBar from './components/NoticeBar.svelte';
-  import FlowSequenceView from './components/FlowSequenceView.svelte';
-  import ViewToolbar from './components/ViewToolbar.svelte';
-  import NavRail from './components/NavRail.svelte';
-  import RequestedFlowOverview from './components/RequestedFlowOverview.svelte';
   import RequestedFlowBlockPanel from './components/RequestedFlowBlockPanel.svelte';
   import RequestedFlowSegmentRail from './components/RequestedFlowSegmentRail.svelte';
   import RequestedFlowCategorySequence from './components/RequestedFlowCategorySequence.svelte';
   import CodeFlowPanel from './components/CodeFlowPanel.svelte';
-  import ProcessFlowPanel from './components/ProcessFlowPanel.svelte';
   import ContextAside from './components/ContextAside.svelte';
   import CandidateChoices from './components/CandidateChoices.svelte';
-  import { flowStore, type SavedNavigationState, type ExplorationMode } from './stores/flowStore.svelte';
+  import { flowStore } from './stores/flowStore.svelte';
   import { summarizeUnknownBoundaries } from './stores/flowNavigation';
 
   const codeFocusedStudyLayout = new URLSearchParams(window.location.search).get('studyLayout') === 'code-focused';
-  const purposeOverview = $derived(flowStore.explorationMode === 'overview' && !!flowStore.data?.requestedFlowOverview);
-  const viewMode = $derived(flowStore.viewMode);
-  const steps = $derived(flowStore.steps);
+  const purposeOverview = $derived(!!flowStore.data?.requestedFlowOverview);
   const unknowns = $derived(flowStore.data?.semanticMap?.unknowns || []);
   const unknownSummaries = $derived(summarizeUnknownBoundaries(unknowns));
   const analysisLimitations = $derived([
@@ -30,11 +23,6 @@
     unknowns.length > 0 ? `미확인 연결 ${unknowns.length}건` : '',
     flowStore.data?.flowSequence?.summaryLimitations?.length ? `요약 한계 ${flowStore.data.flowSequence.summaryLimitations.length}건` : '',
   ].filter((item): item is string => !!item));
-  let explorationOrigin: SavedNavigationState | undefined;
-  function onExplorationSwitch(mode: ExplorationMode) {
-    flowStore.setExplorationMode(mode, explorationOrigin);
-    explorationOrigin = undefined;
-  }
   let olderViewsOpen = $state(false);
 
   function mostRecentViews() {
@@ -96,7 +84,7 @@
         </form>
         <div class="request-status" class:visible={!!flowStore.notice || flowStore.busy}>
           <p role="status">{flowStore.notice}</p>
-          {#if flowStore.overviewDetailPending}<button onclick={() => window.openFlowDetail()}>문장별 탐색 열기</button>{/if}
+          {#if flowStore.overviewDetailPending}<button onclick={() => window.openFlowDetail()}>중간 결과 확인</button>{/if}
           {#if flowStore.busy}<button onclick={() => window.cancelFlowRequest()}>취소</button>{/if}
         </div>
       </div>
@@ -187,7 +175,7 @@
             <span class="request-detail"><strong>분석 한계:</strong> {limitation}</span>
           {/each}
         {:else}
-          <span class="request-detail"><strong>분석 한계:</strong> 코드 근거 확인 완료</span>
+          <span class="request-detail"><strong>분석 한계:</strong> 처리 목적별 Overview 생성 전</span>
         {/if}
       </div>
       {/if}
@@ -197,77 +185,41 @@
   <!-- Live Notice & Status Controls -->
   <NoticeBar />
 
-  {#if flowStore.data?.codeReadingPath || flowStore.data?.requestedFlowOverview}
-    <nav class="exploration-switch" aria-label="탐색 기능">
-      <button data-navigation-focus="mode:overview" aria-pressed={flowStore.explorationMode === 'overview'} onpointerdown={() => explorationOrigin = flowStore.captureNavigationState()} onclick={() => onExplorationSwitch('overview')}>{flowStore.data?.requestedFlowOverview ? '요청 흐름 개요' : '선별 지점 읽기'}</button>
-      <button data-navigation-focus="mode:statements" aria-pressed={flowStore.explorationMode === 'statements'} onpointerdown={() => explorationOrigin = flowStore.captureNavigationState()} onclick={() => onExplorationSwitch('statements')}>문장별 탐색</button>
-    </nav>
-  {/if}
-
-  <!-- 2. MACRO CONTEXT FLOWSEQUENCE -->
-  {#if purposeOverview && flowStore.data?.requestedFlowOverview?.categories?.length}
-    <RequestedFlowCategorySequence />
-  {:else if flowStore.explorationMode === 'statements'}<FlowSequenceView />{/if}
-
-  <!-- View Switch Toolbar -->
-  {#if !purposeOverview}<ViewToolbar />{/if}
-
-  <!-- Main 3-Column Workbench -->
-  <main class="layout" class:code-focused-study={codeFocusedStudyLayout}>
-    <!-- Left Navigation Rail -->
-    {#if purposeOverview}<RequestedFlowSegmentRail />{:else if flowStore.explorationMode === 'overview'}<RequestedFlowOverview />{:else}<NavRail />{/if}
-
-    <!-- Center Viewport -->
-    <section class="center" class:purpose-reading={purposeOverview} id="selected-flow" tabindex="-1" aria-label="선택한 흐름">
-      {#if !purposeOverview}
-      <div class="center-head">
-        <h2>{purposeOverview ? '처리 구간 코드' : viewMode === 'code' ? '코드 흐름' : '처리 흐름'}</h2>
-        <span>{purposeOverview ? '목적별 구현 · 포함 문장과 주변 코드' : viewMode === 'code' ? '선택 문장 · 조건 · 호출 연결' : '판단 조건 · 상태 변화 · 부수 효과'}</span>
-      </div>
-
-      <button type="button" class="navigation-return" onclick={() => {
-        const rail = document.getElementById(flowStore.explorationMode === 'overview' ? 'requested-flow-overview' : 'execution-navigation');
-        const selected = rail?.querySelector<HTMLButtonElement>('button.reading-node[aria-pressed="true"]') || rail?.querySelector<HTMLButtonElement>('button.detail[aria-pressed="true"]') || rail?.querySelector<HTMLButtonElement>('button.gateway[aria-pressed="true"]');
-        selected?.focus();
-        selected?.scrollIntoView({block:'nearest'});
-      }}>실행 탐색으로 이동</button>
-      {/if}
-
-      {#if !purposeOverview}<ConditionPathControls /><StepConnections />{/if}
-      <div class="view-stage" class:purpose-reading={purposeOverview} id="source-panel" data-navigation-panel>
-        {#if purposeOverview}<RequestedFlowBlockPanel />{:else if viewMode === 'code'}
-          <CodeFlowPanel />
-        {:else}
-          <ProcessFlowPanel />
-        {/if}
-      </div>
-
-      {#if unknowns.length > 0}
-        <div id="boundaries" class="boundaries">
-          <details>
-            <summary>확인하지 못한 연결 {unknowns.length}건</summary>
-            {#each unknownSummaries as summary}<p>{summary.count > 1 ? `${summary.count}건 · ` : ''}{summary.description}</p>{/each}
+  {#if purposeOverview}
+    {#if flowStore.data?.requestedFlowOverview?.categories?.length}<RequestedFlowCategorySequence />{/if}
+    <main class="layout" class:code-focused-study={codeFocusedStudyLayout}>
+      <RequestedFlowSegmentRail />
+      <section class="center purpose-reading" id="selected-flow" tabindex="-1" aria-label="선택한 처리 과정">
+        <div class="view-stage purpose-reading" id="source-panel" data-navigation-panel><RequestedFlowBlockPanel /></div>
+        {#if flowStore.explorationMode === 'statements'}
+          <details class="segment-source-detail" open ontoggle={event => {if (!(event.currentTarget as HTMLDetailsElement).open) flowStore.closeSegmentDetail();}}>
+            <summary>처리 과정의 소스 상세</summary>
+            <button onclick={() => flowStore.closeSegmentDetail()}>상세 닫기</button>
+            <ConditionPathControls /><StepConnections /><CodeFlowPanel />
           </details>
-        </div>
-      {/if}
+        {/if}
+        {#if unknowns.length > 0}<div id="boundaries" class="boundaries"><details><summary>확인하지 못한 연결 {unknowns.length}건</summary>{#each unknownSummaries as summary}<p>{summary.description}</p>{/each}</details></div>{/if}
+      </section>
+      <ContextAside />
+    </main>
+  {:else}
+    <section class="request-panel" role="status" aria-label="중간 결과">
+      <h2>중간 결과 · 처리 목적별 Overview 필요</h2>
+      <p>분석은 저장되었지만 처리 과정의 개요가 아직 없습니다. 에이전트가 코드 근거를 확인하고 Overview를 생성해야 합니다.</p>
+      {#if flowStore.data?.requestedFlowOverviewLimitation}<p>{flowStore.data.requestedFlowOverviewLimitation}</p>{/if}
     </section>
-
-    <!-- Right Aside (with 2. BLAST RADIUS RADAR) -->
-    <ContextAside />
-  </main>
+  {/if}
 
   {/if}
 
   <!-- Footer -->
   <footer class="footer">
     <span>소스 근거 기반 · 실행 기록 없음</span>
-    <span>관문 → 실행 단계 → 코드 근거</span>
+    <span>처리 목적 → 처리 과정 → 소스 상세</span>
   </footer>
 </div>
 
 <style>
-  .exploration-switch{display:flex;gap:8px;margin:16px 30px}.exploration-switch button[aria-pressed=true]{background:#171717;color:white}
-  .navigation-return {font-size:11px;margin:0 0 12px;}
   .entry-header { display:flex; align-items:center; gap:24px; padding:20px 30px; border-bottom:1px solid #e8e8e8; }
   .view-stage.purpose-reading{padding:0;border:0;background:transparent}
   .center.purpose-reading{padding-top:0}
@@ -347,21 +299,6 @@
     border-left: 1px solid var(--line, #dddddd);
     border-right: 1px solid var(--line, #dddddd);
     padding: 19px 24px 28px;
-  }
-  .center-head {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 10px;
-    margin-bottom: 17px;
-  }
-  .center-head h2 {
-    font-size: 14px;
-    font-weight: 700;
-  }
-  .center-head span {
-    font-size: 10px;
-    color: var(--muted, #666666);
   }
   .view-stage {
     height: auto;

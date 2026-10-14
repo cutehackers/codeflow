@@ -42,6 +42,9 @@ func TestRequestedFlowOverviewSnapshotBlocksAndImmutableTransport(t *testing.T) 
 	if err := json.Unmarshal(response.Body.Bytes(), &analysis); err != nil {
 		t.Fatal(err)
 	}
+	if analysis["presentationStatus"] != "intermediate" || analysis["nextAction"] == nil {
+		t.Fatalf("analysis reported final readiness: %v", analysis["presentationStatus"])
+	}
 	var model semantic.SemanticMapIR
 	if err := decodeTaskViewPart(analysis["semanticMap"], &model); err != nil {
 		t.Fatal(err)
@@ -83,6 +86,9 @@ func TestRequestedFlowOverviewSnapshotBlocksAndImmutableTransport(t *testing.T) 
 	}
 	if bytes.Contains(result.Body.Bytes(), []byte("example-sensitive-value")) || bytes.Contains(result.Body.Bytes(), []byte("example-description-secret")) {
 		t.Fatal("overview exposed a source or description secret")
+	}
+	if view["presentationStatus"] != "ready" || view["nextAction"] != nil {
+		t.Fatalf("verified overview not ready: %v", view["presentationStatus"])
 	}
 	id := view["viewId"].(string)
 	if id == analysis["viewId"] {
@@ -164,7 +170,11 @@ func TestRequestedFlowOverviewSnapshotBlocksAndImmutableTransport(t *testing.T) 
 			if _, err := srv.SaveTaskView(context.Background(), doc); err == nil {
 				t.Fatal("invalid overview saved")
 			}
+			doc["presentationStatus"] = "ready"
 			FormatTaskViewResponse(doc, root)
+			if doc["presentationStatus"] != "intermediate" || doc["nextAction"] == nil {
+				t.Fatal("invalid overview claimed completion")
+			}
 			if doc["requestedFlowOverview"] != nil || doc["requestedFlowOverviewLimitation"] == nil {
 				t.Fatal("invalid overview presented as verified")
 			}

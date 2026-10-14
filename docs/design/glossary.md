@@ -19,6 +19,10 @@ FlowSequence는 현재 FlowView에서 관문과 실행 단계의 관계를 표�
 
 | Term | Operational Definition | Scope | Source | Status | Related Contract |
 |---|---|---|---|---|---|
+| Semantic Assistant | 기존 왼쪽 처리 구간의 흐름 탐색과 코드뷰의 소스 확인 역할을 유지하면서 코드 블록·처리 구간·조건의 의미 해석을 보조하는 로컬 모델 역할. 화면 구조·원문·탐색을 바꾸지 않는다. | 기존 FlowView의 의미 해석 보조 | 사용자 지시 2026-10-01 | Confirmed | `docs/design/specs/2026-10-01-local-code-explanation-ko.md`, `docs/design/decisions/2026-10-01-local-code-explanation-ko.md` |
+| Code Explanation | 같은 저장 View의 코드와 주변 문맥을 사람이 이해하기 쉬운 말로 해석하는 모델 제안. 코드 블록·처리 구간·선택 문장을 대상으로 하며 원본 분석과 구별한다. | 로컬 모델의 역할1·2·3 | 사용자 인터뷰 2026-10-01 | Candidate | `docs/design/specs/2026-10-01-local-code-explanation-ko.md`, `docs/design/decisions/2026-10-01-local-code-explanation-ko.md` |
+| Explanation Context | 서버가 같은 View·snapshot·basis의 소스·관계·문맥·한계로 구성한 해설 입력. 주변 코드는 실행 단계의 근거와 구별하며 현재 파일로 대체하지 않는다. | 코드 해설 모델 입력 | 코드 점검과 설계 제안 2026-10-01 | Candidate | `docs/design/specs/2026-10-01-local-code-explanation-ko.md`, `docs/design/decisions/2026-10-01-local-code-explanation-ko.md` |
+| Explanation Source Reference | 서버가 해설 입력의 안전한 소스 범위에 부여하는 참조. 참조의 소속 검증은 모델 문장의 의미가 정확하다는 증명이 아니다. | 해설 항목에서 원본 소스로 이동 | 코드 점검과 설계 제안 2026-10-01 | Candidate | `docs/design/specs/2026-10-01-local-code-explanation-ko.md`, `docs/design/decisions/2026-10-01-local-code-explanation-ko.md` |
 | Requested Flow Overview | 요청한 동작의 시작, 목적별 처리 구간, 확인된 분기·합류·결과 또는 미확인 경계를 먼저 읽는 FlowView 기능이다. 각 구간에서 실제 코드 블록과 문장별 탐색으로 이동한다. | 새 요청의 기본 읽기 화면 | 사용자 지시 2026-09-29 | Confirmed | `docs/design/specs/2026-09-29-requested-flow-overview-and-statement-exploration-ko.md` |
 | 처리 구간 | 요청한 동작의 한 가지 처리 목적을 설명하는 코드 묶음. 검증된 포함 단계와 하나 이상의 코드 블록을 가지며 단일 문장·함수·파일과 일대일로 대응하지 않는다. | Requested Flow Overview의 선택 단위 | 사용자 지시 2026-09-30, 기존 승인 계약 §4 | Confirmed | `docs/design/specs/2026-09-30-requested-flow-code-block-reading-ko.md` |
 | 코드 블록 | 같은 snapshot·파일의 연속 소스 범위. 포함 단계의 정확한 강조와 주변 문맥을 구별하며 불연속 범위와 다른 파일은 별도 블록으로 표시한다. | 처리 구간의 중앙 코드 읽기 | 코드 블록 읽기 구현 제안 2026-09-30 | Candidate | `docs/design/specs/2026-09-30-requested-flow-code-block-reading-ko.md` |

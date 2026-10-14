@@ -536,7 +536,7 @@ func (s *Server) listTools() []map[string]any {
 		},
 		{
 			"name":        "get_flow_payload",
-			"description": "Retrieve FlowSpec JSON by flowId or entrySymbolPath, or the exact stored FlowView by viewId. Set compact: true (or format: 'compact') for gateway summaries preserving canonical IDs and child references.",
+			"description": "Retrieve intermediate FlowSpec evidence by flowId or entrySymbolPath, or the exact stored analysis by viewId. Set compact: true (or format: 'compact') to inspect steps, indexed edges and source references before curate_requested_flow_overview. Only a verified requestedFlowOverview is the default final FlowView. presentationStatus distinguishes intermediate analysis from a ready Overview.",
 			"inputSchema": map[string]any{
 				"type": "object",
 				"properties": map[string]any{
@@ -551,7 +551,7 @@ func (s *Server) listTools() []map[string]any {
 		},
 		{
 			"name":        "analyze_flow",
-			"description": "Slice and publish one exact entry point. For a natural-language request, pass the exact request and candidateId returned by harvest_flows; CodeFlow verifies that candidate against the current snapshot before persisting it. Returns a persisted FlowSpec containing flowId; when the user requested a visual result, pass that exact flowId to open_review.",
+			"description": "Slice and publish one exact entry point. For a natural-language request, pass the exact request and candidateId returned by harvest_flows; CodeFlow verifies that candidate against the current snapshot before persisting it. Returns a persisted FlowSpec containing flowId; this is intermediate analysis. Use open_review with that exact flowId to retain source, then curate_requested_flow_overview before final delivery.",
 			"inputSchema": map[string]any{
 				"type":     "object",
 				"required": []string{"entrySymbolPath"},
@@ -605,13 +605,13 @@ func (s *Server) listTools() []map[string]any {
 		},
 		{
 			"name":        "curate_requested_flow_overview",
-			"description": "Group verified execution steps into request-specific processing purposes and continuous code blocks in an existing View. Read the original request, source, steps and indexed edges first. Each segment supplies segmentId, purpose, inclusionReason, stepIds and blocks containing stepIds from one file and callable. Relations name fromSegmentId, toSegmentId, fromStepId, toStepId and ordered edgeIndexes. Preserve decisions, failures, effects, loops and unverified boundaries. CodeFlow derives source ranges and graph facts, verifies one snapshot, and saves a new immutable viewId. Open that returned viewId with open_review and open its URL. Never stop at the intermediate analysis View.",
+			"description": "Group verified execution steps into request-specific processing purposes and continuous code blocks in an existing View. Read the original request, source, steps and indexed edges first. Each segment supplies segmentId, purpose, inclusionReason, stepIds and blocks containing stepIds from one file and callable. Relations name fromSegmentId, toSegmentId, fromStepId, toStepId and ordered edgeIndexes. Preserve decisions, failures, effects, loops and unverified boundaries. CodeFlow derives source ranges and graph facts, verifies one snapshot, and saves a new immutable viewId. Provide categories with business-purpose titles and segmentIds. This Overview is the default and final FlowView. Open only its returned viewId for final delivery. Without Overview the result is intermediate. Show missing connections in the affected process, never substitute the legacy statement view.",
 			"inputSchema": requestedFlowOverviewInputSchema(targetProp),
 		},
 
 		{
 			"name":        "curate_code_reading_path",
-			"description": "Select source-backed code points that explain the exact request in an existing FlowView. Read its semanticMap steps and indexed edges first. Each selection names a step, quotes a phrase from the request, and explains its relevance. Relations list exact resolved edge indexes between selected steps. Verified intermediate code remains expandable beneath a short relation. Inspect other confirmed outcomes at selected decisions and include those needed for the request. Branches and joins are allowed; each selected branch must end at an outcome or analysis boundary. CodeFlow verifies source, relationships, and CodeView, then saves a new viewId. Open that viewId with open_review.",
+			"description": "Compatibility tool for legacy source selections. Its result remains intermediate and must not be delivered as a completed FlowView. Use curate_requested_flow_overview to create the default and final purpose-grouped processing view.",
 			"inputSchema": map[string]any{
 				"type": "object", "required": []string{"viewId", "selections", "relations"},
 				"properties": map[string]any{
@@ -639,7 +639,7 @@ func (s *Server) listTools() []map[string]any {
 		},
 		{
 			"name":        "open_review",
-			"description": "Return a current FlowView for a persisted flowId or restore an exact saved viewId. A new flowId view may contain many uncurated gateways: inspect get_flow_payload with its returned viewId and compact=true, then use curate_code_reading_path when evidence supports a short requested path. Open the resulting viewId in the browser. A saved viewId is restored without analysis. focusSymbol and focusReason select one verified direct implementation call for a flowId view.",
+			"description": "Create intermediate analysis for a persisted flowId, or restore an exact saved viewId without analysis. A result without a verified requestedFlowOverview has status intermediate and cannot be delivered as a completed FlowView. Read get_flow_payload(viewId, compact=true), inspect source and execution evidence, then call curate_requested_flow_overview. Open its returned new viewId for the default purpose-grouped final result. Show evidence gaps in their processing segment. focusSymbol and focusReason select a verified direct implementation call for a flowId analysis.",
 			"inputSchema": map[string]any{
 				"type": "object",
 				"properties": map[string]any{
@@ -1091,12 +1091,14 @@ func (s *Server) executeTool(ctx context.Context, name string, args map[string]a
 						return nil, fmt.Errorf("requested focus requires a resolved current flow")
 					}
 					return map[string]any{
-						"status":  "ready",
-						"flowId":  flowID,
-						"url":     fv.TaskViewURL(existingViewID),
-						"viewUrl": fv.TaskViewURL(existingViewID),
-						"viewId":  existingViewID,
-						"token":   fv.AuthToken(),
+						"status":             "intermediate",
+						"presentationStatus": "intermediate",
+						"nextAction":         "Read get_flow_payload with viewId and curate_requested_flow_overview before final delivery.",
+						"flowId":             flowID,
+						"url":                fv.TaskViewURL(existingViewID),
+						"viewUrl":            fv.TaskViewURL(existingViewID),
+						"viewId":             existingViewID,
+						"token":              fv.AuthToken(),
 					}, nil
 				}
 			}
@@ -1119,12 +1121,14 @@ func (s *Server) executeTool(ctx context.Context, name string, args map[string]a
 			}
 		}
 		return map[string]any{
-			"status":  "ready",
-			"flowId":  flowID,
-			"url":     viewURL,
-			"viewUrl": viewURL,
-			"viewId":  viewID,
-			"token":   fv.AuthToken(),
+			"status":             "intermediate",
+			"presentationStatus": "intermediate",
+			"nextAction":         "Read get_flow_payload with viewId and curate_requested_flow_overview before final delivery.",
+			"flowId":             flowID,
+			"url":                viewURL,
+			"viewUrl":            viewURL,
+			"viewId":             viewID,
+			"token":              fv.AuthToken(),
 		}, nil
 
 	case "curate_requested_flow_overview":
@@ -1210,7 +1214,7 @@ func (s *Server) processCodeReadingPath(ctx context.Context, args map[string]any
 	if view.ViewID == "" || view.CodeReadingPath == nil {
 		return nil, fmt.Errorf("create code reading path: persisted view is incomplete")
 	}
-	return map[string]any{"status": "ready", "viewId": view.ViewID, "url": fv.TaskViewURL(view.ViewID), "codeReadingPath": view.CodeReadingPath}, nil
+	return map[string]any{"status": "intermediate", "presentationStatus": "intermediate", "nextAction": "Create requested flow overview before final delivery.", "viewId": view.ViewID, "url": fv.TaskViewURL(view.ViewID), "codeReadingPath": view.CodeReadingPath}, nil
 }
 
 func createCurrentTaskView(ctx context.Context, fv *flowview.Server, entrySymbol, flowID string, resolution *fusion.FlowResolution, focusSymbol, focusReason string) (map[string]any, error) {

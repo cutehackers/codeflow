@@ -2,7 +2,7 @@ import {describe,expect,it,beforeEach} from 'vitest';
 import {render} from 'svelte/server';
 import {samplePayload} from '../stores/sampleData';
 import {flowStore} from '../stores/flowStore.svelte';
-import {partitionRequestedFlowRelations, requestedFlowJoins, type RequestedFlowRelation} from '../stores/requestedFlowRelations';
+import {partitionRequestedFlowRelations, requestedFlowJoins, requestedFlowSegmentContextStepIds, type RequestedFlowRelation} from '../stores/requestedFlowRelations';
 import RequestedFlowSegmentRail from '../components/RequestedFlowSegmentRail.svelte';
 
 function sequencePayload() {
@@ -16,6 +16,24 @@ function sequencePayload() {
 
 beforeEach(()=>{flowStore.expandedReadingRelations=new Set();});
 describe('purpose relation disclosure',()=>{
+  it('marks an omitted execution boundary in its preceding purpose without crossing other segments or unverified edges',()=>{
+    const data=sequencePayload();
+    const overview=data.requestedFlowOverview!;
+    overview.segments[0].stepIds=['step-0'];
+    overview.segments.push({...overview.segments[0],segmentId:'next-purpose',entryStepId:'step-2',stepIds:['step-2']});
+    overview.relations=overview.relations.slice(0,4);
+    overview.relations[3].status='boundary';
+    overview.boundaries=[{fromStepId:'step-1',target:'dynamicTarget',reason:'unresolved_dynamic_call'}];
+    expect(requestedFlowSegmentContextStepIds(overview,'process')).toEqual(['step-0','step-1']);
+    expect(requestedFlowSegmentContextStepIds(overview,'next-purpose')).toEqual(['step-2','step-3']);
+    flowStore.data=data;
+    flowStore.selectedSegmentId='process';
+    const body=render(RequestedFlowSegmentRail).body;
+    expect(body).toMatch(/data-segment="process"[^]*?연결 미확인/);
+    expect(body).toContain('segment-boundary:step-1:dynamicTarget');
+    overview.relations[0].status='boundary';
+    expect(requestedFlowSegmentContextStepIds(overview,'process')).toEqual(['step-0']);
+  });
   it('preserves open connection disclosures and advertises omitted repetitions and failures',()=>{
     const data=sequencePayload();
     data.requestedFlowOverview!.segments[0].stepIds=['step-0'];

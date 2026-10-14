@@ -33,7 +33,7 @@
     </select>
     <button id="compare" disabled={!baselineId || !flowStore.data?.viewId || flowStore.busy} onclick={() => window.compareFlowViews(baselineId)}>변경 전후 비교</button>
     {#if flowStore.compare}<button onclick={() => { flowStore.compare = false; }}>비교 닫기</button>{/if}
-    {#if flowStore.overviewDetailPending}<button onclick={() => window.openFlowDetail()}>문장별 탐색 열기</button>{/if}
+    {#if flowStore.overviewDetailPending}<button onclick={() => window.openFlowDetail()}>중간 결과 확인</button>{/if}
     {#if flowStore.pending?.viewId}<button onclick={() => window.openFlowView(flowStore.pending!.viewId!)}>새 분석 열기</button>{/if}
   </div>
   {#if limitations.length}

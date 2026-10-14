@@ -1,9 +1,10 @@
-import {describe, expect, it, beforeEach} from 'vitest';
+import {describe, expect, it, beforeEach, vi} from 'vitest';
 import {render} from 'svelte/server';
 import {samplePayload} from '../stores/sampleData';
 import {flowStore} from '../stores/flowStore.svelte';
 import {validateFlowReferences} from '../stores/flowNavigation';
 import {blockSourceLines, blockLineParts, blockDetailAlternatives} from '../stores/requestedFlowBlocks';
+import App from '../App.svelte';
 import RequestedFlowBlockPanel from '../components/RequestedFlowBlockPanel.svelte';
 import RequestedFlowSegmentRail from '../components/RequestedFlowSegmentRail.svelte';
 
@@ -24,6 +25,37 @@ export function purposePayload() {
 
 beforeEach(() => {flowStore.data = null; flowStore.baseline = null; flowStore.compare = false;});
 describe('purpose code block reading', () => {
+  it('keeps the processing overview visible when opening source detail', () => {
+    vi.stubGlobal('window', {location:{search:''}});
+    const data = purposePayload();
+    data.flowResolution!.rawRequest = '인증 흐름을 보여줘';
+    data.requestedFlowOverview!.request = data.flowResolution!.rawRequest;
+    data.requestedFlowOverview!.segments[0].purpose = '메시지 검증 · 결과 조회 · 성공/실패 처리';
+    flowStore.adopt(data,true);
+    flowStore.home = false;
+    const initial = render(App).body;
+    expect(initial).toContain('메시지 검증 · 결과 조회 · 성공/실패 처리');
+    expect(initial).toContain('소스 펼치기');
+    expect(initial).not.toContain('id="code-flow"');
+    expect(initial).not.toContain('문장별 탐색');
+    flowStore.openSegmentDetail(data.semanticMap.steps[0].stepId);
+    const detail = render(App).body;
+    expect(detail).toContain('id="requested-flow-overview"');
+    expect(detail).toContain('처리 과정의 소스 상세');
+    expect(detail).toContain('id="code-flow"');
+    const segment = data.requestedFlowOverview!.segments[0];
+    flowStore.selectSegment(segment.segmentId, 'prepare-effect');
+    flowStore.closeSegmentDetail();
+    expect(flowStore.selectedBlockId).toBe('prepare-effect');
+    expect(flowStore.explorationMode).toBe('overview');
+    flowStore.toggleReadingRelation('block-source:prepare-effect');
+    const navigation = flowStore.captureNavigationState();
+    flowStore.expandedReadingRelations = new Set();
+    expect(flowStore.applyNavigationState(navigation)).toBe(true);
+    expect(render(RequestedFlowBlockPanel).body).toContain('class="block-source-detail" open');
+    vi.unstubAllGlobals();
+  });
+
   it('keeps a nested included statement accessible when its exact range overlaps another statement',()=>{
     const data=purposePayload();
     const block=data.requestedFlowOverview!.segments[0].blocks[0];

@@ -73,7 +73,7 @@ async function load(path: string, preserve: boolean, restore = false): Promise<b
     if (path.startsWith('/api/task/view?') && !data.requestedFlowOverview) {
       detailPendingRequest = {preserve, originViewId: flowStore.data?.viewId};
       flowStore.overviewDetailPending = data;
-      flowStore.notice = '처리 구간 개요가 생성되지 않았습니다. 브라우저 직접 분석에는 구간을 제안하는 에이전트가 없습니다. 문장별 탐색을 명시적으로 열 수 있습니다.';
+      flowStore.notice = '처리 구간 개요가 생성되지 않았습니다. 브라우저 직접 분석에는 구간을 제안하는 에이전트가 없습니다. 현재 결과는 중간 결과입니다. 에이전트에게 Overview 생성을 요청하세요.';
       return false;
     }
     // Do not replace the comparison until its fixed baseline has a matching delta.
@@ -145,13 +145,13 @@ window.openFlowDetail = async () => {
     flowStore.compare = compare;
     flowStore.overviewDetailPending = null;
     detailPendingRequest = null;
-    flowStore.explorationMode = 'statements';
+    flowStore.explorationMode = 'overview';
     flowStore.home = false;
     setURL(data.viewId);
     try { const saved = await api('/api/views'); if (ticket === sequence) flowStore.views = saved.views || []; } catch { /* Detail remains readable when listing fails. */ }
     return true;
   } catch (error) {
-    if (ticket === sequence) flowStore.notice = `문장별 탐색을 열지 못했습니다: ${(error as Error).message}`;
+    if (ticket === sequence) flowStore.notice = `중간 결과를 열지 못했습니다: ${(error as Error).message}`;
     return false;
   } finally {
     if (ticket === sequence) flowStore.busy = false;

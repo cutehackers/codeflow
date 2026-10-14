@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [v0.4.1] - 2026-10-14
+
+### Fixed
+- Default and final FlowView now use the verified purpose-grouped Requested Flow Overview. Source opens as expandable detail within the processing overview.
+- Analyses without a verified Overview are explicitly intermediate in FlowView and MCP responses, including restored legacy or invalid views.
+- Missing connections in omitted intermediate steps are shown in the affected purpose segment without substituting the legacy statement screen.
+- Source disclosure and detail navigation preserve the selected processing segment and reading position.
+- Installed agent skills and MCP tool schemas consistently use `curate_requested_flow_overview` for final delivery.
+
+### Compatibility
+- Public schemas and persisted analyses remain compatible. Unchanged Dart, TypeScript, and Go adapters retain version 0.4.0 and their existing compatibility pins.
+
 ## [v0.4.0] - 2026-09-07
 
 ### Added

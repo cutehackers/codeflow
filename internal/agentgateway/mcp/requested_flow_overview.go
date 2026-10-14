@@ -167,15 +167,18 @@ func (s *Server) openRequestedFlowView(ctx context.Context, target, viewID strin
 	if response.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("open saved FlowView: HTTP %d", response.StatusCode)
 	}
-	var view struct {
-		ViewID string `json:"viewId"`
-	}
+	var view map[string]any
 	if err := json.NewDecoder(response.Body).Decode(&view); err != nil {
 		return nil, err
 	}
-	if view.ViewID != viewID {
+	if view["viewId"] != viewID {
 		return nil, fmt.Errorf("open saved FlowView: result identity differs")
 	}
 	viewURL := base + "/?token=" + url.QueryEscape(token) + "&viewId=" + url.QueryEscape(viewID)
-	return map[string]any{"status": "ready", "viewId": viewID, "url": viewURL, "viewUrl": viewURL, "token": token}, nil
+	flowview.FormatTaskViewResponse(view, target)
+	result := map[string]any{"status": view["presentationStatus"], "presentationStatus": view["presentationStatus"], "viewId": viewID, "url": viewURL, "viewUrl": viewURL, "token": token}
+	if nextAction := view["nextAction"]; nextAction != nil {
+		result["nextAction"] = nextAction
+	}
+	return result, nil
 }

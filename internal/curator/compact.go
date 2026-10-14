@@ -44,6 +44,8 @@ type CompactStep struct {
 
 // CompactFlowPayload preserves the hierarchy and optional source relationships.
 type CompactFlowPayload struct {
+	PresentationStatus              string                           `json:"presentationStatus"`
+	NextAction                      string                           `json:"nextAction,omitempty"`
 	RequestedFocus                  *semantic.RequestedFlowFocus     `json:"requestedFocus,omitempty"`
 	RequestedFlowOverview           *semantic.RequestedFlowOverview  `json:"requestedFlowOverview,omitempty"`
 	RequestedFlowOverviewLimitation string                           `json:"requestedFlowOverviewLimitation,omitempty"`
@@ -114,6 +116,8 @@ func BuildCompactPayload(sequence *semantic.FlowSequence, directCallers, directC
 		radar = &CompactRadarSummary{DirectCallers: directCallers, DirectCallees: directCallees}
 	}
 	return CompactFlowPayload{
+		PresentationStatus: "intermediate",
+		NextAction:         "Create a verified requested flow overview before delivering a completed FlowView.",
 		FlowID:             sequence.FlowID,
 		SummaryLimitations: limitations,
 		Summary:            summary,

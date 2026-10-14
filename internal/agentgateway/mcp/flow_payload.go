@@ -112,6 +112,8 @@ func (s *Server) flowViewPayload(ctx context.Context, args map[string]any, viewI
 		}
 		compact.RequestedFlowOverview = &overview
 	}
+	compact.PresentationStatus, _ = view["presentationStatus"].(string)
+	compact.NextAction, _ = view["nextAction"].(string)
 	compact.RequestedFlowOverviewLimitation, _ = view["requestedFlowOverviewLimitation"].(string)
 	compact.FlowResolutionMissing, _ = view["flowResolutionMissing"].(bool)
 	compact.ResolutionLimitation, _ = view["resolutionLimitation"].(string)

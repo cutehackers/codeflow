@@ -421,7 +421,7 @@ func TestTier4_FlowView_GatewayRoleRendering(t *testing.T) {
 	// Verify required FlowView UI containers and interactive markers
 	expectedContainers := []string{
 		"data-view=\"flowview\"",
-		"id=\"execution-navigation\"",
+		"id=\"requested-flow-overview\"",
 		"id=\"code-flow\"",
 		"id=\"context\"",
 		"id=\"query-input\"",

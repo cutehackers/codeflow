@@ -374,11 +374,53 @@ func TestRequestedFlowViewLargeResponse(t *testing.T) {
 				t.Fatalf("large View %s failed: %v", operation, err)
 			}
 			response := result.(map[string]any)
-			if response["viewId"] != viewID || response["status"] != "ready" {
+			wantStatus := "ready"
+			if operation == "open" {
+				wantStatus = "intermediate" // The mocked overview has no verified analysis.
+			}
+			if response["viewId"] != viewID || response["status"] != wantStatus {
 				t.Fatalf("large View identity was lost: %+v", response)
 			}
 			if operation == "curate" && !reflect.DeepEqual(response["requestedFlowOverview"], overview) {
 				t.Fatalf("large View overview was lost: %+v", response["requestedFlowOverview"])
+			}
+		})
+	}
+}
+
+func TestRequestedFlowViewWithoutOverviewCannotReportCompletion(t *testing.T) {
+	for _, legacyPath := range []bool{false, true} {
+		t.Run(fmt.Sprintf("legacyPath=%t", legacyPath), func(t *testing.T) {
+			root := t.TempDir()
+			viewID := strings.Repeat("b", 64)
+			endpoint := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if r.URL.Path == "/api/views" {
+					return
+				}
+				view := map[string]any{"viewId": viewID, "presentationStatus": "ready"}
+				if legacyPath {
+					view["codeReadingPath"] = map[string]any{"nodes": []any{}}
+				}
+				if err := json.NewEncoder(w).Encode(view); err != nil {
+					t.Error(err)
+				}
+			}))
+			defer endpoint.Close()
+			if err := flowview.WriteLiveCoordinator(root, flowview.LiveCoordinatorRecord{URL: endpoint.URL, RepoRoot: root, Token: "local-token"}); err != nil {
+				t.Fatal(err)
+			}
+			srv, err := NewServer(Config{RepoRoot: root})
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer srv.Close()
+			result, err := srv.executeTool(context.Background(), "open_review", map[string]any{"target": root, "viewId": viewID})
+			if err != nil {
+				t.Fatal(err)
+			}
+			response := result.(map[string]any)
+			if response["status"] != "intermediate" || response["nextAction"] == nil {
+				t.Fatalf("uncurated view reported completion: %+v", response)
 			}
 		})
 	}

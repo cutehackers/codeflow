@@ -87,7 +87,7 @@ func ensurePrebuiltTestBinaries(t *testing.T) (string, string) {
 
 		codeflowBin := filepath.Join(tempDir, "codeflow")
 		buildDate := time.Now().UTC().Format(time.RFC3339)
-		cmd := exec.Command("go", "build", "-ldflags", "-X main.version=v0.4.0 -X main.date="+buildDate, "-o", codeflowBin, "./cmd/codeflow")
+		cmd := exec.Command("go", "build", "-ldflags", "-X main.version=v0.4.1 -X main.date="+buildDate, "-o", codeflowBin, "./cmd/codeflow")
 		cmd.Dir = repoRoot
 		cmd.Env = append(os.Environ(), "CGO_ENABLED=0")
 		if out, err := cmd.CombinedOutput(); err != nil {
@@ -225,7 +225,7 @@ func assertInstalled(t *testing.T, s *sandbox) {
 	if err != nil {
 		t.Fatalf("installed binary version failed: %v\n%s", err, versionOutput)
 	}
-	if !strings.Contains(versionOutput, "v0.4.0") {
+	if !strings.Contains(versionOutput, "v0.4.1") {
 		t.Fatalf("installed binary has wrong version: %s", versionOutput)
 	}
 	if _, err := os.Stat(filepath.Join(s.skillDest, "SKILL.md")); err != nil {
@@ -261,8 +261,8 @@ func assertInstalledCodeReadingTools(t *testing.T, s *sandbox) {
 			toolCount++
 		}
 	}
-	if toolCount != 9 {
-		t.Fatalf("installed MCP tool schema count = %d, want 9", toolCount)
+	if toolCount != 10 {
+		t.Fatalf("installed MCP tool schema count = %d, want 10", toolCount)
 	}
 	for _, tc := range []struct {
 		name       string
@@ -271,6 +271,7 @@ func assertInstalledCodeReadingTools(t *testing.T, s *sandbox) {
 		{name: "analyze_flow", properties: []string{"request", "candidateId"}},
 		{name: "get_flow_payload", properties: []string{"viewId", "compact"}},
 		{name: "open_review", properties: []string{"viewId", "focusSymbol", "focusReason"}},
+		{name: "curate_requested_flow_overview", properties: []string{"viewId", "segments", "relations", "categories"}},
 		{name: "curate_code_reading_path", properties: []string{"viewId", "selections", "relations"}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {

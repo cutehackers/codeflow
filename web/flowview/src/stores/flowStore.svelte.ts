@@ -112,7 +112,7 @@ class FlowStore {
   expandedBlocks = $state<Set<string>>(new Set());
   overviewDetailPending = $state<FlowTaskViewData | null>(null);
   viewMode = $state<'code' | 'process'>('code');
-  explorationMode = $state<ExplorationMode>('statements');
+  explorationMode = $state<ExplorationMode>('overview');
   explorationNavigation: ExplorationNavigationState = {positions: {}, returns: {}, overviewSelectionPending: true};
   private navigationSequence = 0;
   conditionFilter = $state<string | null>(null);
@@ -317,6 +317,16 @@ class FlowStore {
     this.setExplorationMode('statements');
   }
 
+  closeSegmentDetail() {
+    const origin = this.explorationNavigation.positions.overview;
+    const current = this.captureNavigationState();
+    this.explorationMode = 'overview';
+    this.savedNavigationState = null;
+    if (origin && origin.segmentId === current.segmentId && origin.blockId === current.blockId) {
+      this.applyNavigationState({...current, explorationMode:'overview', panelPositions:origin.panelPositions, focusElement:origin.focusElement, focusKey:origin.focusKey, scrollY:origin.scrollY});
+    }
+  }
+
   toggleBlock(blockId: string) {
     const expanded = new Set(this.expandedBlocks);
     if (expanded.has(blockId)) expanded.delete(blockId); else expanded.add(blockId);
@@ -428,8 +438,7 @@ class FlowStore {
     if (saved.viewId !== this.data?.viewId || saved.snapshotId !== this.flowSequence?.snapshotID ||
       (saved.stepId && !this.steps.some(step => step.stepId === saved.stepId)) ||
       (saved.frameId && !this.frames.some(frame => frame.frameID === saved.frameId && (!saved.stepId || frame.stepRefs.includes(saved.stepId)))) ||
-      (saved.relationId && !this.relations.some(relation => relation.id === saved.relationId)) ||
-      (saved.explorationMode === 'overview' && !this.data?.codeReadingPath && !this.data?.requestedFlowOverview)) {
+      (saved.relationId && !this.relations.some(relation => relation.id === saved.relationId))) {
       this.notice = '읽던 문장 또는 연결을 복원할 수 없습니다. 현재 화면을 유지합니다.';
       return false;
     }
@@ -516,8 +525,7 @@ class FlowStore {
     ++this.navigationSequence;
     this.data = newData;
     this.explorationNavigation = {positions: {}, returns: {}, overviewSelectionPending: true};
-    if (force || !current) this.explorationMode = newData.requestedFlowOverview?.segments.length || newData.codeReadingPath?.nodes.length ? 'overview' : 'statements';
-    if (!newData.codeReadingPath && !newData.requestedFlowOverview) this.explorationMode = 'statements';
+    if (force || !current || !newData.requestedFlowOverview) this.explorationMode = 'overview';
     this.pending = null;
     this.impactCache = new Map();
     if (force) { this.compare = false; this.baseline = null; }

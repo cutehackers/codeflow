@@ -10,7 +10,7 @@ INSTALL_DIR="${INSTALL_DIR:-$HOME/.local/bin}"
 MCP_NAME="${CODEFLOW_MCP_NAME:-codeflow}"
 CODEX_HOME_DIR="${CODEX_HOME:-$HOME/.codex}"
 CODEFLOW_REPO="${CODEFLOW_REPO:-cutehackers/codeflow}"
-CODEFLOW_VERSION="${CODEFLOW_VERSION:-v0.4.0}"
+CODEFLOW_VERSION="${CODEFLOW_VERSION:-v0.4.1}"
 OWNED_SOURCE=false
 SRC_DIR="${CODEFLOW_SRC_DIR:-}"
 SKILL_DEST="$CODEX_HOME_DIR/skills/codeflow"
@@ -594,7 +594,7 @@ EOF
 cat <<'EOF' > "$AGY_MCP_DIR/analyze_flow.json"
 {
   "name": "analyze_flow",
-  "description": "Slice and publish one exact entry point. For a natural-language request, pass the original request and exact candidateId from harvest_flows. Returns a persisted FlowSpec containing flowId.",
+  "description": "Slice and publish one exact entry point. For a natural-language request, pass the exact request and candidateId returned by harvest_flows; CodeFlow verifies that candidate against the current snapshot before persisting it. Returns a persisted FlowSpec containing flowId; this is intermediate analysis. Use open_review with that exact flowId to retain source, then curate_requested_flow_overview before final delivery.",
   "parameters": {
     "type": "object",
     "required": ["entrySymbolPath"],
@@ -623,7 +623,7 @@ EOF
 cat <<'EOF' > "$AGY_MCP_DIR/get_flow_payload.json"
 {
   "name": "get_flow_payload",
-  "description": "Retrieve FlowSpec by flowId or entrySymbolPath, or the exact stored FlowView by viewId. Set compact: true for gateway summaries with canonical IDs and source step references.",
+  "description": "Retrieve intermediate FlowSpec evidence by flowId or entrySymbolPath, or the exact stored analysis by viewId. Set compact: true (or format: 'compact') to inspect steps, indexed edges and source references before curate_requested_flow_overview. Only a verified requestedFlowOverview is the default final FlowView. presentationStatus distinguishes intermediate analysis from a ready Overview.",
   "parameters": {
     "type": "object",
     "properties": {
@@ -660,7 +660,7 @@ EOF
 cat <<'EOF' > "$AGY_MCP_DIR/open_review.json"
 {
   "name": "open_review",
-  "description": "Return a current FlowView for a persisted flowId or restore a saved viewId. A new view may contain many uncurated gateways: inspect get_flow_payload with viewId and compact=true, then use curate_code_reading_path when evidence supports a shorter requested path.",
+  "description": "Create intermediate analysis for a persisted flowId, or restore an exact saved viewId without analysis. A result without a verified requestedFlowOverview has status intermediate and cannot be delivered as a completed FlowView. Read get_flow_payload(viewId, compact=true), inspect source and execution evidence, then call curate_requested_flow_overview. Open its returned new viewId for the default purpose-grouped final result. Show evidence gaps in their processing segment. focusSymbol and focusReason select a verified direct implementation call for a flowId analysis.",
   "parameters": {
     "type": "object",
     "properties": {
@@ -689,10 +689,165 @@ cat <<'EOF' > "$AGY_MCP_DIR/open_review.json"
 }
 EOF
 
+cat <<'EOF' > "$AGY_MCP_DIR/curate_requested_flow_overview.json"
+{
+  "name": "curate_requested_flow_overview",
+  "description": "Group verified execution steps into request-specific processing purposes and continuous code blocks in an existing View. Read the original request, source, steps and indexed edges first. Each segment supplies segmentId, purpose, inclusionReason, stepIds and blocks containing stepIds from one file and callable. Relations name fromSegmentId, toSegmentId, fromStepId, toStepId and ordered edgeIndexes. Preserve decisions, failures, effects, loops and unverified boundaries. CodeFlow derives source ranges and graph facts, verifies one snapshot, and saves a new immutable viewId. Provide categories with business-purpose titles and segmentIds. This Overview is the default and final FlowView. Open only its returned viewId for final delivery. Without Overview the result is intermediate. Show missing connections in the affected process, never substitute the legacy statement view.",
+  "parameters": {
+    "properties": {
+      "categories": {
+        "items": {
+          "additionalProperties": false,
+          "properties": {
+            "categoryId": {
+              "minLength": 1,
+              "type": "string"
+            },
+            "segmentIds": {
+              "items": {
+                "minLength": 1,
+                "type": "string"
+              },
+              "minItems": 1,
+              "type": "array",
+              "uniqueItems": true
+            },
+            "title": {
+              "minLength": 1,
+              "type": "string"
+            }
+          },
+          "required": [
+            "categoryId",
+            "title",
+            "segmentIds"
+          ],
+          "type": "object"
+        },
+        "minItems": 1,
+        "type": "array"
+      },
+      "relations": {
+        "items": {
+          "additionalProperties": false,
+          "properties": {
+            "edgeIndexes": {
+              "items": {
+                "minimum": 0,
+                "type": "integer"
+              },
+              "minItems": 1,
+              "type": "array"
+            },
+            "fromSegmentId": {
+              "minLength": 1,
+              "type": "string"
+            },
+            "fromStepId": {
+              "minLength": 1,
+              "type": "string"
+            },
+            "toSegmentId": {
+              "minLength": 1,
+              "type": "string"
+            },
+            "toStepId": {
+              "minLength": 1,
+              "type": "string"
+            }
+          },
+          "required": [
+            "fromSegmentId",
+            "toSegmentId",
+            "fromStepId",
+            "toStepId",
+            "edgeIndexes"
+          ],
+          "type": "object"
+        },
+        "type": "array"
+      },
+      "segments": {
+        "items": {
+          "additionalProperties": false,
+          "properties": {
+            "blocks": {
+              "items": {
+                "additionalProperties": false,
+                "properties": {
+                  "stepIds": {
+                    "items": {
+                      "minLength": 1,
+                      "type": "string"
+                    },
+                    "minItems": 1,
+                    "type": "array"
+                  }
+                },
+                "required": [
+                  "stepIds"
+                ],
+                "type": "object"
+              },
+              "minItems": 1,
+              "type": "array"
+            },
+            "inclusionReason": {
+              "minLength": 1,
+              "type": "string"
+            },
+            "purpose": {
+              "minLength": 1,
+              "type": "string"
+            },
+            "segmentId": {
+              "minLength": 1,
+              "type": "string"
+            },
+            "stepIds": {
+              "items": {
+                "minLength": 1,
+                "type": "string"
+              },
+              "minItems": 1,
+              "type": "array"
+            }
+          },
+          "required": [
+            "segmentId",
+            "purpose",
+            "inclusionReason",
+            "stepIds",
+            "blocks"
+          ],
+          "type": "object"
+        },
+        "minItems": 1,
+        "type": "array"
+      },
+      "target": {
+        "description": "Target repository path or subdirectory (defaults to working directory)",
+        "type": "string"
+      },
+      "viewId": {
+        "minLength": 1,
+        "type": "string"
+      }
+    },
+    "required": [
+      "viewId",
+      "segments",
+      "relations"
+    ],
+    "type": "object"
+  }
+}
+EOF
+
 cat <<'EOF' > "$AGY_MCP_DIR/curate_code_reading_path.json"
 {
   "name": "curate_code_reading_path",
-  "description": "Select source-backed code points for the exact request in an existing FlowView. Read its steps and indexed edges first. Verified intermediate code remains expandable beneath a short relation. Inspect other confirmed decision outcomes and include those needed for the request. CodeFlow verifies source, relations, and CodeView, then saves a new viewId for open_review.",
+  "description": "Compatibility tool for legacy source selections. Its result remains intermediate and must not be delivered as a completed FlowView. Use curate_requested_flow_overview to create the default and final purpose-grouped processing view.",
   "parameters": {
     "type": "object",
     "required": ["viewId", "selections", "relations"],
@@ -843,16 +998,17 @@ cat <<'EOF' > "$AGY_MCP_DIR/instructions.md"
 
 CodeFlow provides business-flow-first code comprehension, FlowSequence Storyboard generation, and interactive FlowView visual review across polyglot codebases.
 
-## Official 9 Core Tools:
+## FlowView workflow and compatibility tools:
 1. `harvest_flows`: Discover candidate entry points. Query filtering is literal.
 2. `analyze_flow`: Analyze one entry point. Pass the original request and selected candidateId for natural-language requests.
 3. `get_flow_payload`: Retrieve a flow or saved view; compact mode retains source step IDs and relationships.
-4. `open_review`: Create or restore a FlowView URL.
-5. `curate_code_reading_path`: Verify and save a request-specific reading path from selected source-backed steps and relations.
-6. `report_unknowns`: Inspect unresolved boundaries, missing types, and dynamic dispatch cutoffs.
-7. `publish_core_flow`: Publish a verified architecture-layer core flow.
-8. `approve_step`: Record human or agent step approval and business rules.
-9. `submit_flow_draft`: Submit a structured session journey draft.
+4. `open_review`: Create intermediate analysis or restore the exact saved view. Deliver only a verified Overview as the final FlowView.
+5. `curate_requested_flow_overview`: Save the default purpose-grouped final FlowView. Show missing connections in the affected process and provide source as expandable detail.
+6. `curate_code_reading_path`: Compatibility tool. Its statement path remains intermediate and cannot replace the final Overview.
+7. `report_unknowns`: Inspect unresolved boundaries, missing types, and dynamic dispatch cutoffs.
+8. `publish_core_flow`: Publish a verified architecture-layer core flow.
+9. `approve_step`: Record human or agent step approval and business rules.
+10. `submit_flow_draft`: Submit a structured session journey draft.
 EOF
 info "Installed Antigravity MCP tool schemas ($AGY_MCP_DIR)"
 

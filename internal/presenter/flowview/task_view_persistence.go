@@ -90,6 +90,7 @@ func (s *Server) SaveTaskView(ctx context.Context, result map[string]any) (map[s
 		return nil, err
 	}
 	persistedView["viewId"] = id
+	formatTaskViewPresentation(persistedView)
 	return persistedView, nil
 }
 
@@ -265,7 +266,7 @@ func FormatTaskViewResponse(view map[string]any, repoRoot string) {
 		sequenceErr := decodeTaskViewPart(view["flowSequence"], &sequence)
 		if modelErr != nil || sequenceErr != nil || validateRequestedFlowOverviewForSave(view, &model, &sequence) != nil {
 			delete(view, "requestedFlowOverview")
-			view["requestedFlowOverviewLimitation"] = "저장된 처리 구간 개요가 근거 검사를 통과하지 못했습니다. 문장별 탐색에서 원본 분석을 확인하세요."
+			view["requestedFlowOverviewLimitation"] = "저장된 처리 구간 개요가 근거 검사를 통과하지 못했습니다. 중간 결과로 표시하며 Overview를 다시 생성해야 합니다."
 		}
 	}
 	if view["codeReadingPath"] != nil {
@@ -285,6 +286,17 @@ func FormatTaskViewResponse(view map[string]any, repoRoot string) {
 		view["resolutionLimitation"] = "과거 분석으로 요청 확정 기록이 존재하지 않습니다."
 	}
 	markTaskViewSourceContextMissing(view, repoRoot)
+	formatTaskViewPresentation(view)
+}
+
+// Presentation readiness is derived from verified content, never caller metadata.
+func formatTaskViewPresentation(view map[string]any) {
+	view["presentationStatus"] = "intermediate"
+	view["nextAction"] = "Read the stored analysis and verified source, then call curate_requested_flow_overview. Do not deliver this intermediate analysis as a completed FlowView."
+	if view["requestedFlowOverview"] != nil {
+		view["presentationStatus"] = "ready"
+		delete(view, "nextAction")
+	}
 }
 
 func (s *Server) serveTaskViewDetail(w http.ResponseWriter, r *http.Request) {

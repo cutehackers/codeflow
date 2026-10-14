@@ -1772,6 +1772,8 @@ test('purpose blocks from MCP preserve real branch loop handoff and reading rest
     const response = await request.get(`/api/task/view?query=${encodeURIComponent(rawRequest)}&entrySymbol=purpose-checkout.ts%23processPurposeCheckout`,{headers});
     expect(response.ok(),await response.text()).toBe(true);
     const analysis = await response.json();
+    expect(analysis.presentationStatus).toBe('intermediate');
+    expect(mcp('open_review',{viewId:analysis.viewId}).status).toBe('intermediate');
     const steps = analysis.semanticMap.steps;
     const sourceOf = (step: any) => Buffer.from(step.anchor.repoRelativePath === 'purpose-checkout.ts' ? mainSource : helperSource).subarray(...step.anchor.byteRange).toString();
     const validation = steps.filter((step: any)=> step.anchor.repoRelativePath==='purpose-checkout.ts' && (sourceOf(step).includes('const input') || sourceOf(step).includes('input < 0') || sourceOf(step).includes('return -1')));
@@ -1795,12 +1797,15 @@ test('purpose blocks from MCP preserve real branch loop handoff and reading rest
     await page.setViewportSize({width:1200,height:800});
     const opened = mcp('open_review',{viewId});
     expect(opened.viewId).toBe(viewId);
+    expect(opened.status).toBe('ready');
     await page.goto(opened.url);
     await expect(page.locator('#requested-flow-blocks')).toContainText('음수 입력 거부');
     await expect(page.locator('#code-flow')).toHaveCount(0);
     await expect(page.locator('[data-category]')).toHaveCount(2);
     await expect(page.locator('#requested-flow-overview [data-segment]')).toHaveCount(3);
     await expect(page.locator('.detail-actions')).toHaveCount(0);
+    await expect(page.locator('#requested-flow-blocks .source-statement').first()).not.toBeVisible();
+    await page.locator('.block-source-detail > summary').first().click();
     await expect(page.locator('#requested-flow-blocks .source-statement').first()).toBeInViewport();
     const overviewAccessibility=await new AxeBuilder({page}).withTags(['wcag2a','wcag2aa']).analyze();
     expect(overviewAccessibility.violations.filter(violation=>['critical','serious'].includes(violation.impact || ''))).toEqual([]);
@@ -1834,6 +1839,7 @@ test('purpose blocks from MCP preserve real branch loop handoff and reading rest
     await expect(page.locator('[data-code-block]')).toHaveCount(2);
     await expect(page.locator('#requested-flow-blocks')).toContainText('purpose-adjustment.ts');
     await expect(page.locator('#requested-flow-blocks')).toContainText('const next = value + 2;');
+    for (const disclosure of await page.locator('.block-source-detail > summary').all()) await disclosure.click();
     await expect(page.locator('#requested-flow-overview .reading-node[aria-pressed="true"]')).toContainText('반복');
     await page.locator('[data-segment-context="amount-adjustment"] > summary').click();
     await expect(page.locator('#requested-flow-overview')).toContainText('다음 반복');
@@ -1850,7 +1856,7 @@ test('purpose blocks from MCP preserve real branch loop handoff and reading rest
     await relationDetails.locator('summary').click();
     const relationSource=relationDetails.locator('[data-navigation-focus]').first();
     await relationSource.click();
-    await page.getByRole('button',{name:'요청 흐름 개요',exact:true}).click();
+    await page.getByRole('button',{name:'상세 닫기',exact:true}).click();
     await expect(relationContext).toHaveAttribute('open','');
     await expect(relationDetails).toHaveAttribute('open','');
     await expect(relationSource).toBeFocused();
@@ -1862,7 +1868,7 @@ test('purpose blocks from MCP preserve real branch loop handoff and reading rest
     const position = await page.evaluate(()=>window.scrollY);
     await detailButton.click();
     await expectSelectedSource(page,view.flowContexts[detailStep.stepId]);
-    await page.getByRole('button',{name:'요청 흐름 개요',exact:true}).click();
+    await page.getByRole('button',{name:'상세 닫기',exact:true}).click();
     await expect(page.locator('[data-segment="amount-adjustment"]')).toHaveAttribute('aria-pressed','true');
     await expect(page.locator('[data-category="checkout-preparation"]')).toHaveAttribute('aria-pressed','true');
     await expect(page.locator(`[data-navigation-focus="block-expand:${block.blockId}"]`)).toHaveAttribute('aria-expanded','true');
@@ -1876,7 +1882,7 @@ test('purpose blocks from MCP preserve real branch loop handoff and reading rest
     await page.evaluate(async id=>await (window as any).openFlowView(id),analysis.viewId);
     await page.evaluate(async id=>await (window as any).openFlowView(id),viewId);
     await expectSelectedSource(page,view.flowContexts[detailStep.stepId]);
-    await page.getByRole('button',{name:'요청 흐름 개요',exact:true}).click();
+    await page.getByRole('button',{name:'상세 닫기',exact:true}).click();
     await page.setViewportSize({width:390,height:844});
     expect(await page.evaluate(()=>document.documentElement.scrollWidth<=window.innerWidth)).toBe(true);
     await adjustmentSegment.click();
@@ -1891,10 +1897,11 @@ test('purpose blocks from MCP preserve real branch loop handoff and reading rest
     // Direct browser analysis stays staged until the explicit detail action.
     await page.evaluate(async()=>await (window as any).fetchTaskView('purpose-checkout.ts#processPurposeCheckout'));
     await expect(page).toHaveURL(new RegExp(viewId));
-    await expect(page.getByRole('button',{name:'문장별 탐색 열기',exact:true})).toBeVisible();
+    await expect(page.getByRole('button',{name:'중간 결과 확인',exact:true})).toBeVisible();
     await expect(page.locator('#requested-flow-blocks')).toBeVisible();
-    await page.getByRole('button',{name:'문장별 탐색 열기',exact:true}).click();
-    await expect(page.locator('#code-flow')).toBeVisible();
+    await page.getByRole('button',{name:'중간 결과 확인',exact:true}).click();
+    await expect(page.locator('#code-flow')).toHaveCount(0);
+    await expect(page.getByRole('status',{name:'중간 결과'})).toBeVisible();
     await expect(page.locator('#requested-flow-blocks')).toHaveCount(0);
     await page.evaluate(async id=>await (window as any).openFlowView(id),viewId);
     const screenshot = test.info().outputPath('purpose-blocks.png');await page.screenshot({path:screenshot,fullPage:true});

@@ -15,9 +15,9 @@ func TestFlowViewServesSvelteUI(t *testing.T) {
 
 	requiredMarkers := []string{
 		"data-view=\"flowview\"",
-		"요청 흐름의 관문과 연결",
-		"id=\"execution-navigation\"",
-		"요청 흐름 안의 전후 연결",
+		"소스 펼치기",
+		"id=\"requested-flow-overview\"",
+		"중간 결과 · 처리 목적별 Overview 필요",
 		"id=\"code-flow\"",
 		"id=\"context\"",
 		"id=\"query-input\"",
