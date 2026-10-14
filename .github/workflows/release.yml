@@ -53,6 +53,17 @@ jobs:
           cd ../..
           make build-ui
 
+      - name: Build versioned CodeFlow for verification
+        id: get_version
+        run: |
+          [[ "$GITHUB_REF_NAME" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]
+          grep -Fx "# CodeFlow ($GITHUB_REF_NAME)" README.md
+          echo "VERSION=$GITHUB_REF_NAME" >> "$GITHUB_OUTPUT"
+          BUILD_DATE="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          mkdir -p bin
+          go build -trimpath -ldflags="-s -w -X main.version=$GITHUB_REF_NAME -X main.date=$BUILD_DATE" -o bin/codeflow ./cmd/codeflow
+          bin/codeflow version | grep -F "codeflow $GITHUB_REF_NAME,"
+
       - name: Verify analyzers and FlowView
         run: |
           make vet
@@ -74,14 +85,10 @@ jobs:
           cd ../..
           make test-flowview
 
-      - name: Extract Version
-        id: get_version
-        run: echo "VERSION=${GITHUB_REF_NAME}" >> $GITHUB_OUTPUT
-
       - name: Build CodeFlow & Adapter
         run: |
           mkdir -p dist/bin dist/skills dist/adapters
-          go build -trimpath -ldflags="-s -w" -o dist/bin/codeflow ./cmd/codeflow
+          cp bin/codeflow dist/bin/codeflow
           go build -trimpath -ldflags="-s -w" -o dist/bin/codeflow_go_adapter ./adapters/go
           dart compile exe adapters/dart/bin/codeflow_dart_adapter.dart -o dist/bin/dart-adapter
           cp -R skills/codeflow dist/skills/
@@ -98,6 +105,8 @@ jobs:
           release_dir="$(mktemp -d)"
           tar -xzf "$ASSET_NAME" -C "$release_dir"
           test -f "$release_dir/skills/codeflow/SKILL.md"
+          "$release_dir/bin/codeflow" version | grep -F "codeflow $GITHUB_REF_NAME,"
+          cmp bin/codeflow "$release_dir/bin/codeflow"
           "$release_dir/bin/codeflow" install-check-adapter --language dart --adapter-spec "$release_dir/bin/dart-adapter"
           "$release_dir/bin/codeflow" install-check-adapter --language go --adapter-spec "$release_dir/bin/codeflow_go_adapter"
           "$release_dir/bin/codeflow" install-check-adapter --language typescript --adapter-spec "noderun:$release_dir/adapters/typescript"
@@ -127,7 +136,7 @@ jobs:
       - name: Generate Checksums Manifest
         run: |
           cd release-assets
-          cat *.sha256 > checksums.txt
+          cat ./*.sha256 > checksums.txt
           ls -la
 
       - name: Create GitHub Release

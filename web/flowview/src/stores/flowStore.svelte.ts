@@ -312,14 +312,28 @@ class FlowStore {
     const segment = this.selectedSegment;
     const selected = stepId || segment?.entryStepId;
     if (!segment || !selected || !this.steps.some(step => step.stepId === selected)) return;
+    const detail = this.explorationNavigation.positions.statements;
     if (blockId) this.selectedBlockId = blockId;
     this.select(selected);
     this.setExplorationMode('statements');
+    if (detail && detail.viewId === this.data?.viewId && detail.snapshotId === this.flowSequence?.snapshotID &&
+      detail.stepId === selected && detail.segmentId === this.selectedSegmentId && detail.blockId === this.selectedBlockId) {
+      const sequence = this.navigationSequence;
+      void tick().then(() => {
+        if (sequence !== this.navigationSequence || typeof document === 'undefined') return;
+        for (const position of detail.panelPositions) {
+          if (position.id === 'source-current' || position.id === 'source-baseline') {
+            document.getElementById(position.id)?.scrollTo({top:position.top, left:position.left});
+          }
+        }
+      });
+    }
   }
 
   closeSegmentDetail() {
     const origin = this.explorationNavigation.positions.overview;
     const current = this.captureNavigationState();
+    if (current.explorationMode === 'statements') this.explorationNavigation.positions.statements = current;
     this.explorationMode = 'overview';
     this.savedNavigationState = null;
     if (origin && origin.segmentId === current.segmentId && origin.blockId === current.blockId) {

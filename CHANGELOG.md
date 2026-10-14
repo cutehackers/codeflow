@@ -15,6 +15,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Missing connections in omitted intermediate steps are shown in the affected purpose segment without substituting the legacy statement screen.
 - Source disclosure and detail navigation preserve the selected processing segment and reading position.
 - Installed agent skills and MCP tool schemas consistently use `curate_requested_flow_overview` for final delivery.
+- Long source paths remain contained on narrow screens, and expanded source line numbers meet text contrast checks.
+- Release archives include the exact versioned CLI verified by the browser suite, with version and byte-identity checks before publication.
 
 ### Compatibility
 - Public schemas and persisted analyses remain compatible. Unchanged Dart, TypeScript, and Go adapters retain version 0.4.0 and their existing compatibility pins.

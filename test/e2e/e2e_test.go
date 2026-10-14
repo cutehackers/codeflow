@@ -137,7 +137,9 @@ func TestTier2_DartAdapter_TestSuite(t *testing.T) {
 		t.Skipf("dart not found: %v", err)
 	}
 	root := moduleRoot(t)
-	cmd := exec.Command("dart", "test")
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, "dart", "test", "--reporter", "expanded")
 	cmd.Dir = filepath.Join(root, "adapters", "dart")
 	out, err := cmd.CombinedOutput()
 	if err != nil {

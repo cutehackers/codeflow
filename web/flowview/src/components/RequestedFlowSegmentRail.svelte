@@ -106,5 +106,6 @@
   {/if}
 </nav>
 <style>
+  p{overflow-wrap:anywhere}
   .rail{position:sticky;top:16px;max-height:calc(100vh - 32px);overflow:auto;padding:12px 8px 24px 4px;scroll-padding:4px;min-width:0;font-size:11px;line-height:1.6}h2{font-size:14px}.keyboard-hint{color:#666;font-size:10px;margin:4px 0 12px}h3{font-size:11px;color:#666;margin:16px 0 6px}.segment-list{list-style:none;padding:0;margin:6px 0 12px}.segment-list li{margin:0 0 6px}.reading-node{width:100%;text-align:left;padding:12px;border:1px solid #ddd;background:#fff;color:#171717;border-radius:5px}.reading-node{scroll-margin:4px}.reading-node:focus-visible{outline:2px solid #171717;outline-offset:2px}.reading-node strong,.reading-node span,.reading-node small{display:block}.reading-node small{color:#666;margin-top:4px}.signals{color:#6c5322;font-size:10px;margin-top:6px}.reading-node[aria-pressed=true]{border-color:#111;background:#eee;color:#171717}button{max-width:100%;overflow-wrap:anywhere;text-align:left;font-size:11px;margin:4px 0}.relation,.boundary{margin:8px 0;padding:8px;border:1px solid #ddd}.boundary{border-style:dashed}.context-detail{border-top:1px solid #ddd;padding:12px 0}.context-detail summary{cursor:pointer}details button{display:block}@media(max-width:800px){.rail{position:static;max-height:45vh}}
 </style>
